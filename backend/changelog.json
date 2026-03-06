@@ -1,6 +1,16 @@
 {
-  "currentVersion": "0.1.17",
+  "currentVersion": "0.1.18",
   "history": [
+    {
+      "version": "0.1.18",
+      "date": "2026-03-06",
+      "changes": [
+        "Correction d'un bug d'affichage : les filtres de colonnes sont désormais réinitialisés lors du changement d'onglet pour éviter de masquer des données par erreur.",
+        "Amélioration des libellés des colonnes pour l'onglet Opérations (Service, Libellé, Montant Prévu, etc.).",
+        "Optimisation du tri par défaut des colonnes pour les opérations (affichage prioritaire du Service, Libellé et Nature).",
+        "Réinitialisation automatique de la recherche globale lors du changement de vue."
+      ]
+    },
     {
       "version": "0.1.17",
       "date": "2026-03-06",

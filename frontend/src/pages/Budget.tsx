@@ -176,10 +176,12 @@ const Budget: React.FC = () => {
             if (a.display_order !== 0 || b.display_order !== 0) {
               return (a.display_order || 0) - (b.display_order || 0);
             }
-            if (a.column_key === 'num') return -1;
-            if (b.column_key === 'num') return 1;
+            if (a.column_key === 'num' || a.column_key === 'Service') return -1;
+            if (b.column_key === 'num' || b.column_key === 'Service') return 1;
             if (a.column_key === 'Libellé' || a.column_key === 'label' || a.column_key === 'libelle') return -1;
             if (b.column_key === 'Libellé' || b.column_key === 'label' || b.column_key === 'libelle') return 1;
+            if (a.column_key === 'Nature' || a.column_key === 'nature') return -1;
+            if (b.column_key === 'Nature' || b.column_key === 'nature') return 1;
             return 0;
           });
           setColumnSettings(sortedCols);
@@ -497,7 +499,13 @@ const Budget: React.FC = () => {
               <button 
                 key={tab}
                 className={`tab-btn ${view === tab ? 'active' : ''}`} 
-                onClick={() => {setView(tab as any); setIsRaw(false);}}
+                onClick={() => {
+                  setView(tab as any); 
+                  setIsRaw(false);
+                  setColumnFilters({});
+                  setSearchTerm('');
+                  setSortConfig(null);
+                }}
               >
                 {tab === 'summary' && 'Résumé'}
                 {tab === 'lines' && 'Lignes'}

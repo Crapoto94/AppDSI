@@ -173,6 +173,18 @@ async function setupDb() {
     await db.run("UPDATE column_settings SET label = 'nature' WHERE page = 'orders' AND column_key = 'Article par nature'");
     await db.run("UPDATE column_settings SET label = 'fonction' WHERE page = 'orders' AND column_key = 'Article par fonction'");
 
+    // Update labels for operations
+    await db.run("UPDATE column_settings SET label = 'Service' WHERE page = 'operations' AND column_key = 'service'");
+    await db.run("UPDATE column_settings SET label = 'Service Complément' WHERE page = 'operations' AND column_key = 'service_complement'");
+    await db.run("UPDATE column_settings SET label = 'Libellé' WHERE page = 'operations' AND column_key = 'libelle'");
+    await db.run("UPDATE column_settings SET label = 'Nature' WHERE page = 'operations' AND column_key = 'nature'");
+    await db.run("UPDATE column_settings SET label = 'Chapitre Fonc.' WHERE page = 'operations' AND column_key = 'chapitre_fonction'");
+    await db.run("UPDATE column_settings SET label = 'Montant Prévu' WHERE page = 'operations' AND column_key = 'montant_prevu'");
+    await db.run("UPDATE column_settings SET label = 'MCO' WHERE page = 'operations' AND column_key = 'mco'");
+    await db.run("UPDATE column_settings SET label = 'Terminé' WHERE page = 'operations' AND column_key = 'termine'");
+    await db.run("UPDATE column_settings SET label = 'Solde' WHERE page = 'operations' AND column_key = 'solde'");
+    await db.run("UPDATE column_settings SET label = 'Commentaire' WHERE page = 'operations' AND column_key = 'commentaire'");
+
     // Create default admin
     const adminUser = await db.get('SELECT * FROM users WHERE username = ?', ['admin']);
     if (!adminUser) {
