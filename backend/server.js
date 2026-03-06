@@ -255,6 +255,7 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
                 updated++;
             }
         }
+        await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['lines', req.user.username]);
         res.json({ message: `${imported} lignes budgétaires importées, ${updated} mises à jour` });
     } catch (error) {
         console.error('Import error:', error);
@@ -329,6 +330,7 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
                 updated++;
             }
         }
+        await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['invoices', req.user.username]);
         res.json({ message: `${imported} factures importées, ${updated} mises à jour (${data.length - imported - updated} ignorées)` });
     } catch (error) {
         console.error('Import error:', error);
@@ -359,9 +361,28 @@ app.get('/api/orders', authenticateJWT, async (req, res) => {
 });
 
 // Users Management API
+// Middleware to update last activity
+const updateLastActivity = async (req, res, next) => {
+    if (req.user && req.user.username) {
+        try {
+            await db.run('UPDATE users SET last_activity = CURRENT_TIMESTAMP WHERE username = ?', [req.user.username]);
+        } catch (e) {
+            console.error('Error updating last activity:', e);
+        }
+    }
+    next();
+};
+
+app.use(updateLastActivity);
+
 app.get('/api/users', authenticateAdmin, async (req, res) => {
-    const users = await db.all('SELECT id, username, role FROM users');
+    const users = await db.all('SELECT id, username, role, last_activity FROM users');
     res.json(users);
+});
+
+app.get('/api/import-logs', authenticateJWT, async (req, res) => {
+    const logs = await db.all('SELECT * FROM import_logs ORDER BY imported_at DESC');
+    res.json(logs);
 });
 
 // M57 Plan API
@@ -519,6 +540,7 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
                 }
             }
         }
+        await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['orders', req.user.username]);
         res.json({ message: `${imported} commandes importées, ${updated} mises à jour` });
     } catch (error) {
         console.error('Import error:', error);

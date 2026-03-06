@@ -80,18 +80,52 @@ async function setupDb() {
             year INTEGER
         );
 
-        CREATE TABLE IF NOT EXISTS invoices (
+    // Clear and recreate invoices table with exact columns
+    await db.run('DROP TABLE IF EXISTS invoices');
+    await db.run(`
+        CREATE TABLE invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            invoice_number TEXT,
-            provider TEXT,
-            libelle TEXT,
-            amount_ht REAL,
-            amount_ttc REAL,
-            date TEXT,
-            status TEXT DEFAULT 'En attente',
-            service TEXT,
-            budget_line_code TEXT
+            "Collectivité" TEXT,
+            "Budget" TEXT,
+            "Exercice" TEXT,
+            "N° Facture interne" TEXT,
+            "N° Facture fournisseur" TEXT,
+            "Fournisseur" TEXT,
+            "Libellé" TEXT,
+            "Emission       " TEXT,
+            "Montant HT" REAL,
+            "Montant TVA" REAL,
+            "Montant TTC" REAL,
+            "Mandat" TEXT,
+            "Etat" TEXT,
+            "Arrivée        " TEXT,
+            "Début DGP      " TEXT,
+            "Fin DGP        " TEXT,
+            "Date Réception Pièce" TEXT,
+            "Date Suspension" TEXT,
+            "Marché" TEXT,
+            "Service" TEXT,
+            "Utilisateur" TEXT,
+            invoice_number TEXT, -- mapping for compat
+            provider TEXT -- mapping for compat
         );
+    `);
+
+    // Import logs table
+    await db.run(`
+        CREATE TABLE IF NOT EXISTS import_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT, -- 'lines', 'invoices', 'orders'
+            imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            username TEXT
+        )
+    `);
+
+    // Add last_activity to users
+    const userCols = await db.all("PRAGMA table_info(users)");
+    if (!userCols.map(c => c.name).includes('last_activity')) {
+        await db.run('ALTER TABLE users ADD COLUMN last_activity DATETIME');
+    }
 
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

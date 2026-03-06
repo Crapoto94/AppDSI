@@ -23,6 +23,7 @@ const Budget: React.FC = () => {
   const [operations, setOperations] = useState<any[]>([]);
   const [m57Plan, setM57Plan] = useState<any[]>([]);
   const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
+  const [importLogs, setImportLogs] = useState<any[]>([]);
   
   const [showM57, setShowM57] = useState(false);
   const [showZeroBudget, setShowZeroBudget] = useState(false);
@@ -138,12 +139,13 @@ const Budget: React.FC = () => {
 
   const fetchData = async () => {
     const headers = { 'Authorization': `Bearer ${token}` };
-    const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res] = await Promise.all([
+    const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, logsRes] = await Promise.all([
       fetch('http://localhost:3001/api/budget/lines', { headers }),
       fetch('http://localhost:3001/api/budget/invoices', { headers }),
       fetch('http://localhost:3001/api/orders', { headers }),
       fetch('http://localhost:3001/api/budget/operations', { headers }),
-      fetch('http://localhost:3001/api/m57-plan', { headers })
+      fetch('http://localhost:3001/api/m57-plan', { headers }),
+      fetch('http://localhost:3001/api/import-logs', { headers })
     ]);
     
     if (linesRes.ok) setBudgetLines(await linesRes.json());
@@ -151,6 +153,14 @@ const Budget: React.FC = () => {
     if (ordersRes.ok) setOrders(await ordersRes.json());
     if (operationsRes.ok) setOperations(await operationsRes.json());
     if (m57Res.ok) setM57Plan(await m57Res.json());
+    if (logsRes.ok) setImportLogs(await logsRes.json());
+  };
+
+  const getLastImport = (type: string) => {
+    const log = importLogs.find(l => l.type === type);
+    if (!log) return null;
+    const date = new Date(log.imported_at);
+    return `Le ${date.toLocaleDateString('fr-FR')} à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} par ${log.username}`;
   };
 
   useEffect(() => {
@@ -889,12 +899,15 @@ const Budget: React.FC = () => {
                   <div className="import-list" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div className="import-item">
                       <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Lignes Budgétaires</label>
-                      <input type="file" accept=".xlsx,.xls" onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          handleComptaUpload('/api/budget/import-lines', e.target.files[0], 'lignes');
-                          e.target.value = '';
-                        }
-                      }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <input type="file" accept=".xlsx,.xls" onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleComptaUpload('/api/budget/import-lines', e.target.files[0], 'lignes');
+                            e.target.value = '';
+                          }
+                        }} />
+                        {getLastImport('lines') && <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>Dernier import : {getLastImport('lines')}</span>}
+                      </div>
                       {importStatus?.type === 'lignes' && (
                         <div style={{ marginTop: '8px', color: importStatus.isError ? '#d32f2f' : '#2e7d32', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           {importStatus.isError ? <AlertCircle size={16}/> : <CheckCircle2 size={16}/>} {importStatus.message}
@@ -904,12 +917,15 @@ const Budget: React.FC = () => {
 
                     <div className="import-item">
                       <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Commandes</label>
-                      <input type="file" accept=".xlsx,.xls" onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          handleComptaUpload('/api/orders/import', e.target.files[0], 'commandes');
-                          e.target.value = '';
-                        }
-                      }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <input type="file" accept=".xlsx,.xls" onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleComptaUpload('/api/orders/import', e.target.files[0], 'commandes');
+                            e.target.value = '';
+                          }
+                        }} />
+                        {getLastImport('orders') && <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>Dernier import : {getLastImport('orders')}</span>}
+                      </div>
                       {importStatus?.type === 'commandes' && (
                         <div style={{ marginTop: '8px', color: importStatus.isError ? '#d32f2f' : '#2e7d32', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           {importStatus.isError ? <AlertCircle size={16}/> : <CheckCircle2 size={16}/>} {importStatus.message}
@@ -919,12 +935,15 @@ const Budget: React.FC = () => {
 
                     <div className="import-item">
                       <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Factures</label>
-                      <input type="file" accept=".xlsx,.xls" onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          handleComptaUpload('/api/budget/import-invoices', e.target.files[0], 'factures');
-                          e.target.value = '';
-                        }
-                      }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                        <input type="file" accept=".xlsx,.xls" onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            handleComptaUpload('/api/budget/import-invoices', e.target.files[0], 'factures');
+                            e.target.value = '';
+                          }
+                        }} />
+                        {getLastImport('invoices') && <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>Dernier import : {getLastImport('invoices')}</span>}
+                      </div>
                       {importStatus?.type === 'factures' && (
                         <div style={{ marginTop: '8px', color: importStatus.isError ? '#d32f2f' : '#2e7d32', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           {importStatus.isError ? <AlertCircle size={16}/> : <CheckCircle2 size={16}/>} {importStatus.message}

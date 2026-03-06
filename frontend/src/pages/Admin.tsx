@@ -14,6 +14,7 @@ interface UserData {
   id: number;
   username: string;
   role: string;
+  last_activity: string | null;
 }
 
 const Admin: React.FC = () => {
@@ -321,6 +322,11 @@ const Admin: React.FC = () => {
                     <div>
                       <strong>{user.username}</strong>
                       <span className={`role-badge ${user.role}`}>{user.role}</span>
+                      {user.last_activity && (
+                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                          Dernière activité : {new Date(user.last_activity).toLocaleString('fr-FR')}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="tile-actions">

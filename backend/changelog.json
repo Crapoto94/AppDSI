@@ -1,6 +1,16 @@
 {
-  "currentVersion": "0.1.13",
+  "currentVersion": "0.1.14",
   "history": [
+    {
+      "version": "0.1.14",
+      "date": "2026-03-06",
+      "changes": [
+        "Ré-initialisation complète de la table des factures pour correspondre exactement aux colonnes du fichier liste_factures.xls.",
+        "Mise en place d'un système de suivi des imports (date, heure et utilisateur) affiché dans l'onglet Gestion.",
+        "Ajout du suivi de la dernière activité des utilisateurs, visible dans l'administration.",
+        "Amélioration de la robustesse de l'import des factures avec conservation de l'intégralité des données Excel."
+      ]
+    },
     {
       "version": "0.1.13",
       "date": "2026-03-06",
