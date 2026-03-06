@@ -1,0 +1,335 @@
+const express = require('express');
+const cors = require('cors');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const setupDb = require('./db');
+const multer = require('multer');
+const xlsx = require('xlsx');
+const upload = multer({ dest: 'uploads/' });
+
+const app = express();
+const PORT = 3001;
+const SECRET_KEY = 'votre_cle_secrete_ici'; // À changer en production
+
+app.use(cors());
+app.use(express.json());
+
+let db;
+
+// Initialize Database
+setupDb().then(database => {
+    db = database;
+    app.listen(PORT, () => {
+        console.log(`Backend server running on http://localhost:${PORT}`);
+    });
+});
+
+// Middleware to verify JWT
+const authenticateJWT = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+        const token = authHeader.split(' ')[1];
+        jwt.verify(token, SECRET_KEY, (err, user) => {
+            if (err) return res.status(403).json({ message: 'Session expirée ou invalide' });
+            req.user = user;
+            next();
+        });
+    } else {
+        res.status(401).json({ message: 'Authentification requise' });
+    }
+};
+
+// Middleware for Admin only
+const authenticateAdmin = (req, res, next) => {
+    authenticateJWT(req, res, () => {
+        if (req.user && req.user.role === 'admin') {
+            next();
+        } else {
+            res.status(403).json({ message: 'Accès refusé : administrateur uniquement' });
+        }
+    });
+};
+
+// Auth Routes
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+
+    if (user && await bcrypt.compare(password, user.password)) {
+        const accessToken = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY);
+        res.json({ accessToken, user: { id: user.id, username: user.username, role: user.role } });
+    } else {
+        res.status(401).json({ message: 'Identifiants invalides' });
+    }
+});
+
+app.post('/api/change-password', authenticateJWT, async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user.id;
+
+    const user = await db.get('SELECT * FROM users WHERE id = ?', [userId]);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) return res.status(400).json({ message: 'Mot de passe actuel incorrect' });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await db.run('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId]);
+
+    res.json({ message: 'Mot de passe mis à jour avec succès' });
+});
+
+// Tiles Routes
+app.get('/api/tiles', authenticateJWT, async (req, res) => {
+    const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
+    for (const tile of tiles) {
+        tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
+    }
+    res.json(tiles);
+});
+
+app.post('/api/tiles', authenticateAdmin, async (req, res) => {
+    const { title, icon, description, sort_order } = req.body;
+    const result = await db.run('INSERT INTO tiles (title, icon, description, sort_order) VALUES (?, ?, ?, ?)', [title, icon, description, sort_order || 0]);
+    res.json({ id: result.lastID });
+});
+
+app.put('/api/tiles/:id', authenticateAdmin, async (req, res) => {
+    const { title, icon, description, sort_order } = req.body;
+    await db.run('UPDATE tiles SET title = ?, icon = ?, description = ?, sort_order = ? WHERE id = ?', [title, icon, description, sort_order, req.params.id]);
+    res.json({ message: 'Tile updated' });
+});
+
+app.delete('/api/tiles/:id', authenticateAdmin, async (req, res) => {
+    await db.run('DELETE FROM tiles WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Tile deleted' });
+});
+
+// Links Routes
+app.post('/api/tiles/:tileId/links', authenticateAdmin, async (req, res) => {
+    const { label, url, is_internal } = req.body;
+    const result = await db.run('INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)', [req.params.tileId, label, url, is_internal ? 1 : 0]);
+    res.json({ id: result.lastID });
+});
+
+app.delete('/api/links/:id', authenticateAdmin, async (req, res) => {
+    await db.run('DELETE FROM tile_links WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Link deleted' });
+});
+
+// Budget & Invoices API
+app.get('/api/budget/lines', authenticateJWT, async (req, res) => {
+    const lines = await db.all('SELECT * FROM budget_lines');
+    res.json(lines);
+});
+
+app.get('/api/budget/invoices', authenticateJWT, async (req, res) => {
+    const invoices = await db.all('SELECT * FROM invoices');
+    res.json(invoices);
+});
+
+// Import Budget Lines from Excel
+app.post('/api/budget/import-lines', authenticateAdmin, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).send('No file uploaded.');
+    const workbook = xlsx.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    let imported = 0;
+    for (const row of data) {
+        // Check if exists
+        const exists = await db.get('SELECT id FROM budget_lines WHERE code = ? AND year = ?', [row.Code, row.Annee || 2026]);
+        if (!exists) {
+            await db.run(
+                'INSERT INTO budget_lines (code, label, allocated_amount, year) VALUES (?, ?, ?, ?)',
+                [row.Code, row.Libelle, row.Montant, row.Annee || 2026]
+            );
+            imported++;
+        }
+    }
+    res.json({ message: `${imported} lignes budgétaires importées (${data.length - imported} ignorées car déjà présentes)` });
+});
+
+// Import Invoices from Excel
+app.post('/api/budget/import-invoices', authenticateAdmin, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).send('No file uploaded.');
+    const workbook = xlsx.readFile(req.file.path);
+    const sheetName = workbook.SheetNames[0];
+    const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    let imported = 0;
+    let updated = 0;
+    for (const row of data) {
+        // Check if exists
+        const exists = await db.get('SELECT id FROM invoices WHERE invoice_number = ? AND provider = ?', [row.Numero, row.Fournisseur]);
+        if (!exists) {
+            await db.run(
+                'INSERT INTO invoices (invoice_number, provider, amount_ht, date, budget_line_code) VALUES (?, ?, ?, ?, ?)',
+                [row.Numero, row.Fournisseur, row.Montant, row.Date, row.CodeBudget]
+            );
+            imported++;
+        } else {
+            await db.run(
+                'UPDATE invoices SET amount_ht = ?, date = ?, budget_line_code = ? WHERE id = ?',
+                [row.Montant, row.Date, row.CodeBudget, exists.id]
+            );
+            updated++;
+        }
+    }
+    res.json({ message: `${imported} factures importées, ${updated} mises à jour (${data.length - imported - updated} ignorées)` });
+});
+
+// Orders API
+app.get('/api/orders', authenticateJWT, async (req, res) => {
+    // Get visible columns from settings first
+    const settings = await db.all("SELECT column_key FROM column_settings WHERE page = 'orders'");
+    const validKeys = settings.map(s => s.column_key);
+    
+    const orders = await db.all('SELECT * FROM orders ORDER BY "N° Commande", "N° ligne"');
+    
+    // Clean each order object to only include valid keys + internal helper fields
+    const cleanedOrders = orders.map(order => {
+        const cleaned = { id: order.id };
+        validKeys.forEach(key => {
+            cleaned[key] = order[key];
+        });
+        // Keep section for row coloring even if column is hidden
+        cleaned.section = order.section || order.Section || order['Section'];
+        return cleaned;
+    });
+    
+    res.json(cleanedOrders);
+});
+
+// Users Management API
+app.get('/api/users', authenticateAdmin, async (req, res) => {
+    const users = await db.all('SELECT id, username, role FROM users');
+    res.json(users);
+});
+
+// M57 Plan API
+app.get('/api/m57-plan', authenticateJWT, async (req, res) => {
+    const plan = await db.all('SELECT * FROM m57_plan ORDER BY code');
+    res.json(plan);
+});
+
+// Column Settings API
+app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
+    const settings = await db.all('SELECT * FROM column_settings WHERE page = ?', [req.params.page]);
+    res.json(settings);
+});
+
+app.post('/api/column-settings/:page', authenticateAdmin, async (req, res) => {
+    const { column_key, is_visible } = req.body;
+    await db.run('UPDATE column_settings SET is_visible = ? WHERE page = ? AND column_key = ?', [is_visible ? 1 : 0, req.params.page, column_key]);
+    res.json({ message: 'Settings updated' });
+});
+
+// Raw Table API
+app.get('/api/raw-data/:table', authenticateAdmin, async (req, res) => {
+    const allowedTables = ['orders', 'budget_lines', 'invoices', 'm57_plan'];
+    if (!allowedTables.includes(req.params.table)) return res.status(403).json({ message: 'Table non autorisée' });
+    
+    try {
+        const query = `SELECT * FROM ${req.params.table}`;
+        const data = await db.all(query);
+        res.json({ query, data });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur SQL', error: error.message });
+    }
+});
+
+app.post('/api/users', authenticateAdmin, async (req, res) => {
+    const { username, password, role } = req.body;
+    if (!username || !password) return res.status(400).json({ message: 'Username and password required' });
+    
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const result = await db.run('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', [username, hashedPassword, role || 'user']);
+        res.json({ id: result.lastID, username, role: role || 'user' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error creating user', error: error.message });
+    }
+});
+
+app.put('/api/users/:id', authenticateAdmin, async (req, res) => {
+    const { username, password, role } = req.body;
+    try {
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            await db.run('UPDATE users SET username = ?, password = ?, role = ? WHERE id = ?', [username, hashedPassword, role, req.params.id]);
+        } else {
+            await db.run('UPDATE users SET username = ?, role = ? WHERE id = ?', [username, role, req.params.id]);
+        }
+        res.json({ message: 'User updated' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating user', error: error.message });
+    }
+});
+
+app.delete('/api/users/:id', authenticateAdmin, async (req, res) => {
+    // Prevent deleting the last admin or yourself if possible, but for now simple delete
+    await db.run('DELETE FROM users WHERE id = ?', [req.params.id]);
+    res.json({ message: 'User deleted' });
+});
+
+// Import Orders from Excel
+app.post('/api/orders/import', authenticateAdmin, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).send('No file uploaded.');
+    try {
+        const workbook = xlsx.readFile(req.file.path);
+        const sheetName = workbook.SheetNames[0];
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { cellDates: true });
+
+        let imported = 0;
+        let updated = 0;
+        for (const row of data) {
+            // Get all possible columns for the table (excluding 'id')
+            const tableColumns = await db.all("PRAGMA table_info(orders)");
+            const colNames = tableColumns.filter(c => c.name !== 'id').map(c => c.name);
+
+            // Special handling for dates
+            if (row['Date de la commande'] && typeof row['Date de la commande'] === 'number') {
+                const date = new Date((row['Date de la commande'] - 25569) * 86400 * 1000);
+                row['Date de la commande'] = date.toISOString().split('T')[0];
+            } else if (row['Date de la commande'] instanceof Date) {
+                row['Date de la commande'] = row['Date de la commande'].toISOString().split('T')[0];
+            }
+
+            const orderNumber = row['N° Commande']?.toString() || row['order_number'];
+            const lineNumber = row['N° ligne']?.toString();
+
+            // Check for existence by Order Number AND Line Number
+            const exists = await db.get('SELECT id FROM orders WHERE "N° Commande" = ? AND "N° ligne" = ?', [orderNumber, lineNumber]);
+            
+            const keys = [];
+            const values = [];
+            const placeholders = [];
+
+            for (const col of colNames) {
+                if (row[col] !== undefined) {
+                    keys.push(`"${col}"`);
+                    values.push(row[col]?.toString());
+                    placeholders.push('?');
+                }
+            }
+
+            if (keys.length > 0) {
+                if (!exists) {
+                    const query = `INSERT INTO orders (${keys.join(', ')}) VALUES (${placeholders.join(', ')})`;
+                    await db.run(query, values);
+                    imported++;
+                } else {
+                    const updateSets = keys.map(k => `${k} = ?`).join(', ');
+                    const query = `UPDATE orders SET ${updateSets} WHERE id = ?`;
+                    await db.run(query, [...values, exists.id]);
+                    updated++;
+                }
+            }
+        }
+        res.json({ message: `${imported} commandes importées, ${updated} mises à jour` });
+    } catch (error) {
+        console.error('Import error:', error);
+        res.status(500).json({ message: 'Erreur lors de l\'import des commandes', error: error.message });
+    }
+});
