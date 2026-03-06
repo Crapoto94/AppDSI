@@ -167,6 +167,14 @@ async function setupDb() {
     // Clear orders as requested - REMOVED to persist data
     // await db.run('DELETE FROM orders');
 
+    // Update specific column labels as requested
+    await db.run("UPDATE column_settings SET label = 'num' WHERE page = 'orders' AND column_key = 'N° Commande'");
+    await db.run("UPDATE column_settings SET label = 'tiers' WHERE page = 'orders' AND column_key = 'Fournisseur'");
+    await db.run("UPDATE column_settings SET label = 'service' WHERE page = 'orders' AND column_key = 'Service émetteur'");
+    await db.run("UPDATE column_settings SET label = 'date' WHERE page = 'orders' AND column_key = 'Date de la commande'");
+    await db.run("UPDATE column_settings SET label = 'nature' WHERE page = 'orders' AND column_key = 'Article par nature'");
+    await db.run("UPDATE column_settings SET label = 'fonction' WHERE page = 'orders' AND column_key = 'Article par fonction'");
+
     // Create default admin
     const adminUser = await db.get('SELECT * FROM users WHERE username = ?', ['admin']);
     if (!adminUser) {

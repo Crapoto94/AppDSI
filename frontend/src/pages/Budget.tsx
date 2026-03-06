@@ -37,6 +37,16 @@ const Budget: React.FC = () => {
   const [queryError, setQueryError] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<{type: string, message: string, isError: boolean} | null>(null);
 
+  const [expandedOrders, setExpandedOrders] = useState<string[]>([]);
+  const toggleExpand = (id: string) => setExpandedOrders(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const getM57Label = (code: string) => {
+    if (!code) return '';
+    const cleanCode = code.toString().trim();
+    const plan = m57Plan.find(p => p.code === cleanCode);
+    return plan ? plan.label : 'Inconnu dans le référentiel';
+  };
+
   const token = localStorage.getItem('token');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -109,37 +119,42 @@ const Budget: React.FC = () => {
 
   const fetchData = async () => {
     const headers = { 'Authorization': `Bearer ${token}` };
-    const [linesRes, invoicesRes, ordersRes, m57Res, colRes] = await Promise.all([
+    const [linesRes, invoicesRes, ordersRes, m57Res] = await Promise.all([
       fetch('http://localhost:3001/api/budget/lines', { headers }),
       fetch('http://localhost:3001/api/budget/invoices', { headers }),
       fetch('http://localhost:3001/api/orders', { headers }),
-      fetch('http://localhost:3001/api/m57-plan', { headers }),
-      fetch('http://localhost:3001/api/column-settings/orders', { headers })
+      fetch('http://localhost:3001/api/m57-plan', { headers })
     ]);
     
     if (linesRes.ok) setBudgetLines(await linesRes.json());
     if (invoicesRes.ok) setInvoices(await invoicesRes.json());
     if (ordersRes.ok) setOrders(await ordersRes.json());
     if (m57Res.ok) setM57Plan(await m57Res.json());
-    if (colRes.ok) {
-      const cols: ColumnSetting[] = await colRes.json();
-      const sortedCols = [...cols].sort((a, b) => {
-        if (a.display_order !== 0 || b.display_order !== 0) {
-          return (a.display_order || 0) - (b.display_order || 0);
-        }
-        if (a.column_key === 'N° Commande') return -1;
-        if (b.column_key === 'N° Commande') return 1;
-        if (a.column_key === 'Libellé') return -1;
-        if (b.column_key === 'Libellé') return 1;
-        return 0;
-      });
-      setColumnSettings(sortedCols);
-    }
   };
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (['lines', 'invoices', 'orders'].includes(view)) {
+      fetch(`http://localhost:3001/api/column-settings/${view}`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(cols => {
+          const sortedCols = [...cols].sort((a, b) => {
+            if (a.display_order !== 0 || b.display_order !== 0) {
+              return (a.display_order || 0) - (b.display_order || 0);
+            }
+            if (a.column_key === 'num') return -1;
+            if (b.column_key === 'num') return 1;
+            if (a.column_key === 'Libellé') return -1;
+            if (b.column_key === 'Libellé') return 1;
+            return 0;
+          });
+          setColumnSettings(sortedCols);
+        });
+    }
+  }, [view]);
 
   useEffect(() => {
     if (isRaw) {
@@ -178,7 +193,7 @@ const Budget: React.FC = () => {
 
   const updateColumnSettingsBulk = async (newSettings: ColumnSetting[]) => {
     setColumnSettings(newSettings);
-    await fetch('http://localhost:3001/api/column-settings/orders/bulk', {
+    await fetch(`http://localhost:3001/api/column-settings/${view}/bulk`, {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -257,7 +272,9 @@ const Budget: React.FC = () => {
         nr: order['N° ligne'],
         desc: order['Désignation'] || order.description,
         amtHt: amtHt,
-        amtTtc: amtTtc
+        amtTtc: amtTtc,
+        nature: order['Article par nature'],
+        fonction: order['Article par fonction']
       });
     });
     Object.values(groups).forEach((g: any) => {
@@ -322,6 +339,32 @@ const Budget: React.FC = () => {
     return 0;
   });
 
+  const filteredData = useMemo(() => {
+    let data = view === 'lines' ? budgetLines : view === 'invoices' ? invoices : filteredOrders;
+    
+    if (view !== 'orders') {
+      const sTerm = searchTerm.toLowerCase();
+      if (sTerm) {
+        data = data.filter((row: any) => Object.values(row).some(v => v?.toString().toLowerCase().includes(sTerm)));
+      }
+      for (const [key, filterValue] of Object.entries(columnFilters)) {
+        if (filterValue) {
+          data = data.filter((row: any) => (row[key] || '').toString().toLowerCase().includes(filterValue.toLowerCase()));
+        }
+      }
+      if (sortConfig) {
+        data = [...data].sort((a: any, b: any) => {
+          const aVal = a[sortConfig.key];
+          const bVal = b[sortConfig.key];
+          if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+          return 0;
+        });
+      }
+    }
+    return data;
+  }, [view, budgetLines, invoices, filteredOrders, searchTerm, columnFilters, sortConfig]);
+
   const getRowClass = (section: string) => {
     if (section === 'Fonctionnement') return 'row-operating';
     if (section === 'Investissement') return 'row-investment';
@@ -354,11 +397,6 @@ const Budget: React.FC = () => {
                 {tab === 'gestion' && 'Gestion'}
               </button>
             )})}
-            {view !== 'summary' && view !== 'gestion' && ['admin', 'finances'].includes(user.role) && (
-              <button className={`tab-btn raw-toggle ${isRaw ? 'active' : ''}`} onClick={() => setIsRaw(!isRaw)}>
-                {isRaw ? 'Vue Normale' : '{ SQL }'}
-              </button>
-            )}
           </div>
         </div>
 
@@ -453,71 +491,7 @@ const Budget: React.FC = () => {
               </div>
             )}
 
-            {view === 'lines' && (
-              <div className="table-card">
-                <div className="table-responsive">
-                  <table className="modern-table">
-                    <thead>
-                      <tr>
-                        <th>Code</th>
-                        <th>Libellé</th>
-                        <th>Année</th>
-                        <th className="text-right">Montant Alloué</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {budgetLines.map(line => (
-                        <tr key={line.id}>
-                          <td className="font-medium text-secondary">{line.code}</td>
-                          <td>{line.label}</td>
-                          <td><span className="badge year">{line.year}</span></td>
-                          <td className="text-right font-bold text-primary">{line.allocated_amount.toLocaleString()} €</td>
-                        </tr>
-                      ))}
-                      {budgetLines.length === 0 && (
-                        <tr><td colSpan={4} className="text-center py-8 text-gray">Aucune ligne budgétaire disponible.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {view === 'invoices' && (
-              <div className="table-card">
-                <div className="table-responsive">
-                  <table className="modern-table">
-                    <thead>
-                      <tr>
-                        <th>N° Facture</th>
-                        <th>Fournisseur</th>
-                        <th>Code Budget</th>
-                        <th>Date</th>
-                        <th className="text-right">Montant HT</th>
-                        <th className="text-center">Statut</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {invoices.map(inv => (
-                        <tr key={inv.id}>
-                          <td className="font-medium">{inv.invoice_number}</td>
-                          <td>{inv.provider}</td>
-                          <td><span className="badge neutral">{inv.budget_line_code}</span></td>
-                          <td className="text-gray">{inv.date}</td>
-                          <td className="text-right font-bold">{inv.amount_ht.toLocaleString()} €</td>
-                          <td className="text-center"><span className="badge status">{inv.status}</span></td>
-                        </tr>
-                      ))}
-                      {invoices.length === 0 && (
-                        <tr><td colSpan={6} className="text-center py-8 text-gray">Aucune facture disponible.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {view === 'orders' && (
+            {['lines', 'invoices', 'orders'].includes(view) && (
               <div className="orders-container">
                 <div className="toolbar">
                   <div className="toolbar-actions">
@@ -533,24 +507,26 @@ const Budget: React.FC = () => {
                       <Search size={16} className="search-icon" />
                       <input 
                         type="text" 
-                        placeholder="Rechercher une commande, fournisseur..." 
+                        placeholder="Rechercher..." 
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="search-input"
                       />
                     </div>
-                    <div className="select-wrapper">
-                      <Filter size={14} className="select-icon" />
-                      <select 
-                        value={sectionFilter} 
-                        onChange={(e) => setSectionFilter(e.target.value)}
-                        className="filter-select"
-                      >
-                        <option value="all">Toutes les sections</option>
-                        <option value="F">Fonctionnement (F)</option>
-                        <option value="I">Investissement (I)</option>
-                      </select>
-                    </div>
+                    {view === 'orders' && (
+                      <div className="select-wrapper">
+                        <Filter size={14} className="select-icon" />
+                        <select 
+                          value={sectionFilter} 
+                          onChange={(e) => setSectionFilter(e.target.value)}
+                          className="filter-select"
+                        >
+                          <option value="all">Toutes les sections</option>
+                          <option value="F">Fonctionnement (F)</option>
+                          <option value="I">Investissement (I)</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -589,55 +565,110 @@ const Budget: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredOrders.length > 0 ? filteredOrders.map(order => (
-                          <tr key={order.id} className={getRowClass(order.Section || order.section)}>
-                            {columnSettings.filter(c => c.is_visible).map(col => (
-                              <td 
-                                key={col.column_key}
-                                style={{
-                                  color: col.color || 'inherit',
-                                  fontWeight: col.is_bold ? 'bold' : 'normal',
-                                  fontStyle: col.is_italic ? 'italic' : 'normal'
-                                }}
+                        {filteredData.length > 0 ? filteredData.map((row: any, index: number) => {
+                          const isExpandable = view === 'orders' && row._lines && row._lines.length > 1;
+                          const isExpanded = expandedOrders.includes(row.id || index.toString());
+                          
+                          return (
+                            <React.Fragment key={row.id || index}>
+                              <tr 
+                                className={getRowClass(row.Section || row.section)} 
+                                onClick={() => isExpandable && toggleExpand(row.id || index.toString())}
+                                style={{ cursor: isExpandable ? 'pointer' : 'default' }}
                               >
-                                {col.column_key === 'Section' || col.column_key === 'section' ? (
-                                  <span className={`section-badge ${(order[col.column_key] === 'Fonctionnement' || order[col.column_key] === 'F') ? 'f' : 'i'}`}>
-                                    {(order[col.column_key] === 'Fonctionnement' || order[col.column_key] === 'F') ? 'F' : 'I'}
-                                  </span>
-                                ) : col.column_key === 'status' || col.column_key === 'Etat' ? (
-                                  <span className="badge status">{order[col.column_key]}</span>
-                                ) : col.column_key === 'Montant HT' || col.column_key === 'amount_ht' ? (
-                                  <span className="amount-ht">
-                                    {order._total_ht.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                                  </span>
-                                ) : col.column_key === 'Montant TTC' ? (
-                                  <span className="amount-ttc">
-                                    {order._total_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                                  </span>
-                                ) : col.column_key === 'Libellé' ? (
-                                  <span className="order-label">
-                                    {order[col.column_key]}
-                                  </span>
-                                ) : col.column_key === 'Désignation' || col.column_key === 'description' ? (
-                                  <div className="order-lines-list">
-                                    {order._lines.map((line: any, idx: number) => (
-                                      <div key={idx} className="order-line-item">
-                                        <span className="line-num">{line.nr}</span>
-                                        <span className="line-desc">{line.desc}</span>
-                                        <span className="line-amt">{line.amtHt.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} HT</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  order[col.column_key]
-                                )}
-                              </td>
-                            ))}
-                          </tr>
-                        )) : (
+                                {columnSettings.filter(c => c.is_visible).map(col => {
+                                  let content: React.ReactNode = row[col.column_key];
+                                  let tooltip = '';
+                                  let cellClass = '';
+                                  let cellStyle: React.CSSProperties = {
+                                    color: col.color || 'inherit',
+                                    fontWeight: col.is_bold ? 'bold' : 'normal',
+                                    fontStyle: col.is_italic ? 'italic' : 'normal'
+                                  };
+
+                                  if (col.column_key === 'Section' || col.column_key === 'section') {
+                                    const sec = row[col.column_key];
+                                    content = (
+                                      <span className={`section-badge ${(sec === 'Fonctionnement' || sec === 'F') ? 'f' : 'i'}`}>
+                                        {(sec === 'Fonctionnement' || sec === 'F') ? 'F' : 'I'}
+                                      </span>
+                                    );
+                                  } else if (col.column_key === 'status' || col.column_key === 'Etat') {
+                                    content = <span className="badge status">{row[col.column_key]}</span>;
+                                  } else if (col.column_key === 'Montant HT' || col.column_key === 'amount_ht') {
+                                    const val = view === 'orders' ? row._total_ht : row[col.column_key];
+                                    content = <span className="amount-ht">{(val || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
+                                  } else if (col.column_key === 'Montant TTC') {
+                                    const val = view === 'orders' ? row._total_ttc : row[col.column_key];
+                                    content = <span className="amount-ttc">{(val || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
+                                  } else if (col.column_key === 'allocated_amount') {
+                                    content = <span className="amount-ht">{(row[col.column_key] || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
+                                  } else if (col.column_key === 'Libellé' || col.column_key === 'label') {
+                                    tooltip = row[col.column_key];
+                                    cellStyle = { ...cellStyle, maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+                                  } else if (col.column_key === 'Désignation' || col.column_key === 'description') {
+                                    if (view === 'orders') {
+                                      content = (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          {isExpandable && (
+                                            <span style={{ fontSize: '12px', color: '#64748b' }}>
+                                              {isExpanded ? '▼' : '▶'} ({row._lines.length} lignes)
+                                            </span>
+                                          )}
+                                          <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row._lines?.[0]?.desc || row.description}>
+                                            {row._lines?.[0]?.desc || row.description}
+                                          </span>
+                                        </div>
+                                      );
+                                    }
+                                  } else if (col.column_key === 'nature' || col.column_key === 'fonction' || col.column_key === 'Article par nature' || col.column_key === 'Article par fonction') {
+                                    tooltip = getM57Label(row[col.column_key]);
+                                    cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
+                                  }
+
+                                  return (
+                                    <td key={col.column_key} style={cellStyle} title={tooltip || undefined} className={cellClass}>
+                                      {content}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                              {isExpandable && isExpanded && (
+                                <tr className="expanded-row-bg" style={{ backgroundColor: '#f1f5f9' }}>
+                                  <td colSpan={columnSettings.filter(c => c.is_visible).length} style={{ padding: '10px 20px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                      <thead>
+                                        <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
+                                          <th style={{ padding: '4px', textAlign: 'center' }}>N° Ligne</th>
+                                          <th style={{ padding: '4px' }}>Description</th>
+                                          <th style={{ padding: '4px' }}>Nature</th>
+                                          <th style={{ padding: '4px' }}>Fonction</th>
+                                          <th style={{ padding: '4px', textAlign: 'right' }}>Montant TTC</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {row._lines.map((line: any, idx: number) => (
+                                          <tr key={idx} style={{ borderBottom: '1px dashed #e2e8f0' }}>
+                                            <td style={{ padding: '4px', textAlign: 'center', fontWeight: 'bold' }}>{line.nr}</td>
+                                            <td style={{ padding: '4px' }}>{line.desc}</td>
+                                            <td style={{ padding: '4px' }} title={getM57Label(line.nature)}>{line.nature}</td>
+                                            <td style={{ padding: '4px' }} title={getM57Label(line.fonction)}>{line.fonction}</td>
+                                            <td style={{ padding: '4px', textAlign: 'right', fontWeight: 'bold', color: 'var(--color-ivry)' }}>
+                                              {line.amtTtc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        }) : (
                           <tr>
                             <td colSpan={columnSettings.filter(c => c.is_visible).length || 1} className="empty-state">
-                              Aucune commande ne correspond à vos critères.
+                              Aucune donnée ne correspond à vos critères.
                             </td>
                           </tr>
                         )}

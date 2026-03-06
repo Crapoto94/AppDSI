@@ -299,7 +299,29 @@ app.get('/api/m57-plan', authenticateJWT, async (req, res) => {
 
 // Column Settings API
 app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
-    const settings = await db.all('SELECT * FROM column_settings WHERE page = ?', [req.params.page]);
+    const page = req.params.page;
+    // Map page to table name
+    let tableName = page;
+    if (page === 'lines') tableName = 'budget_lines';
+    
+    let settings = await db.all('SELECT * FROM column_settings WHERE page = ?', [page]);
+    
+    // Auto-initialize if empty
+    if (settings.length === 0) {
+        try {
+            const cols = await db.all(`PRAGMA table_info(${tableName})`);
+            if (cols.length > 0) {
+                for (const col of cols) {
+                    if (col.name !== 'id') {
+                        await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible, display_order) VALUES (?, ?, ?, 1, 0)', [page, col.name, col.name]);
+                    }
+                }
+                settings = await db.all('SELECT * FROM column_settings WHERE page = ?', [page]);
+            }
+        } catch(e) {
+            console.error("Auto-init columns failed:", e);
+        }
+    }
     res.json(settings);
 });
 

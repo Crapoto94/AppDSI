@@ -1,6 +1,18 @@
 {
-  "currentVersion": "0.1.7",
+  "currentVersion": "0.1.8",
   "history": [
+    {
+      "version": "0.1.8",
+      "date": "2026-03-06",
+      "changes": [
+        "Unification de l'affichage des lignes budgétaires, factures et commandes pour utiliser le même moteur de table dynamique et personnalisable.",
+        "Renommage automatique des colonnes Commandes (num, tiers, service, date, nature, fonction) en base de données.",
+        "Ajout de troncage et d'infobulles pour les longs libellés dans les tableaux.",
+        "Ajout d'infobulles détaillant les libellés M57 lors du survol des codes nature et fonction.",
+        "Ajout d'une fonctionnalité permettant de déplier/replier les commandes comportant plusieurs lignes pour afficher le détail (nature, fonction, TTC).",
+        "Retrait du rôle Comptabilité et confirmation du rôle Finances dans la gestion des utilisateurs."
+      ]
+    },
     {
       "version": "0.1.7",
       "date": "2026-03-06",
