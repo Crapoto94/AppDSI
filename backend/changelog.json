@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.1.3",
+  "currentVersion": "0.1.4",
   "history": [
+    {
+      "version": "0.1.4",
+      "date": "2026-03-06",
+      "changes": [
+        "Ajout de la page Suivi Comptable pour l'import des données financières.",
+        "Mise en place de l'outil d'exécution de requêtes SQL pour les administrateurs et comptables.",
+        "Ajout du rôle 'compta' dans la gestion des autorisations."
+      ]
+    },
     {
       "version": "0.1.3",
       "date": "2026-03-06",

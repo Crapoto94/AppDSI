@@ -290,7 +290,7 @@ const Budget: React.FC = () => {
                 {tab === 'orders' && 'Commandes'}
               </button>
             ))}
-            {view !== 'summary' && user.role === 'admin' && (
+            {view !== 'summary' && ['admin', 'finances'].includes(user.role) && (
               <button className={`tab-btn raw-toggle ${isRaw ? 'active' : ''}`} onClick={() => setIsRaw(!isRaw)}>
                 {isRaw ? 'Vue Normale' : '{ SQL }'}
               </button>
@@ -332,7 +332,7 @@ const Budget: React.FC = () => {
           </div>
         ) : (
           <div className="view-content-wrapper">
-            {user.role === 'admin' && view !== 'summary' && (
+            {['admin', 'finances'].includes(user.role) && view !== 'summary' && (
               <div className="import-toolbar">
                 <span className="import-label">Importer des données :</span>
                 {view === 'lines' && (
@@ -640,14 +640,14 @@ const Budget: React.FC = () => {
                     <div 
                       key={col.id} 
                       className="toggle-item"
-                      draggable={user.role === 'admin'}
+                      draggable={['admin', 'finances'].includes(user.role)}
                       onDragStart={(e) => handleDragStart(e, index)}
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleDrop(e, index)}
-                      style={{ cursor: user.role === 'admin' ? 'grab' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                      style={{ cursor: ['admin', 'finances'].includes(user.role) ? 'grab' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                     >
                       <div className="toggle-info" style={{ display: 'flex', alignItems: 'center' }}>
-                        {user.role === 'admin' && <span className="drag-handle" style={{ marginRight: '10px', color: '#94a3b8', cursor: 'grab' }}>☰</span>}
+                        {['admin', 'finances'].includes(user.role) && <span className="drag-handle" style={{ marginRight: '10px', color: '#94a3b8', cursor: 'grab' }}>☰</span>}
                         <span className="toggle-label">{col.label}</span>
                       </div>
                       
@@ -688,7 +688,7 @@ const Budget: React.FC = () => {
                         <button 
                           className={`toggle-btn ${col.is_visible ? 'on' : 'off'}`}
                           onClick={() => toggleColumnVisibility(col.column_key, col.is_visible)}
-                          disabled={user.role !== 'admin'}
+                          disabled={!['admin', 'finances'].includes(user.role)}
                           style={{ minWidth: '90px', justifyContent: 'center' }}
                         >
                           {col.is_visible ? <Eye size={16} /> : <EyeOff size={16} />}

@@ -19,7 +19,7 @@ interface UserData {
 const Admin: React.FC = () => {
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
-  const [newTile, setNewTile] = useState({ title: '', icon: 'box', description: '' });
+  const [newTile, setNewTile] = useState({ title: '', icon: 'box', description: '', status: 'normal' });
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user' });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [isAddingTile, setIsAddingTile] = useState(false);
@@ -75,7 +75,7 @@ const Admin: React.FC = () => {
       body: JSON.stringify(newTile)
     });
     if (response.ok) {
-      setNewTile({ title: '', icon: 'box', description: '' });
+      setNewTile({ title: '', icon: 'box', description: '', status: 'normal' });
       setIsAddingTile(false);
       fetchTiles();
     }
@@ -428,6 +428,7 @@ const Admin: React.FC = () => {
           font-weight: bold;
         }
         .role-badge.admin { background: #ffebeb; color: var(--primary-color); }
+        .role-badge.finances { background: #e8f5e9; color: #2e7d32; }
         .role-badge.user { background: #e3f2fd; color: #1976d2; }
 
         .tile-info p { color: #666; font-size: 14px; margin: 5px 0 10px; }

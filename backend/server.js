@@ -61,6 +61,30 @@ const authenticateAdmin = (req, res, next) => {
     });
 };
 
+// Middleware for Admin or Finances or Compta
+const authenticateAdminOrFinances = (req, res, next) => {
+    authenticateJWT(req, res, () => {
+        if (req.user && (req.user.role === 'admin' || req.user.role === 'finances' || req.user.role === 'compta')) {
+            next();
+        } else {
+            res.status(403).json({ message: 'Accès refusé : administrateur ou finances/compta uniquement' });
+        }
+    });
+};
+
+// SQL Query execution (Admin / Compta only)
+app.post('/api/sql-query', authenticateAdminOrFinances, async (req, res) => {
+    const { query } = req.body;
+    if (!query) return res.status(400).json({ message: 'Requête SQL requise' });
+    try {
+        // Exécuter n'importe quelle requête fournie par l'admin/compta
+        const result = await db.all(query);
+        res.json({ data: result });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur d\'exécution de la requête', error: error.message });
+    }
+});
+
 // Auth Routes
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
@@ -140,7 +164,7 @@ app.get('/api/budget/invoices', authenticateJWT, async (req, res) => {
 });
 
 // Import Budget Lines from Excel
-app.post('/api/budget/import-lines', authenticateAdmin, upload.single('file'), async (req, res) => {
+app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
     const workbook = xlsx.readFile(req.file.path);
     const sheetName = workbook.SheetNames[0];
@@ -162,7 +186,7 @@ app.post('/api/budget/import-lines', authenticateAdmin, upload.single('file'), a
 });
 
 // Import Invoices from Excel
-app.post('/api/budget/import-invoices', authenticateAdmin, upload.single('file'), async (req, res) => {
+app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
     const workbook = xlsx.readFile(req.file.path);
     const sheetName = workbook.SheetNames[0];
@@ -230,13 +254,13 @@ app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
     res.json(settings);
 });
 
-app.post('/api/column-settings/:page', authenticateAdmin, async (req, res) => {
+app.post('/api/column-settings/:page', authenticateAdminOrFinances, async (req, res) => {
     const { column_key, is_visible } = req.body;
     await db.run('UPDATE column_settings SET is_visible = ? WHERE page = ? AND column_key = ?', [is_visible ? 1 : 0, req.params.page, column_key]);
     res.json({ message: 'Settings updated' });
 });
 
-app.post('/api/column-settings/:page/bulk', authenticateAdmin, async (req, res) => {
+app.post('/api/column-settings/:page/bulk', authenticateAdminOrFinances, async (req, res) => {
     const settings = req.body;
     if (Array.isArray(settings)) {
         for (const s of settings) {
@@ -250,7 +274,7 @@ app.post('/api/column-settings/:page/bulk', authenticateAdmin, async (req, res) 
 });
 
 // Raw Table API
-app.get('/api/raw-data/:table', authenticateAdmin, async (req, res) => {
+app.get('/api/raw-data/:table', authenticateAdminOrFinances, async (req, res) => {
     const allowedTables = ['orders', 'budget_lines', 'invoices', 'm57_plan'];
     if (!allowedTables.includes(req.params.table)) return res.status(403).json({ message: 'Table non autorisée' });
     
@@ -298,7 +322,7 @@ app.delete('/api/users/:id', authenticateAdmin, async (req, res) => {
 });
 
 // Import Orders from Excel
-app.post('/api/orders/import', authenticateAdmin, upload.single('file'), async (req, res) => {
+app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
     try {
         const workbook = xlsx.readFile(req.file.path);

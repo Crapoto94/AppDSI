@@ -16,7 +16,7 @@ interface TileProps {
   links: TileLink[];
 }
 
-const Tile: React.FC<TileProps> = ({ title, icon, description, links }) => {
+const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = 'normal' }) => {
   // Dynamically get icon from lucide-react
   // @ts-ignore
   const IconComponent = Icons[icon.charAt(0).toUpperCase() + icon.slice(1)] || Icons.Box;
