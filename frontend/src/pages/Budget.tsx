@@ -40,12 +40,14 @@ const Budget: React.FC = () => {
   const [expandedOrders, setExpandedOrders] = useState<string[]>([]);
   const toggleExpand = (id: string) => setExpandedOrders(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
-  const getM57Label = (code: string) => {
+  const getM57Label = (code: string, type: 'nature' | 'fonction') => {
     if (!code) return '';
     const cleanCode = code.toString().trim();
-    const plan = m57Plan.find(p => p.code === cleanCode);
+    const plan = m57Plan.find(p => p.code === cleanCode && (p.type === type || !p.type));
     return plan ? plan.label : 'Inconnu dans le référentiel';
   };
+
+  const [m57View, setM57View] = useState<'nature' | 'fonction'>('nature');
 
   const token = localStorage.getItem('token');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -451,7 +453,7 @@ const Budget: React.FC = () => {
                 )}
                 {view === 'orders' && (
                   <label className="import-btn">
-                    <Upload size={16} /> Fichier M57 Commandes (.xls)
+                    <Upload size={16} /> Commandes (.xls)
                     <input type="file" hidden onChange={(e) => handleFileUpload(e, 'orders')} accept=".xlsx, .xls" />
                   </label>
                 )}
@@ -566,7 +568,12 @@ const Budget: React.FC = () => {
                       </thead>
                       <tbody>
                         {filteredData.length > 0 ? filteredData.map((row: any, index: number) => {
-                          const isExpandable = view === 'orders' && row._lines && row._lines.length > 1;
+                          const hasLines = view === 'orders' && row._lines && row._lines.length > 0;
+                          const linesCount = hasLines ? row._lines.length : 0;
+                          const firstLineDesc = hasLines ? row._lines[0].desc?.trim() : '';
+                          const globalLabel = (row['Libellé'] || row.label || '').trim();
+                          
+                          const isExpandable = hasLines && (linesCount > 1 || (linesCount === 1 && firstLineDesc !== globalLabel));
                           const isExpanded = expandedOrders.includes(row.id || index.toString());
                           
                           return (
@@ -603,6 +610,13 @@ const Budget: React.FC = () => {
                                     content = <span className="amount-ttc">{(val || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
                                   } else if (col.column_key === 'allocated_amount') {
                                     content = <span className="amount-ht">{(row[col.column_key] || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
+                                  } else if (col.column_key === 'date' || col.column_key === 'Date de la commande') {
+                                    if (row[col.column_key]) {
+                                      const d = new Date(row[col.column_key]);
+                                      if (!isNaN(d.getTime())) {
+                                        content = d.toLocaleDateString('fr-FR', { year: '2-digit', month: '2-digit', day: '2-digit' });
+                                      }
+                                    }
                                   } else if (col.column_key === 'Libellé' || col.column_key === 'label') {
                                     tooltip = row[col.column_key];
                                     cellStyle = { ...cellStyle, maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
@@ -612,17 +626,20 @@ const Budget: React.FC = () => {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                           {isExpandable && (
                                             <span style={{ fontSize: '12px', color: '#64748b' }}>
-                                              {isExpanded ? '▼' : '▶'} ({row._lines.length} lignes)
+                                              {isExpanded ? '▼' : '▶'} {linesCount > 1 ? `(${linesCount} lignes)` : ''}
                                             </span>
                                           )}
-                                          <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row._lines?.[0]?.desc || row.description}>
-                                            {row._lines?.[0]?.desc || row.description}
+                                          <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={firstLineDesc || row.description}>
+                                            {firstLineDesc || row.description}
                                           </span>
                                         </div>
                                       );
                                     }
-                                  } else if (col.column_key === 'nature' || col.column_key === 'fonction' || col.column_key === 'Article par nature' || col.column_key === 'Article par fonction') {
-                                    tooltip = getM57Label(row[col.column_key]);
+                                  } else if (col.column_key === 'nature' || col.column_key === 'Article par nature') {
+                                    tooltip = getM57Label(row[col.column_key], 'nature');
+                                    cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
+                                  } else if (col.column_key === 'fonction' || col.column_key === 'Article par fonction') {
+                                    tooltip = getM57Label(row[col.column_key], 'fonction');
                                     cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
                                   }
 
@@ -651,8 +668,8 @@ const Budget: React.FC = () => {
                                           <tr key={idx} style={{ borderBottom: '1px dashed #e2e8f0' }}>
                                             <td style={{ padding: '4px', textAlign: 'center', fontWeight: 'bold' }}>{line.nr}</td>
                                             <td style={{ padding: '4px' }}>{line.desc}</td>
-                                            <td style={{ padding: '4px' }} title={getM57Label(line.nature)}>{line.nature}</td>
-                                            <td style={{ padding: '4px' }} title={getM57Label(line.fonction)}>{line.fonction}</td>
+                                            <td style={{ padding: '4px' }} title={getM57Label(line.nature, 'nature')}>{line.nature}</td>
+                                            <td style={{ padding: '4px' }} title={getM57Label(line.fonction, 'fonction')}>{line.fonction}</td>
                                             <td style={{ padding: '4px', textAlign: 'right', fontWeight: 'bold', color: 'var(--color-ivry)' }}>
                                               {line.amtTtc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                                             </td>
@@ -794,10 +811,24 @@ const Budget: React.FC = () => {
           <div className="modal-backdrop" onClick={() => setShowM57(false)}>
             <div className="modal-window" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">Natures Comptables M57</h2>
+                <h2 className="modal-title">Référentiel M57</h2>
                 <button className="icon-btn" onClick={() => setShowM57(false)}><X size={20} /></button>
               </div>
               <div className="modal-body p-0">
+                <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0' }}>
+                  <button 
+                    style={{ flex: 1, padding: '10px', background: m57View === 'nature' ? '#f1f5f9' : 'white', border: 'none', borderBottom: m57View === 'nature' ? '2px solid var(--color-navy)' : '2px solid transparent', fontWeight: m57View === 'nature' ? 'bold' : 'normal', cursor: 'pointer' }}
+                    onClick={() => setM57View('nature')}
+                  >
+                    Natures
+                  </button>
+                  <button 
+                    style={{ flex: 1, padding: '10px', background: m57View === 'fonction' ? '#f1f5f9' : 'white', border: 'none', borderBottom: m57View === 'fonction' ? '2px solid var(--color-navy)' : '2px solid transparent', fontWeight: m57View === 'fonction' ? 'bold' : 'normal', cursor: 'pointer' }}
+                    onClick={() => setM57View('fonction')}
+                  >
+                    Fonctions
+                  </button>
+                </div>
                 <div className="table-responsive max-h-[60vh]">
                   <table className="modern-table">
                     <thead>
@@ -808,7 +839,7 @@ const Budget: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {m57Plan.map(item => (
+                      {m57Plan.filter(item => item.type === m57View || (!item.type && m57View === 'nature')).map(item => (
                         <tr key={item.id}>
                           <td className="font-bold text-secondary">{item.code}</td>
                           <td>{item.label}</td>
@@ -819,6 +850,9 @@ const Budget: React.FC = () => {
                           </td>
                         </tr>
                       ))}
+                      {m57Plan.filter(item => item.type === m57View || (!item.type && m57View === 'nature')).length === 0 && (
+                        <tr><td colSpan={3} className="text-center py-8 text-gray">Aucun code trouvé.</td></tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
