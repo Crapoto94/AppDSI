@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
-import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Activity, Database, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Database, AlertCircle, CheckCircle2, Plus, Trash2 } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface ColumnSetting {
   id: number;
@@ -65,6 +66,110 @@ const Budget: React.FC = () => {
     return '';
   };
 
+  const getWeekNumber = (d: Date) => {
+    d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    var yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    var weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    return weekNo;
+  };
+
+  const parseExcelDate = (val: any) => {
+    if (!val) return null;
+    const serial = parseFloat(val);
+    // Excel dates for 2000-2050 are roughly between 36526 and 54789
+    if (!isNaN(serial) && serial > 30000 && serial < 60000) {
+      return new Date(Math.round((serial - 25569) * 86400 * 1000));
+    }
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const chartData = useMemo(() => {
+    const weeklySums: Record<string, { f: number, i: number }> = {};
+    
+    orders.forEach(order => {
+      const dateStr = order['Date de la commande'] || order.date;
+      if (!dateStr) return;
+      
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return;
+      
+      const week = getWeekNumber(date);
+      const year = date.getFullYear();
+      const weekKey = `${year}-W${week.toString().padStart(2, '0')}`;
+      
+      if (!weeklySums[weekKey]) weeklySums[weekKey] = { f: 0, i: 0 };
+      
+      const amt = parseFloat(order['Montant TTC'] || order.amount_ttc || 0);
+      const nature = order['Article par nature'] || order.nature || '';
+      const section = order.section || order['Section'] || getSectionFromM57(nature);
+      
+      if (section === 'Fonctionnement' || section === 'F') {
+        weeklySums[weekKey].f += amt;
+      } else if (section === 'Investissement' || section === 'I') {
+        weeklySums[weekKey].i += amt;
+      }
+    });
+    
+    const sortedWeeks = Object.keys(weeklySums).sort();
+    let cumF = 0;
+    let cumI = 0;
+    
+    return sortedWeeks.map(week => {
+      cumF += weeklySums[week].f;
+      cumI += weeklySums[week].i;
+      return {
+        week,
+        fonctionnement: Math.round(cumF),
+        investissement: Math.round(cumI)
+      };
+    });
+  }, [orders, m57Plan]);
+
+  const invoiceStats = useMemo(() => {
+    const now = new Date();
+    const stats = {
+      totalTtc: 0,
+      suspended: 0,
+      saisie10: 0,
+      saisie20: 0,
+      saisie30: 0,
+      list10: [] as any[],
+      list20: [] as any[],
+      list30: [] as any[]
+    };
+
+    invoices.forEach(inv => {
+      const amt = parseFloat(inv['Montant TTC'] || 0);
+      stats.totalTtc += amt;
+
+      const etat = inv['Etat'] || '';
+      if (etat === 'Suspendue') {
+        stats.suspended++;
+      } else if (etat === 'Saisie') {
+        const arrivalDate = parseExcelDate(inv['Arrivée        '] || inv['Arrivée']);
+        if (arrivalDate) {
+          const diffDays = Math.floor((now.getTime() - arrivalDate.getTime()) / (1000 * 60 * 60 * 24));
+          const invInfo = `${inv['Fournisseur'] || 'Inconnu'} (${amt.toLocaleString()}€) - ${inv['Libellé'] || ''}`;
+          
+          if (diffDays > 30) {
+            stats.saisie30++;
+            stats.list30.push(invInfo);
+          } else if (diffDays > 20) {
+            stats.saisie20++;
+            stats.list20.push(invInfo);
+          } else if (diffDays > 10) {
+            stats.saisie10++;
+            stats.list10.push(invInfo);
+          }
+        }
+      }
+    });
+
+    return stats;
+  }, [invoices]);
+
   const [m57View, setM57View] = useState<'nature' | 'fonction'>('nature');
 
   const token = localStorage.getItem('token');
@@ -123,6 +228,67 @@ const Budget: React.FC = () => {
       }
     } catch (error: any) {
       setImportStatus({ type, message: error.message || 'Erreur réseau', isError: true });
+    }
+  };
+
+  const [editingCell, setEditingCell] = useState<{ id: number, key: string } | null>(null);
+  const [cellValue, setCellValue] = useState<any>('');
+
+  const isAuthorizedToEdit = ['admin', 'finances', 'compta'].includes(user.role);
+
+  const handleCellUpdate = async (row: any, key: string, newValue: any) => {
+    if (row[key] === newValue) {
+      setEditingCell(null);
+      return;
+    }
+    const updatedRow = { ...row, [key]: newValue };
+    try {
+      const response = await fetch(`http://localhost:3001/api/budget/operations/${row.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(updatedRow)
+      });
+      if (response.ok) {
+        setEditingCell(null);
+        await fetchData();
+      } else {
+        const err = await response.json().catch(() => ({}));
+        alert('Erreur: ' + (err.message || response.status));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleCreateOp = async () => {
+    const emptyRow = { 'Service': '', 'Service Complément': '', 'LIBELLE': 'Nouvelle Opération', 'MCO': '', 'C. Fonc.': '', 'C. Nature': '', 'Montant prévu': 0, 'Terminé': 'NON', 'Commentaire': '' };
+    try {
+      const response = await fetch('http://localhost:3001/api/budget/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(emptyRow)
+      });
+      if (response.ok) {
+        const result = await response.json();
+        await fetchData();
+        setEditingCell({ id: result.id, key: 'LIBELLE' });
+        setCellValue('Nouvelle Opération');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteOp = async (id: number) => {
+    if (!window.confirm('Supprimer cette opération ?')) return;
+    try {
+      const response = await fetch(`http://localhost:3001/api/budget/operations/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) await fetchData();
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -584,12 +750,12 @@ const Budget: React.FC = () => {
                       <div className="card-icon"><Euro size={24} /></div>
                       <div>
                         <h3 className="card-title">Budget Alloué Total</h3>
-                        <p className="card-value">{budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0).toLocaleString()} €</p>
+                        <p className="card-value">{Math.round(budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
-                      <span>Fonc: {budgetLines.filter(l => l.section === 'F').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0).toLocaleString()} €</span>
-                      <span>Inv: {budgetLines.filter(l => l.section === 'I').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0).toLocaleString()} €</span>
+                      <span>Fonc: {Math.round(budgetLines.filter(l => l.section === 'F').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</span>
+                      <span>Inv: {Math.round(budgetLines.filter(l => l.section === 'I').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</span>
                     </div>
                   </div>
                   <div className="dashboard-card secondary" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
@@ -597,58 +763,96 @@ const Budget: React.FC = () => {
                       <div className="card-icon"><ShoppingCart size={24} /></div>
                       <div>
                         <h3 className="card-title">Total Commandé (TTC)</h3>
-                        <p className="card-value">{groupedOrders.reduce((acc, curr) => acc + (curr._total_ttc || 0), 0).toLocaleString()} €</p>
+                        <p className="card-value">{Math.round(groupedOrders.reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} €</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
-                      <span>Fonc: {groupedOrders.filter(o => o.section === 'F').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0).toLocaleString()} €</span>
-                      <span>Inv: {groupedOrders.filter(o => o.section === 'I').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0).toLocaleString()} €</span>
+                      <span>Fonc: {Math.round(groupedOrders.filter(o => o.section === 'F' || o.section === 'Fonctionnement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} €</span>
+                      <span>Inv: {Math.round(groupedOrders.filter(o => o.section === 'I' || o.section === 'Investissement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} €</span>
                     </div>
                   </div>
-                  <div className="dashboard-card warning">
-                    <div className="card-icon"><FileText size={24} /></div>
-                    <div className="card-content">
-                      <h3 className="card-title">Total Facturé</h3>
-                      <p className="card-value">{invoices.reduce((acc, curr) => acc + (curr.amount_ht || 0), 0).toLocaleString()} €</p>
+                  <div className="dashboard-card warning" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div className="card-icon"><FileText size={24} /></div>
+                      <div>
+                        <h3 className="card-title">Total Facturé (TTC)</h3>
+                        <p className="card-value">{Math.round(invoiceStats.totalTtc).toLocaleString()} €</p>
+                      </div>
+                    </div>
+                    <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
+                      <span>En attente : {invoiceStats.saisie10 + invoiceStats.saisie20 + invoiceStats.saisie30} dossiers</span>
+                      <span>Suspendues : {invoiceStats.suspended}</span>
                     </div>
                   </div>
-                  <div className="dashboard-card neutral">
-                    <div className="card-icon"><Activity size={24} /></div>
-                    <div className="card-content">
-                      <h3 className="card-title">Volume de Commandes</h3>
-                      <p className="card-value">{groupedOrders.length} <span className="card-subvalue">dossiers</span></p>
+                  <div className="dashboard-card neutral" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div className="card-icon"><AlertCircle size={24} /></div>
+                      <div>
+                        <h3 className="card-title">Factures à traiter</h3>
+                        <p className="card-value" style={{ fontSize: '1.2rem' }}>
+                          <span 
+                            style={{ color: invoiceStats.saisie30 > 0 ? '#ef4444' : 'inherit', cursor: invoiceStats.saisie30 > 0 ? 'help' : 'default' }}
+                            title={invoiceStats.list30.join('\n')}
+                          >
+                            {invoiceStats.saisie30} (+30j)
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ width: '100%', fontSize: '0.8rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
+                      <span title={invoiceStats.list20.join('\n')} style={{ cursor: invoiceStats.saisie20 > 0 ? 'help' : 'default' }}>+20j : {invoiceStats.saisie20}</span>
+                      <span title={invoiceStats.list10.join('\n')} style={{ cursor: invoiceStats.saisie10 > 0 ? 'help' : 'default' }}>+10j : {invoiceStats.saisie10}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="table-card">
                   <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Montants Votés (Inclus reports)</h3>
-                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* Ces montants incluent les reports de l'exercice précédent</span>
+                    <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Évolution Cumulée des Dépenses (par semaine)</h3>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* Basé sur les dates de commande et le montant TTC</span>
                   </div>
-                  <div className="table-responsive" style={{ maxHeight: '400px' }}>
-                    <table className="modern-table">
-                      <thead>
-                        <tr>
-                          <th>Code</th>
-                          <th>Libellé</th>
-                          <th style={{ textAlign: 'center' }}>Sect.</th>
-                          <th style={{ textAlign: 'right' }}>Budget Voté</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {budgetLines.filter(l => (l.allocated_amount || 0) > 0).sort((a,b) => b.allocated_amount - a.allocated_amount).map(line => (
-                          <tr key={line.id}>
-                            <td style={{ fontWeight: 600, color: 'var(--color-navy)' }}>{line.code}</td>
-                            <td>{line.label}</td>
-                            <td style={{ textAlign: 'center' }}>
-                              <span className={`section-badge ${line.section === 'F' ? 'f' : 'i'}`}>{line.section}</span>
-                            </td>
-                            <td style={{ textAlign: 'right', fontWeight: 800 }}>{(line.allocated_amount || 0).toLocaleString()} €</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div style={{ padding: '1.5rem', height: '400px' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis 
+                          dataKey="week" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#64748b', fontSize: 12 }}
+                          dy={10}
+                        />
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#64748b', fontSize: 12 }}
+                          tickFormatter={(val) => `${(val / 1000).toFixed(0)}k€`}
+                        />
+                        <Tooltip 
+                          formatter={(value: any) => [new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value), '']}
+                          contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        />
+                        <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                        <Line 
+                          type="monotone" 
+                          dataKey="fonctionnement" 
+                          name="Fonctionnement" 
+                          stroke="#22c55e" 
+                          strokeWidth={3} 
+                          dot={{ r: 4, fill: '#22c55e', strokeWidth: 2, stroke: '#fff' }}
+                          activeDot={{ r: 6 }} 
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="investissement" 
+                          name="Investissement" 
+                          stroke="#3b82f6" 
+                          strokeWidth={3} 
+                          dot={{ r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }}
+                          activeDot={{ r: 6 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
               </div>
@@ -658,6 +862,11 @@ const Budget: React.FC = () => {
               <div className="orders-container">
                 <div className="toolbar">
                   <div className="toolbar-actions">
+                    {view === 'operations' && isAuthorizedToEdit && (
+                      <button className="toolbar-btn active" style={{ background: 'var(--color-green-500)', color: 'white', border: 'none' }} onClick={handleCreateOp}>
+                        <Plus size={16} /> Nouvelle Opération
+                      </button>
+                    )}
                     <button className="toolbar-btn" onClick={() => setShowM57(true)}>
                       <BookOpen size={16} /> Plan M57
                     </button>
@@ -773,101 +982,165 @@ const Budget: React.FC = () => {
                                 {columnSettings.filter(c => c.is_visible).map(col => {
                                   let content: React.ReactNode = row[col.column_key];
                                   let tooltip = '';
-                                  let cellClass = '';
                                   let cellStyle: React.CSSProperties = {
                                     color: col.color || 'inherit',
                                     fontWeight: col.is_bold ? 'bold' : 'normal',
                                     fontStyle: col.is_italic ? 'italic' : 'normal'
                                   };
 
-                                  if (col.column_key === 'Section' || col.column_key === 'section') {
-                                    const sec = row[col.column_key];
-                                    content = (
-                                      <span className={`section-badge ${(sec === 'Fonctionnement' || sec === 'F') ? 'f' : 'i'}`}>
-                                        {(sec === 'Fonctionnement' || sec === 'F') ? 'F' : 'I'}
-                                      </span>
-                                    );
-                                  } else if (col.column_key === 'status' || col.column_key === 'Etat' || col.column_key === 'termine') {
-                                    const val = row[col.column_key];
-                                    const isDone = val === 1 || val === 'OUI' || val === 'Payée';
-                                    content = <span className={`badge ${isDone ? 'success' : 'status'}`}>{isDone ? 'Terminé' : (val === 0 || val === 'NON') ? 'En cours' : val}</span>;
-                                  } else if (
-                                    col.column_key === 'Montant HT' || col.column_key === 'amount_ht' || 
-                                    col.column_key === 'montant_prevu' || col.column_key === 'allocated_amount' ||
-                                    col.column_key === 'Budget voté' || col.column_key === 'Disponible' ||
-                                    col.column_key === 'Mt. prévision' || col.column_key === 'Mt. pré-engagé' ||
-                                    col.column_key === 'Mt. engagé' || col.column_key === 'Mt. facturé' ||
-                                    col.column_key === 'Mt. pré-mandaté' || col.column_key === 'Mt. mandaté' ||
-                                    col.column_key === 'Mt. payé'
-                                  ) {
-                                    const val = view === 'orders' ? row._total_ht : row[col.column_key];
-                                    content = <span className="amount-ht">{(parseFloat(val) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
-                                  } else if (col.column_key === 'Montant TTC' || col.column_key === 'amount_ttc' || col.column_key === 'solde') {
-                                    const val = view === 'orders' ? row._total_ttc : row[col.column_key];
-                                    content = <span className="amount-ttc">{(val || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
-                                  } else if (
-                                    col.column_key === 'date' || 
-                                    col.column_key === 'Date de la commande' ||
-                                    col.column_key.trim() === 'Emission' ||
-                                    col.column_key.trim() === 'Arrivée' ||
-                                    col.column_key.trim() === 'Début DGP' ||
-                                    col.column_key.trim() === 'Fin DGP' ||
-                                    col.column_key === 'Date Réception Pièce' ||
-                                    col.column_key === 'Date Suspension'
-                                  ) {
-                                    if (row[col.column_key]) {
-                                      const d = new Date(row[col.column_key]);
-                                      if (!isNaN(d.getTime())) {
+                                  const isCellEditing = view === 'operations' && editingCell?.id === row.id && editingCell?.key === col.column_key;
+
+                                  if (isCellEditing) {
+                                    if (['Montant prévu', 'Solde'].includes(col.column_key)) {
+                                      content = (
+                                        <input 
+                                          autoFocus
+                                          type="number" 
+                                          style={{ width: '80px', padding: '4px' }}
+                                          value={cellValue}
+                                          onChange={(e) => setCellValue(e.target.value)}
+                                          onBlur={() => handleCellUpdate(row, col.column_key, parseFloat(cellValue) || 0)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleCellUpdate(row, col.column_key, parseFloat(cellValue) || 0);
+                                            if (e.key === 'Escape') setEditingCell(null);
+                                          }}
+                                        />
+                                      );
+                                    } else if (col.column_key === 'Terminé') {
+                                      content = (
+                                        <select 
+                                          autoFocus
+                                          value={cellValue}
+                                          onChange={(e) => setCellValue(e.target.value)}
+                                          onBlur={() => handleCellUpdate(row, col.column_key, cellValue)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleCellUpdate(row, col.column_key, cellValue);
+                                            if (e.key === 'Escape') setEditingCell(null);
+                                          }}
+                                        >
+                                          <option value="OUI">OUI</option>
+                                          <option value="NON">NON</option>
+                                        </select>
+                                      );
+                                    } else {
+                                      content = (
+                                        <input 
+                                          autoFocus
+                                          type="text" 
+                                          style={{ width: '100%', padding: '4px' }}
+                                          value={cellValue}
+                                          onChange={(e) => setCellValue(e.target.value)}
+                                          onBlur={() => handleCellUpdate(row, col.column_key, cellValue)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleCellUpdate(row, col.column_key, cellValue);
+                                            if (e.key === 'Escape') setEditingCell(null);
+                                          }}
+                                        />
+                                      );
+                                    }
+                                  } else {
+                                    if (col.column_key === 'Section' || col.column_key === 'section') {
+                                      const sec = row[col.column_key];
+                                      content = (
+                                        <span className={`section-badge ${(sec === 'Fonctionnement' || sec === 'F') ? 'f' : 'i'}`}>
+                                          {(sec === 'Fonctionnement' || sec === 'F') ? 'F' : 'I'}
+                                        </span>
+                                      );
+                                    } else if (col.column_key === 'status' || col.column_key === 'Etat' || col.column_key === 'termine' || col.column_key === 'Terminé') {
+                                      const val = row[col.column_key];
+                                      const isDone = val === 'Payée' || val === 'OUI' || val === 1;
+                                      content = <span className={`badge ${isDone ? 'success' : 'status'}`}>{val}</span>;
+                                    } else if (
+                                      col.column_key === 'Montant HT' || col.column_key === 'amount_ht' || 
+                                      col.column_key === 'montant_prevu' || col.column_key === 'allocated_amount' ||
+                                      col.column_key === 'Budget voté' || col.column_key === 'Disponible' ||
+                                      col.column_key === 'Mt. prévision' || col.column_key === 'Mt. pré-engagé' ||
+                                      col.column_key === 'Mt. engagé' || col.column_key === 'Mt. facturé' ||
+                                      col.column_key === 'Mt. pré-mandaté' || col.column_key === 'Mt. mandaté' ||
+                                      col.column_key === 'Mt. payé' || col.column_key === 'Montant prévu'
+                                    ) {
+                                      const val = view === 'orders' ? row._total_ht : row[col.column_key];
+                                      content = <span className="amount-ht">{(parseFloat(val) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
+                                    } else if (col.column_key === 'Montant TTC' || col.column_key === 'amount_ttc' || col.column_key === 'solde' || col.column_key === 'Solde') {
+                                      const val = view === 'orders' ? row._total_ttc : row[col.column_key];
+                                      content = <span className="amount-ttc">{(parseFloat(val) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
+                                    } else if (
+                                      col.column_key === 'date' || 
+                                      col.column_key === 'Date de la commande' ||
+                                      ['Emission', 'Arrivée', 'Début DGP', 'Fin DGP', 'Date Réception Pièce', 'Date Suspension'].includes(col.column_key.trim())
+                                    ) {
+                                      const d = parseExcelDate(row[col.column_key]);
+                                      if (d) {
                                         content = d.toLocaleDateString('fr-FR', { year: '2-digit', month: '2-digit', day: '2-digit' });
+                                      } else {
+                                        content = row[col.column_key];
                                       }
                                     }
-                                  }
- else if (col.column_key === 'Libellé' || col.column_key === 'label' || col.column_key === 'libelle') {
-                                    tooltip = row[col.column_key];
-                                    content = (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        {isExpandable && view === 'lines' && (
-                                          <span style={{ fontSize: '12px', color: '#64748b' }}>
-                                            {isExpanded ? '▼' : '▶'} ({linesCount})
-                                          </span>
-                                        )}
-                                        <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                          {row[col.column_key]}
-                                        </span>
-                                      </div>
-                                    );
-                                    cellStyle = { ...cellStyle, maxWidth: '250px' };
-                                  }
- else if (col.column_key === 'Désignation' || col.column_key === 'description') {
-                                    if (view === 'orders') {
-                                      const firstLineDesc = hasLines ? row._lines[0].desc?.trim() : '';
+                                    else if (col.column_key === 'Libellé' || col.column_key === 'label' || col.column_key === 'libelle' || col.column_key === 'Nom' || col.column_key === 'LIBELLE') {
+                                      tooltip = row[col.column_key];
                                       content = (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                          {isExpandable && (
+                                          {isExpandable && view === 'lines' && (
                                             <span style={{ fontSize: '12px', color: '#64748b' }}>
-                                              {isExpanded ? '▼' : '▶'} {linesCount > 1 ? `(${linesCount} lignes)` : ''}
+                                              {isExpanded ? '▼' : '▶'} ({linesCount})
                                             </span>
                                           )}
-                                          <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={firstLineDesc || row.description}>
-                                            {firstLineDesc || row.description}
+                                          <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {row[col.column_key]}
                                           </span>
                                         </div>
                                       );
+                                      cellStyle = { ...cellStyle, maxWidth: '250px' };
                                     }
-                                  } else if (col.column_key === 'nature' || col.column_key === 'Article par nature') {
-                                    tooltip = getM57Label(row[col.column_key], 'nature');
-                                    cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
-                                  } else if (col.column_key === 'fonction' || col.column_key === 'Article par fonction') {
-                                    tooltip = getM57Label(row[col.column_key], 'fonction');
-                                    cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
+                                    else if (col.column_key === 'Désignation' || col.column_key === 'description') {
+                                      if (view === 'orders') {
+                                        const firstLineDesc = hasLines ? row._lines[0].desc?.trim() : '';
+                                        content = (
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            {isExpandable && (
+                                              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                                                {isExpanded ? '▼' : '▶'} {linesCount > 1 ? `(${linesCount} lignes)` : ''}
+                                              </span>
+                                            )}
+                                            <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={firstLineDesc || row.description}>
+                                              {firstLineDesc || row.description}
+                                            </span>
+                                          </div>
+                                        );
+                                      }
+                                    } else if (col.column_key === 'nature' || col.column_key === 'Article par nature' || col.column_key === 'C. Nature') {
+                                      tooltip = getM57Label(row[col.column_key], 'nature');
+                                      cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
+                                    } else if (col.column_key === 'fonction' || col.column_key === 'Article par fonction' || col.column_key === 'C. Fonc.') {
+                                      tooltip = getM57Label(row[col.column_key], 'fonction');
+                                      cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
+                                    }
                                   }
 
                                   return (
-                                    <td key={col.column_key} style={cellStyle} title={tooltip || undefined} className={cellClass}>
+                                    <td 
+                                      key={col.column_key} 
+                                      style={{ ...cellStyle, ...(isCellEditing ? { padding: '4px' } : {}) }} 
+                                      title={!isCellEditing ? (tooltip || row[col.column_key] || '') : undefined}
+                                      onDoubleClick={() => {
+                                        if (view === 'operations' && isAuthorizedToEdit) {
+                                          setEditingCell({ id: row.id, key: col.column_key });
+                                          setCellValue(row[col.column_key] || '');
+                                        }
+                                      }}
+                                    >
                                       {content}
                                     </td>
                                   );
                                 })}
+
+                                {view === 'operations' && isAuthorizedToEdit && (
+                                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                    <button className="icon-btn" onClick={() => handleDeleteOp(row.id)} style={{ color: 'var(--color-ivry)' }} title="Supprimer l'opération">
+                                      <Trash2 size={16}/>
+                                    </button>
+                                  </td>
+                                )}
                               </tr>
                               {isExpandable && isExpanded && view === 'orders' && (
                                 <tr className="expanded-row-bg" style={{ backgroundColor: '#f1f5f9' }}>

@@ -18,25 +18,36 @@ async function importOperations() {
         let imported = 0;
         for (const row of data) {
             const service = row['Service'] || '';
-            const service_complement = row['Service Complément'] || '';
+            const service_comp = row['Service Complément'] || '';
+            const nom = row['Nom'] || '';
             const mco = row['MCO'] || '';
-            const libelle = row['Nom'] || '';
-            const chapitre_fonction = row['C. Fonc.'] || '';
-            const nature = row['C. Nature'] || '';
-            let montant_prevu = row['Montant prévu'] || 0;
-            if (typeof montant_prevu === 'string') {
-                montant_prevu = parseFloat(montant_prevu.replace(/[^0-9,-]+/g, '').replace(',', '.'));
+            const c_fonc = row['C. Fonc.'] || '';
+            const c_nature = row['C. Nature'] || '';
+            
+            let montant_prevu = 0;
+            if (row['Montant prévu'] !== undefined) {
+                if (typeof row['Montant prévu'] === 'string') {
+                    montant_prevu = parseFloat(row['Montant prévu'].replace(/[^0-9,-]+/g, '').replace(',', '.'));
+                } else {
+                    montant_prevu = parseFloat(row['Montant prévu']);
+                }
             }
-            const termine = (row['Terminé'] === 'OUI' || row['Terminé'] === true) ? 1 : 0;
-            let solde = row['Solde'] || 0;
-            if (typeof solde === 'string') {
-                solde = parseFloat(solde.replace(/[^0-9,-]+/g, '').replace(',', '.'));
+
+            const termine = row['Terminé'] || '';
+            
+            let solde = 0;
+            if (row['Solde'] !== undefined) {
+                if (typeof row['Solde'] === 'string') {
+                    solde = parseFloat(row['Solde'].replace(/[^0-9,-]+/g, '').replace(',', '.'));
+                } else {
+                    solde = parseFloat(row['Solde']);
+                }
             }
 
             await db.run(
-                `INSERT INTO operations (service, service_complement, mco, libelle, chapitre_fonction, nature, montant_prevu, termine, solde)
+                `INSERT INTO operations ("Service", "Service Complément", "Nom", "MCO", "C. Fonc.", "C. Nature", "Montant prévu", "Terminé", "Solde")
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [service, service_complement, mco, libelle, chapitre_fonction, nature, montant_prevu, termine, solde]
+                [service, service_comp, nom, mco, c_fonc, c_nature, isNaN(montant_prevu) ? 0 : montant_prevu, termine, isNaN(solde) ? 0 : solde]
             );
             imported++;
         }
@@ -48,4 +59,7 @@ async function importOperations() {
     }
 }
 
-importOperations();
+importOperations().catch(err => {
+    console.error('Fatal error during import:', err);
+    process.exit(1);
+});

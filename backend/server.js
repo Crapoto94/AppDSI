@@ -187,8 +187,57 @@ app.get('/api/budget/invoices', authenticateJWT, async (req, res) => {
 });
 
 app.get('/api/budget/operations', authenticateJWT, async (req, res) => {
+    console.log('GET /api/budget/operations');
     const operations = await db.all('SELECT * FROM operations');
     res.json(operations);
+});
+
+app.post('/api/budget/operations', authenticateAdminOrFinances, async (req, res) => {
+    const data = req.body;
+    console.log('POST /api/budget/operations', data);
+    try {
+        const tableCols = (await db.all('PRAGMA table_info(operations)')).map(c => c.name).filter(c => c !== 'id');
+        const placeholders = tableCols.map(() => '?').join(',');
+        const values = tableCols.map(c => data[c]);
+        
+        const result = await db.run(`INSERT INTO operations (${tableCols.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`, values);
+        console.log('Created op with ID:', result.lastID);
+        res.json({ id: result.lastID, message: 'Opération créée' });
+    } catch (error) {
+        console.error('POST /api/budget/operations error:', error);
+        res.status(500).json({ message: 'Erreur creation', error: error.message });
+    }
+});
+
+app.put('/api/budget/operations/:id', authenticateAdminOrFinances, async (req, res) => {
+    const id = req.params.id;
+    const data = req.body;
+    console.log(`PUT /api/budget/operations/${id}`, data);
+    try {
+        const tableCols = (await db.all('PRAGMA table_info(operations)')).map(c => c.name).filter(c => c !== 'id');
+        const sets = tableCols.map(c => `"${c}" = ?`).join(',');
+        const values = [...tableCols.map(c => data[c]), id];
+        
+        await db.run(`UPDATE operations SET ${sets} WHERE id = ?`, values);
+        console.log(`Updated op ${id}`);
+        res.json({ message: 'Opération mise à jour' });
+    } catch (error) {
+        console.error(`PUT /api/budget/operations/${id} error:`, error);
+        res.status(500).json({ message: 'Erreur mise à jour', error: error.message });
+    }
+});
+
+app.delete('/api/budget/operations/:id', authenticateAdminOrFinances, async (req, res) => {
+    const id = req.params.id;
+    console.log(`DELETE /api/budget/operations/${id}`);
+    try {
+        await db.run('DELETE FROM operations WHERE id = ?', [id]);
+        console.log(`Deleted op ${id}`);
+        res.json({ message: 'Opération supprimée' });
+    } catch (error) {
+        console.error(`DELETE /api/budget/operations/${id} error:`, error);
+        res.status(500).json({ message: 'Erreur suppression', error: error.message });
+    }
 });
 
 // Import Budget Lines from Excel
@@ -307,6 +356,8 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
         // Map excel keys to DB columns (case-insensitive and trimmed)
         const getDbKey = (excelKey) => {
             const trimmed = excelKey.trim();
+            // Try to match trimmed key directly or find in tableCols
+            if (tableCols.includes(trimmed)) return trimmed;
             return tableCols.find(c => c.trim().toLowerCase() === trimmed.toLowerCase());
         };
 
@@ -315,7 +366,35 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
             Object.keys(row).forEach(excelKey => {
                 const dbKey = getDbKey(excelKey);
                 if (dbKey) {
-                    mappedRow[dbKey] = row[excelKey];
+                    let val = row[excelKey];
+                    
+                    const dateFields = ['Emission', 'Arrivée', 'Début DGP', 'Fin DGP', 'Date Réception Pièce', 'Date Suspension'];
+                    if (dateFields.includes(dbKey)) {
+                        if (val === undefined || val === null || val === '') {
+                            val = null;
+                        } else if (typeof val === 'number') {
+                            // Robust Excel Serial to ISO conversion
+                            // Note: Excel thinks 1900 was a leap year, so we use 25569 as base for 1970-01-01
+                            const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+                            val = date.toISOString().split('T')[0];
+                        } else if (val instanceof Date) {
+                            val = val.toISOString().split('T')[0];
+                        } else if (typeof val === 'string') {
+                            const trimmedVal = val.trim();
+                            if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmedVal)) {
+                                const [d, m, y] = trimmedVal.split('/');
+                                val = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+                            } else if (/^\d{4}-\d{2}-\d{2}/.test(trimmedVal)) {
+                                val = trimmedVal.split('T')[0];
+                            } else {
+                                val = null;
+                            }
+                        } else {
+                            val = null;
+                        }
+                    }
+
+                    mappedRow[dbKey] = val;
                 }
             });
 
