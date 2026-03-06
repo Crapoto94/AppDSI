@@ -1,6 +1,20 @@
 {
-  "currentVersion": "0.1.24",
+  "currentVersion": "0.1.25",
   "history": [
+    {
+      "version": "0.1.25",
+      "date": "2026-03-06",
+      "changes": [
+        "Résumé : Ajout d'un graphique en courbes affichant l'évolution cumulée par semaine des dépenses (Fonctionnement et Investissement).",
+        "Résumé : Amélioration des cartes de synthèse avec montants arrondis à l'euro et répartition par section.",
+        "Factures : Ajout d'infobulles détaillées sur les compteurs de retard (+10j, +20j, +30j) affichant le tiers, le montant et le libellé.",
+        "Factures : Correction critique de l'import et de l'affichage des dates (conversion robuste des numéros de série Excel).",
+        "Opérations : Refonte complète du modèle de données pour correspondre dynamiquement à la structure du fichier Excel.",
+        "Opérations : Nouveau mode d'édition ultra-rapide par double-clic sur les cellules avec sauvegarde automatique.",
+        "Opérations : Ajout des fonctions de création (Nouvelle Opération) et de suppression.",
+        "Autorisations : Extension des droits d'édition des opérations aux profils 'Finances' et 'Comptabilité'."
+      ]
+    },
     {
       "version": "0.1.24",
       "date": "2026-03-06",
@@ -203,7 +217,7 @@
       "date": "2026-03-06",
       "changes": [
         "Ajout de la page Suivi Comptable pour l'import des données financières.",
-        "Mise en place de l'outil d'exécution de requêtes SQL pour les administrateurs et comptables.",
+        "Mise en place d'un outil d'exécution de requêtes SQL pour les administrateurs et comptables.",
         "Ajout du rôle 'compta' dans la gestion des autorisations."
       ]
     },
