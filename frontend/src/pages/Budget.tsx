@@ -49,6 +49,21 @@ const Budget: React.FC = () => {
     return plan ? plan.label : 'Inconnu dans le référentiel';
   };
 
+  const getSectionFromM57 = (natureCode: string) => {
+    if (!natureCode) return '';
+    const cleanCode = natureCode.toString().trim();
+    // In M57, nature codes starting with 2 are Investment, others are usually Operating
+    // But we check the plan first if available
+    const plan = m57Plan.find(p => p.code === cleanCode);
+    if (plan && plan.section) return plan.section;
+    
+    // Fallback: nature starting with 2 or 1 (some 1) is Investment? 
+    // Usually: Nature 2xxx = Investissement, 6xxx/7xxx = Fonctionnement
+    if (cleanCode.startsWith('2')) return 'I';
+    if (cleanCode.startsWith('6') || cleanCode.startsWith('7') || cleanCode.startsWith('0')) return 'F';
+    return '';
+  };
+
   const [m57View, setM57View] = useState<'nature' | 'fonction'>('nature');
 
   const token = localStorage.getItem('token');
@@ -274,20 +289,29 @@ const Budget: React.FC = () => {
       const amtTtc = parseFloat(order['Montant TTC'] || 0);
       groups[nr]._total_ht += amtHt;
       groups[nr]._total_ttc += amtTtc;
+      
+      const nature = order['Article par nature'] || order.nature || '';
+      const sectionFromNature = getSectionFromM57(nature);
+      // If the group doesn't have a valid section yet, or this line has one, use it
+      if (!groups[nr].section || groups[nr].section === '') {
+          groups[nr].section = sectionFromNature;
+      }
+
       groups[nr]._lines.push({
         nr: order['N° ligne'],
         desc: order['Désignation'] || order.description,
         amtHt: amtHt,
         amtTtc: amtTtc,
-        nature: order['Article par nature'],
-        fonction: order['Article par fonction']
+        nature: nature,
+        fonction: order['Article par fonction'] || order.fonction || '',
+        section: sectionFromNature
       });
     });
     Object.values(groups).forEach((g: any) => {
       g._lines.sort((a: any, b: any) => parseInt(a.nr) - parseInt(b.nr));
     });
     return Object.values(groups);
-  }, [orders]);
+  }, [orders, m57Plan]);
 
   const filteredOrders = groupedOrders.filter(order => {
     const orderNumber = (order.order_number || order['N° Commande'] || '').toString().toLowerCase();
@@ -486,12 +510,12 @@ const Budget: React.FC = () => {
                       <div className="card-icon"><ShoppingCart size={24} /></div>
                       <div>
                         <h3 className="card-title">Total Commandé (TTC)</h3>
-                        <p className="card-value">{orders.reduce((acc, curr) => acc + (parseFloat(curr['Montant TTC']) || 0), 0).toLocaleString()} €</p>
+                        <p className="card-value">{groupedOrders.reduce((acc, curr) => acc + (curr._total_ttc || 0), 0).toLocaleString()} €</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
-                      <span>Fonc: {orders.filter(o => o.Section === 'F' || o.section === 'F').reduce((acc, curr) => acc + (parseFloat(curr['Montant TTC']) || 0), 0).toLocaleString()} €</span>
-                      <span>Inv: {orders.filter(o => o.Section === 'I' || o.section === 'I').reduce((acc, curr) => acc + (parseFloat(curr['Montant TTC']) || 0), 0).toLocaleString()} €</span>
+                      <span>Fonc: {groupedOrders.filter(o => o.section === 'F').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0).toLocaleString()} €</span>
+                      <span>Inv: {groupedOrders.filter(o => o.section === 'I').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0).toLocaleString()} €</span>
                     </div>
                   </div>
                   <div className="dashboard-card warning">

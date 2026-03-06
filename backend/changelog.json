@@ -1,6 +1,18 @@
 {
-  "currentVersion": "0.1.10",
+  "currentVersion": "0.1.11",
   "history": [
+    {
+      "version": "0.1.11",
+      "date": "2026-03-06",
+      "changes": [
+        "Correction de l'import des factures : toutes les colonnes du fichier Excel sont désormais conservées en base de données.",
+        "Amélioration de la discrimination Investissement / Fonctionnement pour les commandes basée sur les codes nature M57.",
+        "Mise à jour du code couleur des lignes de commandes (Bleu pour Investissement, Vert pour Fonctionnement) selon leur nature.",
+        "Correction du filtre de section (I/F) dans l'onglet des commandes.",
+        "Amélioration du résumé budgétaire avec un calcul précis des totaux commandés par section.",
+        "Correction de l'import des lignes budgétaires pour inclure systématiquement la section (I/F)."
+      ]
+    },
     {
       "version": "0.1.10",
       "date": "2026-03-06",

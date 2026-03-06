@@ -245,6 +245,19 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
 
         let imported = 0;
         let updated = 0;
+
+        // Ensure table has all necessary columns from Excel
+        if (data.length > 0) {
+            const excelCols = Object.keys(data[0]);
+            for (const col of excelCols) {
+                try {
+                    await db.run(`ALTER TABLE invoices ADD COLUMN "${col}" TEXT`);
+                    // Update column_settings
+                    await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['invoices', col, col, 1]);
+                } catch (e) {}
+            }
+        }
+
         for (const row of data) {
             const invoice_number = row['N° Facture interne'] || row.Numero || row.invoice_number;
             const provider = row.Fournisseur || row.provider;
@@ -257,18 +270,34 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
             const service = row.Service || row.service || '';
             const date = row['Emission       '] || row.Date || row.date || '';
 
+            // Map standard fields for backwards compatibility
+            row.invoice_number = invoice_number;
+            row.provider = provider;
+            row.libelle = libelle;
+            row.amount_ht = amount_ht;
+            row.amount_ttc = amount_ttc;
+            row.status = status;
+            row.service = service;
+            row.date = date;
+
             // Check if exists
             const exists = await db.get('SELECT id FROM invoices WHERE invoice_number = ? AND provider = ?', [invoice_number, provider]);
+            
+            const cols = Object.keys(row);
+            const vals = Object.values(row);
+            const placeholders = cols.map(() => '?').join(',');
+
             if (!exists) {
                 await db.run(
-                    'INSERT INTO invoices (invoice_number, provider, libelle, amount_ht, amount_ttc, date, status, service, budget_line_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [invoice_number, provider, libelle, amount_ht, amount_ttc, date, status, service, row.CodeBudget]
+                    `INSERT INTO invoices (${cols.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`,
+                    vals
                 );
                 imported++;
             } else {
+                const updateStr = cols.map(c => `"${c}" = ?`).join(',');
                 await db.run(
-                    'UPDATE invoices SET libelle = ?, amount_ht = ?, amount_ttc = ?, date = ?, status = ?, service = ?, budget_line_code = ? WHERE id = ?',
-                    [libelle, amount_ht, amount_ttc, date, status, service, row.CodeBudget, exists.id]
+                    `UPDATE invoices SET ${updateStr} WHERE id = ?`,
+                    [...vals, exists.id]
                 );
                 updated++;
             }
