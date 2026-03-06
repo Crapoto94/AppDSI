@@ -33,6 +33,18 @@ setupDb().then(database => {
     app.listen(PORT, () => {
         console.log(`Backend server running on http://localhost:${PORT}`);
     });
+}).catch(err => {
+    console.error('Failed to setup database:', err);
+    process.exit(1);
+});
+
+// Capture les erreurs non gérées au niveau global pour éviter que le processus Node ne plante silencieusement
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception thrown:', err);
 });
 
 // Middleware to verify JWT
@@ -77,9 +89,14 @@ app.post('/api/sql-query', authenticateAdminOrFinances, async (req, res) => {
     const { query } = req.body;
     if (!query) return res.status(400).json({ message: 'Requête SQL requise' });
     try {
-        // Exécuter n'importe quelle requête fournie par l'admin/compta
-        const result = await db.all(query);
-        res.json({ data: result });
+        let result;
+        if (query.trim().toUpperCase().startsWith('SELECT') || query.trim().toUpperCase().startsWith('PRAGMA')) {
+            result = await db.all(query);
+        } else {
+            const runResult = await db.run(query);
+            result = [{ changes: runResult.changes, lastID: runResult.lastID }];
+        }
+        res.json({ data: result || [] });
     } catch (error) {
         res.status(500).json({ message: 'Erreur d\'exécution de la requête', error: error.message });
     }
@@ -166,52 +183,62 @@ app.get('/api/budget/invoices', authenticateJWT, async (req, res) => {
 // Import Budget Lines from Excel
 app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
-    const workbook = xlsx.readFile(req.file.path);
-    const sheetName = workbook.SheetNames[0];
-    const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+    try {
+        const workbook = xlsx.readFile(req.file.path);
+        const sheetName = workbook.SheetNames[0];
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-    let imported = 0;
-    for (const row of data) {
-        // Check if exists
-        const exists = await db.get('SELECT id FROM budget_lines WHERE code = ? AND year = ?', [row.Code, row.Annee || 2026]);
-        if (!exists) {
-            await db.run(
-                'INSERT INTO budget_lines (code, label, allocated_amount, year) VALUES (?, ?, ?, ?)',
-                [row.Code, row.Libelle, row.Montant, row.Annee || 2026]
-            );
-            imported++;
+        let imported = 0;
+        for (const row of data) {
+            // Check if exists
+            const exists = await db.get('SELECT id FROM budget_lines WHERE code = ? AND year = ?', [row.Code, row.Annee || 2026]);
+            if (!exists) {
+                await db.run(
+                    'INSERT INTO budget_lines (code, label, allocated_amount, year) VALUES (?, ?, ?, ?)',
+                    [row.Code, row.Libelle, row.Montant, row.Annee || 2026]
+                );
+                imported++;
+            }
         }
+        res.json({ message: `${imported} lignes budgétaires importées (${data.length - imported} ignorées car déjà présentes)` });
+    } catch (error) {
+        console.error('Import error:', error);
+        res.status(500).json({ message: 'Erreur lors de l\'import', error: error.message });
     }
-    res.json({ message: `${imported} lignes budgétaires importées (${data.length - imported} ignorées car déjà présentes)` });
 });
 
 // Import Invoices from Excel
 app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
-    const workbook = xlsx.readFile(req.file.path);
-    const sheetName = workbook.SheetNames[0];
-    const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+    try {
+        const workbook = xlsx.readFile(req.file.path);
+        const sheetName = workbook.SheetNames[0];
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-    let imported = 0;
-    let updated = 0;
-    for (const row of data) {
-        // Check if exists
-        const exists = await db.get('SELECT id FROM invoices WHERE invoice_number = ? AND provider = ?', [row.Numero, row.Fournisseur]);
-        if (!exists) {
-            await db.run(
-                'INSERT INTO invoices (invoice_number, provider, amount_ht, date, budget_line_code) VALUES (?, ?, ?, ?, ?)',
-                [row.Numero, row.Fournisseur, row.Montant, row.Date, row.CodeBudget]
-            );
-            imported++;
-        } else {
-            await db.run(
-                'UPDATE invoices SET amount_ht = ?, date = ?, budget_line_code = ? WHERE id = ?',
-                [row.Montant, row.Date, row.CodeBudget, exists.id]
-            );
-            updated++;
+        let imported = 0;
+        let updated = 0;
+        for (const row of data) {
+            // Check if exists
+            const exists = await db.get('SELECT id FROM invoices WHERE invoice_number = ? AND provider = ?', [row.Numero, row.Fournisseur]);
+            if (!exists) {
+                await db.run(
+                    'INSERT INTO invoices (invoice_number, provider, amount_ht, date, budget_line_code) VALUES (?, ?, ?, ?, ?)',
+                    [row.Numero, row.Fournisseur, row.Montant, row.Date, row.CodeBudget]
+                );
+                imported++;
+            } else {
+                await db.run(
+                    'UPDATE invoices SET amount_ht = ?, date = ?, budget_line_code = ? WHERE id = ?',
+                    [row.Montant, row.Date, row.CodeBudget, exists.id]
+                );
+                updated++;
+            }
         }
+        res.json({ message: `${imported} factures importées, ${updated} mises à jour (${data.length - imported - updated} ignorées)` });
+    } catch (error) {
+        console.error('Import error:', error);
+        res.status(500).json({ message: 'Erreur lors de l\'import', error: error.message });
     }
-    res.json({ message: `${imported} factures importées, ${updated} mises à jour (${data.length - imported - updated} ignorées)` });
 });
 
 // Orders API

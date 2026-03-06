@@ -1,6 +1,14 @@
 {
-  "currentVersion": "0.1.4",
+  "currentVersion": "0.1.5",
   "history": [
+    {
+      "version": "0.1.5",
+      "date": "2026-03-06",
+      "changes": [
+        "Ajout de gestionnaires d'erreurs globaux (unhandledRejection, uncaughtException) dans le backend pour empêcher l'arrêt inopiné du processus.",
+        "Ajout d'une gestion d'erreur au parsing du localStorage dans le frontend pour éviter les écrans blancs (crash interface)."
+      ]
+    },
     {
       "version": "0.1.4",
       "date": "2026-03-06",
