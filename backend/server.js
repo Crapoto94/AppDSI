@@ -175,7 +175,7 @@ app.delete('/api/links/:id', authenticateAdmin, async (req, res) => {
     res.json({ message: 'Link deleted' });
 });
 
-// Budget & Invoices API
+// Budget & Invoices & Operations API
 app.get('/api/budget/lines', authenticateJWT, async (req, res) => {
     const lines = await db.all('SELECT * FROM budget_lines');
     res.json(lines);
@@ -184,6 +184,11 @@ app.get('/api/budget/lines', authenticateJWT, async (req, res) => {
 app.get('/api/budget/invoices', authenticateJWT, async (req, res) => {
     const invoices = await db.all('SELECT * FROM invoices');
     res.json(invoices);
+});
+
+app.get('/api/budget/operations', authenticateJWT, async (req, res) => {
+    const operations = await db.all('SELECT * FROM operations');
+    res.json(operations);
 });
 
 // Import Budget Lines from Excel
@@ -201,6 +206,7 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
             if (!code) continue; // Skip lines without code
             
             const label = row['Libellé'] || row.Libelle || row.label || row['Désignation'] || '';
+            const section = row['Section'] || row.section || '';
             let amount = row['Budget voté'] || row['Mt. prévision'] || row.Montant || row.allocated_amount || 0;
             if (typeof amount === 'string') amount = parseFloat(amount.replace(/[^0-9,-]+/g, '').replace(',', '.'));
             
@@ -210,14 +216,14 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
             const exists = await db.get('SELECT id FROM budget_lines WHERE code = ? AND year = ?', [code, year]);
             if (!exists) {
                 await db.run(
-                    'INSERT INTO budget_lines (code, label, allocated_amount, year) VALUES (?, ?, ?, ?)',
-                    [code, label, amount, year]
+                    'INSERT INTO budget_lines (code, label, section, allocated_amount, year) VALUES (?, ?, ?, ?, ?)',
+                    [code, label, section, amount, year]
                 );
                 imported++;
             } else {
                 await db.run(
-                    'UPDATE budget_lines SET label = ?, allocated_amount = ? WHERE id = ?',
-                    [label, amount, exists.id]
+                    'UPDATE budget_lines SET label = ?, section = ?, allocated_amount = ? WHERE id = ?',
+                    [label, section, amount, exists.id]
                 );
                 updated++;
             }
@@ -240,18 +246,29 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
         let imported = 0;
         let updated = 0;
         for (const row of data) {
+            const invoice_number = row['N° Facture interne'] || row.Numero || row.invoice_number;
+            const provider = row.Fournisseur || row.provider;
+            if (!invoice_number || !provider) continue;
+
+            const libelle = row['Libellé'] || row.libelle || '';
+            const amount_ht = row['Montant HT'] || row.Montant || row.amount_ht || 0;
+            const amount_ttc = row['Montant TTC'] || row.amount_ttc || 0;
+            const status = row.Etat || row.status || 'Payée';
+            const service = row.Service || row.service || '';
+            const date = row['Emission       '] || row.Date || row.date || '';
+
             // Check if exists
-            const exists = await db.get('SELECT id FROM invoices WHERE invoice_number = ? AND provider = ?', [row.Numero, row.Fournisseur]);
+            const exists = await db.get('SELECT id FROM invoices WHERE invoice_number = ? AND provider = ?', [invoice_number, provider]);
             if (!exists) {
                 await db.run(
-                    'INSERT INTO invoices (invoice_number, provider, amount_ht, date, budget_line_code) VALUES (?, ?, ?, ?, ?)',
-                    [row.Numero, row.Fournisseur, row.Montant, row.Date, row.CodeBudget]
+                    'INSERT INTO invoices (invoice_number, provider, libelle, amount_ht, amount_ttc, date, status, service, budget_line_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [invoice_number, provider, libelle, amount_ht, amount_ttc, date, status, service, row.CodeBudget]
                 );
                 imported++;
             } else {
                 await db.run(
-                    'UPDATE invoices SET amount_ht = ?, date = ?, budget_line_code = ? WHERE id = ?',
-                    [row.Montant, row.Date, row.CodeBudget, exists.id]
+                    'UPDATE invoices SET libelle = ?, amount_ht = ?, amount_ttc = ?, date = ?, status = ?, service = ?, budget_line_code = ? WHERE id = ?',
+                    [libelle, amount_ht, amount_ttc, date, status, service, row.CodeBudget, exists.id]
                 );
                 updated++;
             }
@@ -346,7 +363,7 @@ app.post('/api/column-settings/:page/bulk', authenticateAdminOrFinances, async (
 
 // Raw Table API
 app.get('/api/raw-data/:table', authenticateAdminOrFinances, async (req, res) => {
-    const allowedTables = ['orders', 'budget_lines', 'invoices', 'm57_plan'];
+    const allowedTables = ['orders', 'budget_lines', 'invoices', 'm57_plan', 'operations'];
     if (!allowedTables.includes(req.params.table)) return res.status(403).json({ message: 'Table non autorisée' });
     
     try {

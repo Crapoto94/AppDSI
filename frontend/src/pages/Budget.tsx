@@ -14,16 +14,18 @@ interface ColumnSetting {
 }
 
 const Budget: React.FC = () => {
-  const [view, setView] = useState<'summary' | 'lines' | 'invoices' | 'orders' | 'gestion'>('summary');
+  const [view, setView] = useState<'summary' | 'lines' | 'invoices' | 'orders' | 'operations' | 'gestion'>('summary');
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
   const [budgetLines, setBudgetLines] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [operations, setOperations] = useState<any[]>([]);
   const [m57Plan, setM57Plan] = useState<any[]>([]);
   const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
   
   const [showM57, setShowM57] = useState(false);
+  // ... rest of state
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [message, setMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -121,16 +123,18 @@ const Budget: React.FC = () => {
 
   const fetchData = async () => {
     const headers = { 'Authorization': `Bearer ${token}` };
-    const [linesRes, invoicesRes, ordersRes, m57Res] = await Promise.all([
+    const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res] = await Promise.all([
       fetch('http://localhost:3001/api/budget/lines', { headers }),
       fetch('http://localhost:3001/api/budget/invoices', { headers }),
       fetch('http://localhost:3001/api/orders', { headers }),
+      fetch('http://localhost:3001/api/budget/operations', { headers }),
       fetch('http://localhost:3001/api/m57-plan', { headers })
     ]);
     
     if (linesRes.ok) setBudgetLines(await linesRes.json());
     if (invoicesRes.ok) setInvoices(await invoicesRes.json());
     if (ordersRes.ok) setOrders(await ordersRes.json());
+    if (operationsRes.ok) setOperations(await operationsRes.json());
     if (m57Res.ok) setM57Plan(await m57Res.json());
   };
 
@@ -139,7 +143,7 @@ const Budget: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (['lines', 'invoices', 'orders'].includes(view)) {
+    if (['lines', 'invoices', 'orders', 'operations'].includes(view)) {
       fetch(`http://localhost:3001/api/column-settings/${view}`, { headers: { 'Authorization': `Bearer ${token}` } })
         .then(res => res.json())
         .then(cols => {
@@ -149,8 +153,8 @@ const Budget: React.FC = () => {
             }
             if (a.column_key === 'num') return -1;
             if (b.column_key === 'num') return 1;
-            if (a.column_key === 'Libellé') return -1;
-            if (b.column_key === 'Libellé') return 1;
+            if (a.column_key === 'Libellé' || a.column_key === 'label' || a.column_key === 'libelle') return -1;
+            if (b.column_key === 'Libellé' || b.column_key === 'label' || b.column_key === 'libelle') return 1;
             return 0;
           });
           setColumnSettings(sortedCols);
@@ -160,7 +164,7 @@ const Budget: React.FC = () => {
 
   useEffect(() => {
     if (isRaw) {
-      const tableMap: any = { 'lines': 'budget_lines', 'invoices': 'invoices', 'orders': 'orders' };
+      const tableMap: any = { 'lines': 'budget_lines', 'invoices': 'invoices', 'orders': 'orders', 'operations': 'operations' };
       if (tableMap[view]) fetchRawData(tableMap[view]);
     }
   }, [isRaw, view]);
@@ -342,7 +346,7 @@ const Budget: React.FC = () => {
   });
 
   const filteredData = useMemo(() => {
-    let data = view === 'lines' ? budgetLines : view === 'invoices' ? invoices : filteredOrders;
+    let data = view === 'lines' ? budgetLines : view === 'invoices' ? invoices : view === 'operations' ? operations : filteredOrders;
     
     if (view !== 'orders') {
       const sTerm = searchTerm.toLowerCase();
@@ -365,11 +369,11 @@ const Budget: React.FC = () => {
       }
     }
     return data;
-  }, [view, budgetLines, invoices, filteredOrders, searchTerm, columnFilters, sortConfig]);
+  }, [view, budgetLines, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig]);
 
   const getRowClass = (section: string) => {
-    if (section === 'Fonctionnement') return 'row-operating';
-    if (section === 'Investissement') return 'row-investment';
+    if (section === 'Fonctionnement' || section === 'F') return 'row-operating';
+    if (section === 'Investissement' || section === 'I') return 'row-investment';
     return '';
   };
 
@@ -383,7 +387,7 @@ const Budget: React.FC = () => {
             <p className="page-subtitle">Gérez vos lignes budgétaires, factures et commandes centralisées.</p>
           </div>
           <div className="view-tabs">
-            {['summary', 'lines', 'invoices', 'orders', 'gestion'].map(tab => {
+            {['summary', 'lines', 'invoices', 'orders', 'operations', 'gestion'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
               if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(user.role)) return null;
               return (
@@ -396,6 +400,7 @@ const Budget: React.FC = () => {
                 {tab === 'lines' && 'Lignes'}
                 {tab === 'invoices' && 'Factures'}
                 {tab === 'orders' && 'Commandes'}
+                {tab === 'operations' && 'Opérations'}
                 {tab === 'gestion' && 'Gestion'}
               </button>
             )})}
@@ -461,39 +466,84 @@ const Budget: React.FC = () => {
             )}
 
             {view === 'summary' && (
-              <div className="dashboard-grid">
-                <div className="dashboard-card primary">
-                  <div className="card-icon"><Euro size={24} /></div>
-                  <div className="card-content">
-                    <h3 className="card-title">Budget Alloué Total</h3>
-                    <p className="card-value">{budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0).toLocaleString()} €</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                <div className="dashboard-grid">
+                  <div className="dashboard-card primary" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div className="card-icon"><Euro size={24} /></div>
+                      <div>
+                        <h3 className="card-title">Budget Alloué Total</h3>
+                        <p className="card-value">{budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0).toLocaleString()} €</p>
+                      </div>
+                    </div>
+                    <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
+                      <span>Fonc: {budgetLines.filter(l => l.section === 'F').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0).toLocaleString()} €</span>
+                      <span>Inv: {budgetLines.filter(l => l.section === 'I').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0).toLocaleString()} €</span>
+                    </div>
+                  </div>
+                  <div className="dashboard-card secondary" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <div className="card-icon"><ShoppingCart size={24} /></div>
+                      <div>
+                        <h3 className="card-title">Total Commandé (TTC)</h3>
+                        <p className="card-value">{orders.reduce((acc, curr) => acc + (parseFloat(curr['Montant TTC']) || 0), 0).toLocaleString()} €</p>
+                      </div>
+                    </div>
+                    <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
+                      <span>Fonc: {orders.filter(o => o.Section === 'F' || o.section === 'F').reduce((acc, curr) => acc + (parseFloat(curr['Montant TTC']) || 0), 0).toLocaleString()} €</span>
+                      <span>Inv: {orders.filter(o => o.Section === 'I' || o.section === 'I').reduce((acc, curr) => acc + (parseFloat(curr['Montant TTC']) || 0), 0).toLocaleString()} €</span>
+                    </div>
+                  </div>
+                  <div className="dashboard-card warning">
+                    <div className="card-icon"><FileText size={24} /></div>
+                    <div className="card-content">
+                      <h3 className="card-title">Total Facturé</h3>
+                      <p className="card-value">{invoices.reduce((acc, curr) => acc + (curr.amount_ht || 0), 0).toLocaleString()} €</p>
+                    </div>
+                  </div>
+                  <div className="dashboard-card neutral">
+                    <div className="card-icon"><Activity size={24} /></div>
+                    <div className="card-content">
+                      <h3 className="card-title">Volume de Commandes</h3>
+                      <p className="card-value">{groupedOrders.length} <span className="card-subvalue">dossiers</span></p>
+                    </div>
                   </div>
                 </div>
-                <div className="dashboard-card secondary">
-                  <div className="card-icon"><ShoppingCart size={24} /></div>
-                  <div className="card-content">
-                    <h3 className="card-title">Total Commandé (TTC)</h3>
-                    <p className="card-value">{orders.reduce((acc, curr) => acc + (parseFloat(curr['Montant TTC']) || 0), 0).toLocaleString()} €</p>
+
+                <div className="table-card">
+                  <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Montants Votés (Inclus reports)</h3>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* Ces montants incluent les reports de l'exercice précédent</span>
                   </div>
-                </div>
-                <div className="dashboard-card warning">
-                  <div className="card-icon"><FileText size={24} /></div>
-                  <div className="card-content">
-                    <h3 className="card-title">Total Facturé</h3>
-                    <p className="card-value">{invoices.reduce((acc, curr) => acc + (curr.amount_ht || 0), 0).toLocaleString()} €</p>
-                  </div>
-                </div>
-                <div className="dashboard-card neutral">
-                  <div className="card-icon"><Activity size={24} /></div>
-                  <div className="card-content">
-                    <h3 className="card-title">Volume de Commandes</h3>
-                    <p className="card-value">{groupedOrders.length} <span className="card-subvalue">dossiers</span></p>
+                  <div className="table-responsive" style={{ maxHeight: '400px' }}>
+                    <table className="modern-table">
+                      <thead>
+                        <tr>
+                          <th>Code</th>
+                          <th>Libellé</th>
+                          <th style={{ textAlign: 'center' }}>Sect.</th>
+                          <th style={{ textAlign: 'right' }}>Budget Voté</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {budgetLines.filter(l => (l.allocated_amount || 0) > 0).sort((a,b) => b.allocated_amount - a.allocated_amount).map(line => (
+                          <tr key={line.id}>
+                            <td style={{ fontWeight: 600, color: 'var(--color-navy)' }}>{line.code}</td>
+                            <td>{line.label}</td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span className={`section-badge ${line.section === 'F' ? 'f' : 'i'}`}>{line.section}</span>
+                            </td>
+                            <td style={{ textAlign: 'right', fontWeight: 800 }}>{(line.allocated_amount || 0).toLocaleString()} €</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
             )}
 
-            {['lines', 'invoices', 'orders'].includes(view) && (
+            {['lines', 'invoices', 'orders', 'operations'].includes(view) && (
               <div className="orders-container">
                 <div className="toolbar">
                   <div className="toolbar-actions">
@@ -600,16 +650,16 @@ const Budget: React.FC = () => {
                                         {(sec === 'Fonctionnement' || sec === 'F') ? 'F' : 'I'}
                                       </span>
                                     );
-                                  } else if (col.column_key === 'status' || col.column_key === 'Etat') {
-                                    content = <span className="badge status">{row[col.column_key]}</span>;
-                                  } else if (col.column_key === 'Montant HT' || col.column_key === 'amount_ht') {
+                                  } else if (col.column_key === 'status' || col.column_key === 'Etat' || col.column_key === 'termine') {
+                                    const val = row[col.column_key];
+                                    const isDone = val === 1 || val === 'OUI' || val === 'Payée';
+                                    content = <span className={`badge ${isDone ? 'success' : 'status'}`}>{isDone ? 'Terminé' : (val === 0 || val === 'NON') ? 'En cours' : val}</span>;
+                                  } else if (col.column_key === 'Montant HT' || col.column_key === 'amount_ht' || col.column_key === 'montant_prevu' || col.column_key === 'allocated_amount') {
                                     const val = view === 'orders' ? row._total_ht : row[col.column_key];
                                     content = <span className="amount-ht">{(val || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
-                                  } else if (col.column_key === 'Montant TTC') {
+                                  } else if (col.column_key === 'Montant TTC' || col.column_key === 'amount_ttc' || col.column_key === 'solde') {
                                     const val = view === 'orders' ? row._total_ttc : row[col.column_key];
                                     content = <span className="amount-ttc">{(val || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
-                                  } else if (col.column_key === 'allocated_amount') {
-                                    content = <span className="amount-ht">{(row[col.column_key] || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
                                   } else if (col.column_key === 'date' || col.column_key === 'Date de la commande') {
                                     if (row[col.column_key]) {
                                       const d = new Date(row[col.column_key]);
@@ -617,10 +667,11 @@ const Budget: React.FC = () => {
                                         content = d.toLocaleDateString('fr-FR', { year: '2-digit', month: '2-digit', day: '2-digit' });
                                       }
                                     }
-                                  } else if (col.column_key === 'Libellé' || col.column_key === 'label') {
+                                  } else if (col.column_key === 'Libellé' || col.column_key === 'label' || col.column_key === 'libelle') {
                                     tooltip = row[col.column_key];
                                     cellStyle = { ...cellStyle, maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
-                                  } else if (col.column_key === 'Désignation' || col.column_key === 'description') {
+                                  }
+ else if (col.column_key === 'Désignation' || col.column_key === 'description') {
                                     if (view === 'orders') {
                                       content = (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1305,6 +1356,7 @@ const Budget: React.FC = () => {
         }
         .badge.year { background: var(--color-slate-100); color: var(--color-slate-600); }
         .badge.status { background: var(--color-slate-100); color: var(--color-slate-700); }
+        .badge.success { background: var(--color-green-50); color: var(--color-green-500); border: 1px solid #bbf7d0; }
         .badge.neutral { background: white; border: 1px solid var(--color-slate-200); color: var(--color-slate-600); }
 
         .amount-ht { font-weight: 800; color: var(--color-navy); }

@@ -57,6 +57,7 @@ async function setupDb() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT,
             label TEXT,
+            section TEXT,
             allocated_amount REAL,
             year INTEGER
         );
@@ -65,9 +66,12 @@ async function setupDb() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             invoice_number TEXT,
             provider TEXT,
+            libelle TEXT,
             amount_ht REAL,
+            amount_ttc REAL,
             date TEXT,
             status TEXT DEFAULT 'En attente',
+            service TEXT,
             budget_line_code TEXT
         );
 
@@ -99,6 +103,8 @@ async function setupDb() {
         CREATE TABLE IF NOT EXISTS operations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             service TEXT,
+            service_complement TEXT,
+            mco TEXT,
             nature TEXT,
             libelle TEXT,
             chapitre_fonction TEXT,
@@ -122,25 +128,61 @@ async function setupDb() {
     for (const col of columns) {
         try {
             await db.run(`ALTER TABLE orders ADD COLUMN "${col}" TEXT`);
-            console.log(`Added column ${col}`);
+            // console.log(`Added column ${col}`);
         } catch (e) {
             // Column already exists
         }
     }
 
-    // Initialize/Update column settings for budget_lines
-    const budgetTableCols = await db.all("PRAGMA table_info(budget_lines)");
-    for (const col of budgetTableCols) {
-        if (col.name !== 'id') {
-            try {
-                await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['budget_lines', col.name, col.name, 1]);
-            } catch (e) {}
+    // Migration for budget_lines table
+    try {
+        await db.run('ALTER TABLE budget_lines ADD COLUMN section TEXT');
+    } catch (e) {}
+
+    // Migration for invoices table
+    const invCols = [
+        { name: "libelle", type: "TEXT" },
+        { name: "amount_ttc", type: "REAL" },
+        { name: "service", type: "TEXT" }
+    ];
+    for (const col of invCols) {
+        try {
+            await db.run(`ALTER TABLE invoices ADD COLUMN ${col.name} ${col.type}`);
+        } catch (e) {}
+    }
+
+    // Migration for operations table
+    const opCols = [
+        { name: "service_complement", type: "TEXT" },
+        { name: "mco", type: "TEXT" }
+    ];
+    for (const col of opCols) {
+        try {
+            await db.run(`ALTER TABLE operations ADD COLUMN ${col.name} ${col.type}`);
+        } catch (e) {
+            // Already exists
         }
     }
 
-    // Initialize/Update column settings for orders
-    const colCount = await db.get('SELECT COUNT(*) as count FROM column_settings WHERE page = "orders"');
-    
+    // Initialize/Update column settings for all main tables
+    const tableConfigs = [
+        { page: 'lines', table: 'budget_lines' },
+        { page: 'invoices', table: 'invoices' },
+        { page: 'orders', table: 'orders' },
+        { page: 'operations', table: 'operations' }
+    ];
+
+    for (const config of tableConfigs) {
+        const tableCols = await db.all(`PRAGMA table_info(${config.table})`);
+        for (const col of tableCols) {
+            if (col.name !== 'id') {
+                try {
+                    await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', [config.page, col.name, col.name, 1]);
+                } catch (e) {}
+            }
+        }
+    }
+
     // Migration for column_settings
     const csCols = await db.all("PRAGMA table_info(column_settings)");
     const csColNames = csCols.map(c => c.name);
