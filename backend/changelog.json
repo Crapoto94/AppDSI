@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.1.11",
+  "currentVersion": "0.1.12",
   "history": [
+    {
+      "version": "0.1.12",
+      "date": "2026-03-06",
+      "changes": [
+        "Redéfinition complète de la table des lignes budgétaires pour correspondre exactement aux colonnes du fichier Liste_des_lignes_d_exécution.xls.",
+        "Mise à jour du moteur d'importation pour les lignes budgétaires afin de supporter dynamiquement toutes les colonnes du fichier Excel.",
+        "Amélioration de l'affichage des montants financiers (Budget voté, Disponible, Mt. prévision, etc.) avec formatage monétaire."
+      ]
+    },
     {
       "version": "0.1.11",
       "date": "2026-03-06",

@@ -678,9 +678,17 @@ const Budget: React.FC = () => {
                                     const val = row[col.column_key];
                                     const isDone = val === 1 || val === 'OUI' || val === 'Payée';
                                     content = <span className={`badge ${isDone ? 'success' : 'status'}`}>{isDone ? 'Terminé' : (val === 0 || val === 'NON') ? 'En cours' : val}</span>;
-                                  } else if (col.column_key === 'Montant HT' || col.column_key === 'amount_ht' || col.column_key === 'montant_prevu' || col.column_key === 'allocated_amount') {
+                                  } else if (
+                                    col.column_key === 'Montant HT' || col.column_key === 'amount_ht' || 
+                                    col.column_key === 'montant_prevu' || col.column_key === 'allocated_amount' ||
+                                    col.column_key === 'Budget voté' || col.column_key === 'Disponible' ||
+                                    col.column_key === 'Mt. prévision' || col.column_key === 'Mt. pré-engagé' ||
+                                    col.column_key === 'Mt. engagé' || col.column_key === 'Mt. facturé' ||
+                                    col.column_key === 'Mt. pré-mandaté' || col.column_key === 'Mt. mandaté' ||
+                                    col.column_key === 'Mt. payé'
+                                  ) {
                                     const val = view === 'orders' ? row._total_ht : row[col.column_key];
-                                    content = <span className="amount-ht">{(val || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
+                                    content = <span className="amount-ht">{(parseFloat(val) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
                                   } else if (col.column_key === 'Montant TTC' || col.column_key === 'amount_ttc' || col.column_key === 'solde') {
                                     const val = view === 'orders' ? row._total_ttc : row[col.column_key];
                                     content = <span className="amount-ttc">{(val || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;

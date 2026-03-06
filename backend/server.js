@@ -201,29 +201,56 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
 
         let imported = 0;
         let updated = 0;
+
+        // Ensure table has all necessary columns from Excel
+        if (data.length > 0) {
+            const excelCols = Object.keys(data[0]);
+            for (const col of excelCols) {
+                try {
+                    await db.run(`ALTER TABLE budget_lines ADD COLUMN "${col}" TEXT`);
+                } catch (e) {}
+                try {
+                    await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['lines', col, col, 1]);
+                } catch (e) {}
+            }
+        }
+
         for (const row of data) {
             const code = row.Code || row.code;
             if (!code) continue; // Skip lines without code
             
+            const year = row.Annee || row.year || row.Exercice || 2026;
+            row.year = year;
+
+            // Map standard fields for backwards compatibility/internal logic
             const label = row['Libellé'] || row.Libelle || row.label || row['Désignation'] || '';
             const section = row['Section'] || row.section || '';
             let amount = row['Budget voté'] || row['Mt. prévision'] || row.Montant || row.allocated_amount || 0;
             if (typeof amount === 'string') amount = parseFloat(amount.replace(/[^0-9,-]+/g, '').replace(',', '.'));
             
-            const year = row.Annee || row.year || row.Exercice || 2026;
+            row.code = code;
+            row.label = label;
+            row.section = section;
+            row.allocated_amount = amount;
 
             // Check if exists
-            const exists = await db.get('SELECT id FROM budget_lines WHERE code = ? AND year = ?', [code, year]);
+            const exists = await db.get('SELECT id FROM budget_lines WHERE "Code" = ? AND year = ?', [code, year]);
+            
+            const cols = Object.keys(row);
+            const vals = Object.values(row);
+            const placeholders = cols.map(() => '?').join(',');
+
             if (!exists) {
                 await db.run(
-                    'INSERT INTO budget_lines (code, label, section, allocated_amount, year) VALUES (?, ?, ?, ?, ?)',
-                    [code, label, section, amount, year]
+                    `INSERT INTO budget_lines (${cols.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`,
+                    vals
                 );
                 imported++;
             } else {
+                const updateStr = cols.map(c => `"${c}" = ?`).join(',');
                 await db.run(
-                    'UPDATE budget_lines SET label = ?, section = ?, allocated_amount = ? WHERE id = ?',
-                    [label, section, amount, exists.id]
+                    `UPDATE budget_lines SET ${updateStr} WHERE id = ?`,
+                    [...vals, exists.id]
                 );
                 updated++;
             }

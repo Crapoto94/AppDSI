@@ -55,10 +55,28 @@ async function setupDb() {
 
         CREATE TABLE IF NOT EXISTS budget_lines (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT,
-            label TEXT,
-            section TEXT,
-            allocated_amount REAL,
+            "Code" TEXT,
+            "Libellé" TEXT,
+            "Masque" TEXT,
+            "Sens" TEXT,
+            "Section" TEXT,
+            "Article par nature" TEXT,
+            "Chapitre par nature" TEXT,
+            "Référence Fonctionnelle" TEXT,
+            "Opération d'équipement" TEXT,
+            "Service Gestionnaire" TEXT,
+            "EQUIPEMENT" TEXT,
+            "TVA" TEXT,
+            "JE" TEXT,
+            "Budget voté" REAL,
+            "Disponible" REAL,
+            "Mt. prévision" REAL,
+            "Mt. pré-engagé" REAL,
+            "Mt. engagé" REAL,
+            "Mt. facturé" REAL,
+            "Mt. pré-mandaté" REAL,
+            "Mt. mandaté" REAL,
+            "Mt. payé" REAL,
             year INTEGER
         );
 
