@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.1.15",
+  "currentVersion": "0.1.16",
   "history": [
+    {
+      "version": "0.1.16",
+      "date": "2026-03-06",
+      "changes": [
+        "Intégration complète des données du fichier opérations.xlsx dans la base de données.",
+        "Stabilisation de la logique d'initialisation et de migration de la base de données pour éviter les erreurs SQLITE (colonnes dupliquées).",
+        "Amélioration de la cohérence du schéma pour les tables de suivi budgétaire."
+      ]
+    },
     {
       "version": "0.1.15",
       "date": "2026-03-06",

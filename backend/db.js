@@ -1,7 +1,6 @@
 const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
 const bcrypt = require('bcryptjs');
-
 const path = require('path');
 
 async function setupDb() {
@@ -10,29 +9,29 @@ async function setupDb() {
         driver: sqlite3.Database
     });
 
+    // Create tables
     await db.exec(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
             password TEXT,
             role TEXT DEFAULT 'user',
-            last_action TEXT
+            last_activity DATETIME
         );
 
-        CREATE TABLE IF NOT EXISTS import_history (
+        CREATE TABLE IF NOT EXISTS import_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT, -- 'lines', 'invoices', 'orders'
-            user_id INTEGER,
-            username TEXT,
-            timestamp TEXT,
-            filename TEXT
+            imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            username TEXT
         );
 
         CREATE TABLE IF NOT EXISTS m57_plan (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT UNIQUE,
             label TEXT,
-            section TEXT
+            section TEXT,
+            type TEXT
         );
 
         CREATE TABLE IF NOT EXISTS tiles (
@@ -77,13 +76,26 @@ async function setupDb() {
             "Mt. pré-mandaté" REAL,
             "Mt. mandaté" REAL,
             "Mt. payé" REAL,
-            year INTEGER
+            year INTEGER,
+            code TEXT, -- compat
+            label TEXT, -- compat
+            section TEXT, -- compat
+            allocated_amount REAL -- compat
         );
 
-    // Clear and recreate invoices table with exact columns
-    await db.run('DROP TABLE IF EXISTS invoices');
-    await db.run(`
-        CREATE TABLE invoices (
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            "Organisme" TEXT, "Budget" TEXT, "Exercice" TEXT, "N° Commande" TEXT, "Fournisseur" TEXT, "Libellé" TEXT,
+            "Date de la commande" TEXT, "Date de livraison" TEXT, "Marché" TEXT, "Tranche" TEXT, "Service émetteur" TEXT,
+            "Service de facturation" TEXT, "Service gestionnaire" TEXT, "N° ligne" TEXT, "Quantité" TEXT, "Prix unitaire" TEXT,
+            "Remise" TEXT, "Unité" TEXT, "Montant HT" TEXT, "Montant TVA" TEXT, "Montant TTC" TEXT, "Taux" TEXT,
+            "Imputation" TEXT, "Sens" TEXT, "Section" TEXT, "Chapitre par fonction" TEXT, "Article par fonction" TEXT,
+            "Article par nature" TEXT, "Opération d'équipement" TEXT, "Service Destinataire" TEXT,
+            "Nomenclature d'achat" TEXT, "Etat" TEXT, "Edité" TEXT, "Engagée" TEXT, "Désignation" TEXT,
+            order_number TEXT, description TEXT, provider TEXT, amount_ht REAL, date TEXT, status TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS invoices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             "Collectivité" TEXT,
             "Budget" TEXT,
@@ -106,50 +118,12 @@ async function setupDb() {
             "Marché" TEXT,
             "Service" TEXT,
             "Utilisateur" TEXT,
-            invoice_number TEXT, -- mapping for compat
-            provider TEXT -- mapping for compat
-        );
-    `);
-
-    // Import logs table
-    await db.run(`
-        CREATE TABLE IF NOT EXISTS import_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT, -- 'lines', 'invoices', 'orders'
-            imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            username TEXT
-        )
-    `);
-
-    // Add last_activity to users
-    const userCols = await db.all("PRAGMA table_info(users)");
-    if (!userCols.map(c => c.name).includes('last_activity')) {
-        await db.run('ALTER TABLE users ADD COLUMN last_activity DATETIME');
-    }
-
-        CREATE TABLE IF NOT EXISTS orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            "Organisme" TEXT, "Budget" TEXT, "Exercice" TEXT, "N° Commande" TEXT, "Fournisseur" TEXT, "Libellé" TEXT,
-            "Date de la commande" TEXT, "Date de livraison" TEXT, "Marché" TEXT, "Tranche" TEXT, "Service émetteur" TEXT,
-            "Service de facturation" TEXT, "Service gestionnaire" TEXT, "N° ligne" TEXT, "Quantité" TEXT, "Prix unitaire" TEXT,
-            "Remise" TEXT, "Unité" TEXT, "Montant HT" TEXT, "Montant TVA" TEXT, "Montant TTC" TEXT, "Taux" TEXT,
-            "Imputation" TEXT, "Sens" TEXT, "Section" TEXT, "Chapitre par fonction" TEXT, "Article par fonction" TEXT,
-            "Article par nature" TEXT, "Opération d'équipement" TEXT, "Service Destinataire" TEXT,
-            "Nomenclature d'achat" TEXT, "Etat" TEXT, "Edité" TEXT, "Engagée" TEXT, "Désignation" TEXT,
-            -- Old column mappings for backwards compatibility if needed
-            order_number TEXT, description TEXT, provider TEXT, amount_ht REAL, date TEXT, status TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS column_settings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            page TEXT,
-            column_key TEXT,
-            label TEXT,
-            is_visible BOOLEAN DEFAULT 1,
-            display_order INTEGER DEFAULT 0,
-            color TEXT,
-            is_bold BOOLEAN DEFAULT 0,
-            UNIQUE(page, column_key)
+            invoice_number TEXT,
+            provider TEXT,
+            libelle TEXT,
+            amount_ht REAL,
+            amount_ttc REAL,
+            service TEXT
         );
 
         CREATE TABLE IF NOT EXISTS operations (
@@ -165,10 +139,48 @@ async function setupDb() {
             solde REAL DEFAULT 0,
             commentaire TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS column_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            page TEXT,
+            column_key TEXT,
+            label TEXT,
+            is_visible BOOLEAN DEFAULT 1,
+            display_order INTEGER DEFAULT 0,
+            color TEXT,
+            is_bold BOOLEAN DEFAULT 0,
+            is_italic BOOLEAN DEFAULT 0,
+            UNIQUE(page, column_key)
+        );
     `);
 
-    // Helper to add missing columns to existing orders table if needed
-    const columns = [
+    // Migrations / Column Checks
+    const tables = ['users', 'budget_lines', 'orders', 'invoices', 'operations', 'column_settings'];
+    const columnsToAdd = {
+        users: [{ name: 'last_activity', type: 'DATETIME' }],
+        budget_lines: [],
+        invoices: [],
+        operations: [],
+        column_settings: [
+            { name: 'display_order', type: 'INTEGER DEFAULT 0' },
+            { name: 'color', type: 'TEXT' },
+            { name: 'is_bold', type: 'BOOLEAN DEFAULT 0' },
+            { name: 'is_italic', type: 'BOOLEAN DEFAULT 0' }
+        ]
+    };
+
+    for (const table in columnsToAdd) {
+        const tableCols = await db.all(`PRAGMA table_info(${table})`);
+        const existingNames = tableCols.map(c => c.name);
+        for (const col of columnsToAdd[table]) {
+            if (!existingNames.includes(col.name)) {
+                await db.run(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.type}`);
+            }
+        }
+    }
+
+    // Special case for orders table which has many columns
+    const orderColumns = [
         "Organisme","Budget","Exercice","N° Commande","Fournisseur","Libellé","Date de la commande",
         "Date de livraison","Marché","Tranche","Service émetteur","Service de facturation",
         "Service gestionnaire","N° ligne","Quantité","Prix unitaire","Remise","Unité",
@@ -176,43 +188,17 @@ async function setupDb() {
         "Chapitre par fonction","Article par fonction","Article par nature","Opération d'équipement",
         "Service Destinataire","Nomenclature d'achat","Etat","Edité","Engagée","Désignation"
     ];
-
-    for (const col of columns) {
-        try {
-            await db.run(`ALTER TABLE orders ADD COLUMN "${col}" TEXT`);
-            // console.log(`Added column ${col}`);
-        } catch (e) {
-            // Column already exists
-        }
-    }
-
-    // Migration for budget_lines table
-    try {
-        await db.run('ALTER TABLE budget_lines ADD COLUMN section TEXT');
-    } catch (e) {}
-
-    // Migration for invoices table
-    const invCols = [
-        { name: "libelle", type: "TEXT" },
-        { name: "amount_ttc", type: "REAL" },
-        { name: "service", type: "TEXT" }
-    ];
-    for (const col of invCols) {
-        try {
-            await db.run(`ALTER TABLE invoices ADD COLUMN ${col.name} ${col.type}`);
-        } catch (e) {}
-    }
-
-    // Migration for operations table
-    const opCols = [
-        { name: "service_complement", type: "TEXT" },
-        { name: "mco", type: "TEXT" }
-    ];
-    for (const col of opCols) {
-        try {
-            await db.run(`ALTER TABLE operations ADD COLUMN ${col.name} ${col.type}`);
-        } catch (e) {
-            // Already exists
+    // Re-check info to be sure
+    const orderTableCols = await db.all(`PRAGMA table_info(orders)`);
+    const existingOrderColNames = orderTableCols.map(c => c.name);
+    
+    for (const col of orderColumns) {
+        if (!existingOrderColNames.includes(col)) {
+            try {
+                await db.run(`ALTER TABLE orders ADD COLUMN "${col}" TEXT`);
+            } catch (e) {
+                // Ignore errors like duplicate column if race condition
+            }
         }
     }
 
@@ -228,40 +214,12 @@ async function setupDb() {
         const tableCols = await db.all(`PRAGMA table_info(${config.table})`);
         for (const col of tableCols) {
             if (col.name !== 'id') {
-                try {
-                    await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', [config.page, col.name, col.name, 1]);
-                } catch (e) {}
+                await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', [config.page, col.name, col.name, 1]);
             }
         }
     }
 
-    // Migration for column_settings
-    const csCols = await db.all("PRAGMA table_info(column_settings)");
-    const csColNames = csCols.map(c => c.name);
-    if (!csColNames.includes('display_order')) await db.run('ALTER TABLE column_settings ADD COLUMN display_order INTEGER DEFAULT 0');
-    if (!csColNames.includes('color')) await db.run('ALTER TABLE column_settings ADD COLUMN color TEXT');
-    if (!csColNames.includes('is_bold')) await db.run('ALTER TABLE column_settings ADD COLUMN is_bold BOOLEAN DEFAULT 0');
-    if (!csColNames.includes('is_italic')) await db.run('ALTER TABLE column_settings ADD COLUMN is_italic BOOLEAN DEFAULT 0');
-
-    // If not empty, we might want to refresh to include ALL columns
-    for (const col of columns) {
-        try {
-            await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['orders', col, col, 1]);
-        } catch (e) {}
-    }
-    
-    // Add old ones if missing for consistency
-    const oldCols = ["section", "order_number", "description", "provider", "date", "amount_ht", "status", "exercice", "service_emetteur"];
-    for (const col of oldCols) {
-        try {
-            await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['orders', col, col, 1]);
-        } catch (e) {}
-    }
-
-    // Clear orders as requested - REMOVED to persist data
-    // await db.run('DELETE FROM orders');
-
-    // Update specific column labels as requested
+    // Update specific column labels for orders
     await db.run("UPDATE column_settings SET label = 'num' WHERE page = 'orders' AND column_key = 'N° Commande'");
     await db.run("UPDATE column_settings SET label = 'tiers' WHERE page = 'orders' AND column_key = 'Fournisseur'");
     await db.run("UPDATE column_settings SET label = 'service' WHERE page = 'orders' AND column_key = 'Service émetteur'");
