@@ -77,9 +77,6 @@ async function setupDb() {
             "Mt. mandaté" REAL,
             "Mt. payé" REAL,
             year INTEGER,
-            code TEXT,
-            label TEXT,
-            section TEXT,
             allocated_amount REAL
         );
 

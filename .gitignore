@@ -9,9 +9,9 @@ frontend/dist-ssr/
 *.local
 
 # Fichiers de base de données (Backend)
-backend/*.sqlite
-backend/*.db
-backend/*.db-journal
+# backend/*.sqlite
+# backend/*.db
+# backend/*.db-journal
 
 # Fichiers uploadés par les utilisateurs
 backend/uploads/

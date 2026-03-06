@@ -199,55 +199,68 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
         const sheetName = workbook.SheetNames[0];
         const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { cellDates: true });
 
+        if (data.length === 0) return res.json({ message: 'Le fichier est vide' });
+
+        // Ensure table has all necessary columns from Excel
+        const excelCols = Object.keys(data[0]);
+        for (const col of excelCols) {
+            try {
+                await db.run(`ALTER TABLE budget_lines ADD COLUMN "${col}" TEXT`);
+            } catch (e) {}
+            try {
+                await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['lines', col, col, 1]);
+            } catch (e) {}
+        }
+
+        // Get actual table columns after potential alterations
+        const tableColsInfo = await db.all("PRAGMA table_info(budget_lines)");
+        const tableCols = tableColsInfo.map(c => c.name);
+
         let imported = 0;
         let updated = 0;
 
-        // Ensure table has all necessary columns from Excel
-        if (data.length > 0) {
-            const excelCols = Object.keys(data[0]);
-            for (const col of excelCols) {
-                try {
-                    await db.run(`ALTER TABLE budget_lines ADD COLUMN "${col}" TEXT`);
-                } catch (e) {}
-                try {
-                    await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['lines', col, col, 1]);
-                } catch (e) {}
-            }
-        }
-
         for (const row of data) {
-            const code = row.Code || row.code;
-            if (!code) continue; // Skip lines without code
+            // Identify identifying fields
+            const code = row.Code || row.code || row['Code'];
+            if (!code) continue; 
             
             const year = row.Annee || row.year || row.Exercice || 2026;
-            row.year = year;
 
-            // Map standard fields for backwards compatibility/internal logic
-            const label = row['Libellé'] || row.Libelle || row.label || row['Désignation'] || '';
-            const section = row['Section'] || row.section || '';
-            let amount = row['Budget voté'] || row['Mt. prévision'] || row.Montant || row.allocated_amount || 0;
-            if (typeof amount === 'string') amount = parseFloat(amount.replace(/[^0-9,-]+/g, '').replace(',', '.'));
+            // Prepare mapped row using only columns that exist in DB
+            const mappedRow = {};
             
-            row.code = code;
-            row.label = label;
-            row.section = section;
-            row.allocated_amount = amount;
+            // 1. Copy original Excel columns
+            Object.keys(row).forEach(excelKey => {
+                const dbKey = tableCols.find(c => c.toLowerCase() === excelKey.toLowerCase());
+                if (dbKey) {
+                    mappedRow[dbKey] = row[excelKey];
+                }
+            });
+
+            // 2. Add/Override special normalized fields if they exist in DB
+            if (tableCols.includes('year')) mappedRow['year'] = year;
+            
+            if (tableCols.includes('allocated_amount')) {
+                let amount = row['Budget voté'] || row['Mt. prévision'] || row.Montant || row.allocated_amount || 0;
+                if (typeof amount === 'string') amount = parseFloat(amount.replace(/[^0-9,-]+/g, '').replace(',', '.'));
+                mappedRow['allocated_amount'] = amount;
+            }
 
             // Check if exists
-            const exists = await db.get('SELECT id FROM budget_lines WHERE "Code" = ? AND year = ?', [code, year]);
+            const exists = await db.get('SELECT id FROM budget_lines WHERE ("Code" = ? OR code = ?) AND year = ?', [code, code, year]);
             
-            const cols = Object.keys(row);
-            const vals = Object.values(row);
-            const placeholders = cols.map(() => '?').join(',');
+            const keys = Object.keys(mappedRow);
+            const vals = Object.values(mappedRow);
+            const placeholders = keys.map(() => '?').join(',');
 
             if (!exists) {
                 await db.run(
-                    `INSERT INTO budget_lines (${cols.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`,
+                    `INSERT INTO budget_lines (${keys.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`,
                     vals
                 );
                 imported++;
             } else {
-                const updateStr = cols.map(c => `"${c}" = ?`).join(',');
+                const updateStr = keys.map(c => `"${c}" = ?`).join(',');
                 await db.run(
                     `UPDATE budget_lines SET ${updateStr} WHERE id = ?`,
                     [...vals, exists.id]
@@ -292,13 +305,13 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
         let imported = 0;
         
         // Map excel keys to DB columns (case-insensitive and trimmed)
-        const getDbKey = (excelKey: string) => {
+        const getDbKey = (excelKey) => {
             const trimmed = excelKey.trim();
             return tableCols.find(c => c.trim().toLowerCase() === trimmed.toLowerCase());
         };
 
         for (const row of data) {
-            const mappedRow: any = {};
+            const mappedRow = {};
             Object.keys(row).forEach(excelKey => {
                 const dbKey = getDbKey(excelKey);
                 if (dbKey) {

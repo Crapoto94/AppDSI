@@ -1,6 +1,18 @@
 {
-  "currentVersion": "0.1.23",
+  "currentVersion": "0.1.24",
   "history": [
+    {
+      "version": "0.1.24",
+      "date": "2026-03-06",
+      "changes": [
+        "Récupération intégrale des données utilisateurs, tuiles et liens depuis la sauvegarde (database_svg.sqlite).",
+        "Restauration de la table 'column_settings' (88 configurations d'affichage récupérées).",
+        "Correction majeure du système d'import des lignes budgétaires : gestion dynamique des colonnes et suppression des erreurs SQL liées aux colonnes fantômes (ex: 'labe').",
+        "Alimentation automatique de la table des opérations à partir du fichier opérations.xlsx (108 lignes importées).",
+        "Nettoyage du schéma de la base de données et suppression des colonnes redondantes.",
+        "Mise à jour de la configuration Git pour inclure systématiquement la base de données complète dans les commits."
+      ]
+    },
     {
       "version": "0.1.23",
       "date": "2026-03-06",
