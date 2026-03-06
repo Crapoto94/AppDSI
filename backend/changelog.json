@@ -1,6 +1,16 @@
 {
-  "currentVersion": "0.1.12",
+  "currentVersion": "0.1.13",
   "history": [
+    {
+      "version": "0.1.13",
+      "date": "2026-03-06",
+      "changes": [
+        "Regroupement des lignes budgétaires par libellé avec agrégation automatique des montants financiers.",
+        "Ajout de la fonctionnalité de déploiement (expand/collapse) pour consulter le détail des lignes d'un groupe.",
+        "Filtrage par défaut des lignes ayant un montant voté nul, avec un nouveau bouton 'Afficher tout' pour basculer la vue.",
+        "Amélioration de l'interface des tableaux avec icônes de déploiement et tableaux imbriqués plus lisibles."
+      ]
+    },
     {
       "version": "0.1.12",
       "date": "2026-03-06",

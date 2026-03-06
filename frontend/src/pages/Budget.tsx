@@ -25,7 +25,7 @@ const Budget: React.FC = () => {
   const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
   
   const [showM57, setShowM57] = useState(false);
-  // ... rest of state
+  const [showZeroBudget, setShowZeroBudget] = useState(false);
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [message, setMessage] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -313,6 +313,38 @@ const Budget: React.FC = () => {
     return Object.values(groups);
   }, [orders, m57Plan]);
 
+  const [expandedLines, setExpandedLines] = useState<string[]>([]);
+  const toggleExpandLine = (id: string) => setExpandedLines(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const groupedBudgetLines = useMemo(() => {
+    const groups: Record<string, any> = {};
+    const financialCols = ['Budget voté', 'Disponible', 'Mt. prévision', 'Mt. pré-engagé', 'Mt. engagé', 'Mt. facturé', 'Mt. pré-mandaté', 'Mt. mandaté', 'Mt. payé', 'allocated_amount'];
+    
+    budgetLines.forEach(line => {
+      const label = (line['Libellé'] || line.label || 'SANS_LIBELLE').toString().trim();
+      if (!groups[label]) {
+        groups[label] = { 
+          ...line, 
+          "Libellé": label,
+          label: label,
+          _isGroup: true,
+          _lines: [] 
+        };
+        // Reset financial cols for group aggregation
+        financialCols.forEach(col => groups[label][col] = 0);
+      }
+      
+      financialCols.forEach(col => {
+        const val = parseFloat(line[col] || 0);
+        groups[label][col] += val;
+      });
+
+      groups[label]._lines.push(line);
+    });
+    
+    return Object.values(groups);
+  }, [budgetLines]);
+
   const filteredOrders = groupedOrders.filter(order => {
     const orderNumber = (order.order_number || order['N° Commande'] || '').toString().toLowerCase();
     const globalLabel = (order['Libellé'] || '').toString().toLowerCase();
@@ -370,8 +402,14 @@ const Budget: React.FC = () => {
   });
 
   const filteredData = useMemo(() => {
-    let data = view === 'lines' ? budgetLines : view === 'invoices' ? invoices : view === 'operations' ? operations : filteredOrders;
+    let data = view === 'lines' ? groupedBudgetLines : view === 'invoices' ? invoices : view === 'operations' ? operations : filteredOrders;
     
+    if (view === 'lines') {
+      if (!showZeroBudget) {
+        data = data.filter((row: any) => parseFloat(row['Budget voté'] || 0) !== 0);
+      }
+    }
+
     if (view !== 'orders') {
       const sTerm = searchTerm.toLowerCase();
       if (sTerm) {
@@ -393,7 +431,7 @@ const Budget: React.FC = () => {
       }
     }
     return data;
-  }, [view, budgetLines, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig]);
+  }, [view, budgetLines, groupedBudgetLines, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget]);
 
   const getRowClass = (section: string) => {
     if (section === 'Fonctionnement' || section === 'F') return 'row-operating';
@@ -577,6 +615,15 @@ const Budget: React.FC = () => {
                     <button className="toolbar-btn" onClick={() => setShowColumnConfig(true)}>
                       <Columns size={16} /> Colonnes
                     </button>
+                    {view === 'lines' && (
+                      <button 
+                        className={`toolbar-btn ${showZeroBudget ? 'active' : ''}`}
+                        onClick={() => setShowZeroBudget(!showZeroBudget)}
+                        style={{ background: showZeroBudget ? 'var(--color-navy)' : 'white', color: showZeroBudget ? 'white' : 'var(--color-slate-700)' }}
+                      >
+                        <Eye size={16} /> {showZeroBudget ? 'Masquer nuls' : 'Afficher tout'}
+                      </button>
+                    )}
                   </div>
                   <div className="toolbar-filters">
                     <div className="search-input-wrapper">
@@ -642,19 +689,32 @@ const Budget: React.FC = () => {
                       </thead>
                       <tbody>
                         {filteredData.length > 0 ? filteredData.map((row: any, index: number) => {
-                          const hasLines = view === 'orders' && row._lines && row._lines.length > 0;
+                          const hasLines = (view === 'orders' || (view === 'lines' && row._isGroup)) && row._lines && row._lines.length > 0;
                           const linesCount = hasLines ? row._lines.length : 0;
-                          const firstLineDesc = hasLines ? row._lines[0].desc?.trim() : '';
-                          const globalLabel = (row['Libellé'] || row.label || '').trim();
                           
-                          const isExpandable = hasLines && (linesCount > 1 || (linesCount === 1 && firstLineDesc !== globalLabel));
-                          const isExpanded = expandedOrders.includes(row.id || index.toString());
+                          let isExpandable = false;
+                          let isExpanded = false;
+
+                          if (view === 'orders') {
+                            const firstLineDesc = hasLines ? row._lines[0].desc?.trim() : '';
+                            const globalLabel = (row['Libellé'] || row.label || '').trim();
+                            isExpandable = hasLines && (linesCount > 1 || (linesCount === 1 && firstLineDesc !== globalLabel));
+                            isExpanded = expandedOrders.includes(row.id || index.toString());
+                          } else if (view === 'lines') {
+                            isExpandable = hasLines && linesCount > 1;
+                            isExpanded = expandedLines.includes(row['Libellé'] || index.toString());
+                          }
                           
                           return (
                             <React.Fragment key={row.id || index}>
                               <tr 
                                 className={getRowClass(row.Section || row.section)} 
-                                onClick={() => isExpandable && toggleExpand(row.id || index.toString())}
+                                onClick={() => {
+                                  if (isExpandable) {
+                                    if (view === 'orders') toggleExpand(row.id || index.toString());
+                                    else toggleExpandLine(row['Libellé'] || index.toString());
+                                  }
+                                }}
                                 style={{ cursor: isExpandable ? 'pointer' : 'default' }}
                               >
                                 {columnSettings.filter(c => c.is_visible).map(col => {
@@ -701,10 +761,23 @@ const Budget: React.FC = () => {
                                     }
                                   } else if (col.column_key === 'Libellé' || col.column_key === 'label' || col.column_key === 'libelle') {
                                     tooltip = row[col.column_key];
-                                    cellStyle = { ...cellStyle, maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+                                    content = (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        {isExpandable && view === 'lines' && (
+                                          <span style={{ fontSize: '12px', color: '#64748b' }}>
+                                            {isExpanded ? '▼' : '▶'} ({linesCount})
+                                          </span>
+                                        )}
+                                        <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                          {row[col.column_key]}
+                                        </span>
+                                      </div>
+                                    );
+                                    cellStyle = { ...cellStyle, maxWidth: '250px' };
                                   }
  else if (col.column_key === 'Désignation' || col.column_key === 'description') {
                                     if (view === 'orders') {
+                                      const firstLineDesc = hasLines ? row._lines[0].desc?.trim() : '';
                                       content = (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                           {isExpandable && (
@@ -733,7 +806,7 @@ const Budget: React.FC = () => {
                                   );
                                 })}
                               </tr>
-                              {isExpandable && isExpanded && (
+                              {isExpandable && isExpanded && view === 'orders' && (
                                 <tr className="expanded-row-bg" style={{ backgroundColor: '#f1f5f9' }}>
                                   <td colSpan={columnSettings.filter(c => c.is_visible).length} style={{ padding: '10px 20px' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
@@ -756,6 +829,34 @@ const Budget: React.FC = () => {
                                             <td style={{ padding: '4px', textAlign: 'right', fontWeight: 'bold', color: 'var(--color-ivry)' }}>
                                               {line.amtTtc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                                             </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </td>
+                                </tr>
+                              )}
+                              {isExpandable && isExpanded && view === 'lines' && (
+                                <tr className="expanded-row-bg" style={{ backgroundColor: '#f8fafc' }}>
+                                  <td colSpan={columnSettings.filter(c => c.is_visible).length} style={{ padding: '10px 20px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                      <thead>
+                                        <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
+                                          <th style={{ padding: '4px' }}>Code</th>
+                                          <th style={{ padding: '4px' }}>Masque</th>
+                                          <th style={{ padding: '4px', textAlign: 'right' }}>Budget Voté</th>
+                                          <th style={{ padding: '4px', textAlign: 'right' }}>Disponible</th>
+                                          <th style={{ padding: '4px', textAlign: 'right' }}>Mt. Engagé</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {row._lines.map((line: any, idx: number) => (
+                                          <tr key={idx} style={{ borderBottom: '1px dashed #e2e8f0' }}>
+                                            <td style={{ padding: '4px', fontWeight: 'bold' }}>{line['Code']}</td>
+                                            <td style={{ padding: '4px' }}>{line['Masque']}</td>
+                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Budget voté']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Disponible']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Mt. engagé']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
                                           </tr>
                                         ))}
                                       </tbody>
