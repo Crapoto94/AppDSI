@@ -195,18 +195,34 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
         const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
         let imported = 0;
+        let updated = 0;
         for (const row of data) {
+            const code = row.Code || row.code;
+            if (!code) continue; // Skip lines without code
+            
+            const label = row['Libellé'] || row.Libelle || row.label || row['Désignation'] || '';
+            let amount = row['Budget voté'] || row['Mt. prévision'] || row.Montant || row.allocated_amount || 0;
+            if (typeof amount === 'string') amount = parseFloat(amount.replace(/[^0-9,-]+/g, '').replace(',', '.'));
+            
+            const year = row.Annee || row.year || row.Exercice || 2026;
+
             // Check if exists
-            const exists = await db.get('SELECT id FROM budget_lines WHERE code = ? AND year = ?', [row.Code, row.Annee || 2026]);
+            const exists = await db.get('SELECT id FROM budget_lines WHERE code = ? AND year = ?', [code, year]);
             if (!exists) {
                 await db.run(
                     'INSERT INTO budget_lines (code, label, allocated_amount, year) VALUES (?, ?, ?, ?)',
-                    [row.Code, row.Libelle, row.Montant, row.Annee || 2026]
+                    [code, label, amount, year]
                 );
                 imported++;
+            } else {
+                await db.run(
+                    'UPDATE budget_lines SET label = ?, allocated_amount = ? WHERE id = ?',
+                    [label, amount, exists.id]
+                );
+                updated++;
             }
         }
-        res.json({ message: `${imported} lignes budgétaires importées (${data.length - imported} ignorées car déjà présentes)` });
+        res.json({ message: `${imported} lignes budgétaires importées, ${updated} mises à jour` });
     } catch (error) {
         console.error('Import error:', error);
         res.status(500).json({ message: 'Erreur lors de l\'import', error: error.message });

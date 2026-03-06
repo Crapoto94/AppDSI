@@ -277,6 +277,8 @@ const Admin: React.FC = () => {
                     onChange={e => setNewUser({...newUser, role: e.target.value})}
                   >
                     <option value="user">Utilisateur</option>
+                    <option value="finances">Finances</option>
+                    <option value="compta">Comptabilité</option>
                     <option value="admin">Administrateur</option>
                   </select>
                   <button type="submit" className="btn btn-primary">Créer</button>
@@ -299,6 +301,8 @@ const Admin: React.FC = () => {
                     onChange={e => setEditingUser({...editingUser, role: e.target.value})}
                   >
                     <option value="user">Utilisateur</option>
+                    <option value="finances">Finances</option>
+                    <option value="compta">Comptabilité</option>
                     <option value="admin">Administrateur</option>
                   </select>
                   <div className="form-actions">

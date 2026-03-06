@@ -1,6 +1,14 @@
 {
-  "currentVersion": "0.1.6",
+  "currentVersion": "0.1.7",
   "history": [
+    {
+      "version": "0.1.7",
+      "date": "2026-03-06",
+      "changes": [
+        "Correction de l'import Excel des lignes budgétaires pour supporter dynamiquement les différents noms de colonnes (Libellé, Budget voté, etc.).",
+        "Ajout des rôles 'Finances' et 'Comptabilité' dans le menu déroulant de création et d'édition des utilisateurs dans l'administration."
+      ]
+    },
     {
       "version": "0.1.6",
       "date": "2026-03-06",
