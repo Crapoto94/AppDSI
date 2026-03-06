@@ -14,29 +14,46 @@ interface TileProps {
   icon: string;
   description: string;
   links: TileLink[];
+  status?: 'active' | 'maintenance' | 'soon';
 }
 
-const Tile: React.FC<TileProps> = ({ title, icon, description, links }) => {
+const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = 'active' }) => {
   // Dynamically get icon from lucide-react
   // @ts-expect-error Lucide icons dynamically loaded
   const IconComponent = Icons[icon.charAt(0).toUpperCase() + icon.slice(1)] || Icons.Box;
 
+  const isLocked = status === 'maintenance' || status === 'soon';
+
   return (
-    <div className="tile">
+    <div className={`tile ${status}`}>
+      {status === 'maintenance' && (
+        <div className="status-overlay">
+          <Icons.Wrench size={24} />
+          <span>EN MAINTENANCE</span>
+        </div>
+      )}
+      {status === 'soon' && (
+        <div className="status-overlay soon">
+          <Icons.Clock size={24} />
+          <span>BIENTÔT DISPONIBLE</span>
+        </div>
+      )}
+
       <div className="tile-icon">
         <IconComponent size={32} />
       </div>
       <h3 className="tile-title">{title}</h3>
       <p className="tile-description">{description}</p>
-      
+
       <div className="tile-links">
         {links.map((link) => (
           <a
             key={link.id}
-            href={link.url}
-            target={link.is_internal ? '_self' : '_blank'}
+            href={isLocked ? '#' : link.url}
+            target={link.is_internal || isLocked ? '_self' : '_blank'}
             rel="noopener noreferrer"
-            className="tile-btn btn-secondary"
+            className={`tile-btn btn-secondary ${isLocked ? 'disabled' : ''}`}
+            onClick={(e) => isLocked && e.preventDefault()}
           >
             {link.label}
             {link.is_internal ? <ArrowRight size={14} /> : <ExternalLink size={14} />}
@@ -56,8 +73,29 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links }) => {
           transition: var(--transition);
           box-shadow: 0 4px 6px rgba(0,0,0,0.05);
           border-top: 4px solid var(--primary-color);
+          position: relative;
+          overflow: hidden;
         }
-        .tile:hover {
+        .tile.maintenance { border-top-color: #f59e0b; opacity: 0.8; }
+        .tile.soon { border-top-color: #64748b; opacity: 0.8; }
+
+        .status-overlay {
+          position: absolute;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(255, 255, 255, 0.7);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          z-index: 10;
+          color: #d97706;
+          font-weight: 800;
+          font-size: 14px;
+          gap: 10px;
+        }
+        .status-overlay.soon { color: #475569; }
+
+        .tile:not(.maintenance):not(.soon):hover {
           transform: translateY(-5px);
           box-shadow: 0 10px 20px rgba(0,0,0,0.1);
         }
@@ -68,6 +106,9 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links }) => {
           padding: 15px;
           border-radius: 50%;
         }
+        .tile.maintenance .tile-icon { color: #f59e0b; background: #fffbeb; }
+        .tile.soon .tile-icon { color: #64748b; background: #f8fafc; }
+
         .tile-title {
           font-size: 20px;
           font-weight: 700;
@@ -96,12 +137,19 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links }) => {
           border-radius: 4px;
           transition: var(--transition);
         }
-        .tile-btn:hover {
+        .tile-btn.disabled {
+          background: #e2e8f0;
+          color: #94a3b8;
+          border-color: #cbd5e1;
+          cursor: not-allowed;
+        }
+        .tile-btn:not(.disabled):hover {
           opacity: 0.9;
         }
       `}</style>
     </div>
   );
 };
+
 
 export default Tile;

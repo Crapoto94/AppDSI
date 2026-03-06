@@ -147,14 +147,14 @@ app.get('/api/tiles', authenticateJWT, async (req, res) => {
 });
 
 app.post('/api/tiles', authenticateAdmin, async (req, res) => {
-    const { title, icon, description, sort_order } = req.body;
-    const result = await db.run('INSERT INTO tiles (title, icon, description, sort_order) VALUES (?, ?, ?, ?)', [title, icon, description, sort_order || 0]);
+    const { title, icon, description, sort_order, status } = req.body;
+    const result = await db.run('INSERT INTO tiles (title, icon, description, sort_order, status) VALUES (?, ?, ?, ?, ?)', [title, icon, description, sort_order || 0, status || 'active']);
     res.json({ id: result.lastID });
 });
 
 app.put('/api/tiles/:id', authenticateAdmin, async (req, res) => {
-    const { title, icon, description, sort_order } = req.body;
-    await db.run('UPDATE tiles SET title = ?, icon = ?, description = ?, sort_order = ? WHERE id = ?', [title, icon, description, sort_order, req.params.id]);
+    const { title, icon, description, sort_order, status } = req.body;
+    await db.run('UPDATE tiles SET title = ?, icon = ?, description = ?, sort_order = ?, status = ? WHERE id = ?', [title, icon, description, sort_order, status, req.params.id]);
     res.json({ message: 'Tile updated' });
 });
 

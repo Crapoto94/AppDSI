@@ -8,6 +8,7 @@ interface TileData {
   icon: string;
   description: string;
   links: any[];
+  status?: 'active' | 'maintenance' | 'soon';
 }
 
 const Dashboard: React.FC = () => {
@@ -62,6 +63,7 @@ const Dashboard: React.FC = () => {
                 icon={tile.icon}
                 description={tile.description}
                 links={tile.links}
+                status={tile.status}
               />
             ))}
           </div>

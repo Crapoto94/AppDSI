@@ -8,6 +8,7 @@ interface TileData {
   icon: string;
   description: string;
   links: any[];
+  status: 'active' | 'maintenance' | 'soon';
 }
 
 interface UserData {
@@ -20,7 +21,22 @@ interface UserData {
 const Admin: React.FC = () => {
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
-  const [newTile, setNewTile] = useState({ title: '', icon: 'box', description: '', status: 'normal' });
+  const [newTile, setNewTile] = useState({ title: '', icon: 'box', description: '', status: 'active' });
+
+  const handleUpdateTileStatus = async (tileId: number, newStatus: string) => {
+    const tile = tiles.find(t => t.id === tileId);
+    if (!tile) return;
+    
+    const response = await fetch(`http://localhost:3001/api/tiles/${tileId}`, {
+      method: 'PUT',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ ...tile, status: newStatus })
+    });
+    if (response.ok) fetchTiles();
+  };
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user' });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [isAddingTile, setIsAddingTile] = useState(false);
@@ -196,12 +212,22 @@ const Admin: React.FC = () => {
               <section className="admin-section">
                 <h3>Nouvelle tuile</h3>
                 <form onSubmit={handleAddTile} className="admin-form">
-                  <input 
-                    placeholder="Titre" 
-                    value={newTile.title} 
-                    onChange={e => setNewTile({...newTile, title: e.target.value})}
-                    required
-                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <input 
+                      placeholder="Titre" 
+                      value={newTile.title} 
+                      onChange={e => setNewTile({...newTile, title: e.target.value})}
+                      required
+                    />
+                    <select 
+                      value={newTile.status} 
+                      onChange={e => setNewTile({...newTile, status: e.target.value as any})}
+                    >
+                      <option value="active">Active</option>
+                      <option value="maintenance">En maintenance</option>
+                      <option value="soon">Bientôt disponible</option>
+                    </select>
+                  </div>
                   <input 
                     placeholder="Icône (nom Lucide)" 
                     value={newTile.icon} 
@@ -223,7 +249,18 @@ const Admin: React.FC = () => {
               {tiles.map(tile => (
                 <div key={tile.id} className="admin-tile-row">
                   <div className="tile-info">
-                    <strong>{tile.title}</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                      <strong>{tile.title}</strong>
+                      <select 
+                        value={tile.status} 
+                        onChange={(e) => handleUpdateTileStatus(tile.id, e.target.value)}
+                        style={{ padding: '4px 8px', fontSize: '12px', borderRadius: '4px' }}
+                      >
+                        <option value="active">Active</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="soon">Bientôt</option>
+                      </select>
+                    </div>
                     <p>{tile.description}</p>
                     <div className="tile-links-admin">
                       {tile.links.map(link => (
