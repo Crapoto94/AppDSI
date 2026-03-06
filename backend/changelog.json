@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.1.20",
+  "currentVersion": "0.1.21",
   "history": [
+    {
+      "version": "0.1.21",
+      "date": "2026-03-06",
+      "changes": [
+        "Amélioration majeure du système d'import des factures : tolérance accrue aux variations de noms de colonnes (espaces, casse).",
+        "Mise en place d'un rapport d'erreur détaillé indiquant précisément l'étape et la ligne qui posent problème lors de l'import.",
+        "Sécurisation de la structure de la table des factures (elle n'est plus supprimée à chaque import, mais seulement vidée)."
+      ]
+    },
     {
       "version": "0.1.20",
       "date": "2026-03-06",

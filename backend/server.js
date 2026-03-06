@@ -266,6 +266,7 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
 // Import Invoices from Excel
 app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
+    let currentStep = 'Reading file';
     try {
         const workbook = xlsx.readFile(req.file.path);
         const sheetName = workbook.SheetNames[0];
@@ -273,34 +274,60 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
 
         if (data.length === 0) return res.json({ message: 'Le fichier est vide' });
 
+        currentStep = 'Clearing existing data';
         // Clear existing data instead of dropping table
         await db.run('DELETE FROM invoices');
         
+        currentStep = 'Preparing columns';
         const excelCols = Object.keys(data[0]);
+        const tableColsInfo = await db.all("PRAGMA table_info(invoices)");
+        const tableCols = tableColsInfo.map(c => c.name);
         
         // Ensure column settings exist for these columns
         for (const col of excelCols) {
             await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['invoices', col, col, 1]);
         }
 
+        currentStep = 'Inserting rows';
         let imported = 0;
-        const tableCols = (await db.all("PRAGMA table_info(invoices)")).map(c => c.name);
+        
+        // Map excel keys to DB columns (case-insensitive and trimmed)
+        const getDbKey = (excelKey: string) => {
+            const trimmed = excelKey.trim();
+            return tableCols.find(c => c.trim().toLowerCase() === trimmed.toLowerCase());
+        };
 
         for (const row of data) {
-            const keys = Object.keys(row).filter(k => tableCols.includes(k));
-            const values = keys.map(k => row[k]);
+            const mappedRow: any = {};
+            Object.keys(row).forEach(excelKey => {
+                const dbKey = getDbKey(excelKey);
+                if (dbKey) {
+                    mappedRow[dbKey] = row[excelKey];
+                }
+            });
+
+            const keys = Object.keys(mappedRow);
+            if (keys.length === 0) continue;
+
+            const values = Object.values(mappedRow);
             const placeholders = keys.map(() => '?').join(',');
             const sql = `INSERT INTO invoices (${keys.map(k => `"${k}"`).join(',')}) VALUES (${placeholders})`;
             
-            await db.run(sql, values);
-            imported++;
+            try {
+                await db.run(sql, values);
+                imported++;
+            } catch (err) {
+                console.error(`Row insertion error at row ${imported + 1}:`, err.message);
+                throw new Error(`Erreur SQL à la ligne ${imported + 1} : ${err.message}`);
+            }
         }
 
+        currentStep = 'Logging import';
         await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['invoices', req.user.username]);
         res.json({ message: `${imported} factures importées avec succès` });
     } catch (error) {
-        console.error('Import error:', error);
-        res.status(500).json({ message: 'Erreur lors de l\'import des factures', error: error.message });
+        console.error(`Import error during ${currentStep}:`, error);
+        res.status(500).json({ message: `Erreur lors de l'import (${currentStep})`, error: error.message });
     }
 });
 
