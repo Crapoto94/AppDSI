@@ -273,24 +273,22 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
 
         if (data.length === 0) return res.json({ message: 'Le fichier est vide' });
 
-        // DROP and RECREATE table to be sure it matches Excel exactly
-        await db.run('DROP TABLE IF EXISTS invoices');
+        // Clear existing data instead of dropping table
+        await db.run('DELETE FROM invoices');
         
         const excelCols = Object.keys(data[0]);
-        const colDefinitions = excelCols.map(col => `"${col}" TEXT`).join(', ');
         
-        await db.run(`CREATE TABLE invoices (id INTEGER PRIMARY KEY AUTOINCREMENT, ${colDefinitions})`);
-
-        // Refresh column settings for invoices
-        await db.run('DELETE FROM column_settings WHERE page = "invoices"');
+        // Ensure column settings exist for these columns
         for (const col of excelCols) {
-            await db.run('INSERT INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['invoices', col, col, 1]);
+            await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['invoices', col, col, 1]);
         }
 
         let imported = 0;
+        const tableCols = (await db.all("PRAGMA table_info(invoices)")).map(c => c.name);
+
         for (const row of data) {
-            const keys = Object.keys(row);
-            const values = Object.values(row);
+            const keys = Object.keys(row).filter(k => tableCols.includes(k));
+            const values = keys.map(k => row[k]);
             const placeholders = keys.map(() => '?').join(',');
             const sql = `INSERT INTO invoices (${keys.map(k => `"${k}"`).join(',')}) VALUES (${placeholders})`;
             

@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.1.18",
+  "currentVersion": "0.1.19",
   "history": [
+    {
+      "version": "0.1.19",
+      "date": "2026-03-06",
+      "changes": [
+        "Recodage de l'import des factures pour stabiliser la structure de la table : elle n'est plus supprimée à chaque import.",
+        "Fixation du schéma de la table des factures pour n'inclure que les colonnes présentes dans liste_factures.xls.",
+        "Amélioration de la robustesse de l'insertion des données avec filtrage des colonnes Excel."
+      ]
+    },
     {
       "version": "0.1.18",
       "date": "2026-03-06",
