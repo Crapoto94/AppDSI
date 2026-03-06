@@ -77,10 +77,10 @@ async function setupDb() {
             "Mt. mandaté" REAL,
             "Mt. payé" REAL,
             year INTEGER,
-            code TEXT, -- compat
-            label TEXT, -- compat
-            section TEXT, -- compat
-            allocated_amount REAL -- compat
+            code TEXT,
+            label TEXT,
+            section TEXT,
+            allocated_amount REAL
         );
 
         CREATE TABLE IF NOT EXISTS orders (
@@ -117,13 +117,7 @@ async function setupDb() {
             "Date Suspension" TEXT,
             "Marché" TEXT,
             "Service" TEXT,
-            "Utilisateur" TEXT,
-            invoice_number TEXT,
-            provider TEXT,
-            libelle TEXT,
-            amount_ht REAL,
-            amount_ttc REAL,
-            service TEXT
+            "Utilisateur" TEXT
         );
 
         CREATE TABLE IF NOT EXISTS operations (
@@ -154,54 +148,6 @@ async function setupDb() {
         );
     `);
 
-    // Migrations / Column Checks
-    const tables = ['users', 'budget_lines', 'orders', 'invoices', 'operations', 'column_settings'];
-    const columnsToAdd = {
-        users: [{ name: 'last_activity', type: 'DATETIME' }],
-        budget_lines: [],
-        invoices: [],
-        operations: [],
-        column_settings: [
-            { name: 'display_order', type: 'INTEGER DEFAULT 0' },
-            { name: 'color', type: 'TEXT' },
-            { name: 'is_bold', type: 'BOOLEAN DEFAULT 0' },
-            { name: 'is_italic', type: 'BOOLEAN DEFAULT 0' }
-        ]
-    };
-
-    for (const table in columnsToAdd) {
-        const tableCols = await db.all(`PRAGMA table_info(${table})`);
-        const existingNames = tableCols.map(c => c.name);
-        for (const col of columnsToAdd[table]) {
-            if (!existingNames.includes(col.name)) {
-                await db.run(`ALTER TABLE ${table} ADD COLUMN ${col.name} ${col.type}`);
-            }
-        }
-    }
-
-    // Special case for orders table which has many columns
-    const orderColumns = [
-        "Organisme","Budget","Exercice","N° Commande","Fournisseur","Libellé","Date de la commande",
-        "Date de livraison","Marché","Tranche","Service émetteur","Service de facturation",
-        "Service gestionnaire","N° ligne","Quantité","Prix unitaire","Remise","Unité",
-        "Montant HT","Montant TVA","Montant TTC","Taux","Imputation","Sens","Section",
-        "Chapitre par fonction","Article par fonction","Article par nature","Opération d'équipement",
-        "Service Destinataire","Nomenclature d'achat","Etat","Edité","Engagée","Désignation"
-    ];
-    // Re-check info to be sure
-    const orderTableCols = await db.all(`PRAGMA table_info(orders)`);
-    const existingOrderColNames = orderTableCols.map(c => c.name);
-    
-    for (const col of orderColumns) {
-        if (!existingOrderColNames.includes(col)) {
-            try {
-                await db.run(`ALTER TABLE orders ADD COLUMN "${col}" TEXT`);
-            } catch (e) {
-                // Ignore errors like duplicate column if race condition
-            }
-        }
-    }
-
     // Initialize/Update column settings for all main tables
     const tableConfigs = [
         { page: 'lines', table: 'budget_lines' },
@@ -214,7 +160,7 @@ async function setupDb() {
         const tableCols = await db.all(`PRAGMA table_info(${config.table})`);
         for (const col of tableCols) {
             if (col.name !== 'id') {
-                await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', [config.page, col.name, col.name, 1]);
+                await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, 1)', [config.page, col.name, col.name]);
             }
         }
     }

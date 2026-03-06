@@ -271,70 +271,38 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
         const sheetName = workbook.SheetNames[0];
         const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
+        if (data.length === 0) return res.json({ message: 'Le fichier est vide' });
+
+        // DROP and RECREATE table to be sure it matches Excel exactly
+        await db.run('DROP TABLE IF EXISTS invoices');
+        
+        const excelCols = Object.keys(data[0]);
+        const colDefinitions = excelCols.map(col => `"${col}" TEXT`).join(', ');
+        
+        await db.run(`CREATE TABLE invoices (id INTEGER PRIMARY KEY AUTOINCREMENT, ${colDefinitions})`);
+
+        // Refresh column settings for invoices
+        await db.run('DELETE FROM column_settings WHERE page = "invoices"');
+        for (const col of excelCols) {
+            await db.run('INSERT INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['invoices', col, col, 1]);
+        }
+
         let imported = 0;
-        let updated = 0;
-
-        // Ensure table has all necessary columns from Excel
-        if (data.length > 0) {
-            const excelCols = Object.keys(data[0]);
-            for (const col of excelCols) {
-                try {
-                    await db.run(`ALTER TABLE invoices ADD COLUMN "${col}" TEXT`);
-                    // Update column_settings
-                    await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['invoices', col, col, 1]);
-                } catch (e) {}
-            }
-        }
-
         for (const row of data) {
-            const invoice_number = row['N° Facture interne'] || row.Numero || row.invoice_number;
-            const provider = row.Fournisseur || row.provider;
-            if (!invoice_number || !provider) continue;
-
-            const libelle = row['Libellé'] || row.libelle || '';
-            const amount_ht = row['Montant HT'] || row.Montant || row.amount_ht || 0;
-            const amount_ttc = row['Montant TTC'] || row.amount_ttc || 0;
-            const status = row.Etat || row.status || 'Payée';
-            const service = row.Service || row.service || '';
-            const date = row['Emission       '] || row.Date || row.date || '';
-
-            // Map standard fields for backwards compatibility
-            row.invoice_number = invoice_number;
-            row.provider = provider;
-            row.libelle = libelle;
-            row.amount_ht = amount_ht;
-            row.amount_ttc = amount_ttc;
-            row.status = status;
-            row.service = service;
-            row.date = date;
-
-            // Check if exists
-            const exists = await db.get('SELECT id FROM invoices WHERE invoice_number = ? AND provider = ?', [invoice_number, provider]);
+            const keys = Object.keys(row);
+            const values = Object.values(row);
+            const placeholders = keys.map(() => '?').join(',');
+            const sql = `INSERT INTO invoices (${keys.map(k => `"${k}"`).join(',')}) VALUES (${placeholders})`;
             
-            const cols = Object.keys(row);
-            const vals = Object.values(row);
-            const placeholders = cols.map(() => '?').join(',');
-
-            if (!exists) {
-                await db.run(
-                    `INSERT INTO invoices (${cols.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`,
-                    vals
-                );
-                imported++;
-            } else {
-                const updateStr = cols.map(c => `"${c}" = ?`).join(',');
-                await db.run(
-                    `UPDATE invoices SET ${updateStr} WHERE id = ?`,
-                    [...vals, exists.id]
-                );
-                updated++;
-            }
+            await db.run(sql, values);
+            imported++;
         }
+
         await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['invoices', req.user.username]);
-        res.json({ message: `${imported} factures importées, ${updated} mises à jour (${data.length - imported - updated} ignorées)` });
+        res.json({ message: `${imported} factures importées avec succès` });
     } catch (error) {
         console.error('Import error:', error);
-        res.status(500).json({ message: 'Erreur lors de l\'import', error: error.message });
+        res.status(500).json({ message: 'Erreur lors de l\'import des factures', error: error.message });
     }
 });
 

@@ -1,6 +1,16 @@
 {
-  "currentVersion": "0.1.16",
+  "currentVersion": "0.1.17",
   "history": [
+    {
+      "version": "0.1.17",
+      "date": "2026-03-06",
+      "changes": [
+        "Refonte totale de l'import des factures : la table est désormais recréée à chaque import pour garantir une correspondance exacte avec le fichier Excel.",
+        "Suppression des colonnes de compatibilité inutiles dans la table des factures.",
+        "Optimisation de la synchronisation entre les colonnes Excel et les paramètres d'affichage (column_settings).",
+        "Nettoyage et simplification du code de la base de données (db.js)."
+      ]
+    },
     {
       "version": "0.1.16",
       "date": "2026-03-06",
