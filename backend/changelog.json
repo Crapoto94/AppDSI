@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.1.19",
+  "currentVersion": "0.1.20",
   "history": [
+    {
+      "version": "0.1.20",
+      "date": "2026-03-06",
+      "changes": [
+        "Redémarrage du serveur backend pour activer les nouvelles routes d'opérations et de factures.",
+        "Correction définitive de l'affichage de l'onglet Opérations (le problème était lié à une version obsolète du processus serveur en cours d'exécution).",
+        "Vérification de la disponibilité des points d'accès API pour tous les modules budgétaires."
+      ]
+    },
     {
       "version": "0.1.19",
       "date": "2026-03-06",
