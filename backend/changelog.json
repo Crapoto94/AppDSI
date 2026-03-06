@@ -1,6 +1,16 @@
 {
-  "currentVersion": "0.1.14",
+  "currentVersion": "0.1.15",
   "history": [
+    {
+      "version": "0.1.15",
+      "date": "2026-03-06",
+      "changes": [
+        "Mise en place d'une rupture par chapitre dans la liste des lignes budgétaires.",
+        "Hiérarchisation de l'affichage : Chapitre > Libellé > Détails des lignes.",
+        "Ajout de lignes d'en-tête de chapitre avec totaux consolidés.",
+        "Amélioration visuelle des ruptures avec un style distinct (fond grisé, texte en gras)."
+      ]
+    },
     {
       "version": "0.1.14",
       "date": "2026-03-06",

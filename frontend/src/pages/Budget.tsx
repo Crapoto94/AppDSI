@@ -327,32 +327,63 @@ const Budget: React.FC = () => {
   const toggleExpandLine = (id: string) => setExpandedLines(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const groupedBudgetLines = useMemo(() => {
-    const groups: Record<string, any> = {};
+    const chapters: Record<string, any> = {};
     const financialCols = ['Budget voté', 'Disponible', 'Mt. prévision', 'Mt. pré-engagé', 'Mt. engagé', 'Mt. facturé', 'Mt. pré-mandaté', 'Mt. mandaté', 'Mt. payé', 'allocated_amount'];
     
     budgetLines.forEach(line => {
+      const chapter = (line['Chapitre par nature'] || line.chapter || 'SANS_CHAPITRE').toString().trim();
       const label = (line['Libellé'] || line.label || 'SANS_LIBELLE').toString().trim();
-      if (!groups[label]) {
-        groups[label] = { 
-          ...line, 
+      
+      if (!chapters[chapter]) {
+        chapters[chapter] = {
+          _isChapter: true,
+          chapter: chapter,
+          "Chapitre par nature": chapter,
+          _labels: {},
+          _total: {}
+        };
+        financialCols.forEach(col => chapters[chapter]._total[col] = 0);
+      }
+      
+      if (!chapters[chapter]._labels[label]) {
+        chapters[chapter]._labels[label] = {
+          ...line,
           "Libellé": label,
           label: label,
           _isGroup: true,
-          _lines: [] 
+          _lines: []
         };
-        // Reset financial cols for group aggregation
-        financialCols.forEach(col => groups[label][col] = 0);
+        financialCols.forEach(col => chapters[chapter]._labels[label][col] = 0);
       }
       
       financialCols.forEach(col => {
         const val = parseFloat(line[col] || 0);
-        groups[label][col] += val;
+        chapters[chapter]._labels[label][col] += val;
+        chapters[chapter]._total[col] += val;
       });
-
-      groups[label]._lines.push(line);
+      
+      chapters[chapter]._labels[label]._lines.push(line);
     });
     
-    return Object.values(groups);
+    // Convert to flat list for rendering (Chapter Header then its Grouped Labels)
+    const result: any[] = [];
+    Object.keys(chapters).sort().forEach(chKey => {
+      const chapter = chapters[chKey];
+      result.push({
+        ...chapter,
+        "Libellé": `CHAPITRE ${chKey}`,
+        _isChapter: true,
+        // Map totals for rendering
+        ...chapter._total
+      });
+      
+      const labels = Object.values(chapter._labels);
+      // Sort labels by name or amount? Let's sort by name for now
+      labels.sort((a: any, b: any) => a.label.localeCompare(b.label));
+      result.push(...labels);
+    });
+    
+    return result;
   }, [budgetLines]);
 
   const filteredOrders = groupedOrders.filter(order => {
@@ -718,14 +749,18 @@ const Budget: React.FC = () => {
                           return (
                             <React.Fragment key={row.id || index}>
                               <tr 
-                                className={getRowClass(row.Section || row.section)} 
+                                className={`${getRowClass(row.Section || row.section)} ${row._isChapter ? 'chapter-header-row' : ''}`}
                                 onClick={() => {
                                   if (isExpandable) {
                                     if (view === 'orders') toggleExpand(row.id || index.toString());
                                     else toggleExpandLine(row['Libellé'] || index.toString());
                                   }
                                 }}
-                                style={{ cursor: isExpandable ? 'pointer' : 'default' }}
+                                style={{ 
+                                  cursor: isExpandable ? 'pointer' : 'default',
+                                  backgroundColor: row._isChapter ? '#f1f5f9' : undefined,
+                                  fontWeight: row._isChapter ? 'bold' : 'normal'
+                                }}
                               >
                                 {columnSettings.filter(c => c.is_visible).map(col => {
                                   let content: React.ReactNode = row[col.column_key];
