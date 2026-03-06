@@ -144,6 +144,7 @@ async function setupDb() {
     if (!csColNames.includes('display_order')) await db.run('ALTER TABLE column_settings ADD COLUMN display_order INTEGER DEFAULT 0');
     if (!csColNames.includes('color')) await db.run('ALTER TABLE column_settings ADD COLUMN color TEXT');
     if (!csColNames.includes('is_bold')) await db.run('ALTER TABLE column_settings ADD COLUMN is_bold BOOLEAN DEFAULT 0');
+    if (!csColNames.includes('is_italic')) await db.run('ALTER TABLE column_settings ADD COLUMN is_italic BOOLEAN DEFAULT 0');
 
     // If not empty, we might want to refresh to include ALL columns
     for (const col of columns) {

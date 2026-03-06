@@ -236,6 +236,19 @@ app.post('/api/column-settings/:page', authenticateAdmin, async (req, res) => {
     res.json({ message: 'Settings updated' });
 });
 
+app.post('/api/column-settings/:page/bulk', authenticateAdmin, async (req, res) => {
+    const settings = req.body;
+    if (Array.isArray(settings)) {
+        for (const s of settings) {
+            await db.run(
+                'UPDATE column_settings SET is_visible = ?, display_order = ?, color = ?, is_bold = ?, is_italic = ? WHERE page = ? AND column_key = ?',
+                [s.is_visible ? 1 : 0, s.display_order || 0, s.color || null, s.is_bold ? 1 : 0, s.is_italic ? 1 : 0, req.params.page, s.column_key]
+            );
+        }
+    }
+    res.json({ message: 'Settings bulk updated' });
+});
+
 // Raw Table API
 app.get('/api/raw-data/:table', authenticateAdmin, async (req, res) => {
     const allowedTables = ['orders', 'budget_lines', 'invoices', 'm57_plan'];

@@ -7,6 +7,10 @@ interface ColumnSetting {
   column_key: string;
   label: string;
   is_visible: number;
+  display_order: number;
+  color: string | null;
+  is_bold: number;
+  is_italic: number;
 }
 
 const Budget: React.FC = () => {
@@ -60,6 +64,9 @@ const Budget: React.FC = () => {
     if (colRes.ok) {
       const cols: ColumnSetting[] = await colRes.json();
       const sortedCols = [...cols].sort((a, b) => {
+        if (a.display_order !== 0 || b.display_order !== 0) {
+          return (a.display_order || 0) - (b.display_order || 0);
+        }
         if (a.column_key === 'N° Commande') return -1;
         if (b.column_key === 'N° Commande') return 1;
         if (a.column_key === 'Libellé') return -1;
@@ -109,32 +116,53 @@ const Budget: React.FC = () => {
     }
   };
 
-  const toggleColumnVisibility = async (columnKey: string, currentVisible: number) => {
-    const response = await fetch('http://localhost:3001/api/column-settings/orders', {
+  const updateColumnSettingsBulk = async (newSettings: ColumnSetting[]) => {
+    setColumnSettings(newSettings);
+    await fetch('http://localhost:3001/api/column-settings/orders/bulk', {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ column_key: columnKey, is_visible: !currentVisible })
+      body: JSON.stringify(newSettings)
     });
+  };
 
-    if (response.ok) {
-      const colRes = await fetch('http://localhost:3001/api/column-settings/orders', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (colRes.ok) {
-        const cols: ColumnSetting[] = await colRes.json();
-        const sortedCols = [...cols].sort((a, b) => {
-          if (a.column_key === 'N° Commande') return -1;
-          if (b.column_key === 'N° Commande') return 1;
-          if (a.column_key === 'Libellé') return -1;
-          if (b.column_key === 'Libellé') return 1;
-          return 0;
-        });
-        setColumnSettings(sortedCols);
-      }
-    }
+  const toggleColumnVisibility = (columnKey: string, currentVisible: number) => {
+    const updated = columnSettings.map(c => 
+      c.column_key === columnKey ? { ...c, is_visible: currentVisible ? 0 : 1 } : c
+    );
+    updateColumnSettingsBulk(updated);
+  };
+
+  const updateColumnStyle = (columnKey: string, field: 'color' | 'is_bold' | 'is_italic', value: any) => {
+    const updated = columnSettings.map(c => 
+      c.column_key === columnKey ? { ...c, [field]: value } : c
+    );
+    updateColumnSettingsBulk(updated);
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+    if (sourceIndex === targetIndex || isNaN(sourceIndex)) return;
+
+    const newSettings = [...columnSettings];
+    const [movedItem] = newSettings.splice(sourceIndex, 1);
+    newSettings.splice(targetIndex, 0, movedItem);
+
+    const updatedWithOrder = newSettings.map((col, idx) => ({ ...col, display_order: idx + 1 }));
+    updateColumnSettingsBulk(updatedWithOrder);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
   };
 
   const requestSort = (key: string) => {
@@ -468,7 +496,14 @@ const Budget: React.FC = () => {
                       <thead>
                         <tr>
                           {columnSettings.filter(c => c.is_visible).map(col => (
-                            <th key={col.column_key}>
+                            <th 
+                              key={col.column_key}
+                              style={{
+                                color: col.color || 'inherit',
+                                fontWeight: col.is_bold ? 'bold' : '600',
+                                fontStyle: col.is_italic ? 'italic' : 'normal'
+                              }}
+                            >
                               <div className="th-wrapper">
                                 <div className="th-content" onClick={() => requestSort(col.column_key)}>
                                   {col.label}
@@ -493,7 +528,14 @@ const Budget: React.FC = () => {
                         {filteredOrders.length > 0 ? filteredOrders.map(order => (
                           <tr key={order.id} className={getRowClass(order.Section || order.section)}>
                             {columnSettings.filter(c => c.is_visible).map(col => (
-                              <td key={col.column_key}>
+                              <td 
+                                key={col.column_key}
+                                style={{
+                                  color: col.color || 'inherit',
+                                  fontWeight: col.is_bold ? 'bold' : 'normal',
+                                  fontStyle: col.is_italic ? 'italic' : 'normal'
+                                }}
+                              >
                                 {col.column_key === 'Section' || col.column_key === 'section' ? (
                                   <span className={`section-badge ${(order[col.column_key] === 'Fonctionnement' || order[col.column_key] === 'F') ? 'f' : 'i'}`}>
                                     {(order[col.column_key] === 'Fonctionnement' || order[col.column_key] === 'F') ? 'F' : 'I'}
@@ -584,27 +626,75 @@ const Budget: React.FC = () => {
 
         {showColumnConfig && (
           <div className="modal-backdrop" onClick={() => setShowColumnConfig(false)}>
-            <div className="modal-window modal-sm" onClick={e => e.stopPropagation()}>
+            <div className="modal-window" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2 className="modal-title">Configuration des Colonnes</h2>
                 <button className="icon-btn" onClick={() => setShowColumnConfig(false)}><X size={20} /></button>
               </div>
               <div className="modal-body">
                 <p className="modal-desc">
-                  Activez ou désactivez l'affichage des colonnes pour la vue Commandes. Ces paramètres sont appliqués globalement.
+                  Glissez-déposez pour réorganiser. Modifiez la visibilité, la couleur, et le style (Gras/Italique).
                 </p>
                 <div className="column-toggles">
-                  {columnSettings.map(col => (
-                    <div key={col.id} className="toggle-item">
-                      <span className="toggle-label">{col.label}</span>
-                      <button 
-                        className={`toggle-btn ${col.is_visible ? 'on' : 'off'}`}
-                        onClick={() => toggleColumnVisibility(col.column_key, col.is_visible)}
-                        disabled={user.role !== 'admin'}
-                      >
-                        {col.is_visible ? <Eye size={16} /> : <EyeOff size={16} />}
-                        {col.is_visible ? 'Visible' : 'Masqué'}
-                      </button>
+                  {columnSettings.map((col, index) => (
+                    <div 
+                      key={col.id} 
+                      className="toggle-item"
+                      draggable={user.role === 'admin'}
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, index)}
+                      style={{ cursor: user.role === 'admin' ? 'grab' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                    >
+                      <div className="toggle-info" style={{ display: 'flex', alignItems: 'center' }}>
+                        {user.role === 'admin' && <span className="drag-handle" style={{ marginRight: '10px', color: '#94a3b8', cursor: 'grab' }}>☰</span>}
+                        <span className="toggle-label">{col.label}</span>
+                      </div>
+                      
+                      <div className="toggle-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        {user.role === 'admin' && (
+                          <>
+                            <input 
+                              type="color" 
+                              value={col.color || '#334155'} 
+                              onChange={(e) => updateColumnStyle(col.column_key, 'color', e.target.value)}
+                              title="Couleur de la colonne"
+                              style={{ width: '28px', height: '28px', padding: '0', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
+                            />
+                            <button 
+                              onClick={() => updateColumnStyle(col.column_key, 'is_bold', !col.is_bold)}
+                              title="Gras"
+                              style={{ 
+                                fontWeight: 'bold', width: '28px', height: '28px', borderRadius: '4px', 
+                                border: '1px solid #cbd5e1', cursor: 'pointer',
+                                background: col.is_bold ? '#e2e8f0' : 'white'
+                              }}
+                            >
+                              B
+                            </button>
+                            <button 
+                              onClick={() => updateColumnStyle(col.column_key, 'is_italic', !col.is_italic)}
+                              title="Italique"
+                              style={{ 
+                                fontStyle: 'italic', fontFamily: 'serif', width: '28px', height: '28px', borderRadius: '4px', 
+                                border: '1px solid #cbd5e1', cursor: 'pointer',
+                                background: col.is_italic ? '#e2e8f0' : 'white'
+                              }}
+                            >
+                              I
+                            </button>
+                          </>
+                        )}
+                        <button 
+                          className={`toggle-btn ${col.is_visible ? 'on' : 'off'}`}
+                          onClick={() => toggleColumnVisibility(col.column_key, col.is_visible)}
+                          disabled={user.role !== 'admin'}
+                          style={{ minWidth: '90px', justifyContent: 'center' }}
+                        >
+                          {col.is_visible ? <Eye size={16} /> : <EyeOff size={16} />}
+                          {col.is_visible ? 'Visible' : 'Masqué'}
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
