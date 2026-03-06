@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.1.22",
+  "currentVersion": "0.1.23",
   "history": [
+    {
+      "version": "0.1.23",
+      "date": "2026-03-06",
+      "changes": [
+        "Correction de l'affichage des dates pour les factures (Émission, Arrivée, Début DGP, Fin DGP, etc.).",
+        "Optimisation de l'import Excel pour convertir automatiquement les numéros de série Excel en objets Date JavaScript.",
+        "Mise à jour du moteur de rendu des tableaux pour formater les nouvelles colonnes de date au format français (jj/mm/aa)."
+      ]
+    },
     {
       "version": "0.1.22",
       "date": "2026-03-06",

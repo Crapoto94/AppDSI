@@ -197,7 +197,7 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
     try {
         const workbook = xlsx.readFile(req.file.path);
         const sheetName = workbook.SheetNames[0];
-        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { cellDates: true });
 
         let imported = 0;
         let updated = 0;
@@ -270,7 +270,7 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
     try {
         const workbook = xlsx.readFile(req.file.path);
         const sheetName = workbook.SheetNames[0];
-        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { cellDates: true });
 
         if (data.length === 0) return res.json({ message: 'Le fichier est vide' });
 

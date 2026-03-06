@@ -805,14 +805,24 @@ const Budget: React.FC = () => {
                                   } else if (col.column_key === 'Montant TTC' || col.column_key === 'amount_ttc' || col.column_key === 'solde') {
                                     const val = view === 'orders' ? row._total_ttc : row[col.column_key];
                                     content = <span className="amount-ttc">{(val || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
-                                  } else if (col.column_key === 'date' || col.column_key === 'Date de la commande') {
+                                  } else if (
+                                    col.column_key === 'date' || 
+                                    col.column_key === 'Date de la commande' ||
+                                    col.column_key.trim() === 'Emission' ||
+                                    col.column_key.trim() === 'Arrivée' ||
+                                    col.column_key.trim() === 'Début DGP' ||
+                                    col.column_key.trim() === 'Fin DGP' ||
+                                    col.column_key === 'Date Réception Pièce' ||
+                                    col.column_key === 'Date Suspension'
+                                  ) {
                                     if (row[col.column_key]) {
                                       const d = new Date(row[col.column_key]);
                                       if (!isNaN(d.getTime())) {
                                         content = d.toLocaleDateString('fr-FR', { year: '2-digit', month: '2-digit', day: '2-digit' });
                                       }
                                     }
-                                  } else if (col.column_key === 'Libellé' || col.column_key === 'label' || col.column_key === 'libelle') {
+                                  }
+ else if (col.column_key === 'Libellé' || col.column_key === 'label' || col.column_key === 'libelle') {
                                     tooltip = row[col.column_key];
                                     content = (
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
