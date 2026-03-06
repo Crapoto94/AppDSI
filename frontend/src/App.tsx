@@ -5,12 +5,11 @@ import Login from './pages/Login';
 import Admin from './pages/Admin';
 import Budget from './pages/Budget';
 import Profile from './pages/Profile';
-import Compta from './pages/Compta';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
   const token = localStorage.getItem('token');
-  let user = {};
+  let user: any = {};
   try {
     user = JSON.parse(localStorage.getItem('user') || '{}');
   } catch (e) {
@@ -50,14 +49,6 @@ function App() {
           element={
             <PrivateRoute allowedRoles={['admin']}>
               <Admin />
-            </PrivateRoute>
-          } 
-        />
-        <Route 
-          path="/compta" 
-          element={
-            <PrivateRoute allowedRoles={['admin', 'finances', 'compta']}>
-              <Compta />
             </PrivateRoute>
           } 
         />

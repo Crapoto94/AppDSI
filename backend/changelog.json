@@ -1,6 +1,16 @@
 {
-  "currentVersion": "0.1.5",
+  "currentVersion": "0.1.6",
   "history": [
+    {
+      "version": "0.1.6",
+      "date": "2026-03-06",
+      "changes": [
+        "Déplacement du paramétrage du suivi comptable (imports et requêtes SQL) dans l'onglet 'Gestion' de la page Suivi Budgétaire.",
+        "Suppression de la page Compta obsolète.",
+        "Ajout d'un gestionnaire d'erreurs (middleware express) pour éviter de retourner du HTML lors de requêtes en échec (ex: import multer), ce qui causait une erreur 'Unexpected token <' côté frontend.",
+        "Affichage des messages d'erreur détaillés (notamment SQL) pour faciliter le diagnostic."
+      ]
+    },
     {
       "version": "0.1.5",
       "date": "2026-03-06",

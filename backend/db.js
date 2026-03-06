@@ -54,8 +54,11 @@ async function setupDb() {
         );
 
         CREATE TABLE IF NOT EXISTS budget_lines (
-            id INTEGER PRIMARY KEY AUTOINCREMENT
-            -- Columns will be added dynamically on import
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT,
+            label TEXT,
+            allocated_amount REAL,
+            year INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS invoices (

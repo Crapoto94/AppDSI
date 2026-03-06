@@ -45,9 +45,6 @@ const Header: React.FC = () => {
                 <span className="user-name">Bonjour, {user.username}</span>
                 <User size={18} />
               </Link>
-              {['admin', 'finances', 'compta'].includes(user.role) && (
-                <Link to="/compta" className="nav-link">Suivi Comptable</Link>
-              )}
               {user.role === 'admin' && (
                 <Link to="/admin" className="nav-link">Configuration</Link>
               )}

@@ -38,6 +38,12 @@ setupDb().then(database => {
     process.exit(1);
 });
 
+// Default Error Handler (must be after all routes)
+app.use((err, req, res, next) => {
+    console.error('Unhandled Express Error:', err);
+    res.status(500).json({ message: 'Erreur interne du serveur', error: err.message });
+});
+
 // Capture les erreurs non gérées au niveau global pour éviter que le processus Node ne plante silencieusement
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);

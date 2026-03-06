@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
-import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Activity } from 'lucide-react';
+import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Activity, Database, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface ColumnSetting {
   id: number;
@@ -14,7 +14,7 @@ interface ColumnSetting {
 }
 
 const Budget: React.FC = () => {
-  const [view, setView] = useState<'summary' | 'lines' | 'invoices' | 'orders'>('summary');
+  const [view, setView] = useState<'summary' | 'lines' | 'invoices' | 'orders' | 'gestion'>('summary');
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
   const [budgetLines, setBudgetLines] = useState<any[]>([]);
@@ -31,10 +31,70 @@ const Budget: React.FC = () => {
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   
+  // Gestion state
+  const [sqlQuery, setSqlQuery] = useState('');
+  const [queryResult, setQueryResult] = useState<any[] | null>(null);
+  const [queryError, setQueryError] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<{type: string, message: string, isError: boolean} | null>(null);
+
   const token = localStorage.getItem('token');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   const [rawSql, setRawSql] = useState('');
+
+  const executeQuery = async () => {
+    if (!sqlQuery.trim()) return;
+    setQueryError(null);
+    setQueryResult(null);
+    try {
+      const response = await fetch('http://localhost:3001/api/sql-query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ query: sqlQuery })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setQueryResult(data.data);
+      } else {
+        setQueryError(data.error ? `${data.message} : ${data.error}` : data.message || 'Erreur lors de l\'exécution');
+      }
+    } catch (error: any) {
+      setQueryError(error.message || 'Erreur réseau');
+    }
+  };
+
+  const handleComptaUpload = async (endpoint: string, file: File, type: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      setImportStatus({ type, message: 'Importation en cours...', isError: false });
+      const response = await fetch(`http://localhost:3001${endpoint}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      // Handle HTML error responses explicitly (e.g. from Express error handler)
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const data = await response.json();
+        if (response.ok) {
+          setImportStatus({ type, message: data.message || 'Importation réussie', isError: false });
+          fetchData(); // Refresh data after successful import
+        } else {
+          setImportStatus({ type, message: data.error ? `${data.message} : ${data.error}` : data.message || 'Erreur lors de l\'importation', isError: true });
+        }
+      } else {
+         const text = await response.text();
+         setImportStatus({ type, message: 'Erreur du serveur (HTML retourné) : ' + response.status, isError: true });
+         console.error('Non-JSON response:', text);
+      }
+    } catch (error: any) {
+      setImportStatus({ type, message: error.message || 'Erreur réseau', isError: true });
+    }
+  };
 
   const fetchRawData = async (table: string) => {
     const response = await fetch(`http://localhost:3001/api/raw-data/${table}`, {
@@ -278,7 +338,10 @@ const Budget: React.FC = () => {
             <p className="page-subtitle">Gérez vos lignes budgétaires, factures et commandes centralisées.</p>
           </div>
           <div className="view-tabs">
-            {['summary', 'lines', 'invoices', 'orders'].map(tab => (
+            {['summary', 'lines', 'invoices', 'orders', 'gestion'].map(tab => {
+              // Only admin/finances/compta can see 'gestion'
+              if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(user.role)) return null;
+              return (
               <button 
                 key={tab}
                 className={`tab-btn ${view === tab ? 'active' : ''}`} 
@@ -288,9 +351,10 @@ const Budget: React.FC = () => {
                 {tab === 'lines' && 'Lignes'}
                 {tab === 'invoices' && 'Factures'}
                 {tab === 'orders' && 'Commandes'}
+                {tab === 'gestion' && 'Gestion'}
               </button>
-            ))}
-            {view !== 'summary' && ['admin', 'finances'].includes(user.role) && (
+            )})}
+            {view !== 'summary' && view !== 'gestion' && ['admin', 'finances'].includes(user.role) && (
               <button className={`tab-btn raw-toggle ${isRaw ? 'active' : ''}`} onClick={() => setIsRaw(!isRaw)}>
                 {isRaw ? 'Vue Normale' : '{ SQL }'}
               </button>
@@ -583,10 +647,118 @@ const Budget: React.FC = () => {
                 </div>
               </div>
             )}
+            {view === 'gestion' && (
+              <div className="gestion-container" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <section className="compta-card" style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                  <h2 style={{ borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Upload size={20} /> Import Excel
+                  </h2>
+
+                  <div className="import-list" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div className="import-item">
+                      <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Lignes Budgétaires</label>
+                      <input type="file" accept=".xlsx,.xls" onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleComptaUpload('/api/budget/import-lines', e.target.files[0], 'lignes');
+                          e.target.value = '';
+                        }
+                      }} />
+                      {importStatus?.type === 'lignes' && (
+                        <div style={{ marginTop: '8px', color: importStatus.isError ? '#d32f2f' : '#2e7d32', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {importStatus.isError ? <AlertCircle size={16}/> : <CheckCircle2 size={16}/>} {importStatus.message}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="import-item">
+                      <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Commandes</label>
+                      <input type="file" accept=".xlsx,.xls" onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleComptaUpload('/api/orders/import', e.target.files[0], 'commandes');
+                          e.target.value = '';
+                        }
+                      }} />
+                      {importStatus?.type === 'commandes' && (
+                        <div style={{ marginTop: '8px', color: importStatus.isError ? '#d32f2f' : '#2e7d32', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {importStatus.isError ? <AlertCircle size={16}/> : <CheckCircle2 size={16}/>} {importStatus.message}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="import-item">
+                      <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Factures</label>
+                      <input type="file" accept=".xlsx,.xls" onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          handleComptaUpload('/api/budget/import-invoices', e.target.files[0], 'factures');
+                          e.target.value = '';
+                        }
+                      }} />
+                      {importStatus?.type === 'factures' && (
+                        <div style={{ marginTop: '8px', color: importStatus.isError ? '#d32f2f' : '#2e7d32', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {importStatus.isError ? <AlertCircle size={16}/> : <CheckCircle2 size={16}/>} {importStatus.message}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="compta-card" style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column' }}>
+                  <h2 style={{ borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Database size={20} /> Requête SQL Libre
+                  </h2>
+                  <textarea 
+                    value={sqlQuery} 
+                    onChange={e => setSqlQuery(e.target.value)}
+                    placeholder="SELECT * FROM budget_lines LIMIT 10;"
+                    style={{ width: '100%', minHeight: '120px', padding: '10px', fontFamily: 'monospace', borderRadius: '4px', border: '1px solid #ccc', marginBottom: '10px', resize: 'vertical' }}
+                  />
+                  <button 
+                    onClick={executeQuery}
+                    className="btn btn-primary"
+                    style={{ alignSelf: 'flex-start', padding: '10px 15px', background: 'var(--color-navy)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                  >
+                    Exécuter la requête
+                  </button>
+
+                  {queryError && (
+                    <div style={{ marginTop: '15px', padding: '10px', background: '#ffebee', color: '#c62828', borderRadius: '4px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <AlertCircle size={18} /> {queryError}
+                    </div>
+                  )}
+
+                  {/* Results inside or below, let's put it below if queryResult */}
+                  {queryResult && (
+                    <div style={{ marginTop: '20px', overflowX: 'auto' }}>
+                      <h3 style={{ marginBottom: '10px' }}>Résultats ({queryResult.length} lignes)</h3>
+                      {queryResult.length > 0 ? (
+                        <table className="modern-table">
+                          <thead>
+                            <tr>
+                              {Object.keys(queryResult[0]).map(key => (
+                                <th key={key}>{key}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {queryResult.map((row, idx) => (
+                              <tr key={idx}>
+                                {Object.values(row).map((val: any, vIdx) => (
+                                  <td key={vIdx}>{val?.toString() || ''}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <p>Aucun résultat trouvé.</p>
+                      )}
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
           </div>
         )}
-
-        {/* Modals */}
         {showM57 && (
           <div className="modal-backdrop" onClick={() => setShowM57(false)}>
             <div className="modal-window" onClick={e => e.stopPropagation()}>
