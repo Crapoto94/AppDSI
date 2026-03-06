@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
-import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff } from 'lucide-react';
+import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Activity } from 'lucide-react';
 
 interface ColumnSetting {
   id: number;
@@ -59,7 +59,6 @@ const Budget: React.FC = () => {
     if (m57Res.ok) setM57Plan(await m57Res.json());
     if (colRes.ok) {
       const cols: ColumnSetting[] = await colRes.json();
-      // Ensure "N° Commande" is first, "Libellé" is second
       const sortedCols = [...cols].sort((a, b) => {
         if (a.column_key === 'N° Commande') return -1;
         if (b.column_key === 'N° Commande') return 1;
@@ -138,11 +137,6 @@ const Budget: React.FC = () => {
     }
   };
 
-  const isColumnVisible = (key: string) => {
-    const setting = columnSettings.find(s => s.column_key === key);
-    return setting ? setting.is_visible === 1 : true;
-  };
-
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -178,7 +172,6 @@ const Budget: React.FC = () => {
         amtTtc: amtTtc
       });
     });
-    // Sort lines within each order by line number
     Object.values(groups).forEach((g: any) => {
       g._lines.sort((a: any, b: any) => parseInt(a.nr) - parseInt(b.nr));
     });
@@ -191,7 +184,6 @@ const Budget: React.FC = () => {
     const provider = (order.provider || order['Fournisseur'] || '').toString().toLowerCase();
     const sTerm = searchTerm.toLowerCase();
 
-    // Check if any line designation matches search
     const linesMatch = order._lines.some((l: any) => l.desc?.toLowerCase().includes(sTerm));
 
     const matchesGlobalSearch = 
@@ -251,280 +243,58 @@ const Budget: React.FC = () => {
   return (
     <div className="budget-page">
       <Header />
-      <main className="container-fluid" style={{ padding: '0 20px' }}>
-        <div className="budget-header">
-          <h1>Suivi Budgétaire & Commandes</h1>
-          <div className="budget-nav">
-            <button className={`btn ${view === 'summary' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setView('summary'); setIsRaw(false)}}>Résumé</button>
-            <button className={`btn ${view === 'lines' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setView('lines'); setIsRaw(false)}}>Lignes</button>
-            <button className={`btn ${view === 'invoices' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setView('invoices'); setIsRaw(false)}}>Factures</button>
-            <button className={`btn ${view === 'orders' ? 'btn-primary' : 'btn-outline'}`} onClick={() => {setView('orders'); setIsRaw(false)}}>Commandes</button>
+      <main className="main-content">
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">Suivi Budgétaire & Commandes</h1>
+            <p className="page-subtitle">Gérez vos lignes budgétaires, factures et commandes centralisées.</p>
+          </div>
+          <div className="view-tabs">
+            {['summary', 'lines', 'invoices', 'orders'].map(tab => (
+              <button 
+                key={tab}
+                className={`tab-btn ${view === tab ? 'active' : ''}`} 
+                onClick={() => {setView(tab as any); setIsRaw(false);}}
+              >
+                {tab === 'summary' && 'Résumé'}
+                {tab === 'lines' && 'Lignes'}
+                {tab === 'invoices' && 'Factures'}
+                {tab === 'orders' && 'Commandes'}
+              </button>
+            ))}
             {view !== 'summary' && user.role === 'admin' && (
-              <button className={`btn ${isRaw ? 'btn-secondary' : 'btn-outline'}`} onClick={() => setIsRaw(!isRaw)}>
-                {isRaw ? 'Vue Normale' : 'Données Brutes (SQL)'}
+              <button className={`tab-btn raw-toggle ${isRaw ? 'active' : ''}`} onClick={() => setIsRaw(!isRaw)}>
+                {isRaw ? 'Vue Normale' : '{ SQL }'}
               </button>
             )}
           </div>
         </div>
 
-        {message && <div className="alert-success"><CheckCircle size={18} /> {message}</div>}
+        {message && (
+          <div className="alert alert-success">
+            <CheckCircle size={20} className="alert-icon" /> 
+            <span>{message}</span>
+          </div>
+        )}
 
         {isRaw ? (
-          <div className="raw-data-wrapper">
-            <div className="sql-display">
+          <div className="raw-view-container">
+            <div className="sql-box">
+              <div className="sql-box-header">Requête SQL Exécutée</div>
               <code>{rawSql}</code>
             </div>
-            <div className="data-table-container raw-view">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    {rawData.length > 0 && Object.keys(rawData[0]).map(key => <th key={key}>{key}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rawData.map((row, i) => (
-                    <tr key={i}>
-                      {Object.values(row).map((val: any, j) => <td key={j}>{val}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <>
-            {user.role === 'admin' && (
-          <div className="import-controls">
-            <label className="btn btn-secondary">
-              <Upload size={16} /> Lignes
-              <input type="file" hidden onChange={(e) => handleFileUpload(e, 'lines')} accept=".xlsx, .xls" />
-            </label>
-            <label className="btn btn-secondary">
-              <Upload size={16} /> Factures
-              <input type="file" hidden onChange={(e) => handleFileUpload(e, 'invoices')} accept=".xlsx, .xls" />
-            </label>
-            <label className="btn btn-secondary">
-              <Upload size={16} /> Commandes (M57)
-              <input type="file" hidden onChange={(e) => handleFileUpload(e, 'orders')} accept=".xlsx, .xls" />
-            </label>
-          </div>
-        )}
-
-        {view === 'summary' && (
-          <div className="budget-summary">
-            <div className="summary-card">
-              <h3>Budget Total</h3>
-              <p className="amount">{budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0).toLocaleString()} €</p>
-            </div>
-            <div className="summary-card">
-              <h3>Total Commandé (TTC)</h3>
-              <p className="amount">{orders.reduce((acc, curr) => acc + (parseFloat(curr['Montant TTC']) || 0), 0).toLocaleString()} €</p>
-            </div>
-            <div className="summary-card">
-              <h3>Total Facturé</h3>
-              <p className="amount">{invoices.reduce((acc, curr) => acc + (curr.amount_ht || 0), 0).toLocaleString()} €</p>
-            </div>
-            <div className="summary-card info">
-              <h3>Nombre de Commandes</h3>
-              <p className="amount">{groupedOrders.length}</p>
-            </div>
-            <div className="summary-card info">
-              <h3>Total Lignes de Commande</h3>
-              <p className="amount">{orders.length}</p>
-            </div>
-          </div>
-        )}
-
-        {view === 'lines' && (
-          <div className="data-table-container">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Libellé</th>
-                  <th>Année</th>
-                  <th>Montant Alloué</th>
-                </tr>
-              </thead>
-              <tbody>
-                {budgetLines.map(line => (
-                  <tr key={line.id}>
-                    <td>{line.code}</td>
-                    <td>{line.label}</td>
-                    <td>{line.year}</td>
-                    <td>{line.allocated_amount.toLocaleString()} €</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {view === 'invoices' && (
-          <div className="data-table-container">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>N° Facture</th>
-                  <th>Fournisseur</th>
-                  <th>Code Budget</th>
-                  <th>Date</th>
-                  <th>Montant HT</th>
-                  <th>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map(inv => (
-                  <tr key={inv.id}>
-                    <td>{inv.invoice_number}</td>
-                    <td>{inv.provider}</td>
-                    <td>{inv.budget_line_code}</td>
-                    <td>{inv.date}</td>
-                    <td>{inv.amount_ht.toLocaleString()} €</td>
-                    <td><span className="status-badge">{inv.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {view === 'orders' && (
-          <>
-            <div className="orders-sub-header">
-              <div className="header-actions">
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowM57(true)}>
-                  <BookOpen size={16} /> Plan M57
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowColumnConfig(true)}>
-                  <Columns size={16} /> Colonnes
-                </button>
-                <div className="filter-group">
-                  <Filter size={16} />
-                  <select 
-                    value={sectionFilter} 
-                    onChange={(e) => setSectionFilter(e.target.value)}
-                    className="filter-select"
-                  >
-                    <option value="all">Toutes les sections</option>
-                    <option value="F">Fonctionnement (F)</option>
-                    <option value="I">Investissement (I)</option>
-                  </select>
-                </div>
-                <div className="search-bar">
-                  <Search size={16} />
-                  <input 
-                    type="text" 
-                    placeholder="Recherche globale..." 
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="data-table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    {columnSettings.filter(c => c.is_visible).map(col => (
-                      <th key={col.column_key}>
-                        <div className="th-content" onClick={() => requestSort(col.column_key)}>
-                          {col.label}
-                          {sortConfig?.key === col.column_key && (
-                            <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
-                          )}
-                        </div>
-                        <div className="column-filter">
-                          <input 
-                            type="text" 
-                            placeholder="Filtrer..."
-                            value={columnFilters[col.column_key] || ''}
-                            onChange={(e) => handleColumnFilterChange(col.column_key, e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredOrders.length > 0 ? filteredOrders.map(order => (
-                    <tr key={order.id} className={getRowClass(order.Section || order.section)}>
-                      {columnSettings.filter(c => c.is_visible).map(col => (
-                        <td key={col.column_key}>
-                          {col.column_key === 'Section' || col.column_key === 'section' ? (
-                            <span className={`section-indicator ${(order[col.column_key] === 'Fonctionnement' || order[col.column_key] === 'F') ? 'f' : 'i'}`}>
-                              {(order[col.column_key] === 'Fonctionnement' || order[col.column_key] === 'F') ? 'F' : 'I'}
-                            </span>
-                          ) : col.column_key === 'status' || col.column_key === 'Etat' ? (
-                            <span className="status-badge">{order[col.column_key]}</span>
-                          ) : col.column_key === 'Montant HT' || col.column_key === 'amount_ht' ? (
-                            <span className="total-amount-highlight">
-                              {order._total_ht.toLocaleString()} €
-                            </span>
-                          ) : col.column_key === 'Montant TTC' ? (
-                            <span className="total-amount-highlight ttc">
-                              {order._total_ttc.toLocaleString()} €
-                            </span>
-                          ) : col.column_key === 'Libellé' ? (
-                            <span className="label-bold-wider">
-                              {order[col.column_key]}
-                            </span>
-                          ) : col.column_key === 'Désignation' || col.column_key === 'description' ? (
-                            <div className="order-lines-container wider">
-                              {order._lines.map((line: any, idx: number) => (
-                                <div key={idx} className="order-line-detail">
-                                  <span className="line-number-badge">{line.nr}</span>
-                                  <span className="line-desc">{line.desc}</span>
-                                  <span className="line-amt">{line.amtHt.toLocaleString()} € HT</span>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            order[col.column_key]
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  )) : (
-                    <tr>
-                      <td colSpan={columnSettings.filter(c => c.is_visible).length || 1} style={{ textAlign: 'center', padding: '30px' }}>Aucune commande trouvée</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-
-        {/* M57 Modal */}
-        {showM57 && (
-          <div className="modal-overlay">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h2>Natures Comptables M57</h2>
-                <button className="close-btn" onClick={() => setShowM57(false)}><X size={24} /></button>
-              </div>
-              <div className="modal-body">
-                <table className="data-table">
+            <div className="table-card">
+              <div className="table-responsive">
+                <table className="modern-table">
                   <thead>
                     <tr>
-                      <th>Code</th>
-                      <th>Libellé</th>
-                      <th>Section</th>
+                      {rawData.length > 0 && Object.keys(rawData[0]).map(key => <th key={key}>{key}</th>)}
                     </tr>
                   </thead>
                   <tbody>
-                    {m57Plan.map(item => (
-                      <tr key={item.id}>
-                        <td><strong>{item.code}</strong></td>
-                        <td>{item.label}</td>
-                        <td>
-                           <span className={`section-indicator ${item.section === 'F' ? 'f' : 'i'}`}>
-                            {item.section}
-                          </span>
-                        </td>
+                    {rawData.map((row, i) => (
+                      <tr key={i}>
+                        {Object.values(row).map((val: any, j) => <td key={j}>{val}</td>)}
                       </tr>
                     ))}
                   </tbody>
@@ -532,30 +302,307 @@ const Budget: React.FC = () => {
               </div>
             </div>
           </div>
+        ) : (
+          <div className="view-content-wrapper">
+            {user.role === 'admin' && view !== 'summary' && (
+              <div className="import-toolbar">
+                <span className="import-label">Importer des données :</span>
+                {view === 'lines' && (
+                  <label className="import-btn">
+                    <Upload size={16} /> Fichier Lignes (.xls)
+                    <input type="file" hidden onChange={(e) => handleFileUpload(e, 'lines')} accept=".xlsx, .xls" />
+                  </label>
+                )}
+                {view === 'invoices' && (
+                  <label className="import-btn">
+                    <Upload size={16} /> Fichier Factures (.xls)
+                    <input type="file" hidden onChange={(e) => handleFileUpload(e, 'invoices')} accept=".xlsx, .xls" />
+                  </label>
+                )}
+                {view === 'orders' && (
+                  <label className="import-btn">
+                    <Upload size={16} /> Fichier M57 Commandes (.xls)
+                    <input type="file" hidden onChange={(e) => handleFileUpload(e, 'orders')} accept=".xlsx, .xls" />
+                  </label>
+                )}
+              </div>
+            )}
+
+            {view === 'summary' && (
+              <div className="dashboard-grid">
+                <div className="dashboard-card primary">
+                  <div className="card-icon"><Euro size={24} /></div>
+                  <div className="card-content">
+                    <h3 className="card-title">Budget Alloué Total</h3>
+                    <p className="card-value">{budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0).toLocaleString()} €</p>
+                  </div>
+                </div>
+                <div className="dashboard-card secondary">
+                  <div className="card-icon"><ShoppingCart size={24} /></div>
+                  <div className="card-content">
+                    <h3 className="card-title">Total Commandé (TTC)</h3>
+                    <p className="card-value">{orders.reduce((acc, curr) => acc + (parseFloat(curr['Montant TTC']) || 0), 0).toLocaleString()} €</p>
+                  </div>
+                </div>
+                <div className="dashboard-card warning">
+                  <div className="card-icon"><FileText size={24} /></div>
+                  <div className="card-content">
+                    <h3 className="card-title">Total Facturé</h3>
+                    <p className="card-value">{invoices.reduce((acc, curr) => acc + (curr.amount_ht || 0), 0).toLocaleString()} €</p>
+                  </div>
+                </div>
+                <div className="dashboard-card neutral">
+                  <div className="card-icon"><Activity size={24} /></div>
+                  <div className="card-content">
+                    <h3 className="card-title">Volume de Commandes</h3>
+                    <p className="card-value">{groupedOrders.length} <span className="card-subvalue">dossiers</span></p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {view === 'lines' && (
+              <div className="table-card">
+                <div className="table-responsive">
+                  <table className="modern-table">
+                    <thead>
+                      <tr>
+                        <th>Code</th>
+                        <th>Libellé</th>
+                        <th>Année</th>
+                        <th className="text-right">Montant Alloué</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {budgetLines.map(line => (
+                        <tr key={line.id}>
+                          <td className="font-medium text-secondary">{line.code}</td>
+                          <td>{line.label}</td>
+                          <td><span className="badge year">{line.year}</span></td>
+                          <td className="text-right font-bold text-primary">{line.allocated_amount.toLocaleString()} €</td>
+                        </tr>
+                      ))}
+                      {budgetLines.length === 0 && (
+                        <tr><td colSpan={4} className="text-center py-8 text-gray">Aucune ligne budgétaire disponible.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {view === 'invoices' && (
+              <div className="table-card">
+                <div className="table-responsive">
+                  <table className="modern-table">
+                    <thead>
+                      <tr>
+                        <th>N° Facture</th>
+                        <th>Fournisseur</th>
+                        <th>Code Budget</th>
+                        <th>Date</th>
+                        <th className="text-right">Montant HT</th>
+                        <th className="text-center">Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoices.map(inv => (
+                        <tr key={inv.id}>
+                          <td className="font-medium">{inv.invoice_number}</td>
+                          <td>{inv.provider}</td>
+                          <td><span className="badge neutral">{inv.budget_line_code}</span></td>
+                          <td className="text-gray">{inv.date}</td>
+                          <td className="text-right font-bold">{inv.amount_ht.toLocaleString()} €</td>
+                          <td className="text-center"><span className="badge status">{inv.status}</span></td>
+                        </tr>
+                      ))}
+                      {invoices.length === 0 && (
+                        <tr><td colSpan={6} className="text-center py-8 text-gray">Aucune facture disponible.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {view === 'orders' && (
+              <div className="orders-container">
+                <div className="toolbar">
+                  <div className="toolbar-actions">
+                    <button className="toolbar-btn" onClick={() => setShowM57(true)}>
+                      <BookOpen size={16} /> Plan M57
+                    </button>
+                    <button className="toolbar-btn" onClick={() => setShowColumnConfig(true)}>
+                      <Columns size={16} /> Colonnes
+                    </button>
+                  </div>
+                  <div className="toolbar-filters">
+                    <div className="search-input-wrapper">
+                      <Search size={16} className="search-icon" />
+                      <input 
+                        type="text" 
+                        placeholder="Rechercher une commande, fournisseur..." 
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="search-input"
+                      />
+                    </div>
+                    <div className="select-wrapper">
+                      <Filter size={14} className="select-icon" />
+                      <select 
+                        value={sectionFilter} 
+                        onChange={(e) => setSectionFilter(e.target.value)}
+                        className="filter-select"
+                      >
+                        <option value="all">Toutes les sections</option>
+                        <option value="F">Fonctionnement (F)</option>
+                        <option value="I">Investissement (I)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="table-card">
+                  <div className="table-responsive">
+                    <table className="modern-table table-bordered">
+                      <thead>
+                        <tr>
+                          {columnSettings.filter(c => c.is_visible).map(col => (
+                            <th key={col.column_key}>
+                              <div className="th-wrapper">
+                                <div className="th-content" onClick={() => requestSort(col.column_key)}>
+                                  {col.label}
+                                  {sortConfig?.key === col.column_key && (
+                                    <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
+                                  )}
+                                </div>
+                                <input 
+                                  type="text" 
+                                  placeholder="Filtrer..."
+                                  value={columnFilters[col.column_key] || ''}
+                                  onChange={(e) => handleColumnFilterChange(col.column_key, e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="col-filter-input"
+                                />
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredOrders.length > 0 ? filteredOrders.map(order => (
+                          <tr key={order.id} className={getRowClass(order.Section || order.section)}>
+                            {columnSettings.filter(c => c.is_visible).map(col => (
+                              <td key={col.column_key}>
+                                {col.column_key === 'Section' || col.column_key === 'section' ? (
+                                  <span className={`section-badge ${(order[col.column_key] === 'Fonctionnement' || order[col.column_key] === 'F') ? 'f' : 'i'}`}>
+                                    {(order[col.column_key] === 'Fonctionnement' || order[col.column_key] === 'F') ? 'F' : 'I'}
+                                  </span>
+                                ) : col.column_key === 'status' || col.column_key === 'Etat' ? (
+                                  <span className="badge status">{order[col.column_key]}</span>
+                                ) : col.column_key === 'Montant HT' || col.column_key === 'amount_ht' ? (
+                                  <span className="amount-ht">
+                                    {order._total_ht.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                  </span>
+                                ) : col.column_key === 'Montant TTC' ? (
+                                  <span className="amount-ttc">
+                                    {order._total_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                  </span>
+                                ) : col.column_key === 'Libellé' ? (
+                                  <span className="order-label">
+                                    {order[col.column_key]}
+                                  </span>
+                                ) : col.column_key === 'Désignation' || col.column_key === 'description' ? (
+                                  <div className="order-lines-list">
+                                    {order._lines.map((line: any, idx: number) => (
+                                      <div key={idx} className="order-line-item">
+                                        <span className="line-num">{line.nr}</span>
+                                        <span className="line-desc">{line.desc}</span>
+                                        <span className="line-amt">{line.amtHt.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} HT</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  order[col.column_key]
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        )) : (
+                          <tr>
+                            <td colSpan={columnSettings.filter(c => c.is_visible).length || 1} className="empty-state">
+                              Aucune commande ne correspond à vos critères.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Column Config Modal */}
-        {showColumnConfig && (
-          <div className="modal-overlay">
-            <div className="modal-content">
+        {/* Modals */}
+        {showM57 && (
+          <div className="modal-backdrop" onClick={() => setShowM57(false)}>
+            <div className="modal-window" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2>Affichage des Colonnes (Global)</h2>
-                <button className="close-btn" onClick={() => setShowColumnConfig(false)}><X size={24} /></button>
+                <h2 className="modal-title">Natures Comptables M57</h2>
+                <button className="icon-btn" onClick={() => setShowM57(false)}><X size={20} /></button>
+              </div>
+              <div className="modal-body p-0">
+                <div className="table-responsive max-h-[60vh]">
+                  <table className="modern-table">
+                    <thead>
+                      <tr>
+                        <th>Code</th>
+                        <th>Libellé</th>
+                        <th className="text-center">Section</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {m57Plan.map(item => (
+                        <tr key={item.id}>
+                          <td className="font-bold text-secondary">{item.code}</td>
+                          <td>{item.label}</td>
+                          <td className="text-center">
+                             <span className={`section-badge ${item.section === 'F' ? 'f' : 'i'}`}>
+                              {item.section}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showColumnConfig && (
+          <div className="modal-backdrop" onClick={() => setShowColumnConfig(false)}>
+            <div className="modal-window modal-sm" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">Configuration des Colonnes</h2>
+                <button className="icon-btn" onClick={() => setShowColumnConfig(false)}><X size={20} /></button>
               </div>
               <div className="modal-body">
-                <p style={{ marginBottom: '20px', fontSize: '14px', color: '#666' }}>
-                  Ces réglages s'appliquent à tous les utilisateurs du Hub.
+                <p className="modal-desc">
+                  Activez ou désactivez l'affichage des colonnes pour la vue Commandes. Ces paramètres sont appliqués globalement.
                 </p>
-                <div className="column-config-list">
+                <div className="column-toggles">
                   {columnSettings.map(col => (
-                    <div key={col.id} className="column-config-item">
-                      <span>{col.label}</span>
+                    <div key={col.id} className="toggle-item">
+                      <span className="toggle-label">{col.label}</span>
                       <button 
-                        className={`btn-toggle-col ${col.is_visible ? 'visible' : ''}`}
+                        className={`toggle-btn ${col.is_visible ? 'on' : 'off'}`}
                         onClick={() => toggleColumnVisibility(col.column_key, col.is_visible)}
                         disabled={user.role !== 'admin'}
                       >
-                        {col.is_visible ? <Eye size={18} /> : <EyeOff size={18} />}
+                        {col.is_visible ? <Eye size={16} /> : <EyeOff size={16} />}
                         {col.is_visible ? 'Visible' : 'Masqué'}
                       </button>
                     </div>
@@ -565,153 +612,516 @@ const Budget: React.FC = () => {
             </div>
           </div>
         )}
-          </>
-        )}
       </main>
 
       <style>{`
-        .order-lines-container { display: flex; flex-direction: column; gap: 4px; }
-        .order-lines-container.wider { min-width: 300px; max-width: 500px; }
-        .order-line-detail { display: flex; align-items: flex-start; gap: 6px; font-size: 11px; color: #555; border-bottom: 1px dashed #eee; padding-bottom: 2px; }
-        .order-line-detail:last-child { border-bottom: none; }
-        .line-number-badge { background: #f0f0f0; color: #888; padding: 0 4px; border-radius: 3px; font-weight: bold; min-width: 18px; text-align: center; }
-        .line-desc { flex-grow: 1; }
-        .line-amt { font-style: italic; color: #888; white-space: nowrap; }
-        .total-amount-highlight { font-weight: 800; color: var(--secondary-color); }
-        .total-amount-highlight.ttc { color: var(--primary-color); }
-        .label-bold-wider { font-weight: 700; color: var(--secondary-color); display: inline-block; min-width: 200px; }
-
-        .data-table-container { 
-          background: var(--white); 
-          border-radius: 8px; 
-          overflow: auto; 
-          box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
-          max-width: 100%;
-          max-height: 70vh; /* Limite la hauteur pour garder le scroll HT visible */
-          margin-bottom: 20px;
-          border: 1px solid #eee;
-          position: relative;
+        /* Page Layout */
+        .budget-page {
+          min-height: 100vh;
+          background-color: #f8fafc;
+          font-family: 'Inter', system-ui, -apple-system, sans-serif;
         }
-        
-        /* Force scrollbar visibility */
-        .data-table-container::-webkit-scrollbar { height: 10px; width: 10px; }
-        .data-table-container::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
-        .data-table-container::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
-        .data-table-container::-webkit-scrollbar-thumb:hover { background: #999; }
-
-        .data-table { width: 100%; border-collapse: separate; border-spacing: 0; }
-        .data-table th, .data-table td { 
-          padding: 12px 15px; 
-          text-align: left; 
-          border-bottom: 1px solid #eee; 
-          font-size: 13px; 
-          white-space: nowrap; 
+        .main-content {
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 2rem;
         }
-        .data-table td .order-lines-container, 
-        .data-table td .label-bold-wider { 
-          white-space: normal; 
+
+        /* Typography & Colors */
+        :root {
+          --color-ivry: #e30613;
+          --color-navy: #003366;
+          --color-navy-light: #1a4c80;
+          --color-slate-50: #f8fafc;
+          --color-slate-100: #f1f5f9;
+          --color-slate-200: #e2e8f0;
+          --color-slate-300: #cbd5e1;
+          --color-slate-600: #475569;
+          --color-slate-700: #334155;
+          --color-slate-800: #1e293b;
+          --color-green-500: #22c55e;
+          --color-green-50: #f0fdf4;
+          --color-blue-500: #3b82f6;
+          --color-blue-50: #eff6ff;
         }
-        .data-table th { 
-          background: #f8f9fa; 
-          color: var(--secondary-color); 
-          font-weight: 700; 
-          vertical-align: top;
-          position: sticky;
-          top: 0;
-          z-index: 10;
-          border-bottom: 2px solid #eee;
+
+        .text-primary { color: var(--color-ivry); }
+        .text-secondary { color: var(--color-navy); }
+        .text-gray { color: var(--color-slate-600); }
+        .font-medium { font-weight: 500; }
+        .font-bold { font-weight: 700; }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .py-8 { padding-top: 2rem; padding-bottom: 2rem; }
+        .p-0 { padding: 0 !important; }
+
+        /* Header & Tabs */
+        .page-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          margin-bottom: 2rem;
+          padding-bottom: 1.5rem;
+          border-bottom: 1px solid var(--color-slate-200);
         }
-        
-        .th-content { display: flex; align-items: center; cursor: pointer; user-select: none; margin-bottom: 8px; }
-        .th-content:hover { color: var(--primary-color); }
-        .sort-indicator { color: var(--primary-color); font-weight: 800; }
-        
-        .column-filter input {
-          width: 100%;
-          padding: 4px 8px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 11px;
-          font-weight: normal;
-          outline: none;
+        .page-title {
+          font-size: 1.875rem;
+          font-weight: 700;
+          color: var(--color-navy);
+          margin: 0 0 0.5rem 0;
         }
-        .column-filter input:focus { border-color: var(--primary-color); }
+        .page-subtitle {
+          color: var(--color-slate-600);
+          margin: 0;
+          font-size: 0.95rem;
+        }
+        .view-tabs {
+          display: flex;
+          gap: 0.5rem;
+          background: white;
+          padding: 0.25rem;
+          border-radius: 0.5rem;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .tab-btn {
+          padding: 0.5rem 1rem;
+          border-radius: 0.375rem;
+          font-weight: 600;
+          font-size: 0.875rem;
+          color: var(--color-slate-600);
+          background: transparent;
+          border: none;
+          transition: all 0.2s;
+        }
+        .tab-btn:hover { background: var(--color-slate-50); color: var(--color-navy); }
+        .tab-btn.active {
+          background: var(--color-navy);
+          color: white;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .tab-btn.raw-toggle {
+          color: var(--color-slate-500);
+          font-family: monospace;
+          border: 1px dashed var(--color-slate-300);
+        }
+        .tab-btn.raw-toggle.active {
+          background: var(--color-slate-800);
+          color: white;
+          border-color: var(--color-slate-800);
+        }
 
-        .orders-sub-header { margin-bottom: 20px; }
-        .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        /* Alerts */
+        .alert {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          padding: 1rem;
+          border-radius: 0.5rem;
+          margin-bottom: 1.5rem;
+          font-weight: 500;
+          animation: slideIn 0.3s ease-out;
+        }
+        .alert-success {
+          background-color: var(--color-green-50);
+          color: var(--color-green-500);
+          border: 1px solid #bbf7d0;
+        }
+        @keyframes slideIn {
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Dashboard Grid */
+        .dashboard-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+          gap: 1.5rem;
+          margin-bottom: 2rem;
+        }
+        .dashboard-card {
+          background: white;
+          border-radius: 1rem;
+          padding: 1.5rem;
+          display: flex;
+          align-items: center;
+          gap: 1.25rem;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+          border-top: 4px solid transparent;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .dashboard-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .dashboard-card.primary { border-top-color: var(--color-ivry); }
+        .dashboard-card.secondary { border-top-color: var(--color-navy); }
+        .dashboard-card.warning { border-top-color: #f59e0b; }
+        .dashboard-card.neutral { border-top-color: var(--color-slate-400); }
         
-        .filter-group { display: flex; align-items: center; background: var(--white); padding: 5px 12px; border-radius: 50px; border: 1px solid #ddd; }
-        .filter-select { border: none; outline: none; background: none; margin-left: 5px; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+        .card-icon {
+          width: 3rem;
+          height: 3rem;
+          border-radius: 0.75rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .primary .card-icon { background: #fee2e2; color: var(--color-ivry); }
+        .secondary .card-icon { background: var(--color-blue-50); color: var(--color-navy); }
+        .warning .card-icon { background: #fef3c7; color: #d97706; }
+        .neutral .card-icon { background: var(--color-slate-100); color: var(--color-slate-600); }
 
-        .search-bar { display: flex; align-items: center; background: var(--white); padding: 5px 12px; border-radius: 50px; border: 1px solid #ddd; min-width: 200px; }
-        .search-bar input { border: none; outline: none; padding-left: 8px; width: 100%; font-family: inherit; font-size: 13px; }
+        .card-content { flex: 1; }
+        .card-title {
+          font-size: 0.875rem;
+          color: var(--color-slate-500);
+          margin: 0 0 0.25rem 0;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.025em;
+        }
+        .card-value {
+          font-size: 1.5rem;
+          font-weight: 800;
+          color: var(--color-slate-800);
+          margin: 0;
+        }
+        .card-subvalue { font-size: 0.875rem; font-weight: 500; color: var(--color-slate-400); }
 
-        .status-badge { background: #e9ecef; padding: 3px 8px; border-radius: 4px; font-size: 11px; color: #495057; font-weight: 600; }
-        
-        .row-operating { background-color: rgba(232, 245, 233, 0.3); }
-        .row-investment { background-color: rgba(227, 242, 253, 0.3); }
-
-        .section-indicator {
+        /* Toolbar & Imports */
+        .import-toolbar {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          margin-bottom: 1.5rem;
+          background: white;
+          padding: 1rem 1.5rem;
+          border-radius: 0.75rem;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .import-label { font-weight: 600; color: var(--color-slate-700); font-size: 0.9rem; }
+        .import-btn {
           display: inline-flex;
           align-items: center;
-          justify-content: center;
-          width: 20px;
-          height: 20px;
-          border-radius: 4px;
-          font-weight: 800;
-          font-size: 10px;
+          gap: 0.5rem;
+          background: var(--color-slate-50);
+          color: var(--color-slate-700);
+          padding: 0.5rem 1rem;
+          border-radius: 0.5rem;
+          border: 1px solid var(--color-slate-200);
+          font-size: 0.875rem;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
         }
-        .section-indicator.f { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
-        .section-indicator.i { background: #e3f2fd; color: #1565c0; border: 1px solid #bbdefb; }
+        .import-btn:hover { background: var(--color-slate-100); border-color: var(--color-slate-300); }
 
-        .btn-sm { padding: 6px 12px; font-size: 13px; }
-
-        /* Modal Styles */
-        .modal-overlay {
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.5);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 2000;
-        }
-        .modal-content {
-          background: white;
-          width: 90%;
-          max-width: 700px;
-          border-radius: 12px;
-          max-height: 80vh;
-          display: flex;
-          flex-direction: column;
-        }
-        .modal-header { padding: 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
-        .modal-header h2 { margin: 0; font-size: 20px; color: var(--secondary-color); }
-        .close-btn { background: none; border: none; cursor: pointer; color: #666; }
-        .modal-body { padding: 20px; overflow-y: auto; }
-
-        .column-config-list { display: grid; gap: 10px; }
-        .column-config-item {
+        .toolbar {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 12px;
-          background: #f8f9fa;
-          border-radius: 6px;
+          margin-bottom: 1rem;
+          flex-wrap: wrap;
+          gap: 1rem;
         }
-        .btn-toggle-col {
+        .toolbar-actions { display: flex; gap: 0.5rem; }
+        .toolbar-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.5rem 1rem;
+          background: white;
+          border: 1px solid var(--color-slate-200);
+          border-radius: 0.5rem;
+          color: var(--color-slate-700);
+          font-weight: 600;
+          font-size: 0.875rem;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .toolbar-btn:hover { background: var(--color-slate-50); }
+        
+        .toolbar-filters { display: flex; gap: 0.75rem; }
+        .search-input-wrapper {
+          position: relative;
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 5px 10px;
-          border-radius: 4px;
-          border: 1px solid #ddd;
-          background: white;
-          cursor: pointer;
-          font-size: 12px;
-          font-weight: 600;
         }
-        .btn-toggle-col.visible { background: var(--secondary-color); color: white; border-color: var(--secondary-color); }
+        .search-icon { position: absolute; left: 0.75rem; color: var(--color-slate-400); }
+        .search-input {
+          padding: 0.5rem 1rem 0.5rem 2.25rem;
+          border: 1px solid var(--color-slate-200);
+          border-radius: 0.5rem;
+          font-size: 0.875rem;
+          min-width: 250px;
+          outline: none;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+          transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .search-input:focus { border-color: var(--color-navy); box-shadow: 0 0 0 3px rgba(0, 51, 102, 0.1); }
+        
+        .select-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+          background: white;
+          border: 1px solid var(--color-slate-200);
+          border-radius: 0.5rem;
+          padding: 0 0.75rem;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .select-icon { color: var(--color-slate-400); margin-right: 0.25rem; }
+        .filter-select {
+          border: none;
+          background: transparent;
+          padding: 0.5rem 0;
+          font-size: 0.875rem;
+          font-weight: 500;
+          color: var(--color-slate-700);
+          outline: none;
+          cursor: pointer;
+        }
+
+        /* Modern Tables */
+        .table-card {
+          background: white;
+          border-radius: 1rem;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+          overflow: hidden;
+          border: 1px solid var(--color-slate-200);
+        }
+        .table-responsive {
+          max-height: calc(100vh - 300px);
+          overflow: auto;
+        }
+        .table-responsive::-webkit-scrollbar { width: 8px; height: 8px; }
+        .table-responsive::-webkit-scrollbar-track { background: var(--color-slate-50); }
+        .table-responsive::-webkit-scrollbar-thumb { background: var(--color-slate-300); border-radius: 4px; }
+        .table-responsive::-webkit-scrollbar-thumb:hover { background: var(--color-slate-400); }
+
+        .modern-table {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0;
+          text-align: left;
+        }
+        .modern-table th {
+          background: var(--color-slate-50);
+          padding: 1rem;
+          font-weight: 600;
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--color-slate-500);
+          position: sticky;
+          top: 0;
+          z-index: 10;
+          border-bottom: 1px solid var(--color-slate-200);
+        }
+        .modern-table td {
+          padding: 1rem;
+          font-size: 0.875rem;
+          border-bottom: 1px solid var(--color-slate-100);
+          color: var(--color-slate-800);
+          vertical-align: top;
+        }
+        .modern-table tbody tr:last-child td { border-bottom: none; }
+        .modern-table tbody tr:hover { background-color: var(--color-slate-50); }
+
+        .th-wrapper { display: flex; flex-direction: column; gap: 0.5rem; }
+        .th-content {
+          display: flex;
+          align-items: center;
+          cursor: pointer;
+          user-select: none;
+          transition: color 0.2s;
+        }
+        .th-content:hover { color: var(--color-navy); }
+        .sort-indicator { color: var(--color-navy); margin-left: 0.25rem; font-weight: bold; }
+        
+        .col-filter-input {
+          width: 100%;
+          padding: 0.25rem 0.5rem;
+          border: 1px solid var(--color-slate-200);
+          border-radius: 0.25rem;
+          font-size: 0.75rem;
+          outline: none;
+          background: white;
+          font-weight: normal;
+          text-transform: none;
+          letter-spacing: normal;
+        }
+        .col-filter-input:focus { border-color: var(--color-blue-500); }
+
+        /* Table Specific Content */
+        .row-operating td { background-color: rgba(34, 197, 94, 0.03); }
+        .row-investment td { background-color: rgba(59, 130, 246, 0.03); }
+        
+        .section-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 1.75rem;
+          height: 1.75rem;
+          border-radius: 0.375rem;
+          font-weight: 800;
+          font-size: 0.75rem;
+        }
+        .section-badge.f { background: var(--color-green-50); color: var(--color-green-500); border: 1px solid #bbf7d0; }
+        .section-badge.i { background: var(--color-blue-50); color: var(--color-blue-500); border: 1px solid #bfdbfe; }
+
+        .badge {
+          padding: 0.25rem 0.5rem;
+          border-radius: 9999px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          display: inline-block;
+        }
+        .badge.year { background: var(--color-slate-100); color: var(--color-slate-600); }
+        .badge.status { background: var(--color-slate-100); color: var(--color-slate-700); }
+        .badge.neutral { background: white; border: 1px solid var(--color-slate-200); color: var(--color-slate-600); }
+
+        .amount-ht { font-weight: 800; color: var(--color-navy); }
+        .amount-ttc { font-weight: 800; color: var(--color-ivry); }
+        
+        .order-label {
+          font-weight: 600;
+          color: var(--color-slate-800);
+          display: inline-block;
+          min-width: 250px;
+        }
+        
+        .order-lines-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          min-width: 300px;
+          max-width: 450px;
+        }
+        .order-line-item {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.5rem;
+          font-size: 0.75rem;
+          padding-bottom: 0.5rem;
+          border-bottom: 1px dashed var(--color-slate-200);
+        }
+        .order-line-item:last-child { border-bottom: none; padding-bottom: 0; }
+        .line-num {
+          background: var(--color-slate-100);
+          color: var(--color-slate-600);
+          padding: 0.125rem 0.375rem;
+          border-radius: 0.25rem;
+          font-weight: 700;
+          min-width: 1.5rem;
+          text-align: center;
+        }
+        .line-desc { flex: 1; color: var(--color-slate-700); line-height: 1.4; }
+        .line-amt { font-style: italic; color: var(--color-slate-500); white-space: nowrap; font-weight: 500; }
+
+        .empty-state {
+          text-align: center;
+          padding: 3rem !important;
+          color: var(--color-slate-500);
+          font-style: italic;
+        }
+
+        /* Raw SQL View */
+        .raw-view-container { display: flex; flex-direction: column; gap: 1rem; }
+        .sql-box {
+          background: #1e1e1e;
+          border-radius: 0.75rem;
+          overflow: hidden;
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .sql-box-header {
+          background: #2d2d2d;
+          padding: 0.75rem 1rem;
+          color: #a0a0a0;
+          font-size: 0.75rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .sql-box code {
+          display: block;
+          padding: 1.5rem;
+          color: #d4d4d4;
+          font-family: 'Consolas', 'Monaco', monospace;
+          font-size: 0.875rem;
+          line-height: 1.5;
+          overflow-x: auto;
+        }
+
+        /* Modals */
+        .modal-backdrop {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(15, 23, 42, 0.4);
+          backdrop-filter: blur(4px);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 50;
+          padding: 1rem;
+        }
+        .modal-window {
+          background: white;
+          border-radius: 1rem;
+          width: 100%;
+          max-width: 800px;
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+          display: flex;
+          flex-direction: column;
+          max-height: 90vh;
+        }
+        .modal-window.modal-sm { max-width: 500px; }
+        .modal-header {
+          padding: 1.25rem 1.5rem;
+          border-bottom: 1px solid var(--color-slate-200);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .modal-title { font-size: 1.25rem; font-weight: 700; color: var(--color-navy); margin: 0; }
+        .icon-btn {
+          background: transparent;
+          border: none;
+          color: var(--color-slate-400);
+          cursor: pointer;
+          padding: 0.5rem;
+          border-radius: 0.5rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+        }
+        .icon-btn:hover { background: var(--color-slate-100); color: var(--color-slate-600); }
+        .modal-body { padding: 1.5rem; overflow-y: auto; }
+        .modal-desc { color: var(--color-slate-500); font-size: 0.875rem; margin: 0 0 1.5rem 0; line-height: 1.5; }
+        
+        .column-toggles { display: flex; flex-direction: column; gap: 0.75rem; }
+        .toggle-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.75rem 1rem;
+          background: var(--color-slate-50);
+          border: 1px solid var(--color-slate-200);
+          border-radius: 0.5rem;
+        }
+        .toggle-label { font-weight: 500; color: var(--color-slate-700); font-size: 0.875rem; }
+        .toggle-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.375rem;
+          padding: 0.375rem 0.75rem;
+          border-radius: 0.375rem;
+          font-size: 0.75rem;
+          font-weight: 600;
+          transition: all 0.2s;
+        }
+        .toggle-btn.on { background: var(--color-navy); color: white; border: 1px solid var(--color-navy); }
+        .toggle-btn.off { background: white; color: var(--color-slate-500); border: 1px solid var(--color-slate-300); }
       `}</style>
     </div>
   );

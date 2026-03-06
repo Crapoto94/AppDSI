@@ -1,33 +1,21 @@
 {
-  "currentVersion": "0.1.6",
+  "currentVersion": "0.1.2",
   "history": [
     {
-      "version": "0.1.6",
+      "version": "0.1.2",
       "date": "2026-03-06",
       "changes": [
-        "Correction du bug d'affichage de la table des Opérations (données désormais visibles).",
-        "Restauration de l'interface utilisateur 'Premium' de la v0.1.5.",
-        "Amélioration de la robustesse du chargement des données depuis l'API."
+        "Refonte complète de l'interface Budget (design plus moderne et ergonomique).",
+        "Ajout d'un système d'onglets pour une meilleure lisibilité.",
+        "Amélioration du tableau de bord (cartes de résumé avec icônes).",
+        "Mise en place du système de versionning et du 'What's new'."
       ]
     },
     {
-      "version": "0.1.5",
+      "version": "0.1.1",
       "date": "2026-03-06",
       "changes": [
-        "Restauration et optimisation complète de l'interface utilisateur (UI/UX)",
-        "Amélioration des graphiques BI avec un design plus épuré et lisible",
-        "Optimisation de la table des Opérations avec des styles 'Premium'",
-        "Correction des effets de survol et des transitions sur l'ensemble de l'application"
-      ]
-    },
-    {
-      "version": "0.1.4",
-      "date": "2026-03-06",
-      "changes": [
-        "Nouvel onglet 'Opérations' avec gestion complète (Ajout, Edition, Suppression)",
-        "Importation automatique des données depuis 'opérations.xlsx'",
-        "Graphiques d'évolution désormais en mode cumulatif pour un meilleur suivi budgétaire",
-        "Ajout des lignes de budget (Fonc. et Inv.) sur les graphiques d'analyse"
+        "Version initiale avec fonctionnalités de base (Hub, Budget)."
       ]
     }
   ]

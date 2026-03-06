@@ -5,6 +5,8 @@ const jwt = require('jsonwebtoken');
 const setupDb = require('./db');
 const multer = require('multer');
 const xlsx = require('xlsx');
+const fs = require('fs');
+const path = require('path');
 const upload = multer({ dest: 'uploads/' });
 
 const app = express();
@@ -13,6 +15,15 @@ const SECRET_KEY = 'votre_cle_secrete_ici'; // À changer en production
 
 app.use(cors());
 app.use(express.json());
+
+app.get('/api/changelog', (req, res) => {
+    try {
+        const data = fs.readFileSync(path.join(__dirname, 'changelog.json'), 'utf8');
+        res.json(JSON.parse(data));
+    } catch (err) {
+        res.status(500).json({ message: 'Error reading changelog' });
+    }
+});
 
 let db;
 
