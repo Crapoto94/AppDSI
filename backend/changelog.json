@@ -1,6 +1,20 @@
 {
-  "currentVersion": "0.1.25",
+  "currentVersion": "0.1.26",
   "history": [
+    {
+      "version": "0.1.26",
+      "date": "2026-03-07",
+      "changes": [
+        "Commandes : Nouveau système d'affectation manuelle d'une opération à une commande via un sélecteur modal.",
+        "Commandes : Ajout d'un moteur de recherche intégré dans le sélecteur d'opération (filtrage par nom, service...).",
+        "Opérations : Affichage d'une barre de progression dynamique dans la colonne 'Montant utilisé' (Vert -> Orange -> Rouge).",
+        "Opérations : Calcul en temps réel du pourcentage de consommation du budget prévu.",
+        "Interface : Ajout de boutons de filtrage rapide (Fonc. / Inv.) dans la barre d'outils pour toutes les vues budgétaires.",
+        "Interface : Suppression du bouton d'import redondant dans la vue Opérations.",
+        "Backend : Mise en place d'un 'Mouchard' système (Logs en temps réel accessibles via /mouchard).",
+        "Backend : Synchronisation automatique des montants utilisés et des sections au démarrage du serveur."
+      ]
+    },
     {
       "version": "0.1.25",
       "date": "2026-03-06",
