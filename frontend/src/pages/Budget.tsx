@@ -41,6 +41,10 @@ const Budget: React.FC = () => {
   const [queryError, setQueryError] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<{type: string, message: string, isError: boolean} | null>(null);
 
+  const [showOpSelector, setShowOpSelector] = useState(false);
+  const [selectedOrderForOp, setSelectedOrderForOp] = useState<any>(null);
+  const [opSearchTerm, setOpSearchTerm] = useState('');
+
   const [expandedOrders, setExpandedOrders] = useState<string[]>([]);
   const toggleExpand = (id: string) => setExpandedOrders(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
@@ -494,6 +498,26 @@ const Budget: React.FC = () => {
   const [expandedLines, setExpandedLines] = useState<string[]>([]);
   const toggleExpandLine = (id: string) => setExpandedLines(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
+  const handleAssignOperation = async (operationId: number | null) => {
+    if (!selectedOrderForOp) return;
+    try {
+      const response = await fetch(`http://localhost:3001/api/orders/${selectedOrderForOp.id}/assign-operation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ operation_id: operationId })
+      });
+      if (response.ok) {
+        setShowOpSelector(false);
+        setSelectedOrderForOp(null);
+        await fetchData();
+      } else {
+        alert('Erreur lors de l\'affectation');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const groupedBudgetLines = useMemo(() => {
     const chapters: Record<string, any> = {};
     const financialCols = ['Budget voté', 'Disponible', 'Mt. prévision', 'Mt. pré-engagé', 'Mt. engagé', 'Mt. facturé', 'Mt. pré-mandaté', 'Mt. mandaté', 'Mt. payé', 'allocated_amount'];
@@ -617,6 +641,18 @@ const Budget: React.FC = () => {
       if (!showZeroBudget) {
         data = data.filter((row: any) => parseFloat(row['Budget voté'] || 0) !== 0);
       }
+      if (sectionFilter !== 'all') {
+        data = data.filter((row: any) => row.Section === sectionFilter || row.section === sectionFilter);
+      }
+    }
+
+    if (view === 'operations') {
+      if (sectionFilter !== 'all') {
+        data = data.filter((op: any) => {
+          const section = getSectionFromM57(op['C. Nature']);
+          return section === sectionFilter;
+        });
+      }
     }
 
     if (view !== 'orders') {
@@ -640,7 +676,7 @@ const Budget: React.FC = () => {
       }
     }
     return data;
-  }, [view, budgetLines, groupedBudgetLines, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget]);
+  }, [view, budgetLines, groupedBudgetLines, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
 
   const getRowClass = (section: string) => {
     if (section === 'Fonctionnement' || section === 'F') return 'row-operating';
@@ -718,7 +754,7 @@ const Budget: React.FC = () => {
           </div>
         ) : (
           <div className="view-content-wrapper">
-            {['admin', 'finances'].includes(user.role) && view !== 'summary' && (
+            {['admin', 'finances'].includes(user.role) && view !== 'summary' && ['lines', 'invoices', 'orders'].includes(view) && (
               <div className="import-toolbar">
                 <span className="import-label">Importer des données :</span>
                 {view === 'lines' && (
@@ -894,6 +930,32 @@ const Budget: React.FC = () => {
                         className="search-input"
                       />
                     </div>
+                    {['orders', 'operations', 'lines'].includes(view) && (
+                      <div className="section-quick-filters" style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button 
+                          className={`toolbar-btn ${sectionFilter === 'F' ? 'active' : ''}`}
+                          onClick={() => setSectionFilter(sectionFilter === 'F' ? 'all' : 'F')}
+                          style={{ 
+                            background: sectionFilter === 'F' ? 'var(--color-green-500)' : 'white', 
+                            color: sectionFilter === 'F' ? 'white' : 'inherit',
+                            borderColor: sectionFilter === 'F' ? 'var(--color-green-500)' : 'var(--color-slate-200)'
+                          }}
+                        >
+                          Fonc.
+                        </button>
+                        <button 
+                          className={`toolbar-btn ${sectionFilter === 'I' ? 'active' : ''}`}
+                          onClick={() => setSectionFilter(sectionFilter === 'I' ? 'all' : 'I')}
+                          style={{ 
+                            background: sectionFilter === 'I' ? 'var(--color-blue-500)' : 'white', 
+                            color: sectionFilter === 'I' ? 'white' : 'inherit',
+                            borderColor: sectionFilter === 'I' ? 'var(--color-blue-500)' : 'var(--color-slate-200)'
+                          }}
+                        >
+                          Inv.
+                        </button>
+                      </div>
+                    )}
                     {view === 'orders' && (
                       <div className="select-wrapper">
                         <Filter size={14} className="select-icon" />
@@ -916,33 +978,44 @@ const Budget: React.FC = () => {
                     <table className="modern-table table-bordered">
                       <thead>
                         <tr>
-                          {columnSettings.filter(c => c.is_visible).map(col => (
-                            <th 
-                              key={col.column_key}
-                              style={{
-                                color: col.color || 'inherit',
-                                fontWeight: col.is_bold ? 'bold' : '600',
-                                fontStyle: col.is_italic ? 'italic' : 'normal'
-                              }}
-                            >
-                              <div className="th-wrapper">
-                                <div className="th-content" onClick={() => requestSort(col.column_key)}>
-                                  {col.label}
-                                  {sortConfig?.key === col.column_key && (
-                                    <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
-                                  )}
+                          {(() => {
+                            let cols = columnSettings.filter(c => c.is_visible);
+                            if (view === 'operations' && !cols.some(c => c.column_key === 'Section' || c.column_key === 'section')) {
+                              const sectionCol = { id: -1, column_key: 'section', label: 'Section', is_visible: 1, display_order: 1, color: null, is_bold: 1, is_italic: 0 };
+                              cols = [cols[0], sectionCol, ...cols.slice(1)];
+                            }
+                            if (view === 'orders' && !cols.some(c => c.column_key === 'operation_label')) {
+                              const opCol = { id: -2, column_key: 'operation_label', label: 'Opération', is_visible: 1, display_order: 2, color: null, is_bold: 0, is_italic: 0 };
+                              cols = [...cols, opCol];
+                            }
+                            return cols.map(col => (
+                              <th 
+                                key={col.column_key}
+                                style={{
+                                  color: col.color || 'inherit',
+                                  fontWeight: col.is_bold ? 'bold' : '600',
+                                  fontStyle: col.is_italic ? 'italic' : 'normal'
+                                }}
+                              >
+                                <div className="th-wrapper">
+                                  <div className="th-content" onClick={() => requestSort(col.column_key)}>
+                                    {col.label}
+                                    {sortConfig?.key === col.column_key && (
+                                      <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
+                                    )}
+                                  </div>
+                                  <input 
+                                    type="text" 
+                                    placeholder="Filtrer..."
+                                    value={columnFilters[col.column_key] || ''}
+                                    onChange={(e) => handleColumnFilterChange(col.column_key, e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="col-filter-input"
+                                  />
                                 </div>
-                                <input 
-                                  type="text" 
-                                  placeholder="Filtrer..."
-                                  value={columnFilters[col.column_key] || ''}
-                                  onChange={(e) => handleColumnFilterChange(col.column_key, e.target.value)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="col-filter-input"
-                                />
-                              </div>
-                            </th>
-                          ))}
+                              </th>
+                            ));
+                          })()}
                         </tr>
                       </thead>
                       <tbody>
@@ -963,10 +1036,12 @@ const Budget: React.FC = () => {
                             isExpanded = expandedLines.includes(row['Libellé'] || index.toString());
                           }
                           
+                          const rowSection = row.Section || row.section || (view === 'operations' ? getSectionFromM57(row['C. Nature']) : '');
+
                           return (
                             <React.Fragment key={row.id || index}>
                               <tr 
-                                className={`${getRowClass(row.Section || row.section)} ${row._isChapter ? 'chapter-header-row' : ''}`}
+                                className={`${getRowClass(rowSection)} ${row._isChapter ? 'chapter-header-row' : ''}`}
                                 onClick={() => {
                                   if (isExpandable) {
                                     if (view === 'orders') toggleExpand(row.id || index.toString());
@@ -979,7 +1054,13 @@ const Budget: React.FC = () => {
                                   fontWeight: row._isChapter ? 'bold' : 'normal'
                                 }}
                               >
-                                {columnSettings.filter(c => c.is_visible).map(col => {
+                                {(() => {
+                                  let cols = columnSettings.filter(c => c.is_visible);
+                                  if (view === 'operations' && !cols.some(c => c.column_key === 'Section' || c.column_key === 'section')) {
+                                    const sectionCol = { id: -1, column_key: 'section', label: 'Section', is_visible: 1, display_order: 1, color: null, is_bold: 1, is_italic: 0 };
+                                    cols = [cols[0], sectionCol, ...cols.slice(1)];
+                                  }
+                                  return cols.map(col => {
                                   let content: React.ReactNode = row[col.column_key];
                                   let tooltip = '';
                                   let cellStyle: React.CSSProperties = {
@@ -991,6 +1072,7 @@ const Budget: React.FC = () => {
                                   const isCellEditing = view === 'operations' && editingCell?.id === row.id && editingCell?.key === col.column_key;
 
                                   if (isCellEditing) {
+                                    // ... existing editing logic ...
                                     if (['Montant prévu', 'Solde'].includes(col.column_key)) {
                                       content = (
                                         <input 
@@ -1040,11 +1122,39 @@ const Budget: React.FC = () => {
                                     }
                                   } else {
                                     if (col.column_key === 'Section' || col.column_key === 'section') {
-                                      const sec = row[col.column_key];
+                                      const sec = col.column_key === 'section' && view === 'operations' ? rowSection : row[col.column_key];
                                       content = (
                                         <span className={`section-badge ${(sec === 'Fonctionnement' || sec === 'F') ? 'f' : 'i'}`}>
                                           {(sec === 'Fonctionnement' || sec === 'F') ? 'F' : 'I'}
                                         </span>
+                                      );
+                                    } else if (col.column_key === 'used_amount' || col.column_key === 'Montant utilisé') {
+                                      const used = parseFloat(row[col.column_key] || 0);
+                                      const planned = parseFloat(row['Montant prévu'] || row['montant_prevu'] || 0);
+                                      const percent = planned > 0 ? (used / planned) * 100 : 0;
+                                      
+                                      let barColor = 'var(--color-green-500)';
+                                      if (percent > 100) barColor = '#ef4444'; // Red
+                                      else if (percent > 75) barColor = '#f97316'; // Orange
+                                      else if (percent > 50) barColor = '#eab308'; // Yellow/Gold
+                                      
+                                      content = (
+                                        <div className="progress-cell">
+                                          <div className="progress-info">
+                                            <span className="amount-used">{used.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>
+                                            <span className="percent-label" style={{ color: percent > 100 ? '#ef4444' : 'inherit' }}>{Math.round(percent)}%</span>
+                                          </div>
+                                          <div className="progress-track">
+                                            <div 
+                                              className="progress-bar" 
+                                              style={{ 
+                                                width: `${Math.min(percent, 100)}%`, 
+                                                backgroundColor: barColor,
+                                                boxShadow: percent > 100 ? '0 0 8px rgba(239, 68, 68, 0.4)' : 'none'
+                                              }} 
+                                            />
+                                          </div>
+                                        </div>
                                       );
                                     } else if (col.column_key === 'status' || col.column_key === 'Etat' || col.column_key === 'termine' || col.column_key === 'Terminé') {
                                       const val = row[col.column_key];
@@ -1108,7 +1218,28 @@ const Budget: React.FC = () => {
                                           </div>
                                         );
                                       }
+                                    }
+                                    else if (col.column_key === 'operation_label') {
+                                      const label = row.operation_label;
+                                      if (label) {
+                                        content = <span style={{ fontWeight: 600, color: 'var(--color-navy)' }}>{label}</span>;
+                                      } else {
+                                        content = (
+                                          <button 
+                                            className="toolbar-btn" 
+                                            style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--color-navy)', color: 'white' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSelectedOrderForOp(row);
+                                              setShowOpSelector(true);
+                                            }}
+                                          >
+                                            <Plus size={12} /> Affecter
+                                          </button>
+                                        );
+                                      }
                                     } else if (col.column_key === 'nature' || col.column_key === 'Article par nature' || col.column_key === 'C. Nature') {
+
                                       tooltip = getM57Label(row[col.column_key], 'nature');
                                       cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
                                     } else if (col.column_key === 'fonction' || col.column_key === 'Article par fonction' || col.column_key === 'C. Fonc.') {
@@ -1132,7 +1263,8 @@ const Budget: React.FC = () => {
                                       {content}
                                     </td>
                                   );
-                                })}
+                                });
+                                })()}
 
                                 {view === 'operations' && isAuthorizedToEdit && (
                                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -1463,6 +1595,76 @@ const Budget: React.FC = () => {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {showOpSelector && (
+          <div className="modal-backdrop" onClick={() => setShowOpSelector(false)}>
+            <div className="modal-window" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">Affecter une opération</h2>
+                <button className="icon-btn" onClick={() => setShowOpSelector(false)}><X size={20} /></button>
+              </div>
+              <div className="modal-body">
+                <div className="search-input-wrapper" style={{ marginBottom: '1.5rem' }}>
+                  <Search size={16} className="search-icon" />
+                  <input 
+                    type="text" 
+                    placeholder="Filtrer les opérations (nom, service...)" 
+                    value={opSearchTerm}
+                    onChange={(e) => setOpSearchTerm(e.target.value)}
+                    className="search-input"
+                    style={{ width: '100%' }}
+                    autoFocus
+                  />
+                </div>
+                <div className="table-responsive" style={{ maxHeight: '50vh' }}>
+                  <table className="modern-table">
+                    <thead>
+                      <tr>
+                        <th>Opération</th>
+                        <th>Service</th>
+                        <th>Montant prévu</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr key="none">
+                        <td colSpan={3} style={{ color: '#64748b', fontStyle: 'italic' }}>Aucune opération (Désaffecter)</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button 
+                            className="toolbar-btn" 
+                            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                            onClick={() => handleAssignOperation(null)}
+                          >
+                            Désaffecter
+                          </button>
+                        </td>
+                      </tr>
+                      {operations.filter(op => {
+                        const s = opSearchTerm.toLowerCase();
+                        return (op.LIBELLE || '').toLowerCase().includes(s) || 
+                               (op.Service || '').toLowerCase().includes(s);
+                      }).map(op => (
+                        <tr key={op.id}>
+                          <td style={{ fontWeight: 600 }}>{op.LIBELLE}</td>
+                          <td style={{ fontSize: '0.8rem' }}>{op.Service}</td>
+                          <td>{(op['Montant prévu'] || 0).toLocaleString()} €</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button 
+                              className="toolbar-btn" 
+                              style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--color-navy)', color: 'white' }}
+                              onClick={() => handleAssignOperation(op.id)}
+                            >
+                              Choisir
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -1824,6 +2026,34 @@ const Budget: React.FC = () => {
         }
         .section-badge.f { background: var(--color-green-50); color: var(--color-green-500); border: 1px solid #bbf7d0; }
         .section-badge.i { background: var(--color-blue-50); color: var(--color-blue-500); border: 1px solid #bfdbfe; }
+
+        .progress-cell {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+          min-width: 140px;
+        }
+        .progress-info {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 0.75rem;
+          font-weight: 700;
+        }
+        .amount-used { color: var(--color-navy); }
+        .percent-label { font-family: monospace; }
+        .progress-track {
+          width: 100%;
+          height: 6px;
+          background-color: var(--color-slate-100);
+          border-radius: 999px;
+          overflow: hidden;
+        }
+        .progress-bar {
+          height: 100%;
+          border-radius: 999px;
+          transition: width 0.5s ease-out, background-color 0.3s;
+        }
 
         .badge {
           padding: 0.25rem 0.5rem;

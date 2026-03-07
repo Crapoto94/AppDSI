@@ -16,6 +16,62 @@ const SECRET_KEY = 'votre_cle_secrete_ici'; // À changer en production
 app.use(cors());
 app.use(express.json());
 
+// Logger global : enregistre TOUTES les requêtes dans mouchard.log
+app.use((req, res, next) => {
+    // Ne pas logger les accès au mouchard lui-même pour éviter de polluer
+    if (req.url.startsWith('/mouchard') || req.url === '/favicon.ico') return next();
+    
+    const msg = `${req.method} ${req.url} - par ${req.headers['authorization'] ? 'Utilisateur authentifié' : 'Anonyme'}`;
+    const time = new Date().toISOString();
+    const line = `[${time}] ${msg}\n`;
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
+    next();
+});
+
+// Route pour voir les logs dans le navigateur
+app.get('/mouchard', (req, res) => {
+    try {
+        const logs = fs.readFileSync(path.join(__dirname, 'mouchard.log'), 'utf8');
+        const lines = logs.split('\n').filter(l => l.trim().length > 0).reverse().slice(0, 100);
+        
+        const formatLine = (l) => {
+            let color = '#d4d4d4';
+            if (l.includes('DELETE')) color = '#f44336';
+            if (l.includes('POST')) color = '#4caf50';
+            if (l.includes('PUT')) color = '#ff9800';
+            if (l.includes('SUCCÈS')) color = '#00ff00';
+            if (l.includes('ERREUR') || l.includes('ÉCHEC')) color = '#ff0000';
+            return `<div class="line" style="color: ${color}">${l}</div>`;
+        };
+
+        res.send(`
+            <html>
+                <head>
+                    <title>Mouchard Serveur</title>
+                    <style>
+                        body { background: #0f172a; color: #f1f5f9; font-family: 'Consolas', monospace; padding: 30px; line-height: 1.6; }
+                        h1 { color: #38bdf8; border-bottom: 2px solid #1e293b; padding-bottom: 10px; }
+                        .container { background: #1e293b; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+                        .line { padding: 4px 10px; border-radius: 4px; border-bottom: 1px solid #334155; }
+                        .line:hover { background: #334155; }
+                        .status { font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px; }
+                    </style>
+                </head>
+                <body>
+                    <h1>Mouchard Système - Flux Temps Réel</h1>
+                    <div class="status">Dernière mise à jour : ${new Date().toLocaleTimeString()} (Rafraîchissement 5s)</div>
+                    <div class="container">
+                        ${lines.map(l => formatLine(l)).join('')}
+                    </div>
+                    <script>setTimeout(() => location.reload(), 5000);</script>
+                </body>
+            </html>
+        `);
+    } catch (err) {
+        res.send("Aucun log disponible.");
+    }
+});
+
 app.get('/api/changelog', (req, res) => {
     try {
         const data = fs.readFileSync(path.join(__dirname, 'changelog.json'), 'utf8');
@@ -28,8 +84,18 @@ app.get('/api/changelog', (req, res) => {
 let db;
 
 // Initialize Database
-setupDb().then(database => {
+setupDb().then(async database => {
     db = database;
+    
+    // Ajout physique du champ montant utilisé
+    try {
+        await db.run('ALTER TABLE operations ADD COLUMN used_amount REAL DEFAULT 0');
+        console.log('Colonne used_amount OK');
+    } catch (e) {}
+
+    // Recalcul au démarrage
+    await recalculateAllOperations();
+
     app.listen(PORT, () => {
         console.log(`Backend server running on http://localhost:${PORT}`);
     });
@@ -37,6 +103,45 @@ setupDb().then(database => {
     console.error('Failed to setup database:', err);
     process.exit(1);
 });
+
+async function recalculateAllOperations() {
+    try {
+        const operations = await db.all('SELECT * FROM operations');
+        const orders = await db.all('SELECT operation_id, "Montant TTC", "Article par nature" FROM orders WHERE operation_id IS NOT NULL');
+        
+        // Fonction helper pour déterminer la section
+        const getSection = (nature) => {
+            if (!nature) return '';
+            const n = nature.toString();
+            if (n.startsWith('2')) return 'I';
+            if (n.startsWith('6') || n.startsWith('7') || n.startsWith('0')) return 'F';
+            return '';
+        };
+
+        for (const op of operations) {
+            const linkedOrders = orders.filter(o => String(o.operation_id) === String(op.id));
+            const used = linkedOrders.reduce((acc, o) => {
+                let val = o["Montant TTC"];
+                if (!val) return acc;
+                const num = parseFloat(String(val).replace(',', '.').replace(/[^\d.-]/g, '')) || 0;
+                return acc + num;
+            }, 0);
+            
+            // Déterminer la section à partir de la première commande liée, ou du champ C. Nature
+            let section = op.Section;
+            if (linkedOrders.length > 0) {
+                section = getSection(linkedOrders[0]["Article par nature"]);
+            } else if (op["C. Nature"]) {
+                section = getSection(op["C. Nature"]);
+            }
+
+            await db.run('UPDATE operations SET used_amount = ?, Section = ? WHERE id = ?', [used, section, op.id]);
+        }
+        console.log('Synchronisation montants et sections terminée.');
+    } catch (error) {
+        console.error('Erreur synchronisation:', error);
+    }
+}
 
 // Default Error Handler (must be after all routes)
 app.use((err, req, res, next) => {
@@ -187,9 +292,12 @@ app.get('/api/budget/invoices', authenticateJWT, async (req, res) => {
 });
 
 app.get('/api/budget/operations', authenticateJWT, async (req, res) => {
-    console.log('GET /api/budget/operations');
-    const operations = await db.all('SELECT * FROM operations');
-    res.json(operations);
+    try {
+        const operations = await db.all('SELECT * FROM operations');
+        res.json(operations);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la lecture des opérations', error: error.message });
+    }
 });
 
 app.post('/api/budget/operations', authenticateAdminOrFinances, async (req, res) => {
@@ -227,15 +335,33 @@ app.put('/api/budget/operations/:id', authenticateAdminOrFinances, async (req, r
     }
 });
 
-app.delete('/api/budget/operations/:id', authenticateAdminOrFinances, async (req, res) => {
+// Ajout d'un log système
+const logMouchard = (msg) => {
+    const time = new Date().toISOString();
+    const line = `[${time}] ${msg}\n`;
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
+    console.log(line);
+};
+
+// ... existing code ...
+
+app.delete('/api/budget/operations/:id', (req, res, next) => {
+    logMouchard(`RECEPTION DELETE sur ID: ${req.params.id}`);
+    next();
+}, authenticateAdminOrFinances, async (req, res) => {
     const id = req.params.id;
-    console.log(`DELETE /api/budget/operations/${id}`);
+    logMouchard(`EXECUTION SQL: DELETE FROM operations WHERE id = ${id}`);
     try {
-        await db.run('DELETE FROM operations WHERE id = ?', [id]);
-        console.log(`Deleted op ${id}`);
-        res.json({ message: 'Opération supprimée' });
+        const result = await db.run('DELETE FROM operations WHERE id = ?', [id]);
+        if (result.changes > 0) {
+            logMouchard(`SUCCÈS: ${result.changes} ligne supprimée.`);
+            res.json({ message: 'Opération supprimée' });
+        } else {
+            logMouchard(`ÉCHEC: Aucun enregistrement trouvé pour l'ID ${id}`);
+            res.status(404).json({ message: 'Opération non trouvée' });
+        }
     } catch (error) {
-        console.error(`DELETE /api/budget/operations/${id} error:`, error);
+        logMouchard(`ERREUR SQL: ${error.message}`);
         res.status(500).json({ message: 'Erreur suppression', error: error.message });
     }
 });
@@ -429,20 +555,67 @@ app.get('/api/orders', authenticateJWT, async (req, res) => {
     const settings = await db.all("SELECT column_key FROM column_settings WHERE page = 'orders'");
     const validKeys = settings.map(s => s.column_key);
     
-    const orders = await db.all('SELECT * FROM orders ORDER BY "N° Commande", "N° ligne"');
+    const orders = await db.all(`
+        SELECT o.*, op.LIBELLE as operation_label 
+        FROM orders o 
+        LEFT JOIN operations op ON o.operation_id = op.id
+        ORDER BY "N° Commande", "N° ligne"
+    `);
     
     // Clean each order object to only include valid keys + internal helper fields
     const cleanedOrders = orders.map(order => {
-        const cleaned = { id: order.id };
+        const cleaned = { 
+            id: order.id, 
+            operation_id: order.operation_id, 
+            operation_label: order.operation_label,
+            "N° Commande": order["N° Commande"],
+            "N° ligne": order["N° ligne"],
+            section: order.section || order.Section || order['Section']
+        };
         validKeys.forEach(key => {
-            cleaned[key] = order[key];
+            if (!cleaned.hasOwnProperty(key)) {
+                cleaned[key] = order[key];
+            }
         });
-        // Keep section for row coloring even if column is hidden
-        cleaned.section = order.section || order.Section || order['Section'];
         return cleaned;
     });
     
     res.json(cleanedOrders);
+});
+
+// Unitary assignment
+app.post('/api/orders/:id/assign-operation', authenticateJWT, async (req, res) => {
+    const { operation_id } = req.body;
+    const order_id = req.params.id;
+    try {
+        const order = await db.get('SELECT "N° Commande" FROM orders WHERE id = ?', [order_id]);
+        if (!order) return res.status(404).json({ message: 'Commande non trouvée' });
+        await db.run('UPDATE orders SET operation_id = ? WHERE "N° Commande" = ?', [operation_id || null, order['N° Commande']]);
+        
+        // Recalculate physical column
+        await recalculateAllOperations();
+        
+        res.json({ message: 'Affectation réussie' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur affectation', error: error.message });
+    }
+});
+
+// Bulk assignment
+app.post('/api/orders/bulk-assign', authenticateJWT, async (req, res) => {
+    const { order_numbers, operation_id } = req.body;
+    if (!Array.isArray(order_numbers)) return res.status(400).json({ message: 'Données invalides' });
+    try {
+        const placeholders = order_numbers.map(() => '?').join(',');
+        await db.run(`UPDATE orders SET operation_id = ? WHERE "N° Commande" IN (${placeholders})`, [operation_id || null, ...order_numbers]);
+        
+        // Recalculate physical column
+        await recalculateAllOperations();
+        
+        res.json({ message: `${order_numbers.length} commandes traitées` });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur affectation en masse', error: error.message });
+    }
 });
 
 // Users Management API
@@ -474,6 +647,41 @@ app.get('/api/import-logs', authenticateJWT, async (req, res) => {
 app.get('/api/m57-plan', authenticateJWT, async (req, res) => {
     const plan = await db.all('SELECT * FROM m57_plan ORDER BY code');
     res.json(plan);
+});
+
+app.post('/api/m57-plan', authenticateAdminOrFinances, async (req, res) => {
+    const { code, label, section, type } = req.body;
+    try {
+        const result = await db.run(
+            'INSERT INTO m57_plan (code, label, section, type) VALUES (?, ?, ?, ?)',
+            [code, label, section, type]
+        );
+        res.json({ id: result.lastID, message: 'Code ajouté au référentiel' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de l\'ajout', error: error.message });
+    }
+});
+
+app.put('/api/m57-plan/:id', authenticateAdminOrFinances, async (req, res) => {
+    const { code, label, section } = req.body;
+    try {
+        await db.run(
+            'UPDATE m57_plan SET code = ?, label = ?, section = ? WHERE id = ?',
+            [code, label, section, req.params.id]
+        );
+        res.json({ message: 'Référentiel mis à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la mise à jour', error: error.message });
+    }
+});
+
+app.delete('/api/m57-plan/:id', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        await db.run('DELETE FROM m57_plan WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Code supprimé du référentiel' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la suppression', error: error.message });
+    }
 });
 
 // Column Settings API

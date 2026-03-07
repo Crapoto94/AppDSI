@@ -1,33 +1,73 @@
 const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
+const path = require('path');
+const xlsx = require('xlsx');
 
 async function syncM57() {
     const db = await open({
-        filename: './database.sqlite',
+        filename: path.join(__dirname, 'database.sqlite'),
         driver: sqlite3.Database
     });
 
-    console.log('Fetching unique articles from orders...');
-    const orders = await db.all('SELECT DISTINCT "Article par nature" as code, "Libellé" as label, "Section" as section FROM orders WHERE "Article par nature" IS NOT NULL');
+    const filePath = path.join(__dirname, '..', 'M57_Nomenclature_Complete.xlsx');
     
-    let added = 0;
-    for (const order of orders) {
-        const firstDigit = parseInt(order.code.charAt(0));
-        const section = isNaN(firstDigit) ? (order.section || 'F') : (firstDigit > 4 ? 'F' : 'I');
+    try {
+        const workbook = xlsx.readFile(filePath);
         
-        try {
-            const exists = await db.get('SELECT id FROM m57_plan WHERE code = ?', [order.code]);
-            if (!exists) {
-                await db.run('INSERT INTO m57_plan (code, label, section) VALUES (?, ?, ?)', [order.code, order.label || 'Sans libellé', section]);
-                added++;
-            }
-        } catch (e) {
-            console.error(`Error inserting ${order.code}:`, e.message);
-        }
-    }
+        // 1. Clear existing plan
+        await db.run('DELETE FROM m57_plan');
+        console.log('Cleared existing M57 plan.');
 
-    console.log(`Sync complete. Added ${added} new articles to M57 plan.`);
-    await db.close();
+        let count = 0;
+
+        // 2. Import Codes Fonction
+        const fonctionSheet = workbook.Sheets['Codes Fonction'];
+        if (fonctionSheet) {
+            const data = xlsx.utils.sheet_to_json(fonctionSheet);
+            for (const row of data) {
+                const code = (row['Code Fonction'] || '').toString().trim();
+                const label = (row['Libellé'] || '').toString().trim();
+                if (code) {
+                    await db.run(
+                        'INSERT INTO m57_plan (code, label, type) VALUES (?, ?, ?)',
+                        [code, label, 'fonction']
+                    );
+                    count++;
+                }
+            }
+            console.log(`Imported ${data.length} fonction codes.`);
+        }
+
+        // 3. Import Codes Nature
+        const natureSheet = workbook.Sheets['Codes Nature'];
+        if (natureSheet) {
+            const data = xlsx.utils.sheet_to_json(natureSheet);
+            for (const row of data) {
+                const code = (row['Code Nature'] || '').toString().trim();
+                const label = (row['Libellé'] || '').toString().trim();
+                const sectionRaw = row['Type (Fonctionnement/Investissement)'] || '';
+                const section = sectionRaw.toLowerCase().includes('inv') ? 'I' : (sectionRaw.toLowerCase().includes('fonc') ? 'F' : '');
+                
+                if (code) {
+                    // Use INSERT OR IGNORE in case some codes are both in fonction and nature (unlikely but safe)
+                    // Or just let it fail if UNIQUE constraint is hit and we want to know
+                    await db.run(
+                        'INSERT OR REPLACE INTO m57_plan (code, label, section, type) VALUES (?, ?, ?, ?)',
+                        [code, label, section, 'nature']
+                    );
+                    count++;
+                }
+            }
+            console.log(`Imported ${data.length} nature codes.`);
+        }
+
+        console.log(`Total M57 codes imported: ${count}`);
+
+    } catch (error) {
+        console.error('Error syncing M57 plan:', error);
+    } finally {
+        await db.close();
+    }
 }
 
-syncM57().catch(console.error);
+syncM57();
