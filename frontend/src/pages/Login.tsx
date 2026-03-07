@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 
@@ -11,14 +11,14 @@ const Login: React.FC = () => {
 
   useEffect(() => {
     const attemptAutoLogin = async () => {
-      // Si l'utilisateur s'est déconnecté manuellement, on ne le reconnecte pas automatiquement
+      // Si l'utilisateur s'est dÃ©connectÃ© manuellement, on ne le reconnecte pas automatiquement
       if (localStorage.getItem('manualLogout') === 'true') {
         setIsAutoLogging(false);
         return;
       }
 
       try {
-        const response = await fetch('http://localhost:3001/api/auth/auto-login', { credentials: 'include' });
+        const response = await fetch('/api/auth/auto-login', { credentials: 'include' });
         if (response.ok) {
           const data = await response.json();
           localStorage.setItem('token', data.accessToken);
@@ -33,7 +33,7 @@ const Login: React.FC = () => {
       }
     };
 
-    // Si on est déjà connecté, on redirige
+    // Si on est dÃ©jÃ  connectÃ©, on redirige
     if (localStorage.getItem('token')) {
       navigate('/');
     } else {
@@ -44,7 +44,7 @@ const Login: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:3001/api/login', {
+      const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -72,12 +72,12 @@ const Login: React.FC = () => {
             <div className="auto-logging">
               <div className="loader"></div>
               <h2>Connexion automatique...</h2>
-              <p>Vérification de votre identité Windows</p>
+              <p>VÃ©rification de votre identitÃ© Windows</p>
             </div>
           ) : (
             <>
               <h2>Connexion Hub DSI</h2>
-              <p>Connectez-vous pour accéder à vos services.</p>
+              <p>Connectez-vous pour accÃ©der Ã  vos services.</p>
               
               <form onSubmit={handleSubmit}>
                 {error && <div className="error-msg">{error}</div>}
@@ -110,7 +110,7 @@ const Login: React.FC = () => {
               </form>
               
               <div className="login-help">
-                <p>Identifiants par défaut : admin / admin123</p>
+                <p>Identifiants par dÃ©faut : admin / admin123</p>
               </div>
             </>
           )}

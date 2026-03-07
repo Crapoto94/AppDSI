@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import Tile from '../components/Tile';
 import Header from '../components/Header';
 
@@ -19,7 +19,7 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchTiles = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/tiles', {
+        const response = await fetch('/api/tiles', {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }

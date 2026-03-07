@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2, Eye, Trash2, Calendar, Edit2, Check, X as CloseIcon, Hourglass } from 'lucide-react';
 
@@ -28,7 +28,7 @@ const Certif: React.FC = () => {
 
   const fetchCertificates = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/certificates', {
+      const response = await fetch('/api/certificates', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -61,7 +61,7 @@ const Certif: React.FC = () => {
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:3001/api/certificates/upload', {
+      const response = await fetch('/api/certificates/upload', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -70,7 +70,7 @@ const Certif: React.FC = () => {
       });
 
       if (response.ok) {
-        setMessage({ type: 'success', text: 'Certificat importé et analysé avec succès !' });
+        setMessage({ type: 'success', text: 'Certificat importÃ© et analysÃ© avec succÃ¨s !' });
         fetchCertificates();
       } else {
         const err = await response.json();
@@ -85,12 +85,12 @@ const Certif: React.FC = () => {
   };
 
   const handleDelete = async (id: number, orderNum: string) => {
-    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le certificat de la commande ${orderNum} ?`)) {
+    if (!window.confirm(`ÃŠtes-vous sÃ»r de vouloir supprimer le certificat de la commande ${orderNum} ?`)) {
       return;
     }
 
     try {
-      const response = await fetch(`http://localhost:3001/api/certificates/${id}`, {
+      const response = await fetch(`/api/certificates/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -98,7 +98,7 @@ const Certif: React.FC = () => {
       });
 
       if (response.ok) {
-        setMessage({ type: 'success', text: 'Certificat supprimé avec succès.' });
+        setMessage({ type: 'success', text: 'Certificat supprimÃ© avec succÃ¨s.' });
         fetchCertificates();
       } else {
         const err = await response.json();
@@ -111,7 +111,7 @@ const Certif: React.FC = () => {
 
   const handleUpdateExpiry = async (id: number) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/certificates/${id}/expiry`, {
+      const response = await fetch(`/api/certificates/${id}/expiry`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -124,7 +124,7 @@ const Certif: React.FC = () => {
         setEditingId(null);
         fetchCertificates();
       } else {
-        alert('Erreur lors de la mise à jour de la date');
+        alert('Erreur lors de la mise Ã  jour de la date');
       }
     } catch (err) {
       console.error('Failed to update expiry:', err);
@@ -179,25 +179,25 @@ const Certif: React.FC = () => {
         )}
 
         <section className="cert-list">
-          <h2>Demandes récentes</h2>
+          <h2>Demandes rÃ©centes</h2>
           
           {loading ? (
             <div className="loading">Chargement...</div>
           ) : certificates.length === 0 ? (
             <div className="empty-state">
               <FileText size={48} />
-              <p>Aucun certificat enregistré. Importez un fichier pour commencer.</p>
+              <p>Aucun certificat enregistrÃ©. Importez un fichier pour commencer.</p>
             </div>
           ) : (
             <div className="table-container">
               <table className="cert-table">
                 <thead>
                   <tr>
-                    <th>N° Commande</th>
+                    <th>NÂ° Commande</th>
                     <th>Date Demande</th>
-                    <th>Bénéficiaire</th>
+                    <th>BÃ©nÃ©ficiaire</th>
                     <th>Produit</th>
-                    <th>Fin Validité</th>
+                    <th>Fin ValiditÃ©</th>
                     <th>Date Import</th>
                     <th>Actions</th>
                   </tr>
@@ -244,7 +244,7 @@ const Certif: React.FC = () => {
                               setEditingId(cert.id);
                               setEditExpiry(cert.expiry_date || '');
                             }}
-                            title={cert.is_provisional ? "Date provisoire (calculée automatiquement)" : "Date validée"}
+                            title={cert.is_provisional ? "Date provisoire (calculÃ©e automatiquement)" : "Date validÃ©e"}
                           >
                             {cert.is_provisional ? <Hourglass size={14} className="icon-provisional" /> : <Calendar size={14} className="icon" />}
                             <span>{formatDate(cert.expiry_date)}</span>
@@ -256,7 +256,7 @@ const Certif: React.FC = () => {
                       <td>
                         <div className="actions">
                           <a 
-                            href={`http://localhost:3001/${cert.file_path}`} 
+                            href={`/${cert.file_path}`} 
                             target="_blank" 
                             rel="noopener noreferrer"
                             className="view-btn"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import { Plus, Trash2, X, UserPlus, Users, Edit2, Clock } from 'lucide-react';
 
@@ -29,7 +29,7 @@ const Admin: React.FC = () => {
     const tile = tiles.find(t => t.id === tileId);
     if (!tile) return;
     
-    const response = await fetch(`http://localhost:3001/api/tiles/${tileId}`, {
+    const response = await fetch(`/api/tiles/${tileId}`, {
       method: 'PUT',
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -48,7 +48,7 @@ const Admin: React.FC = () => {
   const token = localStorage.getItem('token');
 
   const fetchTiles = async () => {
-    const response = await fetch('http://localhost:3001/api/tiles', {
+    const response = await fetch('/api/tiles', {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if (response.ok) {
@@ -58,7 +58,7 @@ const Admin: React.FC = () => {
   };
 
   const fetchUsers = async () => {
-    const response = await fetch('http://localhost:3001/api/users', {
+    const response = await fetch('/api/users', {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if (response.ok) {
@@ -73,7 +73,7 @@ const Admin: React.FC = () => {
   }, []);
 
   const formatActivityDate = (dateStr: string | null) => {
-    if (!dateStr) return 'Jamais connecté';
+    if (!dateStr) return 'Jamais connectÃ©';
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return 'Date invalide';
 
@@ -86,8 +86,8 @@ const Admin: React.FC = () => {
     const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
     const timeStr = date.toLocaleTimeString('fr-FR', timeOptions);
 
-    if (isToday) return `Aujourd'hui à ${timeStr}`;
-    if (isYesterday) return `Hier à ${timeStr}`;
+    if (isToday) return `Aujourd'hui Ã  ${timeStr}`;
+    if (isYesterday) return `Hier Ã  ${timeStr}`;
     
     return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
@@ -95,7 +95,7 @@ const Admin: React.FC = () => {
   // Tiles Handlers
   const handleDeleteTile = async (id: number) => {
     if (window.confirm('Voulez-vous vraiment supprimer cette tuile ?')) {
-      const response = await fetch(`http://localhost:3001/api/tiles/${id}`, {
+      const response = await fetch(`/api/tiles/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -105,7 +105,7 @@ const Admin: React.FC = () => {
 
   const handleAddTile = async (e: React.FormEvent) => {
     e.preventDefault();
-    const response = await fetch('http://localhost:3001/api/tiles', {
+    const response = await fetch('/api/tiles', {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -125,11 +125,11 @@ const Admin: React.FC = () => {
       alert('Maximum 3 liens par tuile.');
       return;
     }
-    const label = window.prompt('Libellé du lien :');
+    const label = window.prompt('LibellÃ© du lien :');
     const url = window.prompt('URL (ex: https://... ou /page) :');
     if (label && url) {
       const isInternal = url.startsWith('/');
-      await fetch(`http://localhost:3001/api/tiles/${tileId}/links`, {
+      await fetch(`/api/tiles/${tileId}/links`, {
         method: 'POST',
         headers: { 
           'Authorization': `Bearer ${token}`,
@@ -142,7 +142,7 @@ const Admin: React.FC = () => {
   };
 
   const handleDeleteLink = async (linkId: number) => {
-    await fetch(`http://localhost:3001/api/links/${linkId}`, {
+    await fetch(`/api/links/${linkId}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
     });
@@ -153,7 +153,7 @@ const Admin: React.FC = () => {
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log('ENVOI POST /api/users:', newUser);
-    const response = await fetch('http://localhost:3001/api/users', {
+    const response = await fetch('/api/users', {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -162,13 +162,13 @@ const Admin: React.FC = () => {
       body: JSON.stringify(newUser)
     });
     if (response.ok) {
-      alert('Utilisateur créé avec succès !');
+      alert('Utilisateur crÃ©Ã© avec succÃ¨s !');
       setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
       setIsAddingUser(false);
       fetchUsers();
     } else {
       const data = await response.json();
-      alert('ERREUR CRÉATION: ' + (data.message || 'Inconnue'));
+      alert('ERREUR CRÃ‰ATION: ' + (data.message || 'Inconnue'));
     }
   };
 
@@ -176,7 +176,7 @@ const Admin: React.FC = () => {
     e.preventDefault();
     if (!editingUser) return;
     
-    const response = await fetch(`http://localhost:3001/api/users/${editingUser.id}`, {
+    const response = await fetch(`/api/users/${editingUser.id}`, {
       method: 'PUT',
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -185,17 +185,17 @@ const Admin: React.FC = () => {
       body: JSON.stringify(editingUser)
     });
     if (response.ok) {
-      alert('Utilisateur mis à jour !');
+      alert('Utilisateur mis Ã  jour !');
       setEditingUser(null);
       fetchUsers();
     } else {
-      alert('ERREUR MISE À JOUR');
+      alert('ERREUR MISE Ã€ JOUR');
     }
   };
 
   const handleDeleteUser = async (id: number) => {
     if (window.confirm('Voulez-vous vraiment supprimer cet utilisateur ?')) {
-      const response = await fetch(`http://localhost:3001/api/users/${id}`, {
+      const response = await fetch(`/api/users/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -252,11 +252,11 @@ const Admin: React.FC = () => {
                     >
                       <option value="active">Active</option>
                       <option value="maintenance">En maintenance</option>
-                      <option value="soon">Bientôt disponible</option>
+                      <option value="soon">BientÃ´t disponible</option>
                     </select>
                   </div>
                   <input 
-                    placeholder="Icône (nom Lucide)" 
+                    placeholder="IcÃ´ne (nom Lucide)" 
                     value={newTile.icon} 
                     onChange={e => setNewTile({...newTile, icon: e.target.value})}
                     required
@@ -285,7 +285,7 @@ const Admin: React.FC = () => {
                       >
                         <option value="active">Active</option>
                         <option value="maintenance">Maintenance</option>
-                        <option value="soon">Bientôt</option>
+                        <option value="soon">BientÃ´t</option>
                       </select>
                     </div>
                     <p>{tile.description}</p>
@@ -316,7 +316,7 @@ const Admin: React.FC = () => {
               <h2>Gestion des Utilisateurs</h2>
               <button className="btn btn-primary" onClick={() => setIsAddingUser(!isAddingUser)}>
                 {isAddingUser ? <X size={20} /> : <UserPlus size={20} />}
-                {isAddingUser ? 'Annuler' : 'Créer un utilisateur'}
+                {isAddingUser ? 'Annuler' : 'CrÃ©er un utilisateur'}
               </button>
             </div>
 
@@ -356,14 +356,14 @@ const Admin: React.FC = () => {
                         style={{ flex: 1 }}
                       />
                       <input 
-                        placeholder="Complément" 
+                        placeholder="ComplÃ©ment" 
                         value={newUser.service_complement} 
                         onChange={e => setNewUser({...newUser, service_complement: e.target.value})}
                         style={{ flex: 1 }}
                       />
                     </div>
                   </div>
-                  <button type="submit" className="btn btn-primary">Créer</button>
+                  <button type="submit" className="btn btn-primary">CrÃ©er</button>
                 </form>
               </section>
             )}
@@ -395,13 +395,13 @@ const Admin: React.FC = () => {
                       onChange={e => setEditingUser({...editingUser, service_code: e.target.value})}
                     />
                     <input 
-                      placeholder="Complément" 
+                      placeholder="ComplÃ©ment" 
                       value={editingUser.service_complement || ''} 
                       onChange={e => setEditingUser({...editingUser, service_complement: e.target.value})}
                     />
                   </div>
                   <div className="form-actions">
-                    <button type="submit" className="btn btn-primary">Mettre à jour</button>
+                    <button type="submit" className="btn btn-primary">Mettre Ã  jour</button>
                     <button type="button" className="btn" onClick={() => setEditingUser(null)}>Annuler</button>
                   </div>
                 </form>
@@ -427,7 +427,7 @@ const Admin: React.FC = () => {
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
                         <Clock size={12} />
-                        <span>Dernière activité : {formatActivityDate(user.last_activity)}</span>
+                        <span>DerniÃ¨re activitÃ© : {formatActivityDate(user.last_activity)}</span>
                       </div>
                     </div>
                   </div>

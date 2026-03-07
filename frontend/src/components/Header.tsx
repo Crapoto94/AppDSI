@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { User, LogOut, Info, X } from 'lucide-react';
 
@@ -11,13 +11,13 @@ const Header: React.FC = () => {
   const [winLogin, setWinLogin] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:3001/api/changelog')
+    fetch('/api/changelog')
       .then(res => res.json())
       .then(data => setChangelog(data))
       .catch(err => console.error("Error fetching changelog:", err));
 
-    // Récupération automatique du login Windows
-    fetch('http://localhost:3001/api/auth/ntlm', { credentials: 'include' })
+    // RÃ©cupÃ©ration automatique du login Windows
+    fetch('/api/auth/ntlm', { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (data.login) setWinLogin(data.login);
@@ -42,7 +42,7 @@ const Header: React.FC = () => {
             <span className="logo-dsi"> - Hub DSI</span>
           </Link>
           {changelog && (
-            <button className="version-badge" onClick={() => setShowModal(true)} title="Voir les nouveautés">
+            <button className="version-badge" onClick={() => setShowModal(true)} title="Voir les nouveautÃ©s">
               v{changelog.currentVersion} <Info size={14} style={{ marginLeft: '4px' }} />
             </button>
           )}
@@ -60,7 +60,7 @@ const Header: React.FC = () => {
               {user.role === 'admin' && (
                 <Link to="/admin" className="nav-link">Configuration</Link>
               )}
-              <button onClick={handleLogout} className="btn-logout" title="Déconnexion">
+              <button onClick={handleLogout} className="btn-logout" title="DÃ©connexion">
                 <LogOut size={20} />
               </button>
             </div>

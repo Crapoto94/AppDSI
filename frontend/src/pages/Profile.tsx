@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import Header from '../components/Header';
 import { KeyRound, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -22,13 +22,13 @@ const Profile: React.FC = () => {
     }
 
     if (newPassword.length < 6) {
-      setMessage({ type: 'error', text: 'Le nouveau mot de passe doit faire au moins 6 caractères' });
+      setMessage({ type: 'error', text: 'Le nouveau mot de passe doit faire au moins 6 caractÃ¨res' });
       return;
     }
 
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/change-password', {
+      const response = await fetch('/api/change-password', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -40,7 +40,7 @@ const Profile: React.FC = () => {
       const data = await response.json();
 
       if (response.ok) {
-        setMessage({ type: 'success', text: 'Mot de passe mis à jour avec succès !' });
+        setMessage({ type: 'success', text: 'Mot de passe mis Ã  jour avec succÃ¨s !' });
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
@@ -111,7 +111,7 @@ const Profile: React.FC = () => {
                   />
                 </div>
                 <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Mise à jour...' : 'Mettre à jour le mot de passe'}
+                  {loading ? 'Mise Ã  jour...' : 'Mettre Ã  jour le mot de passe'}
                 </button>
               </form>
             </section>

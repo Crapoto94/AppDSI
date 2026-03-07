@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
 import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Database, AlertCircle, CheckCircle2, Plus, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -23,7 +23,7 @@ const Budget: React.FC = () => {
       fill={color}
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Chaussette arrière */}
+      {/* Chaussette arriÃ¨re */}
       <path d="M38,5 L58,15 L51,35 C49,42 53,48 59,51 L64,54 C70,57 67,64 60,64 L42,63 C36,62 32,57 30,51 L27,30 L38,5 Z" opacity="0.4" />
       {/* Chaussette avant */}
       <path d="M12,18 L32,28 L25,48 C23,55 27,61 33,64 L39,67 C45,70 42,77 35,77 L17,76 C11,75 7,70 5,64 L0,43 L12,18 Z" transform="translate(2,-4)" />
@@ -32,7 +32,7 @@ const Budget: React.FC = () => {
         <path d="M18,25 L28,30" />
         <path d="M19.5,28.5 L29.5,33.5" />
         <path d="M21,32 L31,37" />
-        {/* Détail du talon */}
+        {/* DÃ©tail du talon */}
         <path d="M10,55 C7,62 10,68 18,70" fill="none" opacity="0.5" />
       </g>
     </svg>
@@ -63,7 +63,7 @@ const Budget: React.FC = () => {
 
   useEffect(() => {
     if (view === 'invoices') {
-      setSortConfig({ key: 'Arrivée', direction: 'desc' });
+      setSortConfig({ key: 'ArrivÃ©e', direction: 'desc' });
     } else {
       setSortConfig(null);
     }
@@ -74,11 +74,11 @@ const Budget: React.FC = () => {
     if (!['admin', 'finances'].includes(currentUser.role)) {
       if (view === 'orders' || view === 'operations') {
         if (currentUser.service_code) {
-          const serviceKey = view === 'orders' ? 'Service émetteur' : 'Service';
+          const serviceKey = view === 'orders' ? 'Service Ã©metteur' : 'Service';
           filters[serviceKey] = currentUser.service_code;
         }
         if (currentUser.service_complement) {
-          const complementKey = view === 'orders' ? 'Service complément' : 'Service Complément';
+          const complementKey = view === 'orders' ? 'Service complÃ©ment' : 'Service ComplÃ©ment';
           filters[complementKey] = currentUser.service_complement;
         }
       }
@@ -107,7 +107,7 @@ const Budget: React.FC = () => {
 
   const fetchAttachments = async (type: 'order' | 'invoice', id: string) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/attachments/${type}/${encodeURIComponent(id)}`, {
+      const response = await fetch(`/api/attachments/${type}/${encodeURIComponent(id)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
@@ -132,7 +132,7 @@ const Budget: React.FC = () => {
 
     if (currentAttachments.length > 0) {
       const existingName = currentAttachments[0].original_name;
-      if (!window.confirm(`Le fichier "${existingName}" existe déjà. Voulez-vous le remplacer ?`)) {
+      if (!window.confirm(`Le fichier "${existingName}" existe dÃ©jÃ . Voulez-vous le remplacer ?`)) {
         e.target.value = '';
         return;
       }
@@ -145,7 +145,7 @@ const Budget: React.FC = () => {
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:3001/api/attachments/upload', {
+      const response = await fetch('/api/attachments/upload', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
@@ -166,7 +166,7 @@ const Budget: React.FC = () => {
   const handleDeleteAttachment = async (id: number) => {
     if (!window.confirm('Supprimer ce fichier ?')) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/attachments/${id}`, {
+      const response = await fetch(`/api/attachments/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -182,7 +182,7 @@ const Budget: React.FC = () => {
     if (!code) return '';
     const cleanCode = code.toString().trim();
     const plan = m57Plan.find(p => p.code === cleanCode && (p.type === type || !p.type));
-    return plan ? plan.label : 'Inconnu dans le référentiel';
+    return plan ? plan.label : 'Inconnu dans le rÃ©fÃ©rentiel';
   };
 
   const getSectionFromM57 = (natureCode: string) => {
@@ -282,10 +282,10 @@ const Budget: React.FC = () => {
       if (etat === 'Suspendue') {
         stats.suspended++;
       } else if (etat === 'Saisie') {
-        const arrivalDate = parseExcelDate(inv['Arrivée        '] || inv['Arrivée']);
+        const arrivalDate = parseExcelDate(inv['ArrivÃ©e        '] || inv['ArrivÃ©e']);
         if (arrivalDate) {
           const diffDays = Math.floor((now.getTime() - arrivalDate.getTime()) / (1000 * 60 * 60 * 24));
-          const invInfo = `${inv['Fournisseur'] || 'Inconnu'} (${amt.toLocaleString()}€) - ${inv['Libellé'] || ''}`;
+          const invInfo = `${inv['Fournisseur'] || 'Inconnu'} (${amt.toLocaleString()}â‚¬) - ${inv['LibellÃ©'] || ''}`;
           
           if (diffDays > 30) {
             stats.saisie30++;
@@ -316,7 +316,7 @@ const Budget: React.FC = () => {
     setQueryError(null);
     setQueryResult(null);
     try {
-      const response = await fetch('http://localhost:3001/api/sql-query', {
+      const response = await fetch('/api/sql-query', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -328,10 +328,10 @@ const Budget: React.FC = () => {
       if (response.ok) {
         setQueryResult(data.data);
       } else {
-        setQueryError(data.error ? `${data.message} : ${data.error}` : data.message || 'Erreur lors de l\'exécution');
+        setQueryError(data.error ? `${data.message} : ${data.error}` : data.message || 'Erreur lors de l\'exÃ©cution');
       }
     } catch (error: any) {
-      setQueryError(error.message || 'Erreur réseau');
+      setQueryError(error.message || 'Erreur rÃ©seau');
     }
   };
 
@@ -340,7 +340,7 @@ const Budget: React.FC = () => {
     formData.append('file', file);
     try {
       setImportStatus({ type, message: 'Importation en cours...', isError: false });
-      const response = await fetch(`http://localhost:3001${endpoint}`, {
+      const response = await fetch(`${endpoint}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
@@ -350,18 +350,18 @@ const Budget: React.FC = () => {
       if (contentType && contentType.indexOf("application/json") !== -1) {
         const data = await response.json();
         if (response.ok) {
-          setImportStatus({ type, message: data.message || 'Importation réussie', isError: false });
+          setImportStatus({ type, message: data.message || 'Importation rÃ©ussie', isError: false });
           fetchData(); // Refresh data after successful import
         } else {
           setImportStatus({ type, message: data.error ? `${data.message} : ${data.error}` : data.message || 'Erreur lors de l\'importation', isError: true });
         }
       } else {
          const text = await response.text();
-         setImportStatus({ type, message: 'Erreur du serveur (HTML retourné) : ' + response.status, isError: true });
+         setImportStatus({ type, message: 'Erreur du serveur (HTML retournÃ©) : ' + response.status, isError: true });
          console.error('Non-JSON response:', text);
       }
     } catch (error: any) {
-      setImportStatus({ type, message: error.message || 'Erreur réseau', isError: true });
+      setImportStatus({ type, message: error.message || 'Erreur rÃ©seau', isError: true });
     }
   };
 
@@ -377,7 +377,7 @@ const Budget: React.FC = () => {
     }
     const updatedRow = { ...row, [key]: newValue };
     try {
-      const response = await fetch(`http://localhost:3001/api/budget/operations/${row.id}`, {
+      const response = await fetch(`/api/budget/operations/${row.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(updatedRow)
@@ -395,9 +395,9 @@ const Budget: React.FC = () => {
   };
 
   const handleCreateOp = async () => {
-    const emptyRow = { 'Service': '', 'Service Complément': '', 'LIBELLE': 'Nouvelle Opération', 'MCO': '', 'C. Fonc.': '', 'C. Nature': '', 'Montant prévu': 0, 'Terminé': 'NON', 'Commentaire': '' };
+    const emptyRow = { 'Service': '', 'Service ComplÃ©ment': '', 'LIBELLE': 'Nouvelle OpÃ©ration', 'MCO': '', 'C. Fonc.': '', 'C. Nature': '', 'Montant prÃ©vu': 0, 'TerminÃ©': 'NON', 'Commentaire': '' };
     try {
-      const response = await fetch('http://localhost:3001/api/budget/operations', {
+      const response = await fetch('/api/budget/operations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(emptyRow)
@@ -406,7 +406,7 @@ const Budget: React.FC = () => {
         const result = await response.json();
         await fetchData();
         setEditingCell({ id: result.id, key: 'LIBELLE' });
-        setCellValue('Nouvelle Opération');
+        setCellValue('Nouvelle OpÃ©ration');
       }
     } catch (e) {
       console.error(e);
@@ -414,9 +414,9 @@ const Budget: React.FC = () => {
   };
 
   const handleDeleteOp = async (id: number) => {
-    if (!window.confirm('Supprimer cette opération ?')) return;
+    if (!window.confirm('Supprimer cette opÃ©ration ?')) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/budget/operations/${id}`, {
+      const response = await fetch(`/api/budget/operations/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -427,7 +427,7 @@ const Budget: React.FC = () => {
   };
 
   const fetchRawData = async (table: string) => {
-    const response = await fetch(`http://localhost:3001/api/raw-data/${table}`, {
+    const response = await fetch(`/api/raw-data/${table}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if (response.ok) {
@@ -440,12 +440,12 @@ const Budget: React.FC = () => {
   const fetchData = async () => {
     const headers = { 'Authorization': `Bearer ${token}` };
     const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, logsRes] = await Promise.all([
-      fetch('http://localhost:3001/api/budget/lines', { headers }),
-      fetch('http://localhost:3001/api/budget/invoices', { headers }),
-      fetch('http://localhost:3001/api/orders', { headers }),
-      fetch('http://localhost:3001/api/budget/operations', { headers }),
-      fetch('http://localhost:3001/api/m57-plan', { headers }),
-      fetch('http://localhost:3001/api/import-logs', { headers })
+      fetch('/api/budget/lines', { headers }),
+      fetch('/api/budget/invoices', { headers }),
+      fetch('/api/orders', { headers }),
+      fetch('/api/budget/operations', { headers }),
+      fetch('/api/m57-plan', { headers }),
+      fetch('/api/import-logs', { headers })
     ]);
     
     if (linesRes.ok) setBudgetLines(await linesRes.json());
@@ -460,7 +460,7 @@ const Budget: React.FC = () => {
     const log = importLogs.find(l => l.type === type);
     if (!log) return null;
     const date = new Date(log.imported_at);
-    return `Le ${date.toLocaleDateString('fr-FR')} à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} par ${log.username}`;
+    return `Le ${date.toLocaleDateString('fr-FR')} Ã  ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} par ${log.username}`;
   };
 
   useEffect(() => {
@@ -469,7 +469,7 @@ const Budget: React.FC = () => {
 
   useEffect(() => {
     if (['lines', 'invoices', 'orders', 'operations'].includes(view)) {
-      fetch(`http://localhost:3001/api/column-settings/${view}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      fetch(`/api/column-settings/${view}`, { headers: { 'Authorization': `Bearer ${token}` } })
         .then(res => res.json())
         .then(cols => {
           const sortedCols = [...cols].sort((a, b) => {
@@ -478,8 +478,8 @@ const Budget: React.FC = () => {
             }
             if (a.column_key === 'num' || a.column_key === 'Service') return -1;
             if (b.column_key === 'num' || b.column_key === 'Service') return 1;
-            if (a.column_key === 'Libellé' || a.column_key === 'label' || a.column_key === 'libelle') return -1;
-            if (b.column_key === 'Libellé' || b.column_key === 'label' || b.column_key === 'libelle') return 1;
+            if (a.column_key === 'LibellÃ©' || a.column_key === 'label' || a.column_key === 'libelle') return -1;
+            if (b.column_key === 'LibellÃ©' || b.column_key === 'label' || b.column_key === 'libelle') return 1;
             if (a.column_key === 'Nature' || a.column_key === 'nature') return -1;
             if (b.column_key === 'Nature' || b.column_key === 'nature') return 1;
             return 0;
@@ -508,7 +508,7 @@ const Budget: React.FC = () => {
     else if (type === 'invoices') endpoint = 'api/budget/import-invoices';
     else if (type === 'orders') endpoint = 'api/orders/import';
 
-    const response = await fetch(`http://localhost:3001/${endpoint}`, {
+    const response = await fetch(`/${endpoint}`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },
       body: formData
@@ -526,7 +526,7 @@ const Budget: React.FC = () => {
 
   const updateColumnSettingsBulk = async (newSettings: ColumnSetting[]) => {
     setColumnSettings(newSettings);
-    await fetch(`http://localhost:3001/api/column-settings/${view}/bulk`, {
+    await fetch(`/api/column-settings/${view}/bulk`, {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`,
@@ -588,7 +588,7 @@ const Budget: React.FC = () => {
   const groupedOrders = useMemo(() => {
     const groups: Record<string, any> = {};
     orders.forEach(order => {
-      const nr = (order['N° Commande'] || order.order_number || 'SANS_NUMERO').toString();
+      const nr = (order['NÂ° Commande'] || order.order_number || 'SANS_NUMERO').toString();
       if (!groups[nr]) {
         groups[nr] = { 
           ...order, 
@@ -610,8 +610,8 @@ const Budget: React.FC = () => {
       }
 
       groups[nr]._lines.push({
-        nr: order['N° ligne'],
-        desc: order['Désignation'] || order.description,
+        nr: order['NÂ° ligne'],
+        desc: order['DÃ©signation'] || order.description,
         amtHt: amtHt,
         amtTtc: amtTtc,
         nature: nature,
@@ -631,7 +631,7 @@ const Budget: React.FC = () => {
   const handleAssignOperation = async (operationId: number | null) => {
     if (!selectedOrderForOp) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${selectedOrderForOp.id}/assign-operation`, {
+      const response = await fetch(`/api/orders/${selectedOrderForOp.id}/assign-operation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ operation_id: operationId })
@@ -650,11 +650,11 @@ const Budget: React.FC = () => {
 
   const groupedBudgetLines = useMemo(() => {
     const chapters: Record<string, any> = {};
-    const financialCols = ['Budget voté', 'Disponible', 'Mt. prévision', 'Mt. pré-engagé', 'Mt. engagé', 'Mt. facturé', 'Mt. pré-mandaté', 'Mt. mandaté', 'Mt. payé', 'allocated_amount'];
+    const financialCols = ['Budget votÃ©', 'Disponible', 'Mt. prÃ©vision', 'Mt. prÃ©-engagÃ©', 'Mt. engagÃ©', 'Mt. facturÃ©', 'Mt. prÃ©-mandatÃ©', 'Mt. mandatÃ©', 'Mt. payÃ©', 'allocated_amount'];
     
     budgetLines.forEach(line => {
       const chapter = (line['Chapitre par nature'] || line.chapter || 'SANS_CHAPITRE').toString().trim();
-      const label = (line['Libellé'] || line.label || 'SANS_LIBELLE').toString().trim();
+      const label = (line['LibellÃ©'] || line.label || 'SANS_LIBELLE').toString().trim();
       
       if (!chapters[chapter]) {
         chapters[chapter] = {
@@ -670,7 +670,7 @@ const Budget: React.FC = () => {
       if (!chapters[chapter]._labels[label]) {
         chapters[chapter]._labels[label] = {
           ...line,
-          "Libellé": label,
+          "LibellÃ©": label,
           label: label,
           _isGroup: true,
           _lines: []
@@ -693,7 +693,7 @@ const Budget: React.FC = () => {
       const chapter = chapters[chKey];
       result.push({
         ...chapter,
-        "Libellé": `CHAPITRE ${chKey}`,
+        "LibellÃ©": `CHAPITRE ${chKey}`,
         _isChapter: true,
         // Map totals for rendering
         ...chapter._total
@@ -709,8 +709,8 @@ const Budget: React.FC = () => {
   }, [budgetLines]);
 
   const filteredOrders = groupedOrders.filter(order => {
-    const orderNumber = (order.order_number || order['N° Commande'] || '').toString().toLowerCase();
-    const globalLabel = (order['Libellé'] || '').toString().toLowerCase();
+    const orderNumber = (order.order_number || order['NÂ° Commande'] || '').toString().toLowerCase();
+    const globalLabel = (order['LibellÃ©'] || '').toString().toLowerCase();
     const provider = (order.provider || order['Fournisseur'] || '').toString().toLowerCase();
     const sTerm = searchTerm.toLowerCase();
 
@@ -734,7 +734,7 @@ const Budget: React.FC = () => {
 
     for (const [key, filterValue] of Object.entries(columnFilters)) {
       if (filterValue) {
-        if (key === 'Désignation' || key === 'description') {
+        if (key === 'DÃ©signation' || key === 'description') {
            if (!order._lines.some((l: any) => l.desc?.toLowerCase().includes(filterValue.toLowerCase()))) return false;
         } else {
           const val = (order[key] || '').toString().toLowerCase();
@@ -769,7 +769,7 @@ const Budget: React.FC = () => {
     
     if (view === 'lines') {
       if (!showZeroBudget) {
-        data = data.filter((row: any) => parseFloat(row['Budget voté'] || 0) !== 0);
+        data = data.filter((row: any) => parseFloat(row['Budget votÃ©'] || 0) !== 0);
       }
       if (sectionFilter !== 'all') {
         data = data.filter((row: any) => row.Section === sectionFilter || row.section === sectionFilter);
@@ -786,7 +786,7 @@ const Budget: React.FC = () => {
     }
 
     if (view === 'invoices') {
-      data = data.filter((inv: any) => (inv['N° Facture fournisseur'] || '').toString().trim() !== '');
+      data = data.filter((inv: any) => (inv['NÂ° Facture fournisseur'] || '').toString().trim() !== '');
     }
 
     if (view !== 'orders') {
@@ -824,8 +824,8 @@ const Budget: React.FC = () => {
       <main className="main-content">
         <div className="page-header">
           <div>
-            <h1 className="page-title">Suivi Budgétaire & Commandes</h1>
-            <p className="page-subtitle">Gérez vos lignes budgétaires, factures et commandes centralisées.</p>
+            <h1 className="page-title">Suivi BudgÃ©taire & Commandes</h1>
+            <p className="page-subtitle">GÃ©rez vos lignes budgÃ©taires, factures et commandes centralisÃ©es.</p>
           </div>
           <div className="view-tabs">
             {['summary', 'lines', 'invoices', 'orders', 'operations', 'gestion'].map(tab => {
@@ -840,14 +840,14 @@ const Budget: React.FC = () => {
                   setIsRaw(false);
                   setSortConfig(null);
                   
-                  // Gérer le filtre de service auto si applicable (seulement sur Commandes et Opérations)
+                  // GÃ©rer le filtre de service auto si applicable (seulement sur Commandes et OpÃ©rations)
                   if (user.service_code && !['admin', 'finances'].includes(user.role) && (tab === 'orders' || tab === 'operations')) {
                     const filters: Record<string, string> = {};
-                    const serviceKey = tab === 'orders' ? 'Service émetteur' : 'Service';
+                    const serviceKey = tab === 'orders' ? 'Service Ã©metteur' : 'Service';
                     filters[serviceKey] = user.service_code;
                     
                     if (user.service_complement) {
-                      const complementKey = tab === 'orders' ? 'Service complément' : 'Service Complément';
+                      const complementKey = tab === 'orders' ? 'Service complÃ©ment' : 'Service ComplÃ©ment';
                       filters[complementKey] = user.service_complement;
                     }
                     setColumnFilters(filters);
@@ -860,11 +860,11 @@ const Budget: React.FC = () => {
                   }
                 }}
               >
-                {tab === 'summary' && 'Résumé'}
+                {tab === 'summary' && 'RÃ©sumÃ©'}
                 {tab === 'lines' && 'Lignes'}
                 {tab === 'invoices' && 'Factures'}
                 {tab === 'orders' && 'Commandes'}
-                {tab === 'operations' && 'Opérations'}
+                {tab === 'operations' && 'OpÃ©rations'}
                 {tab === 'gestion' && 'Gestion'}
               </button>
             )})}
@@ -881,7 +881,7 @@ const Budget: React.FC = () => {
         {isRaw ? (
           <div className="raw-view-container">
             <div className="sql-box">
-              <div className="sql-box-header">Requête SQL Exécutée</div>
+              <div className="sql-box-header">RequÃªte SQL ExÃ©cutÃ©e</div>
               <code>{rawSql}</code>
             </div>
             <div className="table-card">
@@ -907,7 +907,7 @@ const Budget: React.FC = () => {
           <div className="view-content-wrapper">
             {['admin', 'finances'].includes(user.role) && view !== 'summary' && ['lines', 'invoices', 'orders'].includes(view) && (
               <div className="import-toolbar">
-                <span className="import-label">Importer des données :</span>
+                <span className="import-label">Importer des donnÃ©es :</span>
                 {view === 'lines' && (
                   <label className="import-btn">
                     <Upload size={16} /> Fichier Lignes (.xls)
@@ -936,34 +936,34 @@ const Budget: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <div className="card-icon"><Euro size={24} /></div>
                       <div>
-                        <h3 className="card-title">Budget Alloué Total</h3>
-                        <p className="card-value">{Math.round(budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</p>
+                        <h3 className="card-title">Budget AllouÃ© Total</h3>
+                        <p className="card-value">{Math.round(budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} â‚¬</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
-                      <span>Fonc: {Math.round(budgetLines.filter(l => l.section === 'F').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</span>
-                      <span>Inv: {Math.round(budgetLines.filter(l => l.section === 'I').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</span>
+                      <span>Fonc: {Math.round(budgetLines.filter(l => l.section === 'F').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} â‚¬</span>
+                      <span>Inv: {Math.round(budgetLines.filter(l => l.section === 'I').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} â‚¬</span>
                     </div>
                   </div>
                   <div className="dashboard-card secondary" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <div className="card-icon"><ShoppingCart size={24} /></div>
                       <div>
-                        <h3 className="card-title">Total Commandé (TTC)</h3>
-                        <p className="card-value">{Math.round(groupedOrders.reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} €</p>
+                        <h3 className="card-title">Total CommandÃ© (TTC)</h3>
+                        <p className="card-value">{Math.round(groupedOrders.reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} â‚¬</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
-                      <span>Fonc: {Math.round(groupedOrders.filter(o => o.section === 'F' || o.section === 'Fonctionnement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} €</span>
-                      <span>Inv: {Math.round(groupedOrders.filter(o => o.section === 'I' || o.section === 'Investissement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} €</span>
+                      <span>Fonc: {Math.round(groupedOrders.filter(o => o.section === 'F' || o.section === 'Fonctionnement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} â‚¬</span>
+                      <span>Inv: {Math.round(groupedOrders.filter(o => o.section === 'I' || o.section === 'Investissement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} â‚¬</span>
                     </div>
                   </div>
                   <div className="dashboard-card warning" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <div className="card-icon"><FileText size={24} /></div>
                       <div>
-                        <h3 className="card-title">Total Facturé (TTC)</h3>
-                        <p className="card-value">{Math.round(invoiceStats.totalTtc).toLocaleString()} €</p>
+                        <h3 className="card-title">Total FacturÃ© (TTC)</h3>
+                        <p className="card-value">{Math.round(invoiceStats.totalTtc).toLocaleString()} â‚¬</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
@@ -975,7 +975,7 @@ const Budget: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <div className="card-icon"><AlertCircle size={24} /></div>
                       <div>
-                        <h3 className="card-title">Factures à traiter</h3>
+                        <h3 className="card-title">Factures Ã  traiter</h3>
                         <p className="card-value" style={{ fontSize: '1.2rem' }}>
                           <span 
                             style={{ color: invoiceStats.saisie30 > 0 ? '#ef4444' : 'inherit', cursor: invoiceStats.saisie30 > 0 ? 'help' : 'default' }}
@@ -995,8 +995,8 @@ const Budget: React.FC = () => {
 
                 <div className="table-card">
                   <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Évolution Cumulée des Dépenses (par semaine)</h3>
-                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* Basé sur les dates de commande et le montant TTC</span>
+                    <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Ã‰volution CumulÃ©e des DÃ©penses (par semaine)</h3>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* BasÃ© sur les dates de commande et le montant TTC</span>
                   </div>
                   <div style={{ padding: '1.5rem', height: '400px' }}>
                     <ResponsiveContainer width="100%" height="100%">
@@ -1013,7 +1013,7 @@ const Budget: React.FC = () => {
                           axisLine={false} 
                           tickLine={false} 
                           tick={{ fill: '#64748b', fontSize: 12 }}
-                          tickFormatter={(val) => `${(val / 1000).toFixed(0)}k€`}
+                          tickFormatter={(val) => `${(val / 1000).toFixed(0)}kâ‚¬`}
                         />
                         <Tooltip 
                           formatter={(value: any) => [new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value), '']}
@@ -1051,7 +1051,7 @@ const Budget: React.FC = () => {
                   <div className="toolbar-actions">
                     {view === 'operations' && isAuthorizedToEdit && (
                       <button className="toolbar-btn active" style={{ background: 'var(--color-green-500)', color: 'white', border: 'none' }} onClick={handleCreateOp}>
-                        <Plus size={16} /> Nouvelle Opération
+                        <Plus size={16} /> Nouvelle OpÃ©ration
                       </button>
                     )}
                     <button className="toolbar-btn" onClick={() => setShowM57(true)}>
@@ -1074,12 +1074,12 @@ const Budget: React.FC = () => {
                       <div className="chaussette-indicators" style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginLeft: '0.5rem', marginRight: 'auto' }}>
                         {(() => {
                           const stats = operations.reduce((acc, op) => {
-                            const isDone = (op['Terminé'] || '').toString().toUpperCase() === 'OUI';
+                            const isDone = (op['TerminÃ©'] || '').toString().toUpperCase() === 'OUI';
                             if (!isDone) return acc;
 
                             const section = getSectionFromM57(op['C. Nature']);
-                            const planned = parseFloat(op['Montant prévu'] || 0);
-                            const used = parseFloat(op['used_amount'] || op['Montant utilisé'] || 0);
+                            const planned = parseFloat(op['Montant prÃ©vu'] || 0);
+                            const used = parseFloat(op['used_amount'] || op['Montant utilisÃ©'] || 0);
                             const diff = planned - used;
                             
                             if (section === 'F') {
@@ -1092,7 +1092,7 @@ const Budget: React.FC = () => {
 
                           return (
                             <>
-                              <div className="chaussette-card f" title="Pour les opérations terminées : Somme(Prévu) - Somme(Utilisé)">
+                              <div className="chaussette-card f" title="Pour les opÃ©rations terminÃ©es : Somme(PrÃ©vu) - Somme(UtilisÃ©)">
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                   <span className="chaussette-label">Chaussette Fonc.</span>
                                   <SockIcon size={18} color="var(--color-green-500)" />
@@ -1101,7 +1101,7 @@ const Budget: React.FC = () => {
                                   {stats.fDiff.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
                                 </span>
                               </div>
-                              <div className="chaussette-card i" title="Pour les opérations terminées : Somme(Prévu) - Somme(Utilisé)">
+                              <div className="chaussette-card i" title="Pour les opÃ©rations terminÃ©es : Somme(PrÃ©vu) - Somme(UtilisÃ©)">
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                   <span className="chaussette-label">Chaussette Inv.</span>
                                   <SockIcon size={18} color="var(--color-blue-500)" />
@@ -1181,7 +1181,7 @@ const Budget: React.FC = () => {
                               cols = [cols[0], sectionCol, ...cols.slice(1)];
                             }
                             if (view === 'orders' && !cols.some(c => c.column_key === 'operation_label')) {
-                              const opCol = { id: -2, column_key: 'operation_label', label: 'Opération', is_visible: 1, display_order: 2, color: null, is_bold: 0, is_italic: 0 };
+                              const opCol = { id: -2, column_key: 'operation_label', label: 'OpÃ©ration', is_visible: 1, display_order: 2, color: null, is_bold: 0, is_italic: 0 };
                               cols = [...cols, opCol];
                             }
                             return cols.map(col => (
@@ -1197,7 +1197,7 @@ const Budget: React.FC = () => {
                                   <div className="th-content" onClick={() => requestSort(col.column_key)}>
                                     {col.label}
                                     {sortConfig?.key === col.column_key && (
-                                      <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
+                                      <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' â†‘' : ' â†“'}</span>
                                     )}
                                   </div>
                                   <input 
@@ -1224,16 +1224,16 @@ const Budget: React.FC = () => {
 
                           if (view === 'orders') {
                             const firstLineDesc = hasLines ? row._lines[0].desc?.trim() : '';
-                            const globalLabel = (row['Libellé'] || row.label || '').trim();
+                            const globalLabel = (row['LibellÃ©'] || row.label || '').trim();
                             isExpandable = hasLines && (linesCount > 1 || (linesCount === 1 && firstLineDesc !== globalLabel));
                             isExpanded = expandedOrders.includes(row.id || index.toString());
                           } else if (view === 'lines') {
                             isExpandable = hasLines && linesCount > 1;
-                            isExpanded = expandedLines.includes(row['Libellé'] || index.toString());
+                            isExpanded = expandedLines.includes(row['LibellÃ©'] || index.toString());
                           }
                           
                           const rowSection = row.Section || row.section || (view === 'operations' ? getSectionFromM57(row['C. Nature']) : '');
-                          const isRowCompleted = view === 'operations' && (row['Terminé'] || '').toString().toUpperCase() === 'OUI';
+                          const isRowCompleted = view === 'operations' && (row['TerminÃ©'] || '').toString().toUpperCase() === 'OUI';
 
                           return (
                             <React.Fragment key={row.id || index}>
@@ -1242,7 +1242,7 @@ const Budget: React.FC = () => {
                                 onClick={() => {
                                   if (isExpandable) {
                                     if (view === 'orders') toggleExpand(row.id || index.toString());
-                                    else toggleExpandLine(row['Libellé'] || index.toString());
+                                    else toggleExpandLine(row['LibellÃ©'] || index.toString());
                                   }
                                 }}
                                 style={{ 
@@ -1270,7 +1270,7 @@ const Budget: React.FC = () => {
 
                                   if (isCellEditing) {
                                     // ... existing editing logic ...
-                                    if (['Montant prévu', 'Solde'].includes(col.column_key)) {
+                                    if (['Montant prÃ©vu', 'Solde'].includes(col.column_key)) {
                                       content = (
                                         <input 
                                           autoFocus
@@ -1285,7 +1285,7 @@ const Budget: React.FC = () => {
                                           }}
                                         />
                                       );
-                                    } else if (col.column_key === 'Terminé') {
+                                    } else if (col.column_key === 'TerminÃ©') {
                                       content = (
                                         <select 
                                           autoFocus
@@ -1325,9 +1325,9 @@ const Budget: React.FC = () => {
                                           {(sec === 'Fonctionnement' || sec === 'F') ? 'F' : 'I'}
                                         </span>
                                       );
-                                    } else if (col.column_key === 'used_amount' || col.column_key === 'Montant utilisé') {
+                                    } else if (col.column_key === 'used_amount' || col.column_key === 'Montant utilisÃ©') {
                                       const used = parseFloat(row[col.column_key] || 0);
-                                      const planned = parseFloat(row['Montant prévu'] || row['montant_prevu'] || 0);
+                                      const planned = parseFloat(row['Montant prÃ©vu'] || row['montant_prevu'] || 0);
                                       const percent = planned > 0 ? (used / planned) * 100 : 0;
                                       
                                       let barColor = 'var(--color-green-500)';
@@ -1353,18 +1353,18 @@ const Budget: React.FC = () => {
                                           </div>
                                         </div>
                                       );
-                                    } else if (col.column_key === 'status' || col.column_key === 'Etat' || col.column_key === 'termine' || col.column_key === 'Terminé') {
+                                    } else if (col.column_key === 'status' || col.column_key === 'Etat' || col.column_key === 'termine' || col.column_key === 'TerminÃ©') {
                                       const val = row[col.column_key];
-                                      const isDone = val === 'Payée' || val === 'OUI' || val === 1;
+                                      const isDone = val === 'PayÃ©e' || val === 'OUI' || val === 1;
                                       content = <span className={`badge ${isDone ? 'success' : 'status'}`}>{val}</span>;
                                     } else if (
                                       col.column_key === 'Montant HT' || col.column_key === 'amount_ht' || 
                                       col.column_key === 'montant_prevu' || col.column_key === 'allocated_amount' ||
-                                      col.column_key === 'Budget voté' || col.column_key === 'Disponible' ||
-                                      col.column_key === 'Mt. prévision' || col.column_key === 'Mt. pré-engagé' ||
-                                      col.column_key === 'Mt. engagé' || col.column_key === 'Mt. facturé' ||
-                                      col.column_key === 'Mt. pré-mandaté' || col.column_key === 'Mt. mandaté' ||
-                                      col.column_key === 'Mt. payé' || col.column_key === 'Montant prévu'
+                                      col.column_key === 'Budget votÃ©' || col.column_key === 'Disponible' ||
+                                      col.column_key === 'Mt. prÃ©vision' || col.column_key === 'Mt. prÃ©-engagÃ©' ||
+                                      col.column_key === 'Mt. engagÃ©' || col.column_key === 'Mt. facturÃ©' ||
+                                      col.column_key === 'Mt. prÃ©-mandatÃ©' || col.column_key === 'Mt. mandatÃ©' ||
+                                      col.column_key === 'Mt. payÃ©' || col.column_key === 'Montant prÃ©vu'
                                     ) {
                                       const val = view === 'orders' ? row._total_ht : row[col.column_key];
                                       content = <span className="amount-ht">{(parseFloat(val) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
@@ -1374,7 +1374,7 @@ const Budget: React.FC = () => {
                                     } else if (
                                       col.column_key === 'date' || 
                                       col.column_key === 'Date de la commande' ||
-                                      ['Emission', 'Arrivée', 'Début DGP', 'Fin DGP', 'Date Réception Pièce', 'Date Suspension'].includes(col.column_key.trim())
+                                      ['Emission', 'ArrivÃ©e', 'DÃ©but DGP', 'Fin DGP', 'Date RÃ©ception PiÃ¨ce', 'Date Suspension'].includes(col.column_key.trim())
                                     ) {
                                       const d = parseExcelDate(row[col.column_key]);
                                       if (d) {
@@ -1383,13 +1383,13 @@ const Budget: React.FC = () => {
                                         content = row[col.column_key];
                                       }
                                     }
-                                    else if (col.column_key === 'Libellé' || col.column_key === 'label' || col.column_key === 'libelle' || col.column_key === 'Nom' || col.column_key === 'LIBELLE') {
+                                    else if (col.column_key === 'LibellÃ©' || col.column_key === 'label' || col.column_key === 'libelle' || col.column_key === 'Nom' || col.column_key === 'LIBELLE') {
                                       tooltip = row[col.column_key];
                                       content = (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                           {isExpandable && view === 'lines' && (
                                             <span style={{ fontSize: '12px', color: '#64748b' }}>
-                                              {isExpanded ? '▼' : '▶'} ({linesCount})
+                                              {isExpanded ? 'â–¼' : 'â–¶'} ({linesCount})
                                             </span>
                                           )}
                                           <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1399,14 +1399,14 @@ const Budget: React.FC = () => {
                                       );
                                       cellStyle = { ...cellStyle, maxWidth: '250px' };
                                     }
-                                    else if (col.column_key === 'Désignation' || col.column_key === 'description') {
+                                    else if (col.column_key === 'DÃ©signation' || col.column_key === 'description') {
                                       if (view === 'orders') {
                                         const firstLineDesc = hasLines ? row._lines[0].desc?.trim() : '';
                                         content = (
                                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             {isExpandable && (
                                               <span style={{ fontSize: '12px', color: '#64748b' }}>
-                                                {isExpanded ? '▼' : '▶'} {linesCount > 1 ? `(${linesCount} lignes)` : ''}
+                                                {isExpanded ? 'â–¼' : 'â–¶'} {linesCount > 1 ? `(${linesCount} lignes)` : ''}
                                               </span>
                                             )}
                                             <span style={{ maxWidth: '250px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={firstLineDesc || row.description}>
@@ -1431,7 +1431,7 @@ const Budget: React.FC = () => {
                                                   setSelectedOrderForOp(row);
                                                   handleAssignOperation(null);
                                                 }}
-                                                title="Désaffecter l'opération"
+                                                title="DÃ©saffecter l'opÃ©ration"
                                               >
                                                 <X size={14} />
                                               </button>
@@ -1455,8 +1455,8 @@ const Budget: React.FC = () => {
                                       }
                                     }
                                     else if (
-                                      (view === 'orders' && ['N° Commande', 'order_number', 'N°', 'num'].includes(col.column_key.trim())) ||
-                                      (view === 'invoices' && col.column_key.trim() === 'N° Facture fournisseur')
+                                      (view === 'orders' && ['NÂ° Commande', 'order_number', 'NÂ°', 'num'].includes(col.column_key.trim())) ||
+                                      (view === 'invoices' && col.column_key.trim() === 'NÂ° Facture fournisseur')
                                     ) {
                                       const isOrder = view === 'orders';
                                       const targetId = row[col.column_key]?.toString();
@@ -1469,7 +1469,7 @@ const Budget: React.FC = () => {
                                               e.stopPropagation();
                                               handleOpenAttachments(isOrder ? 'order' : 'invoice', targetId);
                                             }}
-                                            title="Gérer les pièces jointes"
+                                            title="GÃ©rer les piÃ¨ces jointes"
                                           >
                                             <FileText size={16} />
                                           </button>
@@ -1507,7 +1507,7 @@ const Budget: React.FC = () => {
 
                                 {view === 'operations' && isAuthorizedToEdit && (
                                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                    <button className="icon-btn" onClick={() => handleDeleteOp(row.id)} style={{ color: 'var(--color-ivry)' }} title="Supprimer l'opération">
+                                    <button className="icon-btn" onClick={() => handleDeleteOp(row.id)} style={{ color: 'var(--color-ivry)' }} title="Supprimer l'opÃ©ration">
                                       <Trash2 size={16}/>
                                     </button>
                                   </td>
@@ -1519,7 +1519,7 @@ const Budget: React.FC = () => {
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                       <thead>
                                         <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
-                                          <th style={{ padding: '4px', textAlign: 'center' }}>N° Ligne</th>
+                                          <th style={{ padding: '4px', textAlign: 'center' }}>NÂ° Ligne</th>
                                           <th style={{ padding: '4px' }}>Description</th>
                                           <th style={{ padding: '4px' }}>Nature</th>
                                           <th style={{ padding: '4px' }}>Fonction</th>
@@ -1551,9 +1551,9 @@ const Budget: React.FC = () => {
                                         <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
                                           <th style={{ padding: '4px' }}>Code</th>
                                           <th style={{ padding: '4px' }}>Masque</th>
-                                          <th style={{ padding: '4px', textAlign: 'right' }}>Budget Voté</th>
+                                          <th style={{ padding: '4px', textAlign: 'right' }}>Budget VotÃ©</th>
                                           <th style={{ padding: '4px', textAlign: 'right' }}>Disponible</th>
-                                          <th style={{ padding: '4px', textAlign: 'right' }}>Mt. Engagé</th>
+                                          <th style={{ padding: '4px', textAlign: 'right' }}>Mt. EngagÃ©</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -1561,9 +1561,9 @@ const Budget: React.FC = () => {
                                           <tr key={idx} style={{ borderBottom: '1px dashed #e2e8f0' }}>
                                             <td style={{ padding: '4px', fontWeight: 'bold' }}>{line['Code']}</td>
                                             <td style={{ padding: '4px' }}>{line['Masque']}</td>
-                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Budget voté']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Budget votÃ©']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
                                             <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Disponible']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
-                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Mt. engagé']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Mt. engagÃ©']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
                                           </tr>
                                         ))}
                                       </tbody>
@@ -1576,7 +1576,7 @@ const Budget: React.FC = () => {
                         }) : (
                           <tr>
                             <td colSpan={columnSettings.filter(c => c.is_visible).length || 1} className="empty-state">
-                              Aucune donnée ne correspond à vos critères.
+                              Aucune donnÃ©e ne correspond Ã  vos critÃ¨res.
                             </td>
                           </tr>
                         )}
@@ -1595,7 +1595,7 @@ const Budget: React.FC = () => {
 
                   <div className="import-list" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     <div className="import-item">
-                      <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Lignes Budgétaires</label>
+                      <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>Lignes BudgÃ©taires</label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                         <input type="file" accept=".xlsx,.xls" onChange={(e) => {
                           if (e.target.files && e.target.files[0]) {
@@ -1652,7 +1652,7 @@ const Budget: React.FC = () => {
 
                 <section className="compta-card" style={{ background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column' }}>
                   <h2 style={{ borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Database size={20} /> Requête SQL Libre
+                    <Database size={20} /> RequÃªte SQL Libre
                   </h2>
                   <textarea 
                     value={sqlQuery} 
@@ -1665,7 +1665,7 @@ const Budget: React.FC = () => {
                     className="btn btn-primary"
                     style={{ alignSelf: 'flex-start', padding: '10px 15px', background: 'var(--color-navy)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                   >
-                    Exécuter la requête
+                    ExÃ©cuter la requÃªte
                   </button>
 
                   {queryError && (
@@ -1677,7 +1677,7 @@ const Budget: React.FC = () => {
                   {/* Results inside or below, let's put it below if queryResult */}
                   {queryResult && (
                     <div style={{ marginTop: '20px', overflowX: 'auto' }}>
-                      <h3 style={{ marginBottom: '10px' }}>Résultats ({queryResult.length} lignes)</h3>
+                      <h3 style={{ marginBottom: '10px' }}>RÃ©sultats ({queryResult.length} lignes)</h3>
                       {queryResult.length > 0 ? (
                         <table className="modern-table">
                           <thead>
@@ -1698,7 +1698,7 @@ const Budget: React.FC = () => {
                           </tbody>
                         </table>
                       ) : (
-                        <p>Aucun résultat trouvé.</p>
+                        <p>Aucun rÃ©sultat trouvÃ©.</p>
                       )}
                     </div>
                   )}
@@ -1711,7 +1711,7 @@ const Budget: React.FC = () => {
           <div className="modal-backdrop" onClick={() => setShowM57(false)}>
             <div className="modal-window" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">Référentiel M57</h2>
+                <h2 className="modal-title">RÃ©fÃ©rentiel M57</h2>
                 <button className="icon-btn" onClick={() => setShowM57(false)}><X size={20} /></button>
               </div>
               <div className="modal-body p-0">
@@ -1734,7 +1734,7 @@ const Budget: React.FC = () => {
                     <thead>
                       <tr>
                         <th>Code</th>
-                        <th>Libellé</th>
+                        <th>LibellÃ©</th>
                         <th className="text-center">Section</th>
                       </tr>
                     </thead>
@@ -1751,7 +1751,7 @@ const Budget: React.FC = () => {
                         </tr>
                       ))}
                       {m57Plan.filter(item => item.type === m57View || (!item.type && m57View === 'nature')).length === 0 && (
-                        <tr><td colSpan={3} className="text-center py-8 text-gray">Aucun code trouvé.</td></tr>
+                        <tr><td colSpan={3} className="text-center py-8 text-gray">Aucun code trouvÃ©.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1770,7 +1770,7 @@ const Budget: React.FC = () => {
               </div>
               <div className="modal-body">
                 <p className="modal-desc">
-                  Glissez-déposez pour réorganiser. Modifiez la visibilité, la couleur, et le style (Gras/Italique).
+                  Glissez-dÃ©posez pour rÃ©organiser. Modifiez la visibilitÃ©, la couleur, et le style (Gras/Italique).
                 </p>
                 <div className="column-toggles">
                   {columnSettings.map((col, index) => (
@@ -1784,7 +1784,7 @@ const Budget: React.FC = () => {
                       style={{ cursor: ['admin', 'finances'].includes(user.role) ? 'grab' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                     >
                       <div className="toggle-info" style={{ display: 'flex', alignItems: 'center' }}>
-                        {['admin', 'finances'].includes(user.role) && <span className="drag-handle" style={{ marginRight: '10px', color: '#94a3b8', cursor: 'grab' }}>☰</span>}
+                        {['admin', 'finances'].includes(user.role) && <span className="drag-handle" style={{ marginRight: '10px', color: '#94a3b8', cursor: 'grab' }}>â˜°</span>}
                         <span className="toggle-label">{col.label}</span>
                       </div>
                       
@@ -1829,7 +1829,7 @@ const Budget: React.FC = () => {
                           style={{ minWidth: '90px', justifyContent: 'center' }}
                         >
                           {col.is_visible ? <Eye size={16} /> : <EyeOff size={16} />}
-                          {col.is_visible ? 'Visible' : 'Masqué'}
+                          {col.is_visible ? 'Visible' : 'MasquÃ©'}
                         </button>
                       </div>
                     </div>
@@ -1843,7 +1843,7 @@ const Budget: React.FC = () => {
           <div className="modal-backdrop" onClick={() => setShowOpSelector(false)}>
             <div className="modal-window" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">Affecter une opération</h2>
+                <h2 className="modal-title">Affecter une opÃ©ration</h2>
                 <button className="icon-btn" onClick={() => setShowOpSelector(false)}><X size={20} /></button>
               </div>
               <div className="modal-body">
@@ -1851,7 +1851,7 @@ const Budget: React.FC = () => {
                   <Search size={16} className="search-icon" />
                   <input 
                     type="text" 
-                    placeholder="Filtrer les opérations (nom, service...)" 
+                    placeholder="Filtrer les opÃ©rations (nom, service...)" 
                     value={opSearchTerm}
                     onChange={(e) => setOpSearchTerm(e.target.value)}
                     className="search-input"
@@ -1863,22 +1863,22 @@ const Budget: React.FC = () => {
                   <table className="modern-table">
                     <thead>
                       <tr>
-                        <th>Opération</th>
+                        <th>OpÃ©ration</th>
                         <th>Service</th>
-                        <th>Montant prévu</th>
+                        <th>Montant prÃ©vu</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr key="none">
-                        <td colSpan={3} style={{ color: '#64748b', fontStyle: 'italic' }}>Aucune opération (Désaffecter)</td>
+                        <td colSpan={3} style={{ color: '#64748b', fontStyle: 'italic' }}>Aucune opÃ©ration (DÃ©saffecter)</td>
                         <td style={{ textAlign: 'right' }}>
                           <button 
                             className="toolbar-btn" 
                             style={{ padding: '4px 8px', fontSize: '0.75rem' }}
                             onClick={() => handleAssignOperation(null)}
                           >
-                            Désaffecter
+                            DÃ©saffecter
                           </button>
                         </td>
                       </tr>
@@ -1890,7 +1890,7 @@ const Budget: React.FC = () => {
                         <tr key={op.id}>
                           <td style={{ fontWeight: 600 }}>{op.LIBELLE}</td>
                           <td style={{ fontSize: '0.8rem' }}>{op.Service}</td>
-                          <td>{(op['Montant prévu'] || 0).toLocaleString()} €</td>
+                          <td>{(op['Montant prÃ©vu'] || 0).toLocaleString()} â‚¬</td>
                           <td style={{ textAlign: 'right' }}>
                             <button 
                               className="toolbar-btn" 
@@ -1914,7 +1914,7 @@ const Budget: React.FC = () => {
           <div className="modal-backdrop" onClick={() => setShowAttachments(false)}>
             <div className="modal-window modal-lg" style={{ maxWidth: '1000px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">Pièce Jointe : {activeAttachmentTarget.id}</h2>
+                <h2 className="modal-title">PiÃ¨ce Jointe : {activeAttachmentTarget.id}</h2>
                 <button className="icon-btn" onClick={() => setShowAttachments(false)}><X size={20} /></button>
               </div>
               <div className="modal-body" style={{ display: 'flex', gap: '20px', minHeight: '600px' }}>
@@ -1949,11 +1949,11 @@ const Budget: React.FC = () => {
                           </button>
                         </div>
                         <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                          <div>Ajouté par {att.username}</div>
+                          <div>AjoutÃ© par {att.username}</div>
                           <div>le {new Date(att.uploaded_at).toLocaleString()}</div>
                         </div>
                         <a 
-                          href={`http://localhost:3001/${att.file_path}`} 
+                          href={`/${att.file_path}`} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="toolbar-btn"
@@ -1966,7 +1966,7 @@ const Budget: React.FC = () => {
                       <div style={{ textAlign: 'center', padding: '40px 20px', background: '#f8fafc', borderRadius: '8px', border: '2px dashed #e2e8f0' }}>
                         <AlertCircle size={32} color="#cbd5e1" style={{ marginBottom: '10px' }} />
                         <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>
-                          Aucun PDF associé.
+                          Aucun PDF associÃ©.
                         </p>
                       </div>
                     )}
@@ -1976,14 +1976,14 @@ const Budget: React.FC = () => {
                 <div style={{ flex: 1, background: '#f1f5f9', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {currentAttachments.length > 0 ? (
                     <iframe 
-                      src={`http://localhost:3001/${currentAttachments[0].file_path}#toolbar=0`}
+                      src={`/${currentAttachments[0].file_path}#toolbar=0`}
                       style={{ width: '100%', height: '100%', border: 'none' }}
-                      title="Aperçu PDF"
+                      title="AperÃ§u PDF"
                     />
                   ) : (
                     <div style={{ color: '#94a3b8', textAlign: 'center' }}>
                       <FileText size={48} style={{ marginBottom: '10px', opacity: 0.5 }} />
-                      <p>Aperçu non disponible</p>
+                      <p>AperÃ§u non disponible</p>
                     </div>
                   )}
                 </div>
