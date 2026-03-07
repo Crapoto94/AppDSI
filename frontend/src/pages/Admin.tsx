@@ -1,6 +1,7 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Trash2, X, UserPlus, Users, Edit2, Clock } from 'lucide-react';
+import { Plus, Trash2, X, UserPlus, Users, Edit2, Clock, Settings } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface TileData {
   id: number;
@@ -24,26 +25,12 @@ const Admin: React.FC = () => {
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
   const [newTile, setNewTile] = useState({ title: '', icon: 'box', description: '', status: 'active' });
-
-  const handleUpdateTileStatus = async (tileId: number, newStatus: string) => {
-    const tile = tiles.find(t => t.id === tileId);
-    if (!tile) return;
-    
-    const response = await fetch(`/api/tiles/${tileId}`, {
-      method: 'PUT',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ ...tile, status: newStatus })
-    });
-    if (response.ok) fetchTiles();
-  };
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [isAddingTile, setIsAddingTile] = useState(false);
   const [isAddingUser, setIsAddingUser] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tiles' | 'users'>('tiles');
+  const [activeTab, setActiveTab] = useState<'tiles' | 'users' | 'system'>('tiles');
+  const navigate = useNavigate();
   
   const token = localStorage.getItem('token');
 
@@ -72,6 +59,21 @@ const Admin: React.FC = () => {
     fetchUsers();
   }, []);
 
+  const handleUpdateTileStatus = async (tileId: number, newStatus: string) => {
+    const tile = tiles.find(t => t.id === tileId);
+    if (!tile) return;
+    
+    const response = await fetch(`/api/tiles/${tileId}`, {
+      method: 'PUT',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ ...tile, status: newStatus })
+    });
+    if (response.ok) fetchTiles();
+  };
+
   const formatActivityDate = (dateStr: string | null) => {
     if (!dateStr) return 'Jamais connecté';
     const date = new Date(dateStr);
@@ -92,7 +94,6 @@ const Admin: React.FC = () => {
     return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  // Tiles Handlers
   const handleDeleteTile = async (id: number) => {
     if (window.confirm('Voulez-vous vraiment supprimer cette tuile ?')) {
       const response = await fetch(`/api/tiles/${id}`, {
@@ -114,7 +115,7 @@ const Admin: React.FC = () => {
       body: JSON.stringify(newTile)
     });
     if (response.ok) {
-      setNewTile({ title: '', icon: 'box', description: '', status: 'normal' });
+      setNewTile({ title: '', icon: 'box', description: '', status: 'active' });
       setIsAddingTile(false);
       fetchTiles();
     }
@@ -149,10 +150,8 @@ const Admin: React.FC = () => {
     fetchTiles();
   };
 
-  // Users Handlers
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('ENVOI POST /api/users:', newUser);
     const response = await fetch('/api/users', {
       method: 'POST',
       headers: { 
@@ -222,10 +221,16 @@ const Admin: React.FC = () => {
             >
               Utilisateurs
             </button>
+            <button 
+              className={`tab-btn ${activeTab === 'system' ? 'active' : ''}`}
+              onClick={() => setActiveTab('system')}
+            >
+              Système
+            </button>
           </div>
         </div>
 
-        {activeTab === 'tiles' ? (
+        {activeTab === 'tiles' && (
           <>
             <div className="section-header">
               <h2>Configuration du Hub</h2>
@@ -310,7 +315,9 @@ const Admin: React.FC = () => {
               ))}
             </section>
           </>
-        ) : (
+        )}
+
+        {activeTab === 'users' && (
           <>
             <div className="section-header">
               <h2>Gestion des Utilisateurs</h2>
@@ -449,6 +456,43 @@ const Admin: React.FC = () => {
             </section>
           </>
         )}
+
+        {activeTab === 'system' && (
+          <>
+            <div className="section-header">
+              <h2>Paramètres Système</h2>
+            </div>
+            
+            <section className="admin-section">
+              <div 
+                className="system-card" 
+                onClick={() => navigate('/admin/mail')} 
+                style={{ 
+                  cursor: 'pointer', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '20px', 
+                  padding: '25px', 
+                  border: '1px solid #e2e8f0', 
+                  borderRadius: '12px', 
+                  background: 'white', 
+                  transition: 'transform 0.2s, box-shadow 0.2s'
+                }}
+              >
+                <div style={{ background: '#eff6ff', color: '#3b82f6', padding: '15px', borderRadius: '10px' }}>
+                  <Settings size={32} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <h3 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>Paramètres de Messagerie</h3>
+                  <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>
+                    Configurez le relais SMTP, le proxy et le template des mails envoyés par l'application.
+                  </p>
+                </div>
+                <button className="btn btn-primary">Configurer</button>
+              </div>
+            </section>
+          </>
+        )}
       </main>
 
       <style>{`
@@ -567,12 +611,14 @@ const Admin: React.FC = () => {
         .btn-icon { background: none; padding: 10px; border-radius: 50%; transition: var(--transition); border: none; cursor: pointer; }
         .btn-icon:hover { background: rgba(0, 0, 0, 0.05); }
         .btn-icon:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .system-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        }
       `}</style>
     </div>
   );
 };
 
 export default Admin;
-
-
-

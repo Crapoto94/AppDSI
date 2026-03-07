@@ -9,6 +9,8 @@ const fs = require('fs');
 const path = require('path');
 const ntlm = require('express-ntlm');
 const { PDFParse } = require('pdf-parse');
+const nodemailer = require('nodemailer');
+const brevoTransport = require('nodemailer-brevo-transport');
 
 // Configuration Multer dynamique
 const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif'];
@@ -101,14 +103,17 @@ app.get('/api/auth/auto-login', ntlmMiddleware, async (req, res) => {
 app.use((req, res, next) => {
     // Ne pas logger les accès au mouchard lui-même pour éviter de polluer
     if (req.url.startsWith('/mouchard') || req.url === '/favicon.ico') return next();
-    
-    const msg = `${req.method} ${req.url} - par ${req.headers['authorization'] ? 'Utilisateur authentifié' : 'Anonyme'}`;
-    const time = new Date().toISOString();
-    const line = `[${time}] ${msg}\n`;
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
+
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        const msg = `${req.method} ${req.url} - ${res.statusCode} - par ${req.headers['authorization'] ? 'Utilisateur authentifié' : 'Anonyme'} (${duration}ms)`;
+        const time = new Date().toISOString();
+        const line = `[${time}] ${msg}\n`;
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
+    });
     next();
 });
-
 // Route pour voir les logs dans le navigateur
 app.get('/mouchard', (req, res) => {
     try {
@@ -272,6 +277,53 @@ const authenticateAdminOrFinances = (req, res, next) => {
         }
     });
 };
+
+// Mail API
+app.get('/api/mail-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM mail_settings WHERE id = 1');
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lecture paramètres mail' });
+    }
+});
+
+app.post('/api/mail-settings', authenticateAdmin, async (req, res) => {
+    const s = req.body;
+    try {
+        await db.run(`
+            UPDATE mail_settings SET 
+                smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, 
+                smtp_secure = ?, proxy_host = ?, proxy_port = ?, 
+                sender_email = ?, sender_name = ?, api_key = ?, template_html = ?
+            WHERE id = 1
+        `, [
+            s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_pass, 
+            s.smtp_secure, s.proxy_host, s.proxy_port, 
+            s.sender_email, s.sender_name, s.api_key, s.template_html
+        ]);
+        res.json({ message: 'Paramètres mis à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur mise à jour paramètres mail' });
+    }
+});
+
+app.post('/api/send-test-mail', authenticateAdmin, async (req, res) => {
+    const { to } = req.body;
+    try {
+        const logMsg = `Tentative d'envoi de mail de test à: ${to}`;
+        console.log(logMsg);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+
+        await sendMail(to, "Test d'envoi DSI Hub", "<p>Ceci est un mail de test envoyé depuis le paramétrage du <strong>DSI Hub Ivry</strong>.</p><p>Si vous recevez ce message, la configuration est correcte.</p>");
+        res.json({ message: 'Mail de test envoyé avec succès' });
+    } catch (error) {
+        const errMsg = `ÉCHEC envoi mail de test: ${error.message}`;
+        console.error(errMsg);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${errMsg}\n`);
+        res.status(500).json({ message: "Erreur d'envoi", error: error.message });
+    }
+});
 
 // Certificates API
 app.get('/api/certificates', authenticateJWT, async (req, res) => {
@@ -1238,3 +1290,25 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
         res.status(500).json({ message: 'Erreur lors de l\'import des commandes', error: error.message });
     }
 });
+
+// Helper Mail
+async function sendMail(to, subject, content) {
+    const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
+    if (!s) throw new Error("Paramètres mail non configurés");
+
+    // Utilisation de l'API REST de Brevo car le relais SMTP rejette l'auth
+    const transporter = nodemailer.createTransport(
+        new brevoTransport({
+            apiKey: s.smtp_pass // La clé API est stockée dans smtp_pass
+        })
+    );
+    
+    const html = s.template_html.replace('{{content}}', content);
+
+    await transporter.sendMail({
+        from: `"${s.sender_name}" <${s.sender_email}>`,
+        to,
+        subject,
+        html
+    });
+}

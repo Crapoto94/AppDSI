@@ -1,6 +1,17 @@
 {
-  "currentVersion": "0.2.1",
+  "currentVersion": "0.2.2",
   "history": [
+    {
+      "version": "0.2.2",
+      "date": "2026-03-07",
+      "changes": [
+        "Messagerie : Refonte complète du système d'envoi utilisant l'API REST Brevo pour une fiabilité accrue.",
+        "Messagerie : Nouveau Studio de conception de templates avec éditeur hybride (Visuel / Code HTML).",
+        "Messagerie : Ajout d'une prévisualisation dynamique en temps réel avec mode Responsive (Bureau / Mobile).",
+        "Messagerie : Intégration d'un nouveau template élégant avec logo vectoriel DSI Hub.",
+        "Administration : Ajout d'une fonction de restauration sécurisée du template par défaut."
+      ]
+    },
     {
       "version": "0.2.1",
       "date": "2026-03-07",
@@ -23,24 +34,24 @@
       "version": "0.1.29",
       "date": "2026-03-07",
       "changes": [
-        "PiÃ¨ces Jointes : Standardisation à un seul fichier par commande ou facture (ID fixe).",
-        "Interface : IntÃ©gration d'un aperÃ§u PDF (viewer) directement dans le modal de gestion.",
-        "Interface : L'icÃ´ne de piÃ¨ce jointe est dÃ©sormais exclusivement liÃ©e au 'NÂ° Facture fournisseur' pour les factures.",
-        "Upload : Mise en place d'une confirmation explicite avant d'Ã©craser un document existant.",
+        "Pièces Jointes : Standardisation à un seul fichier par commande ou facture (ID fixe).",
+        "Interface : Intégration d'un aperçu PDF (viewer) directement dans le modal de gestion.",
+        "Interface : L'icône de pièce jointe est désormais exclusivement liée au 'N° Facture fournisseur' pour les factures.",
+        "Upload : Mise en place d'une confirmation explicite avant d'écraser un document existant.",
         "Filtres : Correction du filtrage automatique par service qui masquait par erreur la liste des factures.",
-        "Nommage : Utilisation du nom systÃ¨me gÃ©nÃ©rÃ© (ex: 26D000185.pdf) pour l'affichage dans l'interface."
+        "Nommage : Utilisation du nom système généré (ex: 26D000185.pdf) pour l'affichage dans l'interface."
       ]
     },
     {
       "version": "0.1.28",
       "date": "2026-03-07",
       "changes": [
-        "Filtres : Le prÃ©-remplissage du filtre Service est dÃ©sormais limitÃ© aux onglets Commandes et OpÃ©rations pour plus de pertinence.",
-        "Utilisateurs : Ajout d'un champ 'Service ComplÃ©ment' permettant un filtrage double (Service + ComplÃ©ment) automatique.",
-        "PiÃ¨ces Jointes : Nouveau systÃ¨me de gestion de documents pour chaque commande et facture.",
-        "Stockage : Organisation automatique des fichiers dans des dossiers dÃ©diÃ©s (file_commandes / file_factures).",
-        "Nommage : Renommage automatique des fichiers uploadÃ©s utilisant le numÃ©ro de commande ou de facture pour une identification claire.",
-        "Persistance : Les liens vers les piÃ¨ces jointes sont conservÃ©s mÃªme lors de la rÃ©-importation des donnÃ©es Excel."
+        "Filtres : Le pré-remplissage du filtre Service est désormais limité aux onglets Commandes et Opérations pour plus de pertinence.",
+        "Utilisateurs : Ajout d'un champ 'Service Complément' permettant un filtrage double (Service + Complément) automatique.",
+        "Pièces Jointes : Nouveau système de gestion de documents pour chaque commande et facture.",
+        "Stockage : Organisation automatique des fichiers dans des dossiers dédiés (file_commandes / file_factures).",
+        "Nommage : Renommage automatique des fichiers uploadés utilisant le numéro de commande ou de facture pour une identification claire.",
+        "Persistance : Les liens vers les pièces jointes sont conservés même lors de la ré-importation des données Excel."
       ]
     },
     {
@@ -48,32 +59,272 @@
       "date": "2026-03-07",
       "changes": [
         "Interface : Affichage du login Windows automatique dans le Header.",
-        "Auth : IntÃ©gration de l'authentification NTLM pour la dÃ©tection du login Windows sur le rÃ©seau.",
-        "OpÃ©rations : Ajout d'icÃ´nes de chaussettes personnalisÃ©es rÃ©alistes (duo de chaussettes avec rayures).",
-        "OpÃ©rations : Nouveau style visuel pour les opÃ©rations terminÃ©es (opacitÃ© rÃ©duite, fond grisÃ©, montants barrÃ©s).",
-        "OpÃ©rations : Correction du calcul des chaussettes (Reliquat PrÃ©vu - UtilisÃ© pour les opÃ©rations terminÃ©es).",
-        "Commandes : Ajout d'un bouton de dÃ©saffectation rapide (X) sur les commandes liÃ©es."
+        "Auth : Intégration de l'authentification NTLM pour la détection du login Windows sur le réseau.",
+        "Opérations : Ajout d'icônes de chaussettes personnalisées réalistes (duo de chaussettes avec rayures).",
+        "Opérations : Nouveau style visuel pour les opérations terminées (opacité réduite, fond grisé, montants barrés).",
+        "Opérations : Correction du calcul des chaussettes (Reliquat Prévu - Utilisé pour les opérations terminées).",
+        "Commandes : Ajout d'un bouton de désaffectation rapide (X) sur les commandes liées."
       ]
     },
     {
       "version": "0.1.26",
       "date": "2026-03-07",
       "changes": [
-        "Commandes : Nouveau systÃ¨me d'affectation manuelle d'une opÃ©ration à une commande via un sÃ©lecteur modal.",
-        "Commandes : Ajout d'un moteur de recherche intÃ©grÃ© dans le sÃ©lecteur d'opÃ©ration (filtrage par nom, service...).",
-        "OpÃ©rations : Affichage d'une barre de progression dynamique dans la colonne 'Montant utilisÃ©' (Vert -> Orange -> Rouge).",
-        "OpÃ©rations : Calcul en temps rÃ©el du pourcentage de consommation du budget prÃ©vu.",
-        "Interface : Ajout de boutons de filtrage rapide (Fonc. / Inv.) dans la barre d'outils pour toutes les vues budgÃ©taires.",
-        "Interface : Suppression du bouton d'import redondant dans la vue OpÃ©rations.",
-        "Backend : Mise en place d'un 'Mouchard' systÃ¨me (Logs en temps rÃ©el accessibles via /mouchard).",
-        "Backend : Synchronisation automatique des montants utilisÃ©s et des sections au dÃ©marrage du serveur."
+        "Commandes : Nouveau système d'affectation manuelle d'une opération à une commande via un sélecteur modal.",
+        "Commandes : Ajout d'un moteur de recherche intégré dans le sélecteur d'opération (filtrage par nom, service...).",
+        "Opérations : Affichage d'une barre de progression dynamique dans la colonne 'Montant utilisé' (Vert -> Orange -> Rouge).",
+        "Opérations : Calcul en temps réel du pourcentage de consommation du budget prévu.",
+        "Interface : Ajout de boutons de filtrage rapide (Fonc. / Inv.) dans la barre d'outils pour toutes les vues budgétaires.",
+        "Interface : Suppression du bouton d'import redondant dans la vue Opérations.",
+        "Backend : Mise en place d'un 'Mouchard' système (Logs en temps réel accessibles via /mouchard).",
+        "Backend : Synchronisation automatique des montants utilisés et des sections au démarrage du serveur."
+      ]
+    },
+    {
+      "version": "0.1.25",
+      "date": "2026-03-06",
+      "changes": [
+        "Résumé : Ajout d'un graphique en courbes affichant l'évolution cumulée par semaine des dépenses (Fonctionnement et Investissement).",
+        "Résumé : Amélioration des cartes de synthèse avec montants arrondis à l'euro et répartition par section.",
+        "Factures : Ajout d'infobulles détaillées sur les compteurs de retard (+10j, +20j, +30j) affichant le tiers, le montant et le libellé.",
+        "Factures : Correction critique de l'import et de l'affichage des dates (conversion robuste des numéros de série Excel).",
+        "Opérations : Refonte complète du modèle de données pour correspondre dynamiquement à la structure du fichier Excel.",
+        "Opérations : Nouveau mode d'édition ultra-rapide par double-clic sur les cellules avec sauvegarde automatique.",
+        "Opérations : Ajout des fonctions de création (Nouvelle Opération) et de suppression.",
+        "Autorisations : Extension des droits d'édition des opérations aux profils 'Finances' et 'Comptabilité'."
+      ]
+    },
+    {
+      "version": "0.1.24",
+      "date": "2026-03-06",
+      "changes": [
+        "Récupération intégrale des données utilisateurs, tuiles et liens depuis la sauvegarde (database_svg.sqlite).",
+        "Restauration de la table 'column_settings' (88 configurations d'affichage récupérées).",
+        "Correction majeure du système d'import des lignes budgétaires : gestion dynamique des colonnes et suppression des erreurs SQL liées aux colonnes fantômes (ex: 'labe').",
+        "Alimentation automatique de la table des opérations à partir du fichier opérations.xlsx (108 lignes importées).",
+        "Nettoyage du schéma de la base de données et suppression des colonnes redondantes.",
+        "Mise à jour de la configuration Git pour inclure systématiquement la base de données complète dans les commits."
+      ]
+    },
+    {
+      "version": "0.1.23",
+      "date": "2026-03-06",
+      "changes": [
+        "Correction de l'affichage des dates pour les factures (Émission, Arrivée, Début DGP, Fin DGP, etc.).",
+        "Optimisation de l'import Excel pour convertir automatiquement les numéros de série Excel en objets Date JavaScript.",
+        "Mise à jour du moteur de rendu des tableaux pour formater les nouvelles colonnes de date au format français (jj/mm/aa)."
+      ]
+    },
+    {
+      "version": "0.1.22",
+      "date": "2026-03-06",
+      "changes": [
+        "Mise en place de la gestion des états pour les tuiles du Hub : 'Active', 'En maintenance' et 'Bientôt disponible'.",
+        "Ajout d'un sélecteur d'état dans le menu de configuration (Administration).",
+        "Amélioration visuelle des tuiles avec des superpositions (overlays) et des icônes spécifiques pour les états non-actifs.",
+        "Désactivation automatique des liens et boutons pour les services en maintenance ou à venir."
+      ]
+    },
+    {
+      "version": "0.1.21",
+      "date": "2026-03-06",
+      "changes": [
+        "Amélioration majeure du système d'import des factures : tolérance accrue aux variations de noms de colonnes (espaces, casse).",
+        "Mise en place d'un rapport d'erreur détaillé indiquant précisément l'étape et la ligne qui posent problème lors de l'import.",
+        "Sécurisation de la structure de la table des factures (elle n'est plus supprimée à chaque import, mais seulement vidée)."
+      ]
+    },
+    {
+      "version": "0.1.20",
+      "date": "2026-03-06",
+      "changes": [
+        "Redémarrage du serveur backend pour activer les nouvelles routes d'opérations et de factures.",
+        "Correction définitive de l'affichage de l'onglet Opérations (le problème était lié à une version obsolète du processus serveur en cours d'exécution).",
+        "Vérification de la disponibilité des points d'accès API pour tous les modules budgétaires."
+      ]
+    },
+    {
+      "version": "0.1.19",
+      "date": "2026-03-06",
+      "changes": [
+        "Recodage de l'import des factures pour stabiliser la structure de la table : elle n'est plus supprimée à chaque import.",
+        "Fixation du schéma de la table des factures pour n'inclure que les colonnes présentes dans liste_factures.xls.",
+        "Amélioration de la robustesse de l'insertion des données avec filtrage des colonnes Excel."
+      ]
+    },
+    {
+      "version": "0.1.18",
+      "date": "2026-03-06",
+      "changes": [
+        "Correction d'un bug d'affichage : les filtres de colonnes sont désormais réinitialisés lors du changement d'onglet pour éviter de masquer des données par erreur.",
+        "Amélioration des libellés des colonnes pour l'onglet Opérations (Service, Libellé, Montant Prévu, etc.).",
+        "Optimisation du tri par défaut des colonnes pour les opérations (affichage prioritaire du Service, Libellé et Nature).",
+        "Réinitialisation automatique de la recherche globale lors du changement de vue."
+      ]
+    },
+    {
+      "version": "0.1.17",
+      "date": "2026-03-06",
+      "changes": [
+        "Refonte totale de l'import des factures : la table est désormais recréée à chaque import pour garantir une correspondance exacte avec le fichier Excel.",
+        "Suppression des colonnes de compatibilité inutiles dans la table des factures.",
+        "Optimisation de la synchronisation entre les colonnes Excel et les paramètres d'affichage (column_settings).",
+        "Nettoyage et simplification du code de la base de données (db.js)."
+      ]
+    },
+    {
+      "version": "0.1.16",
+      "date": "2026-03-06",
+      "changes": [
+        "Intégration complète des données du fichier opérations.xlsx dans la base de données.",
+        "Stabilisation de la logique d'initialisation et de migration de la base de données pour éviter les erreurs SQLITE (colonnes dupliquées).",
+        "Amélioration de la cohérence du schéma pour les tables de suivi budgétaire."
+      ]
+    },
+    {
+      "version": "0.1.15",
+      "date": "2026-03-06",
+      "changes": [
+        "Mise en place d'une rupture par chapitre dans la liste des lignes budgétaires.",
+        "Hiérarchisation de l'affichage : Chapitre > Libellé > Détails des lignes.",
+        "Ajout de lignes d'en-tête de chapitre avec totaux consolidés.",
+        "Amélioration visuelle des ruptures avec un style distinct (fond grisé, texte en gras)."
+      ]
+    },
+    {
+      "version": "0.1.14",
+      "date": "2026-03-06",
+      "changes": [
+        "Ré-initialisation complète de la table des factures pour correspondre exactement aux colonnes du fichier liste_factures.xls.",
+        "Mise en place d'un système de suivi des imports (date, heure et utilisateur) affiché dans l'onglet Gestion.",
+        "Ajout du suivi de la dernière activité des utilisateurs, visible dans l'administration.",
+        "Amélioration de la robustesse de l'import des factures avec conservation de l'intégralité des données Excel."
+      ]
+    },
+    {
+      "version": "0.1.13",
+      "date": "2026-03-06",
+      "changes": [
+        "Regroupement des lignes budgétaires par libellé avec agrégation automatique des montants financiers.",
+        "Ajout de la fonctionnalité de déploiement (expand/collapse) pour consulter le détail des lignes d'un groupe.",
+        "Filtrage par défaut des lignes ayant un montant voté nul, avec un nouveau bouton 'Afficher tout' pour basculer la vue.",
+        "Amélioration de l'interface des tableaux avec icônes de déploiement et tableaux imbriqués plus lisibles."
+      ]
+    },
+    {
+      "version": "0.1.12",
+      "date": "2026-03-06",
+      "changes": [
+        "Redéfinition complète de la table des lignes budgétaires pour correspondre exactement aux colonnes du fichier Liste_des_lignes_d_exécution.xls.",
+        "Mise à jour du moteur d'importation pour les lignes budgétaires afin de supporter dynamiquement toutes les colonnes du fichier Excel.",
+        "Amélioration de l'affichage des montants financiers (Budget voté, Disponible, Mt. prévision, etc.) avec formatage monétaire."
+      ]
+    },
+    {
+      "version": "0.1.11",
+      "date": "2026-03-06",
+      "changes": [
+        "Correction de l'import des factures : toutes les colonnes du fichier Excel sont désormais conservées en base de données.",
+        "Amélioration de la discrimination Investissement / Fonctionnement pour les commandes basée sur les codes nature M57.",
+        "Mise à jour du code couleur des lignes de commandes (Bleu pour Investissement, Vert pour Fonctionnement) selon leur nature.",
+        "Correction du filtre de section (I/F) dans l'onglet des commandes.",
+        "Amélioration du résumé budgétaire avec un calcul précis des totaux commandés par section.",
+        "Correction de l'import des lignes budgétaires pour inclure systématiquement la section (I/F)."
+      ]
+    },
+    {
+      "version": "0.1.10",
+      "date": "2026-03-06",
+      "changes": [
+        "Création de l'onglet 'Opérations' dans le suivi budgétaire avec import automatique des données depuis opérations.xlsx.",
+        "Refonte de l'onglet Résumé : séparation des budgets alloués et commandés par section (Fonctionnement / Investissement).",
+        "Ajout d'un tableau détaillé des montants votés (incluant les reports) dans le résumé budgétaire.",
+        "Amélioration du schéma de la base de données pour les factures et les lignes budgétaires (ajout de colonnes section, libelle, montant TTC).",
+        "Réinitialisation automatique de la visibilité des colonnes pour corriger les problèmes d'affichage des listes."
+      ]
+    },
+    {
+      "version": "0.1.9",
+      "date": "2026-03-06",
+      "changes": [
+        "Mise en évidence des commandes déroulables : affichage du symbole déroulant pour les commandes de plus de 2 lignes, ou pour les commandes d'une ligne dont la description diffère du libellé.",
+        "Affichage des dates de commande au format français (jj/mm/aa).",
+        "Renommage du bouton d'import de commandes (retrait du terme 'Fichier M57').",
+        "Séparation des onglets Natures et Fonctions dans la fenêtre du référentiel M57 pour plus de clarté."
+      ]
+    },
+    {
+      "version": "0.1.8",
+      "date": "2026-03-06",
+      "changes": [
+        "Unification de l'affichage des lignes budgétaires, factures et commandes pour utiliser le même moteur de table dynamique et personnalisable.",
+        "Renommage automatique des colonnes Commandes (num, tiers, service, date, nature, fonction) en base de données.",
+        "Ajout de troncage et d'infobulles pour les longs libellés dans les tableaux.",
+        "Ajout d'infobulles détaillant les libellés M57 lors du survol des codes nature et fonction.",
+        "Ajout d'une fonctionnalité permettant de déplier/replier les commandes comportant plusieurs lignes pour afficher le détail (nature, fonction, TTC).",
+        "Retrait du rôle Comptabilité et confirmation du rôle Finances dans la gestion des utilisateurs."
+      ]
+    },
+    {
+      "version": "0.1.7",
+      "date": "2026-03-06",
+      "changes": [
+        "Correction de l'import Excel des lignes budgétaires pour supporter dynamiquement les différents noms de colonnes (Libellé, Budget voté, etc.).",
+        "Ajout des rôles 'Finances' et 'Comptabilité' dans le menu déroulant de création et d'édition des utilisateurs dans l'administration."
+      ]
+    },
+    {
+      "version": "0.1.6",
+      "date": "2026-03-06",
+      "changes": [
+        "Déplacement du paramétrage du suivi comptable (imports et requêtes SQL) dans l'onglet 'Gestion' de la page Suivi Budgétaire.",
+        "Suppression de la page Compta obsolète.",
+        "Ajout d'un gestionnaire d'erreurs (middleware express) pour éviter de retourner du HTML lors de requêtes en échec (ex: import multer), ce qui causait une erreur 'Unexpected token <' côté frontend.",
+        "Affichage des messages d'erreur détaillés (notamment SQL) pour faciliter le diagnostic."
+      ]
+    },
+    {
+      "version": "0.1.5",
+      "date": "2026-03-06",
+      "changes": [
+        "Ajout de gestionnaires d'erreurs globaux (unhandledRejection, uncaughtException) dans le backend pour empêcher l'arrêt inopiné du processus.",
+        "Ajout d'une gestion d'erreur au parsing du localStorage dans le frontend pour éviter les écrans blancs (crash interface)."
+      ]
+    },
+    {
+      "version": "0.1.4",
+      "date": "2026-03-06",
+      "changes": [
+        "Ajout de la page Suivi Comptable pour l'import des données financières.",
+        "Mise en place de l'outil d'exécution de requêtes SQL pour les administrateurs et comptables.",
+        "Ajout du rôle 'compta' dans la gestion des autorisations."
+      ]
+    },
+    {
+      "version": "0.1.3",
+      "date": "2026-03-06",
+      "changes": [
+        "Ajout du support pour le style des colonnes (couleur, gras, italique).",
+        "Implémentation du glisser-déposer pour la réorganisation des colonnes dans le budget.",
+        "Ajout d'une API de mise à jour en masse (bulk) des paramètres de colonnes.",
+        "Amélioration de l'interface de configuration des colonnes."
+      ]
+    },
+    {
+      "version": "0.1.2",
+      "date": "2026-03-06",
+      "changes": [
+        "Refonte complète de l'interface Budget (design plus moderne et ergonomique).",
+        "Ajout d'un système d'onglets pour une meilleure lisibilité.",
+        "Amélioration du tableau de bord (cartes de résumé avec icônes).",
+        "Mise en place du système de versionning et du 'What's new'."
       ]
     },
     {
       "version": "0.1.1",
       "date": "2026-03-06",
       "changes": [
-        "Version initiale avec fonctionnalitÃ©s de base (Hub, Budget)."
+        "Version initiale avec fonctionnalités de base (Hub, Budget)."
       ]
     }
   ]

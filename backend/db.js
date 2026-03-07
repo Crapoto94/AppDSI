@@ -205,6 +205,74 @@ async function setupDb() {
     await db.run("UPDATE column_settings SET label = 'Solde' WHERE page = 'operations' AND column_key = 'Solde'");
     await db.run("UPDATE column_settings SET label = 'Commentaire' WHERE page = 'operations' AND column_key = 'Commentaire'");
 
+    // Mail Settings
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS mail_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            smtp_host TEXT,
+            smtp_port INTEGER,
+            smtp_user TEXT,
+            smtp_pass TEXT,
+            smtp_secure TEXT,
+            proxy_host TEXT,
+            proxy_port INTEGER,
+            sender_email TEXT,
+            sender_name TEXT,
+            api_key TEXT,
+            template_html TEXT
+        );
+    `);
+
+    const existingSettings = await db.get('SELECT * FROM mail_settings WHERE id = 1');
+    if (!existingSettings) {
+        const defaultTemplate = `<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 20px auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .header { background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); color: white; padding: 30px; text-align: center; }
+        .header h1 { margin: 0; font-size: 24px; letter-spacing: 1px; }
+        .content { padding: 30px; background: #ffffff; min-height: 200px; }
+        .footer { background: #f9fafb; color: #6b7280; padding: 20px; text-align: center; font-size: 12px; border-top: 1px solid #e5e7eb; }
+        .brand { font-weight: bold; color: #1e3a8a; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>DSI HUB IVRY</h1>
+        </div>
+        <div class="content">
+            {{content}}
+        </div>
+        <div class="footer">
+            <p>Cet email a été envoyé automatiquement par le <span class="brand">DSI Hub Ivry</span>.</p>
+            <p>&copy; ${new Date().getFullYear()} - Ville d'Ivry-sur-Seine</p>
+        </div>
+    </div>
+</body>
+</html>`.trim();
+
+        await db.run(`
+            INSERT INTO mail_settings (
+                id, smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure, 
+                sender_email, sender_name, api_key, template_html
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+            1, 
+            'smtp-relay.brevo.com', 
+            587, 
+            'DSIhub@fbc.fr', 
+            'VOTRE_CLE_API_BREVO', 
+            'tls', 
+            'DSIhub@fbc.fr', 
+            'DSI Hub Ivry', 
+            'VOTRE_CLE_API_BREVO',
+            defaultTemplate
+        ]);
+    }
+
     // Create default admin
     const adminUser = await db.get('SELECT * FROM users WHERE username = ?', ['admin']);
     if (!adminUser) {

@@ -6,6 +6,7 @@ import Admin from './pages/Admin';
 import Budget from './pages/Budget';
 import Profile from './pages/Profile';
 import Certif from './pages/Certif';
+import MailSettings from './pages/MailSettings';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
@@ -66,6 +67,14 @@ function App() {
           element={
             <PrivateRoute>
               <Certif />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/admin/mail" 
+          element={
+            <PrivateRoute allowedRoles={['admin']}>
+              <MailSettings />
             </PrivateRoute>
           } 
         />
