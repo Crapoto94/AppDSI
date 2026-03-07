@@ -14,13 +14,16 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const type = req.body.target_type; // 'order' ou 'invoice'
         const folder = type === 'order' ? 'file_commandes' : 'file_factures';
-        cb(null, path.join(__dirname, folder));
+        const dest = path.join(__dirname, folder);
+        console.log(`Multer Destination: type=${type}, folder=${folder}, dest=${dest}`);
+        cb(null, dest);
     },
     filename: (req, file, cb) => {
-        const targetId = req.body.target_id.replace(/[^a-z0-9]/gi, '_');
+        const targetId = (req.body.target_id || 'unknown').replace(/[^a-z0-9]/gi, '_');
         const ext = path.extname(file.originalname);
-        // Ajout d'un timestamp court pour éviter les collisions si plusieurs fichiers pour le même ID
-        cb(null, `${targetId}_${Date.now()}${ext}`);
+        const fname = `${targetId}${ext}`;
+        console.log(`Multer Filename: target_id=${req.body.target_id}, final_name=${fname}`);
+        cb(null, fname);
     }
 });
 const upload = multer({ storage });
@@ -860,12 +863,23 @@ app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), asyn
     if (!target_type || !target_id) return res.status(400).send('target_type and target_id are required.');
 
     try {
+        // Supprimer l'ancienne pièce jointe si elle existe
+        const existing = await db.get('SELECT * FROM attachments WHERE target_type = ? AND target_id = ?', [target_type, target_id]);
+        if (existing) {
+            if (fs.existsSync(existing.file_path)) {
+                fs.unlinkSync(existing.file_path);
+            }
+            await db.run('DELETE FROM attachments WHERE id = ?', [existing.id]);
+        }
+
+        const folder = target_type === 'order' ? 'file_commandes' : 'file_factures';
         const result = await db.run(
             'INSERT INTO attachments (target_type, target_id, file_path, original_name, username) VALUES (?, ?, ?, ?, ?)',
-            [target_type, target_id, `uploads/${req.file.filename}`, req.file.originalname, req.user.username]
+            [target_type, target_id, `${folder}/${req.file.filename}`, req.file.filename, req.user.username]
         );
         res.json({ id: result.lastID, original_name: req.file.originalname });
     } catch (error) {
+        console.error('Upload DB error:', error);
         res.status(500).json({ message: 'Error saving attachment info', error: error.message });
     }
 });

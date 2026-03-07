@@ -130,11 +130,19 @@ const Budget: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file || !activeAttachmentTarget) return;
 
+    if (currentAttachments.length > 0) {
+      const existingName = currentAttachments[0].original_name;
+      if (!window.confirm(`Le fichier "${existingName}" existe déjà. Voulez-vous le remplacer ?`)) {
+        e.target.value = '';
+        return;
+      }
+    }
+
     setIsUploading(true);
     const formData = new FormData();
-    formData.append('file', file);
     formData.append('target_type', activeAttachmentTarget.type);
     formData.append('target_id', activeAttachmentTarget.id);
+    formData.append('file', file);
 
     try {
       const response = await fetch('http://localhost:3001/api/attachments/upload', {
@@ -777,6 +785,10 @@ const Budget: React.FC = () => {
       }
     }
 
+    if (view === 'invoices') {
+      data = data.filter((inv: any) => (inv['N° Facture fournisseur'] || '').toString().trim() !== '');
+    }
+
     if (view !== 'orders') {
       const sTerm = searchTerm.toLowerCase();
       if (sTerm) {
@@ -828,8 +840,8 @@ const Budget: React.FC = () => {
                   setIsRaw(false);
                   setSortConfig(null);
                   
-                  // Gérer le filtre de service auto si applicable
-                  if (user.service_code && !['admin', 'finances'].includes(user.role)) {
+                  // Gérer le filtre de service auto si applicable (seulement sur Commandes et Opérations)
+                  if (user.service_code && !['admin', 'finances'].includes(user.role) && (tab === 'orders' || tab === 'operations')) {
                     const filters: Record<string, string> = {};
                     const serviceKey = tab === 'orders' ? 'Service émetteur' : 'Service';
                     filters[serviceKey] = user.service_code;
@@ -1442,7 +1454,10 @@ const Budget: React.FC = () => {
                                         );
                                       }
                                     }
-                                    else if (col.column_key === 'N° Commande' || col.column_key === 'order_number' || col.column_key === 'N°' || col.column_key === 'num') {
+                                    else if (
+                                      (view === 'orders' && ['N° Commande', 'order_number', 'N°', 'num'].includes(col.column_key.trim())) ||
+                                      (view === 'invoices' && col.column_key.trim() === 'N° Facture fournisseur')
+                                    ) {
                                       const isOrder = view === 'orders';
                                       const targetId = row[col.column_key]?.toString();
                                       content = (
@@ -1897,51 +1912,79 @@ const Budget: React.FC = () => {
 
         {showAttachments && activeAttachmentTarget && (
           <div className="modal-backdrop" onClick={() => setShowAttachments(false)}>
-            <div className="modal-window modal-sm" onClick={e => e.stopPropagation()}>
+            <div className="modal-window modal-lg" style={{ maxWidth: '1000px' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">Pièces Jointes</h2>
+                <h2 className="modal-title">Pièce Jointe : {activeAttachmentTarget.id}</h2>
                 <button className="icon-btn" onClick={() => setShowAttachments(false)}><X size={20} /></button>
               </div>
-              <div className="modal-body">
-                <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '1.5rem' }}>
-                  Fichiers liés à : <strong>{activeAttachmentTarget.id}</strong> ({activeAttachmentTarget.type})
-                </p>
-                
-                <div style={{ marginBottom: '20px' }}>
-                  <label className="import-btn" style={{ width: '100%', justifyContent: 'center' }}>
-                    {isUploading ? 'Envoi en cours...' : <><Upload size={16} /> Ajouter un fichier</>}
-                    <input type="file" hidden onChange={handleUploadAttachment} disabled={isUploading} />
-                  </label>
+              <div className="modal-body" style={{ display: 'flex', gap: '20px', minHeight: '600px' }}>
+                <div style={{ flex: '0 0 300px' }}>
+                  <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '1.5rem' }}>
+                    Identifiant unique : <strong>{activeAttachmentTarget.id}</strong>
+                  </p>
+                  
+                  <div style={{ marginBottom: '20px' }}>
+                    <label className="import-btn" style={{ width: '100%', justifyContent: 'center' }}>
+                      {isUploading ? 'Envoi en cours...' : <><Upload size={16} /> Remplacer le fichier</>}
+                      <input type="file" hidden onChange={handleUploadAttachment} disabled={isUploading} accept=".pdf" />
+                    </label>
+                  </div>
+
+                  <div className="attachments-list">
+                    {currentAttachments.length > 0 ? currentAttachments.map(att => (
+                      <div key={att.id} style={{ padding: '15px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <FileText size={20} color="var(--color-navy)" />
+                            <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--color-navy)', wordBreak: 'break-all' }}>
+                              {att.original_name}
+                            </span>
+                          </div>
+                          <button 
+                            onClick={() => handleDeleteAttachment(att.id)}
+                            style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer' }}
+                            title="Supprimer"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                          <div>Ajouté par {att.username}</div>
+                          <div>le {new Date(att.uploaded_at).toLocaleString()}</div>
+                        </div>
+                        <a 
+                          href={`http://localhost:3001/${att.file_path}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="toolbar-btn"
+                          style={{ width: '100%', marginTop: '15px', justifyContent: 'center', background: 'var(--color-navy)', color: 'white' }}
+                        >
+                          Ouvrir dans un onglet
+                        </a>
+                      </div>
+                    )) : (
+                      <div style={{ textAlign: 'center', padding: '40px 20px', background: '#f8fafc', borderRadius: '8px', border: '2px dashed #e2e8f0' }}>
+                        <AlertCircle size={32} color="#cbd5e1" style={{ marginBottom: '10px' }} />
+                        <p style={{ fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                          Aucun PDF associé.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="attachments-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {currentAttachments.length > 0 ? currentAttachments.map(att => (
-                    <div key={att.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
-                        <FileText size={18} color="var(--color-navy)" />
-                        <div style={{ overflow: 'hidden' }}>
-                          <a 
-                            href={`http://localhost:3001/${att.file_path}`} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-navy)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                          >
-                            {att.original_name}
-                          </a>
-                          <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Par {att.username} le {new Date(att.uploaded_at).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => handleDeleteAttachment(att.id)}
-                        style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                <div style={{ flex: 1, background: '#f1f5f9', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {currentAttachments.length > 0 ? (
+                    <iframe 
+                      src={`http://localhost:3001/${currentAttachments[0].file_path}#toolbar=0`}
+                      style={{ width: '100%', height: '100%', border: 'none' }}
+                      title="Aperçu PDF"
+                    />
+                  ) : (
+                    <div style={{ color: '#94a3b8', textAlign: 'center' }}>
+                      <FileText size={48} style={{ marginBottom: '10px', opacity: 0.5 }} />
+                      <p>Aperçu non disponible</p>
                     </div>
-                  )) : (
-                    <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic', padding: '20px' }}>
-                      Aucun fichier joint.
-                    </p>
                   )}
                 </div>
               </div>
