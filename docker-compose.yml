@@ -10,9 +10,9 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      # Ces volumes persistants permettront de ne pas perdre vos données SQLite
-      # ni vos fichiers PDF / Excel lors d'un redémarrage ou d'une mise à jour du container.
-      - sqlite_data:/app
+      # Utilisation d'un montage direct pour préserver le code source et faciliter la sauvegarde
+      - ./backend/database.sqlite:/app/database.sqlite
+      - ./backend/mouchard.log:/app/mouchard.log
       - uploads_data:/app/uploads
       - commandes_data:/app/file_commandes
       - factures_data:/app/file_factures
@@ -30,7 +30,6 @@ services:
       - backend
 
 volumes:
-  sqlite_data:
   uploads_data:
   commandes_data:
   factures_data:
