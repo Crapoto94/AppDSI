@@ -7,6 +7,7 @@ const multer = require('multer');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
+const ntlm = require('express-ntlm');
 const upload = multer({ dest: 'uploads/' });
 
 const app = express();
@@ -15,6 +16,20 @@ const SECRET_KEY = 'votre_cle_secrete_ici'; // À changer en production
 
 app.use(cors());
 app.use(express.json());
+
+// Configuration NTLM pour Ivry
+const ntlmMiddleware = ntlm({
+    domain: 'IVRY'
+});
+
+// Route NTLM spécifique pour la détection du login Windows
+app.get('/api/auth/ntlm', ntlmMiddleware, (req, res) => {
+    res.json({
+        login: req.ntlm.UserName,
+        domain: req.ntlm.Domain,
+        workstation: req.ntlm.Workstation
+    });
+});
 
 // Logger global : enregistre TOUTES les requêtes dans mouchard.log
 app.use((req, res, next) => {

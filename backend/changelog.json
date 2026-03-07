@@ -1,6 +1,18 @@
 {
-  "currentVersion": "0.1.26",
+  "currentVersion": "0.1.27",
   "history": [
+    {
+      "version": "0.1.27",
+      "date": "2026-03-07",
+      "changes": [
+        "Interface : Affichage du login Windows automatique dans le Header.",
+        "Auth : Intégration de l'authentification NTLM pour la détection du login Windows sur le réseau.",
+        "Opérations : Ajout d'icônes de chaussettes personnalisées réalistes (duo de chaussettes avec rayures).",
+        "Opérations : Nouveau style visuel pour les opérations terminées (opacité réduite, fond grisé, montants barrés).",
+        "Opérations : Correction du calcul des chaussettes (Reliquat Prévu - Utilisé pour les opérations terminées).",
+        "Commandes : Ajout d'un bouton de désaffectation rapide (X) sur les commandes liées."
+      ]
+    },
     {
       "version": "0.1.26",
       "date": "2026-03-07",

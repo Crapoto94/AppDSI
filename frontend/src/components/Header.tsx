@@ -8,12 +8,21 @@ const Header: React.FC = () => {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [changelog, setChangelog] = useState<any>(null);
   const [showModal, setShowModal] = useState(false);
+  const [winLogin, setWinLogin] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('http://localhost:3001/api/changelog')
       .then(res => res.json())
       .then(data => setChangelog(data))
       .catch(err => console.error("Error fetching changelog:", err));
+
+    // Récupération automatique du login Windows
+    fetch('http://localhost:3001/api/auth/ntlm')
+      .then(res => res.json())
+      .then(data => {
+        if (data.login) setWinLogin(data.login);
+      })
+      .catch(err => console.error("NTLM detection failed:", err));
   }, []);
 
   const handleLogout = () => {
@@ -42,7 +51,9 @@ const Header: React.FC = () => {
           {token ? (
             <div className="user-menu">
               <Link to="/profile" className="user-info-link" title="Mon Profil">
-                <span className="user-name">Bonjour, {user.username}</span>
+                <span className="user-name">
+                  Bonjour, {user.username} {winLogin && <span className="win-login">({winLogin})</span>}
+                </span>
                 <User size={18} />
               </Link>
               {user.role === 'admin' && (
@@ -168,6 +179,12 @@ const Header: React.FC = () => {
         .user-name {
           font-weight: 600;
           font-size: 14px;
+        }
+        .win-login {
+          font-weight: 400;
+          color: #64748b;
+          font-size: 12px;
+          margin-left: 4px;
         }
         .nav-link {
           font-weight: 600;
