@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Admin from './pages/Admin';
 import Budget from './pages/Budget';
 import Profile from './pages/Profile';
+import Certif from './pages/Certif';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
@@ -57,6 +58,14 @@ function App() {
           element={
             <PrivateRoute>
               <Profile />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/certif" 
+          element={
+            <PrivateRoute>
+              <Certif />
             </PrivateRoute>
           } 
         />

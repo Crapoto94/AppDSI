@@ -142,6 +142,18 @@ async function setupDb() {
             "Commentaire" TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS certificates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_number TEXT,
+            request_date TEXT,
+            beneficiary_name TEXT,
+            beneficiary_email TEXT,
+            product_code TEXT,
+            product_label TEXT,
+            file_path TEXT,
+            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS column_settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             page TEXT,

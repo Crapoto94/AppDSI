@@ -1,6 +1,13 @@
 {
-  "currentVersion": "0.1.29",
+  "currentVersion": "0.1.30",
   "history": [
+    {
+      "version": "0.1.30",
+      "date": "2026-03-07",
+      "changes": [
+        "Ajout du module de gestion des certificats"
+      ]
+    },
     {
       "version": "0.1.29",
       "date": "2026-03-07",
