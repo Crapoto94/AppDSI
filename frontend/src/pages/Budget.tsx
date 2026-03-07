@@ -285,7 +285,7 @@ const Budget: React.FC = () => {
         const arrivalDate = parseExcelDate(inv['Arrivée        '] || inv['Arrivée']);
         if (arrivalDate) {
           const diffDays = Math.floor((now.getTime() - arrivalDate.getTime()) / (1000 * 60 * 60 * 24));
-          const invInfo = `${inv['Fournisseur'] || 'Inconnu'} (${amt.toLocaleString()}â‚¬) - ${inv['Libellé'] || ''}`;
+          const invInfo = `${inv['Fournisseur'] || 'Inconnu'} (${amt.toLocaleString()}€) - ${inv['Libellé'] || ''}`;
           
           if (diffDays > 30) {
             stats.saisie30++;
@@ -588,7 +588,7 @@ const Budget: React.FC = () => {
   const groupedOrders = useMemo(() => {
     const groups: Record<string, any> = {};
     orders.forEach(order => {
-      const nr = (order['NÂ° Commande'] || order.order_number || 'SANS_NUMERO').toString();
+      const nr = (order['N° Commande'] || order['NÂ° Commande'] || order['NÃ‚Â° Commande'] || order['N?? Commande'] || order.order_number || 'SANS_NUMERO').toString();
       if (!groups[nr]) {
         groups[nr] = { 
           ...order, 
@@ -610,7 +610,7 @@ const Budget: React.FC = () => {
       }
 
       groups[nr]._lines.push({
-        nr: order['NÂ° ligne'],
+        nr: order['N° ligne'],
         desc: order['Désignation'] || order.description,
         amtHt: amtHt,
         amtTtc: amtTtc,
@@ -709,7 +709,7 @@ const Budget: React.FC = () => {
   }, [budgetLines]);
 
   const filteredOrders = groupedOrders.filter(order => {
-    const orderNumber = (order.order_number || order['NÂ° Commande'] || '').toString().toLowerCase();
+    const orderNumber = (order.order_number || order['N° Commande'] || '').toString().toLowerCase();
     const globalLabel = (order['Libellé'] || '').toString().toLowerCase();
     const provider = (order.provider || order['Fournisseur'] || '').toString().toLowerCase();
     const sTerm = searchTerm.toLowerCase();
@@ -786,7 +786,7 @@ const Budget: React.FC = () => {
     }
 
     if (view === 'invoices') {
-      data = data.filter((inv: any) => (inv['NÂ° Facture fournisseur'] || '').toString().trim() !== '');
+      data = data.filter((inv: any) => (inv['N° Facture fournisseur'] || inv['NÂ° Facture fournisseur'] || inv['NÃ‚Â° Facture fournisseur'] || inv['N?? Facture fournisseur'] || inv.invoice_number || '').toString().trim() !== '');
     }
 
     if (view !== 'orders') {
@@ -937,12 +937,12 @@ const Budget: React.FC = () => {
                       <div className="card-icon"><Euro size={24} /></div>
                       <div>
                         <h3 className="card-title">Budget Alloué Total</h3>
-                        <p className="card-value">{Math.round(budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} â‚¬</p>
+                        <p className="card-value">{Math.round(budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
-                      <span>Fonc: {Math.round(budgetLines.filter(l => l.section === 'F').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} â‚¬</span>
-                      <span>Inv: {Math.round(budgetLines.filter(l => l.section === 'I').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} â‚¬</span>
+                      <span>Fonc: {Math.round(budgetLines.filter(l => l.section === 'F').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</span>
+                      <span>Inv: {Math.round(budgetLines.filter(l => l.section === 'I').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</span>
                     </div>
                   </div>
                   <div className="dashboard-card secondary" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
@@ -950,12 +950,12 @@ const Budget: React.FC = () => {
                       <div className="card-icon"><ShoppingCart size={24} /></div>
                       <div>
                         <h3 className="card-title">Total Commandé (TTC)</h3>
-                        <p className="card-value">{Math.round(groupedOrders.reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} â‚¬</p>
+                        <p className="card-value">{Math.round(groupedOrders.reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} €</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
-                      <span>Fonc: {Math.round(groupedOrders.filter(o => o.section === 'F' || o.section === 'Fonctionnement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} â‚¬</span>
-                      <span>Inv: {Math.round(groupedOrders.filter(o => o.section === 'I' || o.section === 'Investissement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} â‚¬</span>
+                      <span>Fonc: {Math.round(groupedOrders.filter(o => o.section === 'F' || o.section === 'Fonctionnement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} €</span>
+                      <span>Inv: {Math.round(groupedOrders.filter(o => o.section === 'I' || o.section === 'Investissement').reduce((acc, curr) => acc + (curr._total_ttc || 0), 0)).toLocaleString()} €</span>
                     </div>
                   </div>
                   <div className="dashboard-card warning" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
@@ -963,7 +963,7 @@ const Budget: React.FC = () => {
                       <div className="card-icon"><FileText size={24} /></div>
                       <div>
                         <h3 className="card-title">Total Facturé (TTC)</h3>
-                        <p className="card-value">{Math.round(invoiceStats.totalTtc).toLocaleString()} â‚¬</p>
+                        <p className="card-value">{Math.round(invoiceStats.totalTtc).toLocaleString()} €</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
@@ -1013,7 +1013,7 @@ const Budget: React.FC = () => {
                           axisLine={false} 
                           tickLine={false} 
                           tick={{ fill: '#64748b', fontSize: 12 }}
-                          tickFormatter={(val) => `${(val / 1000).toFixed(0)}kâ‚¬`}
+                          tickFormatter={(val) => `${(val / 1000).toFixed(0)}k€`}
                         />
                         <Tooltip 
                           formatter={(value: any) => [new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value), '']}
@@ -1455,8 +1455,8 @@ const Budget: React.FC = () => {
                                       }
                                     }
                                     else if (
-                                      (view === 'orders' && ['NÂ° Commande', 'order_number', 'NÂ°', 'num'].includes(col.column_key.trim())) ||
-                                      (view === 'invoices' && col.column_key.trim() === 'NÂ° Facture fournisseur')
+                                      (view === 'orders' && ['N° Commande', 'order_number', 'N°', 'num'].includes(col.column_key.trim())) ||
+                                      (view === 'invoices' && col.column_key.trim() === 'N° Facture fournisseur')
                                     ) {
                                       const isOrder = view === 'orders';
                                       const targetId = row[col.column_key]?.toString();
@@ -1519,7 +1519,7 @@ const Budget: React.FC = () => {
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                       <thead>
                                         <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
-                                          <th style={{ padding: '4px', textAlign: 'center' }}>NÂ° Ligne</th>
+                                          <th style={{ padding: '4px', textAlign: 'center' }}>N° Ligne</th>
                                           <th style={{ padding: '4px' }}>Description</th>
                                           <th style={{ padding: '4px' }}>Nature</th>
                                           <th style={{ padding: '4px' }}>Fonction</th>
@@ -1890,7 +1890,7 @@ const Budget: React.FC = () => {
                         <tr key={op.id}>
                           <td style={{ fontWeight: 600 }}>{op.LIBELLE}</td>
                           <td style={{ fontSize: '0.8rem' }}>{op.Service}</td>
-                          <td>{(op['Montant prévu'] || 0).toLocaleString()} â‚¬</td>
+                          <td>{(op['Montant prévu'] || 0).toLocaleString()} €</td>
                           <td style={{ textAlign: 'right' }}>
                             <button 
                               className="toolbar-btn" 
@@ -2575,4 +2575,6 @@ const Budget: React.FC = () => {
 };
 
 export default Budget;
+
+
 
