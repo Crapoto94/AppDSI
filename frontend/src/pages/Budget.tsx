@@ -588,7 +588,7 @@ const Budget: React.FC = () => {
   const groupedOrders = useMemo(() => {
     const groups: Record<string, any> = {};
     orders.forEach(order => {
-      const nr = (order['N° Commande'] || order['NÂ° Commande'] || order['NÃ‚Â° Commande'] || order['N?? Commande'] || order.order_number || 'SANS_NUMERO').toString();
+      const nr = (order['N° Commande'] || order['NÂ° Commande'] || order['NÂ° Commande'] || order['N?? Commande'] || order.order_number || 'SANS_NUMERO').toString();
       if (!groups[nr]) {
         groups[nr] = { 
           ...order, 
@@ -786,7 +786,7 @@ const Budget: React.FC = () => {
     }
 
     if (view === 'invoices') {
-      data = data.filter((inv: any) => (inv['N° Facture fournisseur'] || inv['NÂ° Facture fournisseur'] || inv['NÃ‚Â° Facture fournisseur'] || inv['N?? Facture fournisseur'] || inv.invoice_number || '').toString().trim() !== '');
+      data = data.filter((inv: any) => (inv['N° Facture fournisseur'] || inv['NÂ° Facture fournisseur'] || inv['NÂ° Facture fournisseur'] || inv['N?? Facture fournisseur'] || inv.invoice_number || '').toString().trim() !== '');
     }
 
     if (view !== 'orders') {
@@ -995,7 +995,7 @@ const Budget: React.FC = () => {
 
                 <div className="table-card">
                   <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Ã‰volution Cumulée des Dépenses (par semaine)</h3>
+                    <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Évolution Cumulée des Dépenses (par semaine)</h3>
                     <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* Basé sur les dates de commande et le montant TTC</span>
                   </div>
                   <div style={{ padding: '1.5rem', height: '400px' }}>

@@ -168,7 +168,7 @@ const Admin: React.FC = () => {
       fetchUsers();
     } else {
       const data = await response.json();
-      alert('ERREUR CRÃ‰ATION: ' + (data.message || 'Inconnue'));
+      alert('ERREUR CRÉATION: ' + (data.message || 'Inconnue'));
     }
   };
 
@@ -189,7 +189,7 @@ const Admin: React.FC = () => {
       setEditingUser(null);
       fetchUsers();
     } else {
-      alert('ERREUR MISE Ã€ JOUR');
+      alert('ERREUR MISE À JOUR');
     }
   };
 

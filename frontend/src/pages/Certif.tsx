@@ -85,7 +85,7 @@ const Certif: React.FC = () => {
   };
 
   const handleDelete = async (id: number, orderNum: string) => {
-    if (!window.confirm(`ÃŠtes-vous sÃ»r de vouloir supprimer le certificat de la commande ${orderNum} ?`)) {
+    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le certificat de la commande ${orderNum} ?`)) {
       return;
     }
 

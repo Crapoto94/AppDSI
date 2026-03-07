@@ -3324,3 +3324,66 @@ Stack: TypeError: pdf is not a function
 [2026-03-07T12:20:38.248Z] GET /api/tiles - par Utilisateur authentifié
 [2026-03-07T12:20:38.281Z] GET /api/changelog - par Anonyme
 [2026-03-07T12:20:38.319Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:25:44.879Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:25:44.887Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:25:44.902Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:25:45.236Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:26:54.879Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:26:54.883Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:26:54.888Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:26:54.905Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:27:00.988Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:27:01.157Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:27:01.173Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:27:01.208Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:27:24.541Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:27:24.544Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:27:24.618Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:27:24.620Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:33.660Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:33.668Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:33.815Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:33.817Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:39.093Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:39.250Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:39.297Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:39.312Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:47.363Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:47.539Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:47.575Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:47.579Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:48.863Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:49.023Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:49.080Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:49.088Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:55.342Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:55.516Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:28:55.525Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:28:55.562Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:29:00.756Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:29:00.901Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:29:00.918Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:29:00.960Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:29:05.872Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:29:06.046Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:29:06.076Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:29:06.088Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:29:09.733Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:29:09.815Z] GET /api/budget/lines - par Utilisateur authentifié
+[2026-03-07T12:29:09.818Z] GET /api/budget/invoices - par Utilisateur authentifié
+[2026-03-07T12:29:09.821Z] GET /api/orders - par Utilisateur authentifié
+[2026-03-07T12:29:10.081Z] GET /api/budget/operations - par Utilisateur authentifié
+[2026-03-07T12:29:10.087Z] GET /api/m57-plan - par Utilisateur authentifié
+[2026-03-07T12:29:10.151Z] GET /api/import-logs - par Utilisateur authentifié
+[2026-03-07T12:29:10.158Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:29:10.175Z] GET /api/budget/lines - par Utilisateur authentifié
+[2026-03-07T12:29:10.399Z] GET /api/budget/invoices - par Utilisateur authentifié
+[2026-03-07T12:29:10.400Z] GET /api/orders - par Utilisateur authentifié
+[2026-03-07T12:29:10.461Z] GET /api/budget/operations - par Utilisateur authentifié
+[2026-03-07T12:29:10.468Z] GET /api/m57-plan - par Utilisateur authentifié
+[2026-03-07T12:29:10.495Z] GET /api/import-logs - par Utilisateur authentifié
+[2026-03-07T12:29:12.686Z] GET /api/column-settings/lines - par Utilisateur authentifié
+[2026-03-07T12:29:14.543Z] GET /api/column-settings/invoices - par Utilisateur authentifié
+[2026-03-07T12:29:17.246Z] GET /api/column-settings/orders - par Utilisateur authentifié
+[2026-03-07T12:29:19.434Z] GET /api/column-settings/operations - par Utilisateur authentifié
+[2026-03-07T12:29:30.743Z] GET /api/column-settings/orders - par Utilisateur authentifié

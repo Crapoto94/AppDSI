@@ -35,7 +35,7 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
       {status === 'soon' && (
         <div className="status-overlay soon">
           <Icons.Clock size={24} />
-          <span>BIENTÃ”T DISPONIBLE</span>
+          <span>BIENTÔT DISPONIBLE</span>
         </div>
       )}
 
