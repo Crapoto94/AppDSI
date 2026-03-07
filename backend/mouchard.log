@@ -3303,3 +3303,24 @@ Stack: TypeError: pdf is not a function
 [2026-03-07T12:17:15.831Z] GET /api/certificates - par Utilisateur authentifié
 [2026-03-07T12:17:15.866Z] GET /api/changelog - par Anonyme
 [2026-03-07T12:17:15.879Z] GET /api/certificates - par Utilisateur authentifié
+[2026-03-07T12:17:50.694Z] DELETE /api/certificates/6 - par Utilisateur authentifié
+[2026-03-07T12:17:50.717Z] Certificat supprimé: ID 6 (BD1293791132-60572)
+[2026-03-07T12:17:50.732Z] GET /api/certificates - par Utilisateur authentifié
+[2026-03-07T12:18:32.233Z] POST /api/certificates/upload - par Utilisateur authentifié
+[2026-03-07T12:18:32.244Z] Multer Destination: type=certif, folder=file_certif, dest=C:\appdsiDEV\backend\file_certif
+[2026-03-07T12:18:32.248Z] Multer Filename: target_id=cert_1772885911906, final_name=cert_1772885911906.pdf
+[2026-03-07T12:18:32.255Z] Processing file: C:\appdsiDEV\backend\file_certif\cert_1772885911906.pdf
+[2026-03-07T12:18:32.350Z] PDF Parsed successfully. Text length: 20355
+[2026-03-07T12:18:32.482Z] GET /api/certificates - par Utilisateur authentifié
+[2026-03-07T12:19:11.366Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:19:11.374Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:19:11.680Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:19:11.688Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:20:29.890Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:20:29.894Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:20:29.979Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:20:30.204Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:20:38.160Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:20:38.248Z] GET /api/tiles - par Utilisateur authentifié
+[2026-03-07T12:20:38.281Z] GET /api/changelog - par Anonyme
+[2026-03-07T12:20:38.319Z] GET /api/tiles - par Utilisateur authentifié

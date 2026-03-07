@@ -1,6 +1,17 @@
-{
-  "currentVersion": "0.1.30",
+﻿{
+  "currentVersion": "0.2.1",
   "history": [
+    {
+      "version": "0.2.1",
+      "date": "2026-03-07",
+      "changes": [
+        "Déploiement Proxmox : Conteneurisation avec Docker et Docker Compose.",
+        "Production : Mise en place d'un serveur web Nginx avec reverse proxy vers le backend.",
+        "Technique : Correction de nombreux problèmes d'encodage de texte (UTF-8) sur l'affichage.",
+        "Technique : Résolution d'un bug de regroupement de commandes et factures suite à l'import de noms de colonnes encodés différemment.",
+        "Technique : Isolation des volumes persistants pour protéger le code source lors des redémarrages."
+      ]
+    },
     {
       "version": "0.1.30",
       "date": "2026-03-07",
@@ -12,24 +23,24 @@
       "version": "0.1.29",
       "date": "2026-03-07",
       "changes": [
-        "Pièces Jointes : Standardisation à un seul fichier par commande ou facture (ID fixe).",
-        "Interface : Intégration d'un aperçu PDF (viewer) directement dans le modal de gestion.",
-        "Interface : L'icône de pièce jointe est désormais exclusivement liée au 'N° Facture fournisseur' pour les factures.",
-        "Upload : Mise en place d'une confirmation explicite avant d'écraser un document existant.",
+        "PiÃ¨ces Jointes : Standardisation à un seul fichier par commande ou facture (ID fixe).",
+        "Interface : IntÃ©gration d'un aperÃ§u PDF (viewer) directement dans le modal de gestion.",
+        "Interface : L'icÃ´ne de piÃ¨ce jointe est dÃ©sormais exclusivement liÃ©e au 'NÂ° Facture fournisseur' pour les factures.",
+        "Upload : Mise en place d'une confirmation explicite avant d'Ã©craser un document existant.",
         "Filtres : Correction du filtrage automatique par service qui masquait par erreur la liste des factures.",
-        "Nommage : Utilisation du nom système généré (ex: 26D000185.pdf) pour l'affichage dans l'interface."
+        "Nommage : Utilisation du nom systÃ¨me gÃ©nÃ©rÃ© (ex: 26D000185.pdf) pour l'affichage dans l'interface."
       ]
     },
     {
       "version": "0.1.28",
       "date": "2026-03-07",
       "changes": [
-        "Filtres : Le pré-remplissage du filtre Service est désormais limité aux onglets Commandes et Opérations pour plus de pertinence.",
-        "Utilisateurs : Ajout d'un champ 'Service Complément' permettant un filtrage double (Service + Complément) automatique.",
-        "Pièces Jointes : Nouveau système de gestion de documents pour chaque commande et facture.",
-        "Stockage : Organisation automatique des fichiers dans des dossiers dédiés (file_commandes / file_factures).",
-        "Nommage : Renommage automatique des fichiers uploadés utilisant le numéro de commande ou de facture pour une identification claire.",
-        "Persistance : Les liens vers les pièces jointes sont conservés même lors de la ré-importation des données Excel."
+        "Filtres : Le prÃ©-remplissage du filtre Service est dÃ©sormais limitÃ© aux onglets Commandes et OpÃ©rations pour plus de pertinence.",
+        "Utilisateurs : Ajout d'un champ 'Service ComplÃ©ment' permettant un filtrage double (Service + ComplÃ©ment) automatique.",
+        "PiÃ¨ces Jointes : Nouveau systÃ¨me de gestion de documents pour chaque commande et facture.",
+        "Stockage : Organisation automatique des fichiers dans des dossiers dÃ©diÃ©s (file_commandes / file_factures).",
+        "Nommage : Renommage automatique des fichiers uploadÃ©s utilisant le numÃ©ro de commande ou de facture pour une identification claire.",
+        "Persistance : Les liens vers les piÃ¨ces jointes sont conservÃ©s mÃªme lors de la rÃ©-importation des donnÃ©es Excel."
       ]
     },
     {
@@ -37,32 +48,32 @@
       "date": "2026-03-07",
       "changes": [
         "Interface : Affichage du login Windows automatique dans le Header.",
-        "Auth : Intégration de l'authentification NTLM pour la détection du login Windows sur le réseau.",
-        "Opérations : Ajout d'icônes de chaussettes personnalisées réalistes (duo de chaussettes avec rayures).",
-        "Opérations : Nouveau style visuel pour les opérations terminées (opacité réduite, fond grisé, montants barrés).",
-        "Opérations : Correction du calcul des chaussettes (Reliquat Prévu - Utilisé pour les opérations terminées).",
-        "Commandes : Ajout d'un bouton de désaffectation rapide (X) sur les commandes liées."
+        "Auth : IntÃ©gration de l'authentification NTLM pour la dÃ©tection du login Windows sur le rÃ©seau.",
+        "OpÃ©rations : Ajout d'icÃ´nes de chaussettes personnalisÃ©es rÃ©alistes (duo de chaussettes avec rayures).",
+        "OpÃ©rations : Nouveau style visuel pour les opÃ©rations terminÃ©es (opacitÃ© rÃ©duite, fond grisÃ©, montants barrÃ©s).",
+        "OpÃ©rations : Correction du calcul des chaussettes (Reliquat PrÃ©vu - UtilisÃ© pour les opÃ©rations terminÃ©es).",
+        "Commandes : Ajout d'un bouton de dÃ©saffectation rapide (X) sur les commandes liÃ©es."
       ]
     },
     {
       "version": "0.1.26",
       "date": "2026-03-07",
       "changes": [
-        "Commandes : Nouveau système d'affectation manuelle d'une opération à une commande via un sélecteur modal.",
-        "Commandes : Ajout d'un moteur de recherche intégré dans le sélecteur d'opération (filtrage par nom, service...).",
-        "Opérations : Affichage d'une barre de progression dynamique dans la colonne 'Montant utilisé' (Vert -> Orange -> Rouge).",
-        "Opérations : Calcul en temps réel du pourcentage de consommation du budget prévu.",
-        "Interface : Ajout de boutons de filtrage rapide (Fonc. / Inv.) dans la barre d'outils pour toutes les vues budgétaires.",
-        "Interface : Suppression du bouton d'import redondant dans la vue Opérations.",
-        "Backend : Mise en place d'un 'Mouchard' système (Logs en temps réel accessibles via /mouchard).",
-        "Backend : Synchronisation automatique des montants utilisés et des sections au démarrage du serveur."
+        "Commandes : Nouveau systÃ¨me d'affectation manuelle d'une opÃ©ration à une commande via un sÃ©lecteur modal.",
+        "Commandes : Ajout d'un moteur de recherche intÃ©grÃ© dans le sÃ©lecteur d'opÃ©ration (filtrage par nom, service...).",
+        "OpÃ©rations : Affichage d'une barre de progression dynamique dans la colonne 'Montant utilisÃ©' (Vert -> Orange -> Rouge).",
+        "OpÃ©rations : Calcul en temps rÃ©el du pourcentage de consommation du budget prÃ©vu.",
+        "Interface : Ajout de boutons de filtrage rapide (Fonc. / Inv.) dans la barre d'outils pour toutes les vues budgÃ©taires.",
+        "Interface : Suppression du bouton d'import redondant dans la vue OpÃ©rations.",
+        "Backend : Mise en place d'un 'Mouchard' systÃ¨me (Logs en temps rÃ©el accessibles via /mouchard).",
+        "Backend : Synchronisation automatique des montants utilisÃ©s et des sections au dÃ©marrage du serveur."
       ]
     },
     {
       "version": "0.1.1",
       "date": "2026-03-06",
       "changes": [
-        "Version initiale avec fonctionnalités de base (Hub, Budget)."
+        "Version initiale avec fonctionnalitÃ©s de base (Hub, Budget)."
       ]
     }
   ]
