@@ -1,6 +1,18 @@
 {
-  "currentVersion": "0.1.27",
+  "currentVersion": "0.1.28",
   "history": [
+    {
+      "version": "0.1.28",
+      "date": "2026-03-07",
+      "changes": [
+        "Filtres : Le pré-remplissage du filtre Service est désormais limité aux onglets Commandes et Opérations pour plus de pertinence.",
+        "Utilisateurs : Ajout d'un champ 'Service Complément' permettant un filtrage double (Service + Complément) automatique.",
+        "Pièces Jointes : Nouveau système de gestion de documents pour chaque commande et facture.",
+        "Stockage : Organisation automatique des fichiers dans des dossiers dédiés (file_commandes / file_factures).",
+        "Nommage : Renommage automatique des fichiers uploadés utilisant le numéro de commande ou de facture pour une identification claire.",
+        "Persistance : Les liens vers les pièces jointes sont conservés même lors de la ré-importation des données Excel."
+      ]
+    },
     {
       "version": "0.1.27",
       "date": "2026-03-07",
@@ -175,7 +187,7 @@
         "Amélioration de la discrimination Investissement / Fonctionnement pour les commandes basée sur les codes nature M57.",
         "Mise à jour du code couleur des lignes de commandes (Bleu pour Investissement, Vert pour Fonctionnement) selon leur nature.",
         "Correction du filtre de section (I/F) dans l'onglet des commandes.",
-        "Amélioration du résumé budgétaire avec un calcul précis des totaux commandés par section.",
+        "Amélioration du résumé budgétaire with un calcul précis des totaux commandés par section.",
         "Correction de l'import des lignes budgétaires pour inclure systématiquement la section (I/F)."
       ]
     },
@@ -194,7 +206,7 @@
       "version": "0.1.9",
       "date": "2026-03-06",
       "changes": [
-        "Mise en évidence des commandes déroulables : affichage du symbole déroulant pour les commandes de plus de 2 lignes, ou pour les commandes d'une ligne dont la description diffère du libellé.",
+        "Mise en évidence des commandes déroulables : affichage du symbole déroulant pour les commandes de plus de 2 lignes, ou pour les commandes d'une ligne dont description diffère du libellé.",
         "Affichage des dates de commande au format français (jj/mm/aa).",
         "Renommage du bouton d'import de commandes (retrait du terme 'Fichier M57').",
         "Séparation des onglets Natures et Fonctions dans la fenêtre du référentiel M57 pour plus de clarté."

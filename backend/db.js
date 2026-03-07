@@ -16,13 +16,25 @@ async function setupDb() {
             username TEXT UNIQUE,
             password TEXT,
             role TEXT DEFAULT 'user',
-            last_activity DATETIME
+            last_activity DATETIME,
+            service_code TEXT,
+            service_complement TEXT
         );
 
         CREATE TABLE IF NOT EXISTS import_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT, -- 'lines', 'invoices', 'orders'
             imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            username TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS attachments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_type TEXT, -- 'order' ou 'invoice'
+            target_id TEXT,   -- N° Commande ou identifiant facture (stable)
+            file_path TEXT,
+            original_name TEXT,
+            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             username TEXT
         );
 

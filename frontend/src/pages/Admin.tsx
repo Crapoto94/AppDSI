@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Trash2, X, UserPlus, Users, Edit2 } from 'lucide-react';
+import { Plus, Trash2, X, UserPlus, Users, Edit2, Clock } from 'lucide-react';
 
 interface TileData {
   id: number;
@@ -16,6 +16,8 @@ interface UserData {
   username: string;
   role: string;
   last_activity: string | null;
+  service_code: string | null;
+  service_complement: string | null;
 }
 
 const Admin: React.FC = () => {
@@ -37,7 +39,7 @@ const Admin: React.FC = () => {
     });
     if (response.ok) fetchTiles();
   };
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user' });
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [isAddingTile, setIsAddingTile] = useState(false);
   const [isAddingUser, setIsAddingUser] = useState(false);
@@ -69,6 +71,26 @@ const Admin: React.FC = () => {
     fetchTiles();
     fetchUsers();
   }, []);
+
+  const formatActivityDate = (dateStr: string | null) => {
+    if (!dateStr) return 'Jamais connecté';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return 'Date invalide';
+
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date.toDateString() === yesterday.toDateString();
+
+    const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+    const timeStr = date.toLocaleTimeString('fr-FR', timeOptions);
+
+    if (isToday) return `Aujourd'hui à ${timeStr}`;
+    if (isYesterday) return `Hier à ${timeStr}`;
+    
+    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
 
   // Tiles Handlers
   const handleDeleteTile = async (id: number) => {
@@ -130,6 +152,7 @@ const Admin: React.FC = () => {
   // Users Handlers
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('ENVOI POST /api/users:', newUser);
     const response = await fetch('http://localhost:3001/api/users', {
       method: 'POST',
       headers: { 
@@ -139,12 +162,13 @@ const Admin: React.FC = () => {
       body: JSON.stringify(newUser)
     });
     if (response.ok) {
-      setNewUser({ username: '', password: '', role: 'user' });
+      alert('Utilisateur créé avec succès !');
+      setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
       setIsAddingUser(false);
       fetchUsers();
     } else {
       const data = await response.json();
-      alert(data.message || 'Erreur lors de la création de l\'utilisateur');
+      alert('ERREUR CRÉATION: ' + (data.message || 'Inconnue'));
     }
   };
 
@@ -161,8 +185,11 @@ const Admin: React.FC = () => {
       body: JSON.stringify(editingUser)
     });
     if (response.ok) {
+      alert('Utilisateur mis à jour !');
       setEditingUser(null);
       fetchUsers();
+    } else {
+      alert('ERREUR MISE À JOUR');
     }
   };
 
@@ -297,27 +324,45 @@ const Admin: React.FC = () => {
               <section className="admin-section">
                 <h3>Nouvel utilisateur</h3>
                 <form onSubmit={handleAddUser} className="admin-form">
-                  <input 
-                    placeholder="Nom d'utilisateur" 
-                    value={newUser.username} 
-                    onChange={e => setNewUser({...newUser, username: e.target.value})}
-                    required
-                  />
-                  <input 
-                    type="password"
-                    placeholder="Mot de passe" 
-                    value={newUser.password} 
-                    onChange={e => setNewUser({...newUser, password: e.target.value})}
-                    required
-                  />
-                  <select 
-                    value={newUser.role} 
-                    onChange={e => setNewUser({...newUser, role: e.target.value})}
-                  >
-                    <option value="user">Utilisateur</option>
-                    <option value="finances">Finances</option>
-                    <option value="admin">Administrateur</option>
-                  </select>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <input 
+                      placeholder="Nom d'utilisateur" 
+                      value={newUser.username} 
+                      onChange={e => setNewUser({...newUser, username: e.target.value})}
+                      required
+                    />
+                    <input 
+                      type="password"
+                      placeholder="Mot de passe" 
+                      value={newUser.password} 
+                      onChange={e => setNewUser({...newUser, password: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <select 
+                      value={newUser.role} 
+                      onChange={e => setNewUser({...newUser, role: e.target.value})}
+                    >
+                      <option value="user">Utilisateur</option>
+                      <option value="finances">Finances</option>
+                      <option value="admin">Administrateur</option>
+                    </select>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <input 
+                        placeholder="Service" 
+                        value={newUser.service_code} 
+                        onChange={e => setNewUser({...newUser, service_code: e.target.value})}
+                        style={{ flex: 1 }}
+                      />
+                      <input 
+                        placeholder="Complément" 
+                        value={newUser.service_complement} 
+                        onChange={e => setNewUser({...newUser, service_complement: e.target.value})}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                  </div>
                   <button type="submit" className="btn btn-primary">Créer</button>
                 </form>
               </section>
@@ -327,20 +372,34 @@ const Admin: React.FC = () => {
               <section className="admin-section">
                 <h3>Modifier l'utilisateur : {editingUser.username}</h3>
                 <form onSubmit={handleUpdateUser} className="admin-form">
-                  <input 
-                    placeholder="Nom d'utilisateur" 
-                    value={editingUser.username} 
-                    onChange={e => setEditingUser({...editingUser, username: e.target.value})}
-                    required
-                  />
-                  <select 
-                    value={editingUser.role} 
-                    onChange={e => setEditingUser({...editingUser, role: e.target.value})}
-                  >
-                    <option value="user">Utilisateur</option>
-                    <option value="finances">Finances</option>
-                    <option value="admin">Administrateur</option>
-                  </select>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <input 
+                      placeholder="Nom d'utilisateur" 
+                      value={editingUser.username} 
+                      onChange={e => setEditingUser({...editingUser, username: e.target.value})}
+                      required
+                    />
+                    <select 
+                      value={editingUser.role} 
+                      onChange={e => setEditingUser({...editingUser, role: e.target.value})}
+                    >
+                      <option value="user">Utilisateur</option>
+                      <option value="finances">Finances</option>
+                      <option value="admin">Administrateur</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <input 
+                      placeholder="Service" 
+                      value={editingUser.service_code || ''} 
+                      onChange={e => setEditingUser({...editingUser, service_code: e.target.value})}
+                    />
+                    <input 
+                      placeholder="Complément" 
+                      value={editingUser.service_complement || ''} 
+                      onChange={e => setEditingUser({...editingUser, service_complement: e.target.value})}
+                    />
+                  </div>
                   <div className="form-actions">
                     <button type="submit" className="btn btn-primary">Mettre à jour</button>
                     <button type="button" className="btn" onClick={() => setEditingUser(null)}>Annuler</button>
@@ -357,13 +416,19 @@ const Admin: React.FC = () => {
                       <Users size={20} />
                     </div>
                     <div>
-                      <strong>{user.username}</strong>
-                      <span className={`role-badge ${user.role}`}>{user.role}</span>
-                      {user.last_activity && (
-                        <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                          Dernière activité : {new Date(user.last_activity).toLocaleString('fr-FR')}
-                        </div>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <strong>{user.username}</strong>
+                        {user.service_code && (
+                          <span style={{ fontSize: '12px', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', color: '#475569', fontWeight: 600 }}>
+                            {user.service_code} {user.service_complement && `| ${user.service_complement}`}
+                          </span>
+                        )}
+                        <span className={`role-badge ${user.role}`}>{user.role}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                        <Clock size={12} />
+                        <span>Dernière activité : {formatActivityDate(user.last_activity)}</span>
+                      </div>
                     </div>
                   </div>
                   <div className="tile-actions">

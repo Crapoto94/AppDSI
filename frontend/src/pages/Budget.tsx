@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
-import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Database, AlertCircle, CheckCircle2, Plus, Trash2 } from 'lucide-react';
+import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Database, AlertCircle, CheckCircle2, Plus, Trash2, Footprints } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface ColumnSetting {
@@ -15,6 +15,29 @@ interface ColumnSetting {
 }
 
 const Budget: React.FC = () => {
+  const SockIcon = ({ size = 24, color = 'currentColor' }) => (
+    <svg 
+      width={size} 
+      height={size} 
+      viewBox="0 0 64 64" 
+      fill={color}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Chaussette arrière */}
+      <path d="M38,5 L58,15 L51,35 C49,42 53,48 59,51 L64,54 C70,57 67,64 60,64 L42,63 C36,62 32,57 30,51 L27,30 L38,5 Z" opacity="0.4" />
+      {/* Chaussette avant */}
+      <path d="M12,18 L32,28 L25,48 C23,55 27,61 33,64 L39,67 C45,70 42,77 35,77 L17,76 C11,75 7,70 5,64 L0,43 L12,18 Z" transform="translate(2,-4)" />
+      {/* Rayures blanches sur la chaussette avant */}
+      <g transform="translate(2,-4)" stroke="white" strokeWidth="1.5" strokeLinecap="round">
+        <path d="M18,25 L28,30" />
+        <path d="M19.5,28.5 L29.5,33.5" />
+        <path d="M21,32 L31,37" />
+        {/* Détail du talon */}
+        <path d="M10,55 C7,62 10,68 18,70" fill="none" opacity="0.5" />
+      </g>
+    </svg>
+  );
+
   const [view, setView] = useState<'summary' | 'lines' | 'invoices' | 'orders' | 'operations' | 'gestion'>('summary');
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
@@ -30,10 +53,44 @@ const Budget: React.FC = () => {
   const [showZeroBudget, setShowZeroBudget] = useState(false);
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [message, setMessage] = useState('');
+  
+  // Get user once for initialization
+  const currentUser = useMemo(() => JSON.parse(localStorage.getItem('user') || '{}'), []);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [sectionFilter, setSectionFilter] = useState('all');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (view === 'invoices') {
+      setSortConfig({ key: 'Arrivée', direction: 'desc' });
+    } else {
+      setSortConfig(null);
+    }
+  }, [view]);
+
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>(() => {
+    const filters: Record<string, string> = {};
+    if (!['admin', 'finances'].includes(currentUser.role)) {
+      if (view === 'orders' || view === 'operations') {
+        if (currentUser.service_code) {
+          const serviceKey = view === 'orders' ? 'Service émetteur' : 'Service';
+          filters[serviceKey] = currentUser.service_code;
+        }
+        if (currentUser.service_complement) {
+          const complementKey = view === 'orders' ? 'Service complément' : 'Service Complément';
+          filters[complementKey] = currentUser.service_complement;
+        }
+      }
+    }
+    return filters;
+  });
+  
+  // Attachments state
+  const [showAttachments, setShowAttachments] = useState(false);
+  const [activeAttachmentTarget, setActiveAttachmentTarget] = useState<{type: 'order' | 'invoice', id: string} | null>(null);
+  const [currentAttachments, setCurrentAttachments] = useState<any[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   
   // Gestion state
   const [sqlQuery, setSqlQuery] = useState('');
@@ -47,6 +104,71 @@ const Budget: React.FC = () => {
 
   const [expandedOrders, setExpandedOrders] = useState<string[]>([]);
   const toggleExpand = (id: string) => setExpandedOrders(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const fetchAttachments = async (type: 'order' | 'invoice', id: string) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/attachments/${type}/${encodeURIComponent(id)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCurrentAttachments(data);
+      }
+    } catch (e) {
+      console.error('Error fetching attachments:', e);
+    }
+  };
+
+  const handleOpenAttachments = (type: 'order' | 'invoice', id: string) => {
+    setActiveAttachmentTarget({ type, id });
+    setCurrentAttachments([]);
+    setShowAttachments(true);
+    fetchAttachments(type, id);
+  };
+
+  const handleUploadAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeAttachmentTarget) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('target_type', activeAttachmentTarget.type);
+    formData.append('target_id', activeAttachmentTarget.id);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/attachments/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      if (response.ok) {
+        await fetchAttachments(activeAttachmentTarget.type, activeAttachmentTarget.id);
+        e.target.value = '';
+      } else {
+        alert('Erreur lors de l\'envoi du fichier');
+      }
+    } catch (e) {
+      console.error('Upload error:', e);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteAttachment = async (id: number) => {
+    if (!window.confirm('Supprimer ce fichier ?')) return;
+    try {
+      const response = await fetch(`http://localhost:3001/api/attachments/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok && activeAttachmentTarget) {
+        fetchAttachments(activeAttachmentTarget.type, activeAttachmentTarget.id);
+      }
+    } catch (e) {
+      console.error('Delete error:', e);
+    }
+  };
 
   const getM57Label = (code: string, type: 'nature' | 'fonction') => {
     if (!code) return '';
@@ -704,9 +826,26 @@ const Budget: React.FC = () => {
                 onClick={() => {
                   setView(tab as any); 
                   setIsRaw(false);
-                  setColumnFilters({});
-                  setSearchTerm('');
                   setSortConfig(null);
+                  
+                  // Gérer le filtre de service auto si applicable
+                  if (user.service_code && !['admin', 'finances'].includes(user.role)) {
+                    const filters: Record<string, string> = {};
+                    const serviceKey = tab === 'orders' ? 'Service émetteur' : 'Service';
+                    filters[serviceKey] = user.service_code;
+                    
+                    if (user.service_complement) {
+                      const complementKey = tab === 'orders' ? 'Service complément' : 'Service Complément';
+                      filters[complementKey] = user.service_complement;
+                    }
+                    setColumnFilters(filters);
+                  } else {
+                    setColumnFilters({});
+                  }
+                  
+                  if (tab !== 'summary') {
+                    setSearchTerm('');
+                  }
                 }}
               >
                 {tab === 'summary' && 'Résumé'}
@@ -919,7 +1058,52 @@ const Budget: React.FC = () => {
                       </button>
                     )}
                   </div>
-                  <div className="toolbar-filters">
+                    {view === 'operations' && (
+                      <div className="chaussette-indicators" style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginLeft: '0.5rem', marginRight: 'auto' }}>
+                        {(() => {
+                          const stats = operations.reduce((acc, op) => {
+                            const isDone = (op['Terminé'] || '').toString().toUpperCase() === 'OUI';
+                            if (!isDone) return acc;
+
+                            const section = getSectionFromM57(op['C. Nature']);
+                            const planned = parseFloat(op['Montant prévu'] || 0);
+                            const used = parseFloat(op['used_amount'] || op['Montant utilisé'] || 0);
+                            const diff = planned - used;
+                            
+                            if (section === 'F') {
+                              acc.fDiff += diff;
+                            } else if (section === 'I') {
+                              acc.iDiff += diff;
+                            }
+                            return acc;
+                          }, { fDiff: 0, iDiff: 0 });
+
+                          return (
+                            <>
+                              <div className="chaussette-card f" title="Pour les opérations terminées : Somme(Prévu) - Somme(Utilisé)">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                  <span className="chaussette-label">Chaussette Fonc.</span>
+                                  <SockIcon size={18} color="var(--color-green-500)" />
+                                </div>
+                                <span className={`chaussette-value ${stats.fDiff < 0 ? 'negative' : ''}`}>
+                                  {stats.fDiff.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
+                                </span>
+                              </div>
+                              <div className="chaussette-card i" title="Pour les opérations terminées : Somme(Prévu) - Somme(Utilisé)">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                  <span className="chaussette-label">Chaussette Inv.</span>
+                                  <SockIcon size={18} color="var(--color-blue-500)" />
+                                </div>
+                                <span className={`chaussette-value ${stats.iDiff < 0 ? 'negative' : ''}`}>
+                                  {stats.iDiff.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
+                                </span>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    <div className="toolbar-filters">
                     <div className="search-input-wrapper">
                       <Search size={16} className="search-icon" />
                       <input 
@@ -1037,11 +1221,12 @@ const Budget: React.FC = () => {
                           }
                           
                           const rowSection = row.Section || row.section || (view === 'operations' ? getSectionFromM57(row['C. Nature']) : '');
+                          const isRowCompleted = view === 'operations' && (row['Terminé'] || '').toString().toUpperCase() === 'OUI';
 
                           return (
                             <React.Fragment key={row.id || index}>
                               <tr 
-                                className={`${getRowClass(rowSection)} ${row._isChapter ? 'chapter-header-row' : ''}`}
+                                className={`${getRowClass(rowSection)} ${row._isChapter ? 'chapter-header-row' : ''} ${isRowCompleted ? 'row-completed' : ''}`}
                                 onClick={() => {
                                   if (isExpandable) {
                                     if (view === 'orders') toggleExpand(row.id || index.toString());
@@ -1222,7 +1407,25 @@ const Budget: React.FC = () => {
                                     else if (col.column_key === 'operation_label') {
                                       const label = row.operation_label;
                                       if (label) {
-                                        content = <span style={{ fontWeight: 600, color: 'var(--color-navy)' }}>{label}</span>;
+                                        content = (
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{ fontWeight: 600, color: 'var(--color-navy)' }}>{label}</span>
+                                            {isAuthorizedToEdit && (
+                                              <button 
+                                                className="icon-btn" 
+                                                style={{ padding: '2px', color: 'var(--color-ivry)' }}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setSelectedOrderForOp(row);
+                                                  handleAssignOperation(null);
+                                                }}
+                                                title="Désaffecter l'opération"
+                                              >
+                                                <X size={14} />
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
                                       } else {
                                         content = (
                                           <button 
@@ -1238,7 +1441,28 @@ const Budget: React.FC = () => {
                                           </button>
                                         );
                                       }
-                                    } else if (col.column_key === 'nature' || col.column_key === 'Article par nature' || col.column_key === 'C. Nature') {
+                                    }
+                                    else if (col.column_key === 'N° Commande' || col.column_key === 'order_number' || col.column_key === 'N°' || col.column_key === 'num') {
+                                      const isOrder = view === 'orders';
+                                      const targetId = row[col.column_key]?.toString();
+                                      content = (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <button 
+                                            className="icon-btn" 
+                                            style={{ padding: '2px', color: 'var(--color-navy)' }}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenAttachments(isOrder ? 'order' : 'invoice', targetId);
+                                            }}
+                                            title="Gérer les pièces jointes"
+                                          >
+                                            <FileText size={16} />
+                                          </button>
+                                          <span>{row[col.column_key]}</span>
+                                        </div>
+                                      );
+                                    }
+                                    else if (col.column_key === 'nature' || col.column_key === 'Article par nature' || col.column_key === 'C. Nature') {
 
                                       tooltip = getM57Label(row[col.column_key], 'nature');
                                       cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
@@ -1670,6 +1894,60 @@ const Budget: React.FC = () => {
             </div>
           </div>
         )}
+
+        {showAttachments && activeAttachmentTarget && (
+          <div className="modal-backdrop" onClick={() => setShowAttachments(false)}>
+            <div className="modal-window modal-sm" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">Pièces Jointes</h2>
+                <button className="icon-btn" onClick={() => setShowAttachments(false)}><X size={20} /></button>
+              </div>
+              <div className="modal-body">
+                <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '1.5rem' }}>
+                  Fichiers liés à : <strong>{activeAttachmentTarget.id}</strong> ({activeAttachmentTarget.type})
+                </p>
+                
+                <div style={{ marginBottom: '20px' }}>
+                  <label className="import-btn" style={{ width: '100%', justifyContent: 'center' }}>
+                    {isUploading ? 'Envoi en cours...' : <><Upload size={16} /> Ajouter un fichier</>}
+                    <input type="file" hidden onChange={handleUploadAttachment} disabled={isUploading} />
+                  </label>
+                </div>
+
+                <div className="attachments-list" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {currentAttachments.length > 0 ? currentAttachments.map(att => (
+                    <div key={att.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+                        <FileText size={18} color="var(--color-navy)" />
+                        <div style={{ overflow: 'hidden' }}>
+                          <a 
+                            href={`http://localhost:3001/${att.file_path}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-navy)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          >
+                            {att.original_name}
+                          </a>
+                          <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Par {att.username} le {new Date(att.uploaded_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => handleDeleteAttachment(att.id)}
+                        style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  )) : (
+                    <p style={{ textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8', fontStyle: 'italic', padding: '20px' }}>
+                      Aucun fichier joint.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       <style>{`
@@ -2014,6 +2292,16 @@ const Budget: React.FC = () => {
         .row-operating td { background-color: rgba(34, 197, 94, 0.03); }
         .row-investment td { background-color: rgba(59, 130, 246, 0.03); }
         
+        .row-completed td {
+          opacity: 0.6;
+          background-color: #f1f5f9 !important;
+          color: #64748b !important;
+        }
+        .row-completed .amount-ht, .row-completed .amount-ttc {
+          color: #64748b !important;
+          text-decoration: line-through;
+        }
+        
         .section-badge {
           display: inline-flex;
           align-items: center;
@@ -2209,6 +2497,35 @@ const Budget: React.FC = () => {
         }
         .toggle-btn.on { background: var(--color-navy); color: white; border: 1px solid var(--color-navy); }
         .toggle-btn.off { background: white; color: var(--color-slate-500); border: 1px solid var(--color-slate-300); }
+
+        /* Chaussette Indicators */
+        .chaussette-card {
+          display: flex;
+          flex-direction: column;
+          background: white;
+          padding: 0.5rem 0.75rem;
+          border-radius: 0.5rem;
+          border: 1px solid var(--color-slate-200);
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+          min-width: 130px;
+        }
+        .chaussette-card.f { border-left: 4px solid var(--color-green-500); }
+        .chaussette-card.i { border-left: 4px solid var(--color-blue-500); }
+        .chaussette-label {
+          font-size: 0.65rem;
+          font-weight: 700;
+          color: var(--color-slate-500);
+          text-transform: uppercase;
+          letter-spacing: 0.025em;
+        }
+        .chaussette-value {
+          font-size: 1rem;
+          font-weight: 800;
+          color: var(--color-navy);
+        }
+        .chaussette-value.negative {
+          color: var(--color-ivry);
+        }
       `}</style>
     </div>
   );

@@ -8,14 +8,35 @@ const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 const ntlm = require('express-ntlm');
-const upload = multer({ dest: 'uploads/' });
+
+// Configuration Multer dynamique
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const type = req.body.target_type; // 'order' ou 'invoice'
+        const folder = type === 'order' ? 'file_commandes' : 'file_factures';
+        cb(null, path.join(__dirname, folder));
+    },
+    filename: (req, file, cb) => {
+        const targetId = req.body.target_id.replace(/[^a-z0-9]/gi, '_');
+        const ext = path.extname(file.originalname);
+        // Ajout d'un timestamp court pour éviter les collisions si plusieurs fichiers pour le même ID
+        cb(null, `${targetId}_${Date.now()}${ext}`);
+    }
+});
+const upload = multer({ storage });
 
 const app = express();
 const PORT = 3001;
 const SECRET_KEY = 'votre_cle_secrete_ici'; // À changer en production
 
-app.use(cors());
+app.use(cors({
+    origin: 'http://localhost:5173',
+    credentials: true
+}));
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/file_commandes', express.static(path.join(__dirname, 'file_commandes')));
+app.use('/file_factures', express.static(path.join(__dirname, 'file_factures')));
 
 // Configuration NTLM pour Ivry
 const ntlmMiddleware = ntlm({
@@ -29,6 +50,26 @@ app.get('/api/auth/ntlm', ntlmMiddleware, (req, res) => {
         domain: req.ntlm.Domain,
         workstation: req.ntlm.Workstation
     });
+});
+
+// Route d'auto-login via NTLM
+app.get('/api/auth/auto-login', ntlmMiddleware, async (req, res) => {
+    try {
+        const winLogin = req.ntlm.UserName;
+        if (!winLogin) return res.status(401).json({ message: 'Login Windows non détecté' });
+
+        // Chercher l'utilisateur de façon insensible à la casse
+        const user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE LOWER(username) = LOWER(?)', [winLogin]);
+
+        if (user) {
+            const accessToken = jwt.sign({ id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement }, SECRET_KEY);
+            res.json({ accessToken, user: { id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement } });
+        } else {
+            res.status(404).json({ message: 'Utilisateur Windows non reconnu dans la base' });
+        }
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur auto-login', error: error.message });
+    }
 });
 
 // Logger global : enregistre TOUTES les requêtes dans mouchard.log
@@ -102,10 +143,22 @@ let db;
 setupDb().then(async database => {
     db = database;
     
+    // Vérification structure table users
+    const userCols = await db.all("PRAGMA table_info(users)");
+    console.log('Colonnes table users:', userCols.map(c => c.name).join(', '));
+
     // Ajout physique du champ montant utilisé
     try {
         await db.run('ALTER TABLE operations ADD COLUMN used_amount REAL DEFAULT 0');
         console.log('Colonne used_amount OK');
+    } catch (e) {}
+
+    // Ajout physique des champs service à users si manquant
+    try {
+        await db.run('ALTER TABLE users ADD COLUMN service_code TEXT');
+    } catch (e) {}
+    try {
+        await db.run('ALTER TABLE users ADD COLUMN service_complement TEXT');
     } catch (e) {}
 
     // Recalcul au démarrage
@@ -234,8 +287,8 @@ app.post('/api/login', async (req, res) => {
     const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
 
     if (user && await bcrypt.compare(password, user.password)) {
-        const accessToken = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY);
-        res.json({ accessToken, user: { id: user.id, username: user.username, role: user.role } });
+        const accessToken = jwt.sign({ id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement }, SECRET_KEY);
+        res.json({ accessToken, user: { id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement } });
     } else {
         res.status(401).json({ message: 'Identifiants invalides' });
     }
@@ -638,7 +691,8 @@ app.post('/api/orders/bulk-assign', authenticateJWT, async (req, res) => {
 const updateLastActivity = async (req, res, next) => {
     if (req.user && req.user.username) {
         try {
-            await db.run('UPDATE users SET last_activity = CURRENT_TIMESTAMP WHERE username = ?', [req.user.username]);
+            // Utiliser le format ISO compatible JavaScript
+            await db.run("UPDATE users SET last_activity = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE username = ?", [req.user.username]);
         } catch (e) {
             console.error('Error updating last activity:', e);
         }
@@ -649,7 +703,7 @@ const updateLastActivity = async (req, res, next) => {
 app.use(updateLastActivity);
 
 app.get('/api/users', authenticateAdmin, async (req, res) => {
-    const users = await db.all('SELECT id, username, role, last_activity FROM users');
+    const users = await db.all('SELECT id, username, role, last_activity, service_code, service_complement FROM users');
     res.json(users);
 });
 
@@ -761,29 +815,34 @@ app.get('/api/raw-data/:table', authenticateAdminOrFinances, async (req, res) =>
 });
 
 app.post('/api/users', authenticateAdmin, async (req, res) => {
-    const { username, password, role } = req.body;
+    const { username, password, role, service_code, service_complement } = req.body;
     if (!username || !password) return res.status(400).json({ message: 'Username and password required' });
     
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
-        const result = await db.run('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', [username, hashedPassword, role || 'user']);
-        res.json({ id: result.lastID, username, role: role || 'user' });
+        const result = await db.run('INSERT INTO users (username, password, role, service_code, service_complement) VALUES (?, ?, ?, ?, ?)', [username, hashedPassword, role || 'user', service_code || null, service_complement || null]);
+        res.json({ id: result.lastID, username, role: role || 'user', service_code, service_complement });
     } catch (error) {
         res.status(500).json({ message: 'Error creating user', error: error.message });
     }
 });
 
 app.put('/api/users/:id', authenticateAdmin, async (req, res) => {
-    const { username, password, role } = req.body;
+    const { username, role, service_code, service_complement, password } = req.body;
+    const { id } = req.params;
+    console.log(`Tentative de mise à jour utilisateur ID ${id}:`, { username, role, service_code, service_complement });
+    
     try {
         if (password) {
             const hashedPassword = await bcrypt.hash(password, 10);
-            await db.run('UPDATE users SET username = ?, password = ?, role = ? WHERE id = ?', [username, hashedPassword, role, req.params.id]);
+            await db.run('UPDATE users SET username = ?, password = ?, role = ?, service_code = ?, service_complement = ? WHERE id = ?', [username, hashedPassword, role, service_code, service_complement, id]);
         } else {
-            await db.run('UPDATE users SET username = ?, role = ? WHERE id = ?', [username, role, req.params.id]);
+            await db.run('UPDATE users SET username = ?, role = ?, service_code = ?, service_complement = ? WHERE id = ?', [username, role, service_code, service_complement, id]);
         }
+        console.log(`Succès mise à jour utilisateur ${username}`);
         res.json({ message: 'User updated' });
     } catch (error) {
+        console.error('Error updating user:', error);
         res.status(500).json({ message: 'Error updating user', error: error.message });
     }
 });
@@ -792,6 +851,53 @@ app.delete('/api/users/:id', authenticateAdmin, async (req, res) => {
     // Prevent deleting the last admin or yourself if possible, but for now simple delete
     await db.run('DELETE FROM users WHERE id = ?', [req.params.id]);
     res.json({ message: 'User deleted' });
+});
+
+// Attachments API
+app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).send('No file uploaded.');
+    const { target_type, target_id } = req.body;
+    if (!target_type || !target_id) return res.status(400).send('target_type and target_id are required.');
+
+    try {
+        const result = await db.run(
+            'INSERT INTO attachments (target_type, target_id, file_path, original_name, username) VALUES (?, ?, ?, ?, ?)',
+            [target_type, target_id, `uploads/${req.file.filename}`, req.file.originalname, req.user.username]
+        );
+        res.json({ id: result.lastID, original_name: req.file.originalname });
+    } catch (error) {
+        res.status(500).json({ message: 'Error saving attachment info', error: error.message });
+    }
+});
+
+app.get('/api/attachments/:type/:id', authenticateJWT, async (req, res) => {
+    const { type, id } = req.params;
+    try {
+        const attachments = await db.all(
+            'SELECT * FROM attachments WHERE target_type = ? AND target_id = ? ORDER BY uploaded_at DESC',
+            [type, id]
+        );
+        res.json(attachments);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching attachments', error: error.message });
+    }
+});
+
+app.delete('/api/attachments/:id', authenticateJWT, async (req, res) => {
+    try {
+        const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+        if (!attachment) return res.status(404).json({ message: 'Attachment not found' });
+
+        // Optionally delete physical file
+        if (fs.existsSync(attachment.file_path)) {
+            fs.unlinkSync(attachment.file_path);
+        }
+
+        await db.run('DELETE FROM attachments WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Attachment deleted' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting attachment', error: error.message });
+    }
 });
 
 // Import Orders from Excel

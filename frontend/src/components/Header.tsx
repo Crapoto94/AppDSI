@@ -17,7 +17,7 @@ const Header: React.FC = () => {
       .catch(err => console.error("Error fetching changelog:", err));
 
     // Récupération automatique du login Windows
-    fetch('http://localhost:3001/api/auth/ntlm')
+    fetch('http://localhost:3001/api/auth/ntlm', { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (data.login) setWinLogin(data.login);
@@ -28,6 +28,7 @@ const Header: React.FC = () => {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.setItem('manualLogout', 'true');
     navigate('/login');
   };
 
@@ -52,7 +53,7 @@ const Header: React.FC = () => {
             <div className="user-menu">
               <Link to="/profile" className="user-info-link" title="Mon Profil">
                 <span className="user-name">
-                  Bonjour, {user.username} {winLogin && <span className="win-login">({winLogin})</span>}
+                  Bonjour, {user.username} {user.service_code && <span className="service-badge-header">{user.service_code}</span>} {winLogin && <span className="win-login">({winLogin})</span>}
                 </span>
                 <User size={18} />
               </Link>
@@ -185,6 +186,16 @@ const Header: React.FC = () => {
           color: #64748b;
           font-size: 12px;
           margin-left: 4px;
+        }
+        .service-badge-header {
+          background: #f1f5f9;
+          color: #475569;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 700;
+          margin-left: 4px;
+          border: 1px solid #e2e8f0;
         }
         .nav-link {
           font-weight: 600;
