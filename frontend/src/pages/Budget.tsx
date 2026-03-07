@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
-import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Database, AlertCircle, CheckCircle2, Plus, Trash2, Footprints } from 'lucide-react';
+import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Database, AlertCircle, CheckCircle2, Plus, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface ColumnSetting {
