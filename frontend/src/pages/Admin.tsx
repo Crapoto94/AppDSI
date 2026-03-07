@@ -73,7 +73,7 @@ const Admin: React.FC = () => {
   }, []);
 
   const formatActivityDate = (dateStr: string | null) => {
-    if (!dateStr) return 'Jamais connectÃ©';
+    if (!dateStr) return 'Jamais connecté';
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return 'Date invalide';
 
@@ -86,8 +86,8 @@ const Admin: React.FC = () => {
     const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
     const timeStr = date.toLocaleTimeString('fr-FR', timeOptions);
 
-    if (isToday) return `Aujourd'hui Ã  ${timeStr}`;
-    if (isYesterday) return `Hier Ã  ${timeStr}`;
+    if (isToday) return `Aujourd'hui à ${timeStr}`;
+    if (isYesterday) return `Hier à ${timeStr}`;
     
     return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
@@ -125,7 +125,7 @@ const Admin: React.FC = () => {
       alert('Maximum 3 liens par tuile.');
       return;
     }
-    const label = window.prompt('LibellÃ© du lien :');
+    const label = window.prompt('Libellé du lien :');
     const url = window.prompt('URL (ex: https://... ou /page) :');
     if (label && url) {
       const isInternal = url.startsWith('/');
@@ -162,7 +162,7 @@ const Admin: React.FC = () => {
       body: JSON.stringify(newUser)
     });
     if (response.ok) {
-      alert('Utilisateur crÃ©Ã© avec succÃ¨s !');
+      alert('Utilisateur créé avec succès !');
       setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
       setIsAddingUser(false);
       fetchUsers();
@@ -185,7 +185,7 @@ const Admin: React.FC = () => {
       body: JSON.stringify(editingUser)
     });
     if (response.ok) {
-      alert('Utilisateur mis Ã  jour !');
+      alert('Utilisateur mis à jour !');
       setEditingUser(null);
       fetchUsers();
     } else {
@@ -252,11 +252,11 @@ const Admin: React.FC = () => {
                     >
                       <option value="active">Active</option>
                       <option value="maintenance">En maintenance</option>
-                      <option value="soon">BientÃ´t disponible</option>
+                      <option value="soon">Bientôt disponible</option>
                     </select>
                   </div>
                   <input 
-                    placeholder="IcÃ´ne (nom Lucide)" 
+                    placeholder="Icône (nom Lucide)" 
                     value={newTile.icon} 
                     onChange={e => setNewTile({...newTile, icon: e.target.value})}
                     required
@@ -285,7 +285,7 @@ const Admin: React.FC = () => {
                       >
                         <option value="active">Active</option>
                         <option value="maintenance">Maintenance</option>
-                        <option value="soon">BientÃ´t</option>
+                        <option value="soon">Bientôt</option>
                       </select>
                     </div>
                     <p>{tile.description}</p>
@@ -316,7 +316,7 @@ const Admin: React.FC = () => {
               <h2>Gestion des Utilisateurs</h2>
               <button className="btn btn-primary" onClick={() => setIsAddingUser(!isAddingUser)}>
                 {isAddingUser ? <X size={20} /> : <UserPlus size={20} />}
-                {isAddingUser ? 'Annuler' : 'CrÃ©er un utilisateur'}
+                {isAddingUser ? 'Annuler' : 'Créer un utilisateur'}
               </button>
             </div>
 
@@ -356,14 +356,14 @@ const Admin: React.FC = () => {
                         style={{ flex: 1 }}
                       />
                       <input 
-                        placeholder="ComplÃ©ment" 
+                        placeholder="Complément" 
                         value={newUser.service_complement} 
                         onChange={e => setNewUser({...newUser, service_complement: e.target.value})}
                         style={{ flex: 1 }}
                       />
                     </div>
                   </div>
-                  <button type="submit" className="btn btn-primary">CrÃ©er</button>
+                  <button type="submit" className="btn btn-primary">Créer</button>
                 </form>
               </section>
             )}
@@ -395,13 +395,13 @@ const Admin: React.FC = () => {
                       onChange={e => setEditingUser({...editingUser, service_code: e.target.value})}
                     />
                     <input 
-                      placeholder="ComplÃ©ment" 
+                      placeholder="Complément" 
                       value={editingUser.service_complement || ''} 
                       onChange={e => setEditingUser({...editingUser, service_complement: e.target.value})}
                     />
                   </div>
                   <div className="form-actions">
-                    <button type="submit" className="btn btn-primary">Mettre Ã  jour</button>
+                    <button type="submit" className="btn btn-primary">Mettre à jour</button>
                     <button type="button" className="btn" onClick={() => setEditingUser(null)}>Annuler</button>
                   </div>
                 </form>
@@ -427,7 +427,7 @@ const Admin: React.FC = () => {
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
                         <Clock size={12} />
-                        <span>DerniÃ¨re activitÃ© : {formatActivityDate(user.last_activity)}</span>
+                        <span>Dernière activité : {formatActivityDate(user.last_activity)}</span>
                       </div>
                     </div>
                   </div>
@@ -573,3 +573,4 @@ const Admin: React.FC = () => {
 };
 
 export default Admin;
+

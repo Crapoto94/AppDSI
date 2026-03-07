@@ -11,7 +11,7 @@ const Login: React.FC = () => {
 
   useEffect(() => {
     const attemptAutoLogin = async () => {
-      // Si l'utilisateur s'est dÃ©connectÃ© manuellement, on ne le reconnecte pas automatiquement
+      // Si l'utilisateur s'est déconnecté manuellement, on ne le reconnecte pas automatiquement
       if (localStorage.getItem('manualLogout') === 'true') {
         setIsAutoLogging(false);
         return;
@@ -33,7 +33,7 @@ const Login: React.FC = () => {
       }
     };
 
-    // Si on est dÃ©jÃ  connectÃ©, on redirige
+    // Si on est déjà connecté, on redirige
     if (localStorage.getItem('token')) {
       navigate('/');
     } else {
@@ -72,12 +72,12 @@ const Login: React.FC = () => {
             <div className="auto-logging">
               <div className="loader"></div>
               <h2>Connexion automatique...</h2>
-              <p>VÃ©rification de votre identitÃ© Windows</p>
+              <p>Vérification de votre identité Windows</p>
             </div>
           ) : (
             <>
               <h2>Connexion Hub DSI</h2>
-              <p>Connectez-vous pour accÃ©der Ã  vos services.</p>
+              <p>Connectez-vous pour accéder à vos services.</p>
               
               <form onSubmit={handleSubmit}>
                 {error && <div className="error-msg">{error}</div>}
@@ -110,7 +110,7 @@ const Login: React.FC = () => {
               </form>
               
               <div className="login-help">
-                <p>Identifiants par dÃ©faut : admin / admin123</p>
+                <p>Identifiants par défaut : admin / admin123</p>
               </div>
             </>
           )}
@@ -210,3 +210,4 @@ const Login: React.FC = () => {
 };
 
 export default Login;
+

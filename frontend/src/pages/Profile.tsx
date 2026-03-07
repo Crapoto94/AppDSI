@@ -22,7 +22,7 @@ const Profile: React.FC = () => {
     }
 
     if (newPassword.length < 6) {
-      setMessage({ type: 'error', text: 'Le nouveau mot de passe doit faire au moins 6 caractÃ¨res' });
+      setMessage({ type: 'error', text: 'Le nouveau mot de passe doit faire au moins 6 caractères' });
       return;
     }
 
@@ -40,7 +40,7 @@ const Profile: React.FC = () => {
       const data = await response.json();
 
       if (response.ok) {
-        setMessage({ type: 'success', text: 'Mot de passe mis Ã  jour avec succÃ¨s !' });
+        setMessage({ type: 'success', text: 'Mot de passe mis à jour avec succès !' });
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
@@ -111,7 +111,7 @@ const Profile: React.FC = () => {
                   />
                 </div>
                 <button type="submit" className="btn btn-primary" disabled={loading}>
-                  {loading ? 'Mise Ã  jour...' : 'Mettre Ã  jour le mot de passe'}
+                  {loading ? 'Mise à jour...' : 'Mettre à jour le mot de passe'}
                 </button>
               </form>
             </section>
@@ -191,3 +191,4 @@ const Profile: React.FC = () => {
 };
 
 export default Profile;
+

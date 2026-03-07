@@ -70,7 +70,7 @@ const Certif: React.FC = () => {
       });
 
       if (response.ok) {
-        setMessage({ type: 'success', text: 'Certificat importÃ© et analysÃ© avec succÃ¨s !' });
+        setMessage({ type: 'success', text: 'Certificat importé et analysé avec succès !' });
         fetchCertificates();
       } else {
         const err = await response.json();
@@ -98,7 +98,7 @@ const Certif: React.FC = () => {
       });
 
       if (response.ok) {
-        setMessage({ type: 'success', text: 'Certificat supprimÃ© avec succÃ¨s.' });
+        setMessage({ type: 'success', text: 'Certificat supprimé avec succès.' });
         fetchCertificates();
       } else {
         const err = await response.json();
@@ -124,7 +124,7 @@ const Certif: React.FC = () => {
         setEditingId(null);
         fetchCertificates();
       } else {
-        alert('Erreur lors de la mise Ã  jour de la date');
+        alert('Erreur lors de la mise à jour de la date');
       }
     } catch (err) {
       console.error('Failed to update expiry:', err);
@@ -179,14 +179,14 @@ const Certif: React.FC = () => {
         )}
 
         <section className="cert-list">
-          <h2>Demandes rÃ©centes</h2>
+          <h2>Demandes récentes</h2>
           
           {loading ? (
             <div className="loading">Chargement...</div>
           ) : certificates.length === 0 ? (
             <div className="empty-state">
               <FileText size={48} />
-              <p>Aucun certificat enregistrÃ©. Importez un fichier pour commencer.</p>
+              <p>Aucun certificat enregistré. Importez un fichier pour commencer.</p>
             </div>
           ) : (
             <div className="table-container">
@@ -195,9 +195,9 @@ const Certif: React.FC = () => {
                   <tr>
                     <th>NÂ° Commande</th>
                     <th>Date Demande</th>
-                    <th>BÃ©nÃ©ficiaire</th>
+                    <th>Bénéficiaire</th>
                     <th>Produit</th>
-                    <th>Fin ValiditÃ©</th>
+                    <th>Fin Validité</th>
                     <th>Date Import</th>
                     <th>Actions</th>
                   </tr>
@@ -244,7 +244,7 @@ const Certif: React.FC = () => {
                               setEditingId(cert.id);
                               setEditExpiry(cert.expiry_date || '');
                             }}
-                            title={cert.is_provisional ? "Date provisoire (calculÃ©e automatiquement)" : "Date validÃ©e"}
+                            title={cert.is_provisional ? "Date provisoire (calculée automatiquement)" : "Date validée"}
                           >
                             {cert.is_provisional ? <Hourglass size={14} className="icon-provisional" /> : <Calendar size={14} className="icon" />}
                             <span>{formatDate(cert.expiry_date)}</span>
@@ -564,3 +564,4 @@ const Certif: React.FC = () => {
 };
 
 export default Certif;
+

@@ -16,7 +16,7 @@ const Header: React.FC = () => {
       .then(data => setChangelog(data))
       .catch(err => console.error("Error fetching changelog:", err));
 
-    // RÃ©cupÃ©ration automatique du login Windows
+    // Récupération automatique du login Windows
     fetch('/api/auth/ntlm', { credentials: 'include' })
       .then(res => res.json())
       .then(data => {
@@ -42,7 +42,7 @@ const Header: React.FC = () => {
             <span className="logo-dsi"> - Hub DSI</span>
           </Link>
           {changelog && (
-            <button className="version-badge" onClick={() => setShowModal(true)} title="Voir les nouveautÃ©s">
+            <button className="version-badge" onClick={() => setShowModal(true)} title="Voir les nouveautés">
               v{changelog.currentVersion} <Info size={14} style={{ marginLeft: '4px' }} />
             </button>
           )}
@@ -60,7 +60,7 @@ const Header: React.FC = () => {
               {user.role === 'admin' && (
                 <Link to="/admin" className="nav-link">Configuration</Link>
               )}
-              <button onClick={handleLogout} className="btn-logout" title="DÃ©connexion">
+              <button onClick={handleLogout} className="btn-logout" title="Déconnexion">
                 <LogOut size={20} />
               </button>
             </div>
@@ -302,3 +302,4 @@ const Header: React.FC = () => {
 };
 
 export default Header;
+
