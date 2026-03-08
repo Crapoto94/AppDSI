@@ -7,16 +7,18 @@ import Budget from './pages/Budget';
 import Profile from './pages/Profile';
 import Certif from './pages/Certif';
 import MailSettings from './pages/MailSettings';
+import EmailTemplates from './pages/EmailTemplates';
+import Tiers from './pages/Tiers';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
   const token = localStorage.getItem('token');
   let user: any = {};
   try {
-    user = JSON.parse(localStorage.getItem('user') || '{}');
+    const userStr = localStorage.getItem('user');
+    user = JSON.parse(userStr || '{}');
   } catch (e) {
     console.error('Erreur lors du parsing du user en localStorage', e);
-    localStorage.removeItem('user');
   }
 
   if (!token) return <Navigate to="/login" />;
@@ -43,6 +45,14 @@ function App() {
           element={
             <PrivateRoute>
               <Budget />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/tiers" 
+          element={
+            <PrivateRoute>
+              <Tiers />
             </PrivateRoute>
           } 
         />
@@ -75,6 +85,14 @@ function App() {
           element={
             <PrivateRoute allowedRoles={['admin']}>
               <MailSettings />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/admin/email-templates" 
+          element={
+            <PrivateRoute allowedRoles={['admin']}>
+              <EmailTemplates />
             </PrivateRoute>
           } 
         />

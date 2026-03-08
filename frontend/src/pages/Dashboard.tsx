@@ -9,6 +9,8 @@ interface TileData {
   description: string;
   links: any[];
   status?: 'active' | 'maintenance' | 'soon';
+  orphan_orders?: number;
+  orphan_invoices?: number;
 }
 
 const Dashboard: React.FC = () => {
@@ -64,6 +66,8 @@ const Dashboard: React.FC = () => {
                 description={tile.description}
                 links={tile.links}
                 status={tile.status}
+                orphan_orders={tile.orphan_orders}
+                orphan_invoices={tile.orphan_invoices}
               />
             ))}
           </div>

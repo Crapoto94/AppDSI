@@ -140,17 +140,6 @@ const MailSettings: React.FC = () => {
     );
   }
 
-  if (!settings) {
-    return (
-      <div className="mail-settings-page">
-        <Header />
-        <div style={{ padding: '100px', textAlign: 'center', color: '#ef4444' }}>
-          Erreur : Impossible de charger les paramètres depuis le serveur.
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="mail-settings-page">
       <Header />
@@ -159,8 +148,8 @@ const MailSettings: React.FC = () => {
           <button className="btn-back" onClick={() => navigate('/admin')}>
             <ArrowLeft size={20} /> Retour Administration
           </button>
-          <h1>Paramètres de Messagerie</h1>
-          <p className="subtitle">Configurez le relais SMTP et le template de mail par défaut.</p>
+          <h1>Paramètres du Serveur de Messagerie</h1>
+          <p className="subtitle">Configurez le relais SMTP, le proxy et l'habillage global des mails.</p>
         </div>
 
         <div className="settings-grid">
@@ -174,7 +163,7 @@ const MailSettings: React.FC = () => {
               <div className="form-group">
                 <label>Hôte SMTP</label>
                 <input 
-                  value={settings.smtp_host || ''} 
+                  value={settings?.smtp_host || ''} 
                   onChange={e => setSettings({...settings, smtp_host: e.target.value})}
                   placeholder="ex: smtp.brevo.com"
                 />
@@ -184,14 +173,14 @@ const MailSettings: React.FC = () => {
                   <label>Port</label>
                   <input 
                     type="number"
-                    value={settings.smtp_port || ''} 
+                    value={settings?.smtp_port || ''} 
                     onChange={e => setSettings({...settings, smtp_port: e.target.value ? parseInt(e.target.value) : 0})}
                   />
                 </div>
                 <div className="form-group">
                   <label>Sécurité</label>
                   <select 
-                    value={settings.smtp_secure || 'none'} 
+                    value={settings?.smtp_secure || 'none'} 
                     onChange={e => setSettings({...settings, smtp_secure: e.target.value})}
                   >
                     <option value="none">Aucune</option>
@@ -203,7 +192,7 @@ const MailSettings: React.FC = () => {
               <div className="form-group">
                 <label>Utilisateur SMTP</label>
                 <input 
-                  value={settings.smtp_user || ''} 
+                  value={settings?.smtp_user || ''} 
                   onChange={e => setSettings({...settings, smtp_user: e.target.value})}
                 />
               </div>
@@ -211,7 +200,7 @@ const MailSettings: React.FC = () => {
                 <label>Mot de passe SMTP / Clé API</label>
                 <input 
                   type="password"
-                  value={settings.smtp_pass || ''} 
+                  value={settings?.smtp_pass || ''} 
                   onChange={e => setSettings({...settings, smtp_pass: e.target.value})}
                 />
               </div>
@@ -228,14 +217,14 @@ const MailSettings: React.FC = () => {
               <div className="form-group">
                 <label>Adresse d'émission</label>
                 <input 
-                  value={settings.sender_email || ''} 
+                  value={settings?.sender_email || ''} 
                   onChange={e => setSettings({...settings, sender_email: e.target.value})}
                 />
               </div>
               <div className="form-group">
                 <label>Nom d'affichage</label>
                 <input 
-                  value={settings.sender_name || ''} 
+                  value={settings?.sender_name || ''} 
                   onChange={e => setSettings({...settings, sender_name: e.target.value})}
                 />
               </div>
@@ -250,7 +239,7 @@ const MailSettings: React.FC = () => {
                 <div className="form-group" style={{ flex: 3 }}>
                   <label>Hôte Proxy</label>
                   <input 
-                    value={settings.proxy_host || ''} 
+                    value={settings?.proxy_host || ''} 
                     onChange={e => setSettings({...settings, proxy_host: e.target.value})}
                     placeholder="10.x.x.x"
                   />
@@ -259,7 +248,7 @@ const MailSettings: React.FC = () => {
                   <label>Port</label>
                   <input 
                     type="number"
-                    value={settings.proxy_port || ''} 
+                    value={settings?.proxy_port || ''} 
                     onChange={e => setSettings({...settings, proxy_port: e.target.value ? parseInt(e.target.value) : null})}
                   />
                 </div>
@@ -267,12 +256,12 @@ const MailSettings: React.FC = () => {
             </div>
           </div>
 
-          {/* Section Template */}
+          {/* Section Template Structure HTML */}
           <div className="settings-card full-width">
             <div className="card-header" style={{ justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <Shield size={20} />
-                <h2>Conception du Template</h2>
+                <h2>Habillage Global (Template HTML)</h2>
               </div>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button 
@@ -293,19 +282,19 @@ const MailSettings: React.FC = () => {
             <div className="template-editor-layout">
               <div className="editor-side">
                 <div className="card-content">
-                  <p className="hint">Utilisez <code>{"{{content}}"}</code> pour l'emplacement du message.</p>
+                  <p className="hint">Utilisez <code>{"{{content}}"}</code> pour définir où s'insérera le message contextuel.</p>
                   <div className="quill-wrapper">
                     {showCode ? (
                       <textarea 
                         className="html-editor"
-                        value={settings.template_html || ''}
+                        value={settings?.template_html || ''}
                         onChange={e => setSettings({...settings, template_html: e.target.value})}
                         spellCheck={false}
                       />
                     ) : (
                       <ReactQuill 
                         theme="snow" 
-                        value={settings.template_html || ''} 
+                        value={settings?.template_html || ''} 
                         onChange={val => setSettings({...settings, template_html: val})}
                         modules={{
                           toolbar: [
@@ -325,7 +314,7 @@ const MailSettings: React.FC = () => {
 
               <div className="preview-side">
                 <div className="preview-header-actions">
-                  <div className="preview-label">Aperçu du rendu final</div>
+                  <div className="preview-label">Aperçu de l'habillage</div>
                   <div className="responsive-toggles">
                     <button 
                       className={previewMode === 'desktop' ? 'active' : ''} 
@@ -347,32 +336,22 @@ const MailSettings: React.FC = () => {
                     <div className="client-dots">
                       <span></span><span></span><span></span>
                     </div>
-                    <div className="client-title">Aperçu Mail - DSI Hub</div>
+                    <div className="client-title">Aperçu Mail - Habillage</div>
                   </div>
                   <div className="client-meta">
                     <div className="meta-row">
                       <span className="meta-label">De :</span>
-                      <span className="meta-value"><strong>{settings.sender_name}</strong> &lt;{settings.sender_email}&gt;</span>
-                    </div>
-                    <div className="meta-row">
-                      <span className="meta-label">À :</span>
-                      <span className="meta-value">destinataire@exemple.fr</span>
-                    </div>
-                    <div className="meta-row">
-                      <span className="meta-label">Objet :</span>
-                      <span className="meta-value"><strong>[DSI HUB]</strong> Objet du message de test</span>
+                      <span className="meta-value"><strong>{settings?.sender_name}</strong> &lt;{settings?.sender_email}&gt;</span>
                     </div>
                   </div>
                   <div className="preview-frame-container">
                     <div 
                       className="preview-content"
                       dangerouslySetInnerHTML={{ 
-                        __html: (settings.template_html || '').replace('{{content}}', `
-                          <h2 style="color: #1e3a8a">Bonjour,</h2>
-                          <p>Ceci est un aperçu de la mise en page de vos futurs emails automatisés.</p>
-                          <p>Vous pouvez modifier le texte et les couleurs directement depuis l'éditeur à gauche.</p>
-                          <div style="padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; margin: 20px 0;">
-                            <strong>Note :</strong> La variable {{content}} sera remplacée par le texte réel lors de l'envoi.
+                        __html: (settings?.template_html || '').replace('{{content}}', `
+                          <div style="padding: 20px; background: #f8fafc; border: 2px dashed #cbd5e1; text-align: center; border-radius: 8px;">
+                            <h2 style="color: #64748b; margin: 0;">ZONE DE MESSAGE</h2>
+                            <p style="color: #94a3b8; margin: 10px 0 0 0;">Le message spécifique au contexte (ex: envoi de commande) s'affichera ici.</p>
                           </div>
                         `) 
                       }}

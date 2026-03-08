@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
-import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Database, AlertCircle, CheckCircle2, Plus, Trash2 } from 'lucide-react';
+import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Database, AlertCircle, CheckCircle2, Plus, Trash2, Send } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface ColumnSetting {
@@ -139,6 +139,7 @@ const Budget: React.FC = () => {
     }
 
     setIsUploading(true);
+
     const formData = new FormData();
     formData.append('target_type', activeAttachmentTarget.type);
     formData.append('target_id', activeAttachmentTarget.id);
@@ -163,6 +164,53 @@ const Budget: React.FC = () => {
     }
   };
 
+  const handleSendOrder = async (attachmentId: number) => {
+    try {
+      // 1. Récupérer les destinataires pour confirmation
+      const recRes = await fetch(`/api/attachments/${attachmentId}/recipients`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!recRes.ok) {
+        const errData = await recRes.json();
+        alert(errData.message || "Erreur lors de la récupération des destinataires");
+        return;
+      }
+      
+      const recipients: any[] = await recRes.json();
+      
+      if (recipients.length === 0) {
+        alert("Aucun contact \"Destinataire des commandes\" n'a été trouvé pour ce fournisseur dans la base des Tiers.");
+        return;
+      }
+
+      const validRecipients = recipients.filter(r => r.email && r.email.includes('@'));
+      if (validRecipients.length === 0) {
+        const list = recipients.map(r => `- ${r.prenom || ''} ${r.nom || ''}`).join('\n');
+        alert(`Les contacts suivants sont bien ciblés mais aucun n'a d'adresse email valide :\n\n${list}\n\nVeuillez corriger cela dans la gestion des Tiers.`);
+        return;
+      }
+
+      const recipientsList = recipients
+        .map(r => `- ${r.prenom || ''} ${r.nom || ''} (${r.email || 'Pas d\'email'})`)
+        .join('\n');
+
+      if (!window.confirm(`Voulez-vous envoyer cette commande aux destinataires suivants :\n\n${recipientsList}`)) {
+        return;
+      }
+
+      // 2. Envoyer la commande
+      const res = await fetch(`/api/attachments/${attachmentId}/send-order`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      alert(data.message);
+    } catch (err) {
+      console.error('Send error:', err);
+      alert("Erreur lors de l'envoi");
+    }
+  };
   const handleDeleteAttachment = async (id: number) => {
     if (!window.confirm('Supprimer ce fichier ?')) return;
     try {
@@ -1952,12 +2000,23 @@ const Budget: React.FC = () => {
                           <div>Ajouté par {att.username}</div>
                           <div>le {new Date(att.uploaded_at).toLocaleString()}</div>
                         </div>
+                        
+                        {activeAttachmentTarget.type === 'order' && (
+                          <button 
+                            onClick={() => handleSendOrder(att.id)}
+                            className="toolbar-btn"
+                            style={{ width: '100%', marginTop: '15px', justifyContent: 'center', background: 'var(--color-ivry)', color: 'white', border: 'none' }}
+                          >
+                            <Send size={16} /> Envoyer au fournisseur
+                          </button>
+                        )}
+
                         <a 
                           href={`/${att.file_path}`} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="toolbar-btn"
-                          style={{ width: '100%', marginTop: '15px', justifyContent: 'center', background: 'var(--color-navy)', color: 'white' }}
+                          style={{ width: '100%', marginTop: '10px', justifyContent: 'center', background: 'var(--color-navy)', color: 'white' }}
                         >
                           Ouvrir dans un onglet
                         </a>

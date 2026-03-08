@@ -1,15 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Trash2, X, UserPlus, Users, Edit2, Clock, Settings } from 'lucide-react';
+import * as Icons from 'lucide-react';
+import { 
+  Plus, Trash2, X, UserPlus, Users, Edit2, Clock, Settings, 
+  ChevronUp, ChevronDown, Check, Search, Info, LayoutDashboard,
+  Wallet, FileCheck, ShieldCheck, FileText, Database, Mail,
+  Calendar, CreditCard, Building2, Briefcase, BarChart3,
+  HardDrive, Globe, Lock, AlertTriangle, HelpCircle, Box,
+  ChevronRight, ArrowLeft, Link as LinkIcon, ExternalLink
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+
+interface TileLink {
+  id: number;
+  tile_id: number;
+  label: string;
+  url: string;
+  is_internal: number;
+}
 
 interface TileData {
   id: number;
   title: string;
   icon: string;
   description: string;
-  links: any[];
+  links: TileLink[];
   status: 'active' | 'maintenance' | 'soon';
+  sort_order: number;
 }
 
 interface UserData {
@@ -21,37 +38,61 @@ interface UserData {
   service_complement: string | null;
 }
 
+const AVAILABLE_ICONS = [
+  'LayoutDashboard', 'Wallet', 'Users', 'FileCheck', 'ShieldCheck', 
+  'FileText', 'Database', 'Mail', 'Calendar', 'CreditCard', 
+  'Building2', 'Briefcase', 'BarChart3', 'HardDrive', 'Globe', 
+  'Lock', 'Settings', 'AlertTriangle', 'HelpCircle', 'Box',
+  'ShoppingCart', 'Users2', 'Zap', 'Star', 'Heart', 'Shield',
+  'Paperclip', 'Printer', 'Monitor', 'Cpu', 'Server',
+  'Activity', 'Anchor', 'Archive', 'Award', 'Bell', 'Bookmark',
+  'Camera', 'CheckCircle', 'Cloud', 'Code', 'Compass', 'Copy',
+  'Download', 'Edit', 'ExternalLink', 'Eye', 'File', 'Filter',
+  'Flag', 'Folder', 'Gift', 'Home', 'Image', 'Info', 'Key',
+  'Layers', 'Link', 'List', 'Map', 'Maximize', 'Menu', 'MessageCircle',
+  'MessageSquare', 'Mic', 'Minimize', 'MoreHorizontal', 'MoreVertical',
+  'Navigation', 'Package', 'Phone', 'Play', 'Plus', 'Power', 'RefreshCw',
+  'Search', 'Send', 'Share2', 'ShoppingBag', 'Sliders', 'Smartphone',
+  'Tag', 'Target', 'ThumbsUp', 'Trash2', 'TrendingUp', 'Truck', 'Upload',
+  'User', 'Video', 'Wifi', 'X', 'ZoomIn', 'ZoomOut',
+  'PieChart', 'LineChart', 'ClipboardList', 'Tablet', 'Laptop',
+  'Headphones', 'Speaker', 'Tv', 'Disc', 'Music',
+  'Clapperboard', 'Gamepad2', 'Lightbulb', 'Umbrella', 'Sun', 'Moon',
+  'CloudRain', 'CloudLightning', 'Wind', 'Thermometer', 'Droplets',
+  'Flame', 'Leaf', 'Sprout', 'TreeDeciduous', 'Mountain', 'Waves',
+  'Car', 'Bike', 'Plane', 'Train', 'Ship', 'Footprints',
+  'LifeBuoy', 'Smile', 'Frown', 'Meh', 'Angry', 'Laugh', 'Wink',
+  'Scale', 'Calculator', 'Book', 'Pencil', 'GraduationCap', 'FlaskConical',
+  'Dna', 'Atom', 'Stethoscope', 'Syringe', 'Pill', 'MapPin', 'Locate', 
+  'Milestone', 'Signpost', 'Tool', 'Hammer', 'Wrench', 'Construction',
+  'Ticket', 'Tags', 'Barcode', 'QrCode', 'Coins', 'Banknote', 'PiggyBank'
+];
+
 const Admin: React.FC = () => {
+  const [activeSection, setActiveSection] = useState<'main' | 'tiles' | 'users'>('main');
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
-  const [newTile, setNewTile] = useState({ title: '', icon: 'box', description: '', status: 'active' });
+  const [newTile, setNewTile] = useState({ title: '', icon: 'Box', description: '', status: 'active' as any });
+  const [editingTile, setEditingTile] = useState<TileData | null>(null);
+  const [newLink, setNewLink] = useState({ label: '', url: '', is_internal: true });
+  const [isAddingUser, setIsAddingUser] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
-  const [isAddingTile, setIsAddingTile] = useState(false);
-  const [isAddingUser, setIsAddingUser] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tiles' | 'users' | 'system'>('tiles');
-  const navigate = useNavigate();
   
+  const navigate = useNavigate();
   const token = localStorage.getItem('token');
 
   const fetchTiles = async () => {
-    const response = await fetch('/api/tiles', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const response = await fetch('/api/tiles', { headers: { 'Authorization': `Bearer ${token}` } });
     if (response.ok) {
       const data = await response.json();
-      setTiles(data);
+      setTiles(data.sort((a: any, b: any) => a.sort_order - b.sort_order));
     }
   };
 
   const fetchUsers = async () => {
-    const response = await fetch('/api/users', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (response.ok) {
-      const data = await response.json();
-      setUsers(data);
-    }
+    const response = await fetch('/api/users', { headers: { 'Authorization': `Bearer ${token}` } });
+    if (response.ok) setUsers(await response.json());
   };
 
   useEffect(() => {
@@ -59,147 +100,130 @@ const Admin: React.FC = () => {
     fetchUsers();
   }, []);
 
-  const handleUpdateTileStatus = async (tileId: number, newStatus: string) => {
-    const tile = tiles.find(t => t.id === tileId);
-    if (!tile) return;
-    
-    const response = await fetch(`/api/tiles/${tileId}`, {
-      method: 'PUT',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ ...tile, status: newStatus })
+  const handleAddTile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await fetch('/api/tiles', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...newTile, sort_order: tiles.length })
     });
-    if (response.ok) fetchTiles();
+    if (res.ok) {
+      setNewTile({ title: '', icon: 'Box', description: '', status: 'active' });
+      fetchTiles();
+    }
   };
 
-  const formatActivityDate = (dateStr: string | null) => {
-    if (!dateStr) return 'Jamais connecté';
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return 'Date invalide';
-
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday = date.toDateString() === yesterday.toDateString();
-
-    const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
-    const timeStr = date.toLocaleTimeString('fr-FR', timeOptions);
-
-    if (isToday) return `Aujourd'hui à ${timeStr}`;
-    if (isYesterday) return `Hier à ${timeStr}`;
-    
-    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const handleUpdateTile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTile) return;
+    const res = await fetch(`/api/tiles/${editingTile.id}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(editingTile)
+    });
+    if (res.ok) {
+      setEditingTile(null);
+      fetchTiles();
+    }
   };
 
   const handleDeleteTile = async (id: number) => {
-    if (window.confirm('Voulez-vous vraiment supprimer cette tuile ?')) {
-      const response = await fetch(`/api/tiles/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) fetchTiles();
+    if (window.confirm('Supprimer cette tuile ?')) {
+      await fetch(`/api/tiles/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      fetchTiles();
     }
   };
 
-  const handleAddTile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const response = await fetch('/api/tiles', {
+  const handleAddLink = async (tileId: number) => {
+    if (!newLink.label || !newLink.url) return;
+    const res = await fetch(`/api/tiles/${tileId}/links`, {
       method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(newTile)
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(newLink)
     });
-    if (response.ok) {
-      setNewTile({ title: '', icon: 'box', description: '', status: 'active' });
-      setIsAddingTile(false);
+    if (res.ok) {
+      setNewLink({ label: '', url: '', is_internal: true });
       fetchTiles();
-    }
-  };
-
-  const handleAddLink = async (tileId: number, currentLinksCount: number) => {
-    if (currentLinksCount >= 3) {
-      alert('Maximum 3 liens par tuile.');
-      return;
-    }
-    const label = window.prompt('Libellé du lien :');
-    const url = window.prompt('URL (ex: https://... ou /page) :');
-    if (label && url) {
-      const isInternal = url.startsWith('/');
-      await fetch(`/api/tiles/${tileId}/links`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ label, url, is_internal: isInternal })
-      });
-      fetchTiles();
+      // Update editing tile links if we are editing it
+      if (editingTile && editingTile.id === tileId) {
+        const updatedTiles = await (await fetch('/api/tiles', { headers: { 'Authorization': `Bearer ${token}` } })).json();
+        const updatedTile = updatedTiles.find((t: any) => t.id === tileId);
+        setEditingTile(updatedTile);
+      }
     }
   };
 
   const handleDeleteLink = async (linkId: number) => {
-    await fetch(`/api/links/${linkId}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    fetchTiles();
+    if (window.confirm('Supprimer ce lien ?')) {
+      const res = await fetch(`/api/links/${linkId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        fetchTiles();
+        if (editingTile) {
+          const updatedTiles = await (await fetch('/api/tiles', { headers: { 'Authorization': `Bearer ${token}` } })).json();
+          const updatedTile = updatedTiles.find((t: any) => t.id === editingTile.id);
+          setEditingTile(updatedTile);
+        }
+      }
+    }
+  };
+
+  const handleMoveTile = async (index: number, direction: 'up' | 'down') => {
+    const newTiles = [...tiles];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newTiles.length) return;
+    [newTiles[index], newTiles[targetIndex]] = [newTiles[targetIndex], newTiles[index]];
+    setTiles(newTiles);
+    for (let i = 0; i < newTiles.length; i++) {
+      await fetch(`/api/tiles/${newTiles[i].id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newTiles[i], sort_order: i })
+      });
+    }
   };
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     const response = await fetch('/api/users', {
       method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(newUser)
     });
     if (response.ok) {
-      alert('Utilisateur créé avec succès !');
       setNewUser({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
       setIsAddingUser(false);
       fetchUsers();
-    } else {
-      const data = await response.json();
-      alert('ERREUR CRÉATION: ' + (data.message || 'Inconnue'));
     }
   };
 
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
-    
     const response = await fetch(`/api/users/${editingUser.id}`, {
       method: 'PUT',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(editingUser)
     });
     if (response.ok) {
-      alert('Utilisateur mis à jour !');
       setEditingUser(null);
       fetchUsers();
-    } else {
-      alert('ERREUR MISE À JOUR');
     }
   };
 
   const handleDeleteUser = async (id: number) => {
-    if (window.confirm('Voulez-vous vraiment supprimer cet utilisateur ?')) {
-      const response = await fetch(`/api/users/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) fetchUsers();
+    if (window.confirm('Supprimer cet utilisateur ?')) {
+      await fetch(`/api/users/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      fetchUsers();
     }
+  };
+
+  const formatActivityDate = (dateStr: string | null) => {
+    if (!dateStr) return 'Jamais connecté';
+    const date = new Date(dateStr);
+    return date.toLocaleString('fr-FR');
   };
 
   return (
@@ -207,418 +231,256 @@ const Admin: React.FC = () => {
       <Header />
       <main className="container">
         <div className="admin-header">
-          <h1>Administration</h1>
-          <div className="admin-tabs">
-            <button 
-              className={`tab-btn ${activeTab === 'tiles' ? 'active' : ''}`}
-              onClick={() => setActiveTab('tiles')}
-            >
-              Hub (Tuiles)
-            </button>
-            <button 
-              className={`tab-btn ${activeTab === 'users' ? 'active' : ''}`}
-              onClick={() => setActiveTab('users')}
-            >
-              Utilisateurs
-            </button>
-            <button 
-              className={`tab-btn ${activeTab === 'system' ? 'active' : ''}`}
-              onClick={() => setActiveTab('system')}
-            >
-              Système
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+            {activeSection !== 'main' && (
+              <button className="btn-icon back-btn" onClick={() => setActiveSection('main')}>
+                <ArrowLeft size={24} />
+              </button>
+            )}
+            <h1 style={{ color: 'var(--color-navy)', fontWeight: 800, margin: 0 }}>
+              {activeSection === 'main' ? 'Administration Système' : 
+               activeSection === 'tiles' ? 'Configuration du Hub' : 'Gestion des Utilisateurs'}
+            </h1>
           </div>
         </div>
 
-        {activeTab === 'tiles' && (
-          <>
-            <div className="section-header">
-              <h2>Configuration du Hub</h2>
-              <button className="btn btn-primary" onClick={() => setIsAddingTile(!isAddingTile)}>
-                {isAddingTile ? <X size={20} /> : <Plus size={20} />}
-                {isAddingTile ? 'Annuler' : 'Ajouter une tuile'}
+        {activeSection === 'main' && (
+          <div className="admin-dashboard-grid">
+            <AdminTile 
+              title="Configuration du Hub" 
+              description="Gérer les tuiles, les icônes et les liens de navigation."
+              icon={<LayoutDashboard size={32} />}
+              color="#3b82f6"
+              onClick={() => setActiveSection('tiles')}
+            />
+            <AdminTile
+              title="Modèles d'Emails"
+              description="Personnaliser les messages automatiques envoyés aux tiers."
+              icon={<FileText size={32} />}
+              color="#10b981"
+              onClick={() => navigate('/admin/email-templates')}
+            />
+            <AdminTile 
+              title="Utilisateurs" 
+              description="Gérer les accès, les rôles et les comptes utilisateurs."
+              icon={<Users size={32} />}
+              color="#6366f1"
+              onClick={() => setActiveSection('users')}
+            />
+            <AdminTile 
+              title="Serveur de Messagerie" 
+              description="Relais SMTP, Proxy et Template global des emails."
+              icon={<Mail size={32} />}
+              color="#f59e0b"
+              onClick={() => navigate('/admin/mail')}
+            />
+          </div>
+        )}
+
+        {activeSection === 'tiles' && (
+          <div className="section-content">
+            <div className="section-actions" style={{ marginBottom: '20px' }}>
+              <button className="btn btn-primary" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active' }); }}>
+                <Plus size={20} /> Nouvelle Tuile
               </button>
             </div>
 
-            {isAddingTile && (
-              <section className="admin-section">
-                <h3>Nouvelle tuile</h3>
-                <form onSubmit={handleAddTile} className="admin-form">
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                    <input 
-                      placeholder="Titre" 
-                      value={newTile.title} 
-                      onChange={e => setNewTile({...newTile, title: e.target.value})}
-                      required
-                    />
-                    <select 
-                      value={newTile.status} 
-                      onChange={e => setNewTile({...newTile, status: e.target.value as any})}
-                    >
+            {(editingTile || (newTile.title === '' && !editingTile && tiles.length === 0)) && (
+              <section className="admin-section highlight">
+                <h3>{editingTile ? `Modifier : ${editingTile.title}` : 'Nouvelle Tuile'}</h3>
+                <form onSubmit={editingTile ? handleUpdateTile : handleAddTile} className="admin-form">
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '15px' }}>
+                    <input placeholder="Titre" value={editingTile ? editingTile.title : newTile.title} onChange={e => editingTile ? setEditingTile({...editingTile, title: e.target.value}) : setNewTile({...newTile, title: e.target.value})} required />
+                    <select value={editingTile ? editingTile.status : newTile.status} onChange={e => editingTile ? setEditingTile({...editingTile, status: e.target.value as any}) : setNewTile({...newTile, status: e.target.value as any})}>
                       <option value="active">Active</option>
-                      <option value="maintenance">En maintenance</option>
-                      <option value="soon">Bientôt disponible</option>
+                      <option value="maintenance">Maintenance</option>
+                      <option value="soon">Bientôt</option>
                     </select>
                   </div>
-                  <input 
-                    placeholder="Icône (nom Lucide)" 
-                    value={newTile.icon} 
-                    onChange={e => setNewTile({...newTile, icon: e.target.value})}
-                    required
-                  />
-                  <textarea 
-                    placeholder="Description" 
-                    value={newTile.description} 
-                    onChange={e => setNewTile({...newTile, description: e.target.value})}
-                    required
-                  />
-                  <button type="submit" className="btn btn-primary">Enregistrer</button>
+                  
+                  <div className="icon-selector-container">
+                    <label>Icône :</label>
+                    <div className="icon-grid-picker">
+                      {AVAILABLE_ICONS.map(name => {
+                        const Icon = (Icons as any)[name] || Icons.Box;
+                        const currentIcon = editingTile ? editingTile.icon : newTile.icon;
+                        return (
+                          <button key={name} type="button" className={`icon-option ${currentIcon === name ? 'selected' : ''}`} onClick={() => editingTile ? setEditingTile({...editingTile, icon: name}) : setNewTile({...newTile, icon: name})}>
+                            <Icon size={20} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <textarea placeholder="Description" value={editingTile ? editingTile.description : newTile.description} onChange={e => editingTile ? setEditingTile({...editingTile, description: e.target.value}) : setNewTile({...newTile, description: e.target.value})} required />
+                  
+                  {editingTile && (
+                    <div className="links-management">
+                      <h4>Lien(s) associé(s)</h4>
+                      <div className="links-list">
+                        {editingTile.links.map(link => (
+                          <div key={link.id} className="link-row">
+                            <span className="link-label">{link.label}</span>
+                            <span className="link-url">{link.url}</span>
+                            <button type="button" className="btn-icon delete" onClick={() => handleDeleteLink(link.id)}><Trash2 size={16} /></button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="add-link-form">
+                        <input placeholder="Libellé du lien" value={newLink.label} onChange={e => setNewLink({...newLink, label: e.target.value})} />
+                        <input placeholder="URL" value={newLink.url} onChange={e => setNewLink({...newLink, url: e.target.value})} />
+                        <label className="checkbox-label">
+                          <input type="checkbox" checked={newLink.is_internal} onChange={e => setNewLink({...newLink, is_internal: e.target.checked})} /> Interne
+                        </label>
+                        <button type="button" className="btn btn-secondary" onClick={() => handleAddLink(editingTile.id)}>Ajouter</button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="form-actions">
+                    <button type="submit" className="btn btn-primary"><Check size={18} /> Enregistrer</button>
+                    {editingTile && <button type="button" className="btn" onClick={() => setEditingTile(null)}>Fermer</button>}
+                  </div>
                 </form>
               </section>
             )}
 
-            <section className="tiles-list">
-              {tiles.map(tile => (
-                <div key={tile.id} className="admin-tile-row">
-                  <div className="tile-info">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <div className="tiles-list">
+              {tiles.map((tile, index) => {
+                const TileIcon = (Icons as any)[tile.icon] || Icons.Box;
+                return (
+                  <div key={tile.id} className="admin-tile-row">
+                    <div className="reorder-controls">
+                      <button className="btn-reorder" disabled={index === 0} onClick={() => handleMoveTile(index, 'up')}><ChevronUp size={16} /></button>
+                      <button className="btn-reorder" disabled={index === tiles.length - 1} onClick={() => handleMoveTile(index, 'down')}><ChevronDown size={16} /></button>
+                    </div>
+                    <div className="tile-icon-preview"><TileIcon size={24} /></div>
+                    <div className="tile-info">
                       <strong>{tile.title}</strong>
-                      <select 
-                        value={tile.status} 
-                        onChange={(e) => handleUpdateTileStatus(tile.id, e.target.value)}
-                        style={{ padding: '4px 8px', fontSize: '12px', borderRadius: '4px' }}
-                      >
-                        <option value="active">Active</option>
-                        <option value="maintenance">Maintenance</option>
-                        <option value="soon">Bientôt</option>
-                      </select>
+                      <p>{tile.description}</p>
+                      <div className="tile-links-preview">
+                        {tile.links.map(l => (
+                          <span key={l.id} className="link-badge">
+                            {l.is_internal ? <LinkIcon size={10} /> : <ExternalLink size={10} />} {l.label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                    <p>{tile.description}</p>
-                    <div className="tile-links-admin">
-                      {tile.links.map(link => (
-                        <span key={link.id} className="admin-link-badge">
-                          {link.label}
-                          <button onClick={() => handleDeleteLink(link.id)}><X size={12} /></button>
-                        </span>
-                      ))}
-                      <button className="btn-add-link" onClick={() => handleAddLink(tile.id, tile.links.length)}>
-                        <Plus size={14} /> Ajouter un lien
-                      </button>
+                    <div className="tile-actions">
+                      <button className="btn-icon" onClick={() => setEditingTile(tile)}><Edit2 size={20} color="var(--secondary-color)" /></button>
+                      <button className="btn-icon" onClick={() => handleDeleteTile(tile.id)}><Trash2 size={20} color="var(--primary-color)" /></button>
                     </div>
                   </div>
-                  <div className="tile-actions">
-                    <button className="btn-icon" title="Supprimer" onClick={() => handleDeleteTile(tile.id)}>
-                      <Trash2 size={20} color="var(--primary-color)" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </section>
-          </>
+                );
+              })}
+            </div>
+          </div>
         )}
 
-        {activeTab === 'users' && (
-          <>
-            <div className="section-header">
-              <h2>Gestion des Utilisateurs</h2>
-              <button className="btn btn-primary" onClick={() => setIsAddingUser(!isAddingUser)}>
-                {isAddingUser ? <X size={20} /> : <UserPlus size={20} />}
-                {isAddingUser ? 'Annuler' : 'Créer un utilisateur'}
+        {activeSection === 'users' && (
+          <div className="section-content">
+            <div className="section-actions" style={{ marginBottom: '20px' }}>
+              <button className="btn btn-primary" onClick={() => { setIsAddingUser(!isAddingUser); setEditingUser(null); }}>
+                {isAddingUser ? <X size={20} /> : <UserPlus size={20} />} {isAddingUser ? 'Annuler' : 'Créer un utilisateur'}
               </button>
             </div>
 
-            {isAddingUser && (
-              <section className="admin-section">
-                <h3>Nouvel utilisateur</h3>
-                <form onSubmit={handleAddUser} className="admin-form">
+            {(isAddingUser || editingUser) && (
+              <section className="admin-section highlight">
+                <h3>{editingUser ? `Modifier : ${editingUser.username}` : 'Nouvel utilisateur'}</h3>
+                <form onSubmit={editingUser ? handleUpdateUser : handleAddUser} className="admin-form">
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                    <input 
-                      placeholder="Nom d'utilisateur" 
-                      value={newUser.username} 
-                      onChange={e => setNewUser({...newUser, username: e.target.value})}
-                      required
-                    />
-                    <input 
-                      type="password"
-                      placeholder="Mot de passe" 
-                      value={newUser.password} 
-                      onChange={e => setNewUser({...newUser, password: e.target.value})}
-                      required
-                    />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                    <select 
-                      value={newUser.role} 
-                      onChange={e => setNewUser({...newUser, role: e.target.value})}
-                    >
-                      <option value="user">Utilisateur</option>
-                      <option value="finances">Finances</option>
+                    <input placeholder="Nom d'utilisateur" value={editingUser ? editingUser.username : newUser.username} onChange={e => editingUser ? setEditingUser({...editingUser, username: e.target.value}) : setNewUser({...newUser, username: e.target.value})} required />
+                    {!editingUser && <input type="password" placeholder="Mot de passe" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />}
+                    <select value={editingUser ? editingUser.role : newUser.role} onChange={e => editingUser ? setEditingUser({...editingUser, role: e.target.value}) : setNewUser({...newUser, role: e.target.value})}>
+                      <option value="user">Utilisateur standard</option>
+                      <option value="finances">Direction Finances</option>
+                      <option value="compta">Comptabilité</option>
                       <option value="admin">Administrateur</option>
                     </select>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <input 
-                        placeholder="Service" 
-                        value={newUser.service_code} 
-                        onChange={e => setNewUser({...newUser, service_code: e.target.value})}
-                        style={{ flex: 1 }}
-                      />
-                      <input 
-                        placeholder="Complément" 
-                        value={newUser.service_complement} 
-                        onChange={e => setNewUser({...newUser, service_complement: e.target.value})}
-                        style={{ flex: 1 }}
-                      />
-                    </div>
+                    <input placeholder="Code Service" value={editingUser ? editingUser.service_code || '' : newUser.service_code} onChange={e => editingUser ? setEditingUser({...editingUser, service_code: e.target.value}) : setNewUser({...newUser, service_code: e.target.value})} />
                   </div>
-                  <button type="submit" className="btn btn-primary">Créer</button>
-                </form>
-              </section>
-            )}
-
-            {editingUser && (
-              <section className="admin-section">
-                <h3>Modifier l'utilisateur : {editingUser.username}</h3>
-                <form onSubmit={handleUpdateUser} className="admin-form">
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                    <input 
-                      placeholder="Nom d'utilisateur" 
-                      value={editingUser.username} 
-                      onChange={e => setEditingUser({...editingUser, username: e.target.value})}
-                      required
-                    />
-                    <select 
-                      value={editingUser.role} 
-                      onChange={e => setEditingUser({...editingUser, role: e.target.value})}
-                    >
-                      <option value="user">Utilisateur</option>
-                      <option value="finances">Finances</option>
-                      <option value="admin">Administrateur</option>
-                    </select>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                    <input 
-                      placeholder="Service" 
-                      value={editingUser.service_code || ''} 
-                      onChange={e => setEditingUser({...editingUser, service_code: e.target.value})}
-                    />
-                    <input 
-                      placeholder="Complément" 
-                      value={editingUser.service_complement || ''} 
-                      onChange={e => setEditingUser({...editingUser, service_complement: e.target.value})}
-                    />
-                  </div>
+                  <input placeholder="Complément service" value={editingUser ? editingUser.service_complement || '' : newUser.service_complement} onChange={e => editingUser ? setEditingUser({...editingUser, service_complement: e.target.value}) : setNewUser({...newUser, service_complement: e.target.value})} style={{ width: '100%' }} />
                   <div className="form-actions">
-                    <button type="submit" className="btn btn-primary">Mettre à jour</button>
-                    <button type="button" className="btn" onClick={() => setEditingUser(null)}>Annuler</button>
+                    <button type="submit" className="btn btn-primary"><Check size={18} /> {editingUser ? 'Mettre à jour' : 'Créer'}</button>
                   </div>
                 </form>
               </section>
             )}
 
-            <section className="users-list">
-              {users.map(user => (
-                <div key={user.id} className="admin-tile-row">
+            <div className="users-list">
+              {users.map(u => (
+                <div key={u.id} className="admin-tile-row">
                   <div className="user-info">
-                    <div className="user-avatar">
-                      <Users size={20} />
-                    </div>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <strong>{user.username}</strong>
-                        {user.service_code && (
-                          <span style={{ fontSize: '12px', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', color: '#475569', fontWeight: 600 }}>
-                            {user.service_code} {user.service_complement && `| ${user.service_complement}`}
-                          </span>
-                        )}
-                        <span className={`role-badge ${user.role}`}>{user.role}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
-                        <Clock size={12} />
-                        <span>Dernière activité : {formatActivityDate(user.last_activity)}</span>
-                      </div>
+                    <strong>{u.username}</strong>
+                    <div style={{ display: 'flex', gap: '10px', fontSize: '12px', color: '#64748b' }}>
+                      <span>Rôle: {u.role}</span>
+                      <span>Activé: {formatActivityDate(u.last_activity)}</span>
                     </div>
                   </div>
                   <div className="tile-actions">
-                    <button className="btn-icon" title="Modifier" onClick={() => setEditingUser(user)}>
-                      <Edit2 size={20} color="var(--secondary-color)" />
-                    </button>
-                    <button 
-                      className="btn-icon" 
-                      title="Supprimer" 
-                      onClick={() => handleDeleteUser(user.id)}
-                      disabled={user.username === 'admin'}
-                    >
-                      <Trash2 size={20} color="var(--primary-color)" />
-                    </button>
+                    <button className="btn-icon" onClick={() => setEditingUser(u)}><Edit2 size={20} color="var(--secondary-color)" /></button>
+                    <button className="btn-icon" onClick={() => handleDeleteUser(u.id)} disabled={u.username === 'admin'}><Trash2 size={20} color="var(--primary-color)" /></button>
                   </div>
                 </div>
               ))}
-            </section>
-          </>
-        )}
-
-        {activeTab === 'system' && (
-          <>
-            <div className="section-header">
-              <h2>Paramètres Système</h2>
             </div>
-            
-            <section className="admin-section">
-              <div 
-                className="system-card" 
-                onClick={() => navigate('/admin/mail')} 
-                style={{ 
-                  cursor: 'pointer', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '20px', 
-                  padding: '25px', 
-                  border: '1px solid #e2e8f0', 
-                  borderRadius: '12px', 
-                  background: 'white', 
-                  transition: 'transform 0.2s, box-shadow 0.2s'
-                }}
-              >
-                <div style={{ background: '#eff6ff', color: '#3b82f6', padding: '15px', borderRadius: '10px' }}>
-                  <Settings size={32} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <h3 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>Paramètres de Messagerie</h3>
-                  <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>
-                    Configurez le relais SMTP, le proxy et le template des mails envoyés par l'application.
-                  </p>
-                </div>
-                <button className="btn btn-primary">Configurer</button>
-              </div>
-            </section>
-          </>
+          </div>
         )}
       </main>
 
       <style>{`
-        .admin-page { padding-bottom: 50px; }
-        .admin-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 40px 0;
-          border-bottom: 1px solid #eee;
-          margin-bottom: 30px;
-        }
-        .admin-header h1 { color: var(--secondary-color); font-weight: 800; margin: 0; }
+        .admin-page { padding-bottom: 50px; background: #f8fafc; min-height: 100vh; }
+        .admin-header { padding: 40px 0; border-bottom: 1px solid #e2e8f0; margin-bottom: 30px; }
+        .back-btn { background: white !important; border: 1px solid #e2e8f0 !important; border-radius: 12px !important; padding: 10px !important; margin-right: 10px; color: var(--color-navy); }
+        .back-btn:hover { background: #f1f5f9 !important; }
         
-        .admin-tabs { display: flex; gap: 10px; }
-        .tab-btn {
-          padding: 10px 20px;
-          border-radius: 6px;
-          border: 1px solid #ddd;
-          background: white;
-          cursor: pointer;
-          font-weight: 600;
-          transition: all 0.2s;
-        }
-        .tab-btn.active {
-          background: var(--secondary-color);
-          color: white;
-          border-color: var(--secondary-color);
-        }
+        .admin-dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px; }
+        .admin-tile-card { background: white; padding: 30px; border-radius: 16px; border: 1px solid #e2e8f0; cursor: pointer; transition: all 0.2s; display: flex; align-items: flex-start; gap: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .admin-tile-card:hover { transform: translateY(-4px); box-shadow: 0 12px 20px -5px rgba(0,0,0,0.1); border-color: var(--primary-color); }
+        .admin-tile-icon { padding: 15px; border-radius: 12px; color: white; display: flex; align-items: center; justify-content: center; }
+        .admin-tile-content h3 { margin: 0 0 8px 0; color: var(--color-navy); font-weight: 800; font-size: 1.1rem; }
+        .admin-tile-content p { margin: 0; color: #64748b; font-size: 0.9rem; line-height: 1.5; }
 
-        .section-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 20px;
-        }
-        .section-header h2 { font-size: 1.5rem; color: var(--secondary-color); margin: 0; }
-
-        .admin-section {
-          background: var(--white);
-          padding: 30px;
-          border-radius: 8px;
-          margin-bottom: 30px;
-          box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        }
-        .admin-form {
-          display: grid;
-          gap: 15px;
-          margin-top: 20px;
-        }
-        .admin-form input, .admin-form textarea, .admin-form select {
-          padding: 12px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-family: inherit;
-        }
-        .form-actions { display: flex; gap: 10px; }
-
-        .admin-tile-row {
-          background: var(--white);
-          padding: 20px;
-          border-radius: 8px;
-          margin-bottom: 15px;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
+        .admin-section { background: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+        .admin-form { display: grid; gap: 15px; }
+        .admin-form input, .admin-form textarea, .admin-form select { padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+        .admin-tile-row { background: white; padding: 20px; border-radius: 12px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+        .tile-icon-preview { width: 48px; height: 48px; background: #f1f5f9; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: var(--primary-color); margin-right: 20px; }
+        .icon-grid-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(45px, 1fr)); gap: 8px; max-height: 180px; overflow-y: auto; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; }
+        .icon-option { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; border: 1px solid #f1f5f9; background: #f8fafc; border-radius: 8px; cursor: pointer; }
+        .icon-option.selected { border-color: #3b82f6; background: #eff6ff; color: #2563eb; }
+        .btn-icon { background: none; border: none; cursor: pointer; padding: 8px; transition: all 0.2s; }
+        .btn-icon:hover { background: #f1f5f9; border-radius: 8px; }
         
-        .user-info { display: flex; align-items: center; gap: 15px; }
-        .user-avatar {
-          width: 40px;
-          height: 40px;
-          background: #f0f0f0;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #666;
-        }
-        .role-badge {
-          margin-left: 10px;
-          font-size: 11px;
-          text-transform: uppercase;
-          padding: 2px 8px;
-          border-radius: 10px;
-          font-weight: bold;
-        }
-        .role-badge.admin { background: #ffebeb; color: var(--primary-color); }
-        .role-badge.finances { background: #e8f5e9; color: #2e7d32; }
-        .role-badge.user { background: #e3f2fd; color: #1976d2; }
-
-        .tile-info p { color: #666; font-size: 14px; margin: 5px 0 10px; }
-        .tile-links-admin { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-        .admin-link-badge {
-          background: var(--bg-color);
-          padding: 4px 10px;
-          border-radius: 20px;
-          font-size: 12px;
-          display: flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .admin-link-badge button { background: none; display: flex; align-items: center; cursor: pointer; border: none; }
-        .btn-add-link {
-          background: none;
-          color: var(--primary-color);
-          font-size: 12px;
-          font-weight: 600;
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          border: none;
-          cursor: pointer;
-        }
-        .btn-icon { background: none; padding: 10px; border-radius: 50%; transition: var(--transition); border: none; cursor: pointer; }
-        .btn-icon:hover { background: rgba(0, 0, 0, 0.05); }
-        .btn-icon:disabled { opacity: 0.3; cursor: not-allowed; }
-
-        .system-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-        }
+        .links-management { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
+        .links-list { display: grid; gap: 10px; margin-bottom: 15px; }
+        .link-row { display: flex; align-items: center; gap: 10px; background: #f8fafc; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+        .link-label { font-weight: 700; width: 120px; }
+        .link-url { color: #64748b; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+        .add-link-form { display: flex; gap: 10px; align-items: center; }
+        .add-link-form input { flex: 1; padding: 8px !important; }
+        .checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+        
+        .link-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #f1f5f9; border-radius: 4px; font-size: 10px; font-weight: 600; color: #475569; margin-right: 5px; margin-top: 5px; }
+        .reorder-controls { display: flex; flex-direction: column; gap: 2px; margin-right: 15px; }
+        .btn-reorder { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 2px; }
+        .btn-reorder:disabled { opacity: 0.2; cursor: not-allowed; }
       `}</style>
     </div>
   );
 };
+
+const AdminTile: React.FC<{ title: string, description: string, icon: React.ReactNode, color: string, onClick: () => void }> = ({ title, description, icon, color, onClick }) => (
+  <div className="admin-tile-card" onClick={onClick}>
+    <div className="admin-tile-icon" style={{ backgroundColor: color }}>{icon}</div>
+    <div className="admin-tile-content">
+      <h3>{title}</h3>
+      <p>{description}</p>
+    </div>
+    <ChevronRight size={20} color="#cbd5e1" style={{ marginLeft: 'auto' }} />
+  </div>
+);
 
 export default Admin;

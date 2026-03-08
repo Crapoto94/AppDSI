@@ -154,26 +154,75 @@ async function setupDb() {
             uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS tiers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE,
+            nom TEXT,
+            activite TEXT,
+            siret TEXT,
+            adresse TEXT,
+            banque TEXT,
+            guichet TEXT,
+            compte TEXT,
+            cle_rib TEXT,
+            date_creation TEXT,
+            telephone TEXT,
+            fax TEXT,
+            tva_intra TEXT,
+            email TEXT,
+            origine TEXT
+        );
+CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tier_id INTEGER,
+    nom TEXT,
+    prenom TEXT,
+    role TEXT,
+    telephone TEXT,
+    email TEXT,
+    commentaire TEXT,
+    is_order_recipient INTEGER DEFAULT 0,
+    FOREIGN KEY (tier_id) REFERENCES tiers(id)
+);
+`);
+
+// Ensure columns exist for existing databases
+try { await db.run("ALTER TABLE contacts ADD COLUMN is_order_recipient INTEGER DEFAULT 0"); } catch (e) {}
+
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS tier_stats (
+            tier_id INTEGER PRIMARY KEY,
+            order_count INTEGER DEFAULT 0,
+            invoice_count INTEGER DEFAULT 0,
+            FOREIGN KEY (tier_id) REFERENCES tiers(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS column_settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             page TEXT,
             column_key TEXT,
             label TEXT,
-            is_visible BOOLEAN DEFAULT 1,
+            is_visible INTEGER DEFAULT 1,
             display_order INTEGER DEFAULT 0,
-            color TEXT,
-            is_bold BOOLEAN DEFAULT 0,
-            is_italic BOOLEAN DEFAULT 0,
+            color TEXT DEFAULT NULL,
+            is_bold INTEGER DEFAULT 0,
+            is_italic INTEGER DEFAULT 0,
             UNIQUE(page, column_key)
         );
-    `);
 
+        -- Initialize default columns for tiers stats if they don't exist
+        INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible, display_order, is_bold) 
+        VALUES ('tiers', 'order_count', 'Nb Commandes', 1, 98, 1);
+        INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible, display_order, is_bold) 
+        VALUES ('tiers', 'invoice_count', 'Nb Factures', 1, 99, 1);
+    `);
     // Initialize/Update column settings for all main tables
     const tableConfigs = [
         { page: 'lines', table: 'budget_lines' },
         { page: 'invoices', table: 'invoices' },
         { page: 'orders', table: 'orders' },
-        { page: 'operations', table: 'operations' }
+        { page: 'operations', table: 'operations' },
+        { page: 'tiers', table: 'tiers' }
     ];
 
     for (const config of tableConfigs) {
@@ -192,6 +241,9 @@ async function setupDb() {
     await db.run("UPDATE column_settings SET label = 'date' WHERE page = 'orders' AND column_key = 'Date de la commande'");
     await db.run("UPDATE column_settings SET label = 'nature' WHERE page = 'orders' AND column_key = 'Article par nature'");
     await db.run("UPDATE column_settings SET label = 'fonction' WHERE page = 'orders' AND column_key = 'Article par fonction'");
+
+    // Update specific column labels for invoices
+    await db.run("UPDATE column_settings SET label = 'tiers' WHERE page = 'invoices' AND column_key = 'Fournisseur'");
 
     // Update labels for operations
     await db.run("UPDATE column_settings SET label = 'Service' WHERE page = 'operations' AND column_key = 'Service'");
@@ -221,6 +273,30 @@ async function setupDb() {
             api_key TEXT,
             template_html TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS email_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slug TEXT UNIQUE,
+            label TEXT,
+            context TEXT, -- 'envoi_commande', 'relance_facture', etc.
+            subject TEXT,
+            body TEXT
+        );
+    `);
+
+    // Add context column if it doesn't exist (for existing databases)
+    try {
+        await db.run("ALTER TABLE email_templates ADD COLUMN context TEXT");
+    } catch (e) {
+        // Column already exists
+    }
+
+    // Seed default order template
+    await db.run(`
+        INSERT OR IGNORE INTO email_templates (slug, label, context, subject, body)
+        VALUES ('NOUVELLE_COMMANDE', 'Envoi de Bon de Commande', 'envoi_commande', 
+        'Nouveau document concernant votre commande - Ivry-sur-Seine',
+        'Bonjour,\n\nVeuillez trouver ci-joint un document relatif à votre commande.\n\nCordialement,\nLe service DSI - Ville d''Ivry-sur-Seine')
     `);
 
     const existingSettings = await db.get('SELECT * FROM mail_settings WHERE id = 1');
@@ -278,6 +354,23 @@ async function setupDb() {
     if (!adminUser) {
         const hashedPassword = await bcrypt.hash('admin123', 10);
         await db.run('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', ['admin', hashedPassword, 'admin']);
+    }
+
+    // Add Tiers tile if it doesn't exist
+    const tiersTile = await db.get('SELECT * FROM tiles WHERE title = ?', ['Tiers']);
+    if (!tiersTile) {
+        const result = await db.run('INSERT INTO tiles (title, icon, description, sort_order) VALUES (?, ?, ?, ?)', [
+            'Tiers', 
+            'Users', 
+            'Gestion des fournisseurs et des contacts.', 
+            3
+        ]);
+        await db.run('INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)', [
+            result.lastID,
+            'Accéder à la gestion des tiers',
+            '/tiers',
+            1
+        ]);
     }
 
     return db;

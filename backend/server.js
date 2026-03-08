@@ -3,6 +3,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const setupDb = require('./db');
+const updateTierStats = require('./update_tier_stats');
 const multer = require('multer');
 const xlsx = require('xlsx');
 const fs = require('fs');
@@ -50,6 +51,7 @@ const storage = multer.diskStorage({
     }
 });
 const upload = multer({ storage });
+const uploadMemory = multer({ storage: multer.memoryStorage() });
 
 const app = express();
 const PORT = 3001;
@@ -60,6 +62,11 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json());
+// Désactiver le cache pour toutes les routes API
+app.use('/api', (req, res, next) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    next();
+});
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/file_commandes', express.static(path.join(__dirname, 'file_commandes')));
 app.use('/file_factures', express.static(path.join(__dirname, 'file_factures')));
@@ -632,11 +639,16 @@ app.post('/api/change-password', authenticateJWT, async (req, res) => {
 
 // Tiles Routes
 app.get('/api/tiles', authenticateJWT, async (req, res) => {
-    const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
-    for (const tile of tiles) {
-        tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
+    try {
+        const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
+        
+        for (const tile of tiles) {
+            tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
+        }
+        res.json(tiles);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des tuiles', error: error.message });
     }
-    res.json(tiles);
 });
 
 app.post('/api/tiles', authenticateAdmin, async (req, res) => {
@@ -666,6 +678,210 @@ app.post('/api/tiles/:tileId/links', authenticateAdmin, async (req, res) => {
 app.delete('/api/links/:id', authenticateAdmin, async (req, res) => {
     await db.run('DELETE FROM tile_links WHERE id = ?', [req.params.id]);
     res.json({ message: 'Link deleted' });
+});
+
+// Tiers API
+app.get('/api/tiers', authenticateJWT, async (req, res) => {
+    try {
+        const showAll = req.query.all === 'true';
+        
+        let query = `
+            SELECT t.*, ts.order_count, ts.invoice_count,
+                   (SELECT COUNT(*) FROM contacts c WHERE c.tier_id = t.id AND c.is_order_recipient = 1) as has_order_recipient
+            FROM tiers t
+            LEFT JOIN tier_stats ts ON t.id = ts.tier_id
+        `;        
+        if (!showAll) {
+            query += `
+                WHERE LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM orders)
+                   OR LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM invoices)
+            `;
+        }
+        
+        query += ` ORDER BY t.nom`;
+        
+        const tiers = await db.all(query);
+
+        // Global stats for the view
+        const globalStats = await db.get(`
+            SELECT 
+                (SELECT COUNT(*) FROM orders) as total_orders,
+                (SELECT COUNT(*) FROM invoices) as total_invoices,
+                (SELECT COUNT(*) FROM tiers) as total_tiers_all,
+                (SELECT COUNT(DISTINCT LOWER(TRIM(t.nom))) FROM tiers t WHERE LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM orders) OR LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM invoices)) as total_tiers_dsi
+        `);
+
+        res.json({ tiers, stats: globalStats || { total_orders: 0, total_invoices: 0, total_tiers_all: 0, total_tiers_dsi: 0 } });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des tiers', error: error.message });
+    }
+});
+
+app.post('/api/tiers/import', authenticateAdminOrFinances, uploadMemory.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+
+    try {
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        let updated = 0;
+        let created = 0;
+
+        for (const row of data) {
+            const code = row['Code'];
+            if (!code) continue;
+
+            const existing = await db.get('SELECT id FROM tiers WHERE code = ?', [code]);
+            
+            if (existing) {
+                // Mise à jour sans changer l'ID pour préserver les relations (contacts)
+                await db.run(`
+                    UPDATE tiers SET 
+                        nom = ?, activite = ?, siret = ?, adresse = ?, banque = ?, 
+                        guichet = ?, compte = ?, cle_rib = ?, date_creation = ?, 
+                        telephone = ?, fax = ?, tva_intra = ?, email = ?, origine = ?
+                    WHERE id = ?
+                `, [
+                    row['Nom'] ? row['Nom'].trim() : null,
+                    row['Activité'],
+                    row['SIRET'],
+                    row['Adresse (Usuelle)'],
+                    row['Banque'],
+                    row['Guichet'],
+                    row['N° compte'],
+                    row['Clé RIB'],
+                    row['Date de création'],
+                    row['Téléphone'],
+                    row['Fax'],
+                    row['Tva Intra'],
+                    row['Email'],
+                    row['Origine'],
+                    existing.id
+                ]);
+                updated++;
+            } else {
+                // Insertion d'un nouveau tiers
+                await db.run(`
+                    INSERT INTO tiers (
+                        code, nom, activite, siret, adresse, banque, guichet, 
+                        compte, cle_rib, date_creation, telephone, fax, 
+                        tva_intra, email, origine
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    code,
+                    row['Nom'] ? row['Nom'].trim() : null,
+                    row['Activité'],
+                    row['SIRET'],
+                    row['Adresse (Usuelle)'],
+                    row['Banque'],
+                    row['Guichet'],
+                    row['N° compte'],
+                    row['Clé RIB'],
+                    row['Date de création'],
+                    row['Téléphone'],
+                    row['Fax'],
+                    row['Tva Intra'],
+                    row['Email'],
+                    row['Origine']
+                ]);
+                created++;
+            }
+        }
+
+        await updateTierStats(db);
+
+        const msg = `Import Excel tiers: ${created} créés, ${updated} mis à jour`;
+        const time = new Date().toISOString();
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${time}] POST /api/tiers/import - 200 - par ${req.user.username}: ${msg}\n`);
+        
+        res.json({ message: 'Import réussi', created, updated });
+    } catch (error) {
+        console.error('Import error:', error);
+        res.status(500).json({ message: 'Erreur lors de l\'import', error: error.message });
+    }
+});
+
+app.get('/api/tiers/:id/contacts', authenticateJWT, async (req, res) => {
+    try {
+        const contacts = await db.all('SELECT * FROM contacts WHERE tier_id = ?', [req.params.id]);
+        res.json(contacts);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur contacts', error: error.message });
+    }
+});
+
+// Route de secours compatible avec l'ancienne version du frontend
+app.get('/api/tiers/:id/orders', authenticateJWT, async (req, res) => {
+    console.log(`Fallback orders route called for ID: ${req.params.id}`);
+    res.redirect(`/api/tiers/${req.params.id}/history`);
+});
+
+app.get('/api/tiers/:id/history', authenticateJWT, async (req, res) => {
+    try {
+        const tier = await db.get('SELECT nom FROM tiers WHERE id = ?', [req.params.id]);
+        if (!tier) return res.status(404).json({ message: 'Tiers non trouvé' });
+
+        const tierNom = tier.nom.trim();
+        
+        // Recherche robuste
+        const orders = await db.all('SELECT * FROM orders WHERE TRIM(UPPER("Fournisseur")) = TRIM(UPPER(?)) OR "Fournisseur" LIKE ?', [tierNom, `%${tierNom}%`]);
+        const invoices = await db.all('SELECT * FROM invoices WHERE TRIM(UPPER("Fournisseur")) = TRIM(UPPER(?)) OR "Fournisseur" LIKE ?', [tierNom, `%${tierNom}%`]);
+        
+        console.log(`Found ${orders.length} orders and ${invoices.length} invoices for ${tierNom}`);
+
+        // Version ultra-simplifiée pour test
+        const invoicesList = invoices.map(inv => ({
+            number: inv['N° Facture fournisseur'] || inv['N° Facture interne'] || 'Inconnu',
+            total_ttc: parseFloat(String(inv['Montant TTC']).replace(',', '.').replace(/[^\d.-]/g, '')) || 0,
+            lines: [inv],
+            hasFile: false,
+            filePath: null
+        }));
+
+        res.json({
+            orders: orders.map(o => ({ ...o, matchedInvoices: [] })),
+            invoices: invoicesList
+        });
+    } catch (error) {
+        console.error('Erreur historique:', error);
+        res.status(500).json({ message: 'Erreur historique', error: error.message });
+    }
+});
+
+app.post('/api/tiers/:tierId/contacts', authenticateJWT, async (req, res) => {
+    const { nom, prenom, role, telephone, email, commentaire, is_order_recipient } = req.body;
+    try {
+        const result = await db.run(
+            'INSERT INTO contacts (tier_id, nom, prenom, role, telephone, email, commentaire, is_order_recipient) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [req.params.tierId, nom, prenom, role, telephone, email, commentaire, is_order_recipient ? 1 : 0]
+        );
+        res.json({ id: result.lastID, message: 'Contact ajouté' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur ajout contact', error: error.message });
+    }
+});
+
+app.put('/api/contacts/:id', authenticateJWT, async (req, res) => {
+    const { nom, prenom, role, telephone, email, commentaire, is_order_recipient } = req.body;
+    try {
+        await db.run(
+            'UPDATE contacts SET nom = ?, prenom = ?, role = ?, telephone = ?, email = ?, commentaire = ?, is_order_recipient = ? WHERE id = ?',
+            [nom, prenom, role, telephone, email, commentaire, is_order_recipient ? 1 : 0, req.params.id]
+        );
+        res.json({ message: 'Contact mis à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur mise à jour contact', error: error.message });
+    }
+});
+
+app.delete('/api/contacts/:id', authenticateJWT, async (req, res) => {
+    try {
+        await db.run('DELETE FROM contacts WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Contact supprimé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur suppression contact', error: error.message });
+    }
 });
 
 // Budget & Invoices & Operations API
@@ -928,6 +1144,7 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
 
         currentStep = 'Logging import';
         await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['invoices', req.user.username]);
+        await updateTierStats(db);
         res.json({ message: `${imported} factures importées avec succès` });
     } catch (error) {
         console.error(`Import error during ${currentStep}:`, error);
@@ -1077,6 +1294,9 @@ app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
     // Map page to table name
     let tableName = page;
     if (page === 'lines') tableName = 'budget_lines';
+    if (page === 'orders') tableName = 'orders';
+    if (page === 'operations') tableName = 'operations';
+    if (page === 'tiers') tableName = 'tiers';
     
     let settings = await db.all('SELECT * FROM column_settings WHERE page = ?', [page]);
     
@@ -1171,6 +1391,51 @@ app.delete('/api/users/:id', authenticateAdmin, async (req, res) => {
     res.json({ message: 'User deleted' });
 });
 
+// Email Templates API
+app.get('/api/email-templates', authenticateAdmin, async (req, res) => {
+    try {
+        const templates = await db.all('SELECT * FROM email_templates');
+        res.json(templates);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur templates', error: error.message });
+    }
+});
+
+app.post('/api/email-templates', authenticateAdmin, async (req, res) => {
+    const { label, slug, context, subject, body } = req.body;
+    try {
+        await db.run(
+            'INSERT INTO email_templates (label, slug, context, subject, body) VALUES (?, ?, ?, ?, ?)',
+            [label, slug, context, subject, body]
+        );
+        res.json({ message: 'Modèle créé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur création template', error: error.message });
+    }
+});
+
+app.put('/api/email-templates/:id', authenticateAdmin, async (req, res) => {
+    const { label, slug, context, subject, body } = req.body;
+    try {
+        await db.run(
+            'UPDATE email_templates SET label = ?, slug = ?, context = ?, subject = ?, body = ? WHERE id = ?', 
+            [label, slug, context, subject, body, req.params.id]
+        );
+        res.json({ message: 'Modèle mis à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur mise à jour template', error: error.message });
+    }
+});
+
+app.delete('/api/email-templates/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await db.run('DELETE FROM email_templates WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Modèle supprimé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur suppression template', error: error.message });
+    }
+});
+
 // Attachments API
 app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
@@ -1181,23 +1446,132 @@ app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), asyn
         // Supprimer l'ancienne pièce jointe si elle existe
         const existing = await db.get('SELECT * FROM attachments WHERE target_type = ? AND target_id = ?', [target_type, target_id]);
         if (existing) {
-            if (fs.existsSync(existing.file_path)) {
-                fs.unlinkSync(existing.file_path);
-            }
+            const oldPath = path.join(__dirname, existing.file_path);
+            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
             await db.run('DELETE FROM attachments WHERE id = ?', [existing.id]);
         }
 
         const folder = target_type === 'order' ? 'file_commandes' : 'file_factures';
+        const filePath = `${folder}/${req.file.filename}`;
         const result = await db.run(
             'INSERT INTO attachments (target_type, target_id, file_path, original_name, username) VALUES (?, ?, ?, ?, ?)',
-            [target_type, target_id, `${folder}/${req.file.filename}`, req.file.filename, req.user.username]
+            [target_type, target_id, filePath, req.file.filename, req.user.username]
         );
+
         res.json({ id: result.lastID, original_name: req.file.originalname });
     } catch (error) {
         console.error('Upload DB error:', error);
         res.status(500).json({ message: 'Error saving attachment info', error: error.message });
     }
 });
+
+app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => {
+    try {
+        logMouchard(`[DEBUG] Recherche destinataires pour pièce jointe #${req.params.id}`);
+        const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+        if (!attachment) return res.status(404).json({ message: 'Pièce jointe non trouvée' });
+
+        const target_id = attachment.target_id;
+        const order = await db.get('SELECT Fournisseur FROM orders WHERE "N° Commande" = ? OR "N° Commande" LIKE ?', [target_id, `%${target_id}%`]);
+        
+        if (!order) {
+            logMouchard(`[DEBUG] Commande ${target_id} non trouvée`);
+            return res.status(404).json({ message: `Commande "${target_id}" non trouvée` });
+        }
+
+        const supplierName = (order.Fournisseur || '').trim();
+        logMouchard(`[DEBUG] Fournisseur dans commande: "${supplierName}"`);
+        
+        // Match RESILIENT : On enlève les espaces des deux côtés en SQL pour être certain
+        let tier = await db.get('SELECT id, nom FROM tiers WHERE TRIM(UPPER(nom)) = UPPER(?)', [supplierName]);
+        
+        if (!tier) {
+            logMouchard(`[DEBUG] Tiers non trouvé par nom exact, tentative par LIKE`);
+            tier = await db.get('SELECT id, nom FROM tiers WHERE nom LIKE ?', [`%${supplierName}%`]);
+        }
+        
+        if (!tier) {
+            logMouchard(`[DEBUG] ÉCHEC: Aucun tiers trouvé pour "${supplierName}"`);
+            return res.status(404).json({ message: `Fournisseur "${supplierName}" non trouvé dans la base des Tiers` });
+        }
+
+        logMouchard(`[DEBUG] Tiers identifié: ${tier.nom} (ID: ${tier.id})`);
+        const recipients = await db.all('SELECT nom, prenom, email FROM contacts WHERE tier_id = ? AND (is_order_recipient = 1 OR is_order_recipient = "1")', [tier.id]);
+        
+        logMouchard(`[DEBUG] Nombre de contacts trouvés: ${recipients.length}`);
+        res.json(recipients);
+    } catch (error) {
+        logMouchard(`[DEBUG] ERREUR CRITIQUE: ${error.message}`);
+        res.status(500).json({ message: 'Erreur récupération destinataires', error: error.message });
+    }
+});
+
+app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) => {
+    try {
+        const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+        if (!attachment) return res.status(404).json({ message: 'Pièce jointe non trouvée' });
+
+        const target_id = attachment.target_id;
+        const order = await db.get('SELECT Fournisseur FROM orders WHERE "N° Commande" = ? OR "N° Commande" LIKE ?', [target_id, `%${target_id}%`]);
+        
+        if (!order) return res.status(404).json({ message: 'Commande non trouvée' });
+
+        const supplierName = (order.Fournisseur || '').trim();
+        let tier = await db.get('SELECT id FROM tiers WHERE TRIM(UPPER(nom)) = UPPER(?)', [supplierName]);
+        if (!tier) {
+            tier = await db.get('SELECT id, nom FROM tiers WHERE nom LIKE ?', [`%${supplierName}%`]);
+        }
+        
+        if (!tier) return res.status(404).json({ message: `Fournisseur "${supplierName}" non trouvé` });
+
+        const recipients = await db.all('SELECT nom, prenom, email FROM contacts WHERE tier_id = ? AND is_order_recipient = 1', [tier.id]);
+        const emails = recipients.map(r => r.email).filter(e => e && e.includes('@'));
+
+        if (emails.length === 0) {
+            return res.status(400).json({ message: 'Aucun contact destinataire avec email valide.' });
+        }
+
+        const template = await db.get('SELECT * FROM email_templates WHERE slug = "NOUVELLE_COMMANDE"');
+        if (!template) return res.status(500).json({ message: 'Modèle email manquant' });
+
+        await sendMailWithAttachment(
+            emails.join(','),
+            template.subject,
+            template.body,
+            path.join(__dirname, attachment.file_path),
+            attachment.original_name
+        );
+
+        logMouchard(`[ENVOI] Commande ${target_id} envoyée à ${emails.join(', ')}`);
+        res.json({ message: `Commande envoyée à ${emails.length} contact(s).` });
+
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de l\'envoi', error: error.message });
+    }
+});
+
+// Helper Mail avec pièce jointe
+async function sendMailWithAttachment(to, subject, content, filePath, fileName) {
+    const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
+    if (!s) throw new Error("Paramètres mail non configurés");
+
+    const transporter = nodemailer.createTransport(
+        new brevoTransport({ apiKey: s.smtp_pass })
+    );
+    
+    const html = s.template_html.replace('{{content}}', content.replace(/\n/g, '<br>'));
+
+    await transporter.sendMail({
+        from: `"${s.sender_name}" <${s.sender_email}>`,
+        to,
+        subject,
+        html,
+        attachments: [{
+            filename: fileName,
+            path: filePath
+        }]
+    });
+}
 
 app.get('/api/attachments/:type/:id', authenticateJWT, async (req, res) => {
     const { type, id } = req.params;
@@ -1284,6 +1658,7 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
             }
         }
         await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['orders', req.user.username]);
+        await updateTierStats(db);
         res.json({ message: `${imported} commandes importées, ${updated} mises à jour` });
     } catch (error) {
         console.error('Import error:', error);

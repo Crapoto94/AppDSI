@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import * as Icons from 'lucide-react';
 import { ExternalLink, ArrowRight } from 'lucide-react';
 
@@ -151,8 +151,4 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
   );
 };
 
-
 export default Tile;
-
-
-

@@ -1,6 +1,17 @@
 {
-  "currentVersion": "0.2.2",
+  "currentVersion": "0.2.3",
   "history": [
+    {
+      "version": "0.2.3",
+      "date": "2026-03-08",
+      "changes": [
+        "Tiers : Ajout d'un module complet de gestion des tiers (fournisseurs) et de leurs contacts.",
+        "Commandes : Possibilité d'envoyer les bons de commande par email directement aux contacts ciblés.",
+        "Base de données : Mise à jour du schéma (tiers, contacts, tier_stats, email_templates) avec synchronisation automatique.",
+        "Administration : Refonte de l'interface de gestion des utilisateurs et des tuiles du Hub.",
+        "Interface : Amélioration du suivi des pièces jointes et intégration de l'action d'envoi dans la vue Budget."
+      ]
+    },
     {
       "version": "0.2.2",
       "date": "2026-03-07",
