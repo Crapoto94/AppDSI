@@ -9,7 +9,7 @@ const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 const ntlm = require('express-ntlm');
-const { PDFParse } = require('pdf-parse');
+const pdf = require('pdf-parse');
 const nodemailer = require('nodemailer');
 const brevoTransport = require('nodemailer-brevo-transport');
 
@@ -406,8 +406,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
 
         if (fileName.toLowerCase().endsWith('.pdf')) {
             const dataBuffer = fs.readFileSync(filePath);
-            const parser = new PDFParse({ data: dataBuffer });
-            const pdfData = await parser.getText();
+            const pdfData = await pdf(dataBuffer);
             content = pdfData.text;
             const logParsed = `PDF Parsed successfully. Text length: ${content.length}`;
             console.log(logParsed);
