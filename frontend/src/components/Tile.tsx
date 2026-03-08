@@ -15,9 +15,11 @@ interface TileProps {
   description: string;
   links: TileLink[];
   status?: 'active' | 'maintenance' | 'soon';
+  orphan_orders?: number;
+  orphan_invoices?: number;
 }
 
-const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = 'active' }) => {
+const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = 'active', orphan_orders, orphan_invoices }) => {
   // Dynamically get icon from lucide-react
   // @ts-expect-error Lucide icons dynamically loaded
   const IconComponent = Icons[icon.charAt(0).toUpperCase() + icon.slice(1)] || Icons.Box;
@@ -41,6 +43,11 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
 
       <div className="tile-icon">
         <IconComponent size={32} />
+        {status === 'active' && (orphan_orders || orphan_invoices) ? (
+          <div className="orphan-badge" title="Éléments non rapprochés">
+            {(orphan_orders || 0) + (orphan_invoices || 0)}
+          </div>
+        ) : null}
       </div>
       <h3 className="tile-title">{title}</h3>
       <p className="tile-description">{description}</p>
@@ -105,6 +112,24 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
           background: rgba(227, 6, 19, 0.05);
           padding: 15px;
           border-radius: 50%;
+          position: relative;
+        }
+        .orphan-badge {
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          background: var(--primary-color);
+          color: white;
+          border-radius: 50%;
+          width: 22px;
+          height: 22px;
+          font-size: 11px;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+          border: 2px solid white;
         }
         .tile.maintenance .tile-icon { color: #f59e0b; background: #fffbeb; }
         .tile.soon .tile-icon { color: #64748b; background: #f8fafc; }

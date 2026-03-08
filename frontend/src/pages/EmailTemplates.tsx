@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Save, ArrowLeft, Eye, Plus, Trash2, FileText, Code, Shield } from 'lucide-react';
+import { Save, ArrowLeft, Eye, Plus, Trash2, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const DEFAULT_TEMPLATE = `<!DOCTYPE html>

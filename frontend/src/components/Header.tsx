@@ -9,7 +9,7 @@ const Header: React.FC = () => {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [changelog, setChangelog] = useState<any>(null);
   const [showModal, setShowModal] = useState(false);
-  const [winLogin, setWinLogin] = useState<string | null>(null);
+  const [, setWinLogin] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/changelog')

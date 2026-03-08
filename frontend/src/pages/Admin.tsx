@@ -2,12 +2,10 @@ import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import * as Icons from 'lucide-react';
 import { 
-  Plus, Trash2, X, UserPlus, Users, Edit2, Clock, Settings, 
-  ChevronUp, ChevronDown, Check, Search, Info, LayoutDashboard,
-  Wallet, FileCheck, ShieldCheck, FileText, Database, Mail,
-  Calendar, CreditCard, Building2, Briefcase, BarChart3,
-  HardDrive, Globe, Lock, AlertTriangle, HelpCircle, Box,
-  ChevronRight, ArrowLeft, Link as LinkIcon, ExternalLink
+  Plus, Trash2, X, UserPlus, Users, Edit2, 
+  ChevronUp, ChevronDown, Check, LayoutDashboard,
+  FileText, Mail, ChevronRight, ArrowLeft,
+  Link as LinkIcon, ExternalLink
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Header from '../components/Header';
-import { Users, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Info, Phone, Mail, MapPin, Plus, Edit2, Trash2, FileText, CheckCircle, ChevronRight, ArrowUp, ArrowDown, Upload, ShoppingCart } from 'lucide-react';
+import { Users, Search, X, Columns, Eye, EyeOff, Info, Phone, Mail, MapPin, Plus, Edit2, Trash2, FileText, CheckCircle, ChevronRight, ArrowUp, ArrowDown, Upload, ShoppingCart } from 'lucide-react';
 
 interface Tier {
   id: number;
@@ -544,7 +544,9 @@ const Tiers: React.FC = () => {
                                       }}
                                     >
                                       {col.column_key === 'nom' && hasRecipientInGroup && (
-                                        <ShoppingCart size={14} style={{ color: 'var(--color-ivry)', marginRight: '8px', verticalAlign: 'middle' }} title="Destinataire des commandes" />
+                                        <span title="Destinataire des commandes">
+                                          <ShoppingCart size={14} style={{ color: 'var(--color-ivry)', marginRight: '8px', verticalAlign: 'middle' }} />
+                                        </span>
                                       )}
                                       {val}
                                     </td>
@@ -736,7 +738,7 @@ const Tiers: React.FC = () => {
                             </div>
                           )}
                           <div style={{ display: 'flex', gap: '1rem' }}>
-                            <div style={{ width: '3rem', height: '3rem', borderRadius: '50%', background: 'var(--color-blue-50)', color: 'var(--color-navy)', display: 'flex', alignItems: 'center', justifyCenter: 'center', fontWeight: 800, fontSize: '1.1rem', flexShrink: 0 }}>
+                            <div style={{ width: '3rem', height: '3rem', borderRadius: '50%', background: 'var(--color-blue-50)', color: 'var(--color-navy)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '1.1rem', flexShrink: 0 }}>
                               {contact.prenom?.[0] || ''}{contact.nom?.[0] || ''}
                             </div>
                             <div>
