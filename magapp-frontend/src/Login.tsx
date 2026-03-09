@@ -1,4 +1,5 @@
 import React from 'react';
+import { Loader2 } from 'lucide-react';
 import logoDsiHub from './assets/logo-dsi-hub.svg';
 
 interface LoginProps {
@@ -17,7 +18,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, isAutoLogging }) => {
 
         {isAutoLogging ? (
           <div className="auto-login-status">
-            <div className="spinner" style={{ display: 'inline-block' }}></div> {/* Placeholder for spinner */}
+            <Loader2 className="spinner" size={40} />
             <p>Connexion SSO en cours...</p>
             <span>Vérification de votre session Windows</span>
           </div>
