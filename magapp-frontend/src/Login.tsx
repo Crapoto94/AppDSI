@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { User, Lock, Loader2, LogIn } from 'lucide-react';
+import React from 'react';
 import logoDsiHub from './assets/logo-dsi-hub.svg';
 
 interface LoginProps {
@@ -8,36 +7,6 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess, isAutoLogging }) => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      const response = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        onLoginSuccess(data.user, data.accessToken);
-      } else {
-        setError(data.message || 'Identifiants invalides');
-      }
-    } catch (err) {
-      setError('Impossible de contacter le serveur');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="login-screen">
@@ -49,7 +18,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, isAutoLogging }) => {
 
         {isAutoLogging ? (
           <div className="auto-login-status">
-            <Loader2 className="spinner" size={40} />
+            <div className="spinner" style={{ display: 'inline-block' }}></div> {/* Placeholder for spinner */}
             <p>Connexion SSO en cours...</p>
             <span>Vérification de votre session Windows</span>
           </div>
