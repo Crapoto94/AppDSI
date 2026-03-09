@@ -4413,3 +4413,21 @@ Stack: TypeError: pdf is not a function
 [2026-03-09T10:38:41.917Z] GET /api/magapp/categories - 200 - par Utilisateur authentifié (2ms)
 [2026-03-09T10:38:41.918Z] GET /api/magapp/apps - 200 - par Utilisateur authentifié (3ms)
 [2026-03-09T10:38:41.920Z] GET /api/magapp/stats - 200 - par Utilisateur authentifié (5ms)
+[2026-03-09T10:39:19.427Z] GET /api/changelog - 200 - par Anonyme (1ms)
+[2026-03-09T10:39:19.429Z] GET /api/magapp/apps - 200 - par Utilisateur authentifié (1ms)
+[2026-03-09T10:39:19.429Z] GET /api/magapp/categories - 200 - par Utilisateur authentifié (1ms)
+[2026-03-09T10:39:19.604Z] GET /api/magapp/icons - 200 - par Utilisateur authentifié (1ms)
+[2026-03-09T10:39:19.607Z] GET /api/magapp/stats - 200 - par Utilisateur authentifié (4ms)
+[2026-03-09T10:39:19.741Z] GET /api/changelog - 200 - par Anonyme (1ms)
+[2026-03-09T10:39:19.743Z] GET /api/magapp/apps - 200 - par Utilisateur authentifié (3ms)
+[2026-03-09T10:39:19.744Z] GET /api/magapp/categories - 200 - par Utilisateur authentifié (3ms)
+[2026-03-09T10:39:19.915Z] GET /api/magapp/icons - 200 - par Utilisateur authentifié (1ms)
+[2026-03-09T10:39:19.919Z] GET /api/magapp/stats - 200 - par Utilisateur authentifié (3ms)
+[2026-03-09T10:39:53.122Z] Multer Destination: type=undefined, folder=uploads, dest=C:\hubdsi\backend\uploads
+[2026-03-09T10:39:53.123Z] Multer Filename: target_id=undefined, final_name=unknown.jpg
+[2026-03-09T10:39:53.132Z] POST /api/magapp/icons/upload - 200 - par Utilisateur authentifié (15ms)
+[2026-03-09T10:39:53.146Z] GET /api/magapp/icons - 200 - par Utilisateur authentifié (1ms)
+[2026-03-09T10:40:02.287Z] Multer Destination: type=undefined, folder=uploads, dest=C:\hubdsi\backend\uploads
+[2026-03-09T10:40:02.287Z] Multer Filename: target_id=undefined, final_name=unknown.jpg
+[2026-03-09T10:40:02.293Z] POST /api/magapp/icons/upload - 200 - par Utilisateur authentifié (7ms)
+[2026-03-09T10:40:02.536Z] GET /api/magapp/icons - 200 - par Utilisateur authentifié (1ms)

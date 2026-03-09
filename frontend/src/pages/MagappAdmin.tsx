@@ -132,6 +132,53 @@ const MagappAdmin: React.FC = () => {
     }
   };
 
+  const handleDeleteApp = async (id: number) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer cette application ?")) return;
+    const response = await fetch(`/api/magapp/apps/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (response.ok) {
+      fetchData();
+    }
+  };
+
+  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('target_type', 'magapp_icon');
+
+    try {
+      const response = await fetch('/api/magapp/icons/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const iconsRes = await fetch('/api/magapp/icons', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (iconsRes.ok) {
+          setAvailableIcons(await iconsRes.json());
+        }
+        if (showIconSelector.type === 'new') {
+          setNewApp({ ...newApp, icon: data.path });
+        } else if (editingApp) {
+          setEditingApp({ ...editingApp, icon: data.path });
+        }
+        setShowIconSelector({ ...showIconSelector, open: false });
+      } else {
+        alert("Erreur lors de l'upload de l'icône");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erreur de connexion");
+    }
+  };
+
   const handleSaveCategory = async (catData: Partial<Category>, isEditing: boolean) => {
     const url = isEditing ? `/api/magapp/categories/${catData.id}` : '/api/magapp/categories';
     const method = isEditing ? 'PUT' : 'POST';
@@ -342,7 +389,22 @@ const MagappAdmin: React.FC = () => {
             <div className="modal-content icon-picker-modal" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>Choisir une icône locale</h2>
-                <button className="close-btn" onClick={() => setShowIconSelector({ ...showIconSelector, open: false })}><X size={20} /></button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <input 
+                    type="file" 
+                    id="icon-upload" 
+                    style={{ display: 'none' }} 
+                    accept="image/*"
+                    onChange={handleIconUpload}
+                  />
+                  <button 
+                    className="upload-icon-btn"
+                    onClick={() => document.getElementById('icon-upload')?.click()}
+                  >
+                    <Plus size={16} /> Uploader une image
+                  </button>
+                  <button className="close-btn" onClick={() => setShowIconSelector({ ...showIconSelector, open: false })}><X size={20} /></button>
+                </div>
               </div>
               <div className="icons-grid">
                 {availableIcons.map(iconPath => (
@@ -875,6 +937,24 @@ const MagappAdmin: React.FC = () => {
           font-size: 0.85rem;
           font-weight: 600;
           cursor: pointer;
+        }
+
+        .upload-icon-btn {
+          background: #10b981;
+          color: white;
+          border: none;
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .upload-icon-btn:hover {
+          background: #059669;
         }
 
         .modal-overlay {
