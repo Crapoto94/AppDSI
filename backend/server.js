@@ -174,6 +174,24 @@ app.get('/api/changelog', (req, res) => {
     }
 });
 
+app.get('/api/magapp/categories', async (req, res) => {
+    try {
+        const categories = await db.all('SELECT * FROM magapp_categories ORDER BY display_order ASC, name ASC');
+        res.json(categories);
+    } catch (err) {
+        res.status(500).json({ message: 'Error fetching categories' });
+    }
+});
+
+app.get('/api/magapp/apps', async (req, res) => {
+    try {
+        const apps = await db.all('SELECT * FROM magapp_apps ORDER BY display_order ASC, name ASC');
+        res.json(apps);
+    } catch (err) {
+        res.status(500).json({ message: 'Error fetching apps' });
+    }
+});
+
 let db;
 
 // Initialize Database
@@ -420,7 +438,10 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
         // Example: BD1293791132-60572, 02/03/2026, JEAN FRANCOIS LORES, jflores@ivry94.fr, OE2-DMT-MKY-3A, Dématérialisation - G2 - 3 ans
         const orderMatch = content.match(/BD\d+-\d+/);
         const dateMatch = content.match(/\d{2}\/\d{2}\/\d{4}/);
-        const emailMatch = content.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        let emailMatch = content.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        if (emailMatch) {
+            emailMatch[0] = emailMatch[0].replace(/^[A-Z]{2,}(?=[a-z])/, '');
+        }
         const productCodeMatch = content.match(/(OE2|OP2)-[A-Z0-9-]+/);
         
         // Helper to format DD/MM/YYYY to YYYY-MM-DD

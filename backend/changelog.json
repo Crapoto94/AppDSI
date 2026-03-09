@@ -1,6 +1,13 @@
 {
-  "currentVersion": "0.2.3",
+  "currentVersion": "0.2.4",
   "history": [
+    {
+      "version": "0.2.4",
+      "date": "2026-03-09",
+      "changes": [
+        "Certificats : Correction de l'extraction de l'adresse email lors de l'import PDF pour éviter la concaténation avec le nom de famille."
+      ]
+    },
     {
       "version": "0.2.3",
       "date": "2026-03-08",

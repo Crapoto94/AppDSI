@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -22,7 +22,7 @@
     "nodemailer": "^8.0.1",
     "nodemailer-brevo-transport": "^2.2.1",
     "nodemailer-sendinblue-transport": "^2.0.1",
-    "pdf-parse": "^2.4.5",
+    "pdf-parse": "^1.1.1",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
     "xlsx": "^0.18.5"

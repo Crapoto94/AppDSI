@@ -373,6 +373,43 @@ try { await db.run("ALTER TABLE contacts ADD COLUMN is_order_recipient INTEGER D
         ]);
     }
 
+    // Magasin d'applications tables
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS magapp_categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            icon TEXT,
+            display_order INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS magapp_apps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category_id INTEGER,
+            name TEXT NOT NULL,
+            description TEXT,
+            url TEXT,
+            icon TEXT,
+            display_order INTEGER DEFAULT 0,
+            FOREIGN KEY(category_id) REFERENCES magapp_categories(id)
+        );
+    `);
+
+    // Add Magasin d'application tile if it doesn't exist
+    const magappTile = await db.get('SELECT * FROM tiles WHERE title = ?', ["Magasin d'application"]);
+    if (!magappTile) {
+        const result = await db.run('INSERT INTO tiles (title, icon, description, sort_order) VALUES (?, ?, ?, ?)', [
+            "Magasin d'application", 
+            'LayoutGrid', 
+            'Accès au magasin des applications de la ville.', 
+            4
+        ]);
+        await db.run('INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)', [
+            result.lastID,
+            'Ouvrir le Magasin',
+            'http://localhost:5174',
+            0
+        ]);
+    }
+
     return db;
 }
 
