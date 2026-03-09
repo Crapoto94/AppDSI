@@ -1,6 +1,13 @@
 {
-  "currentVersion": "0.2.12",
+  "currentVersion": "0.2.13",
   "history": [
+    {
+      "version": "0.2.13",
+      "date": "2026-03-09",
+      "changes": [
+        "Administration MagApp : Correction d'une erreur d'import (Bell icon) causant une page blanche."
+      ]
+    },
     {
       "version": "0.2.12",
       "date": "2026-03-09",
