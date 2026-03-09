@@ -7,6 +7,8 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    host: true,
+    allowedHosts: ['po22038', 'PO22038'],
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

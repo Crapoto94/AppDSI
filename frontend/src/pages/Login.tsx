@@ -10,13 +10,39 @@ const Login: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const attemptAutoLogin = async () => {
-      // Si l'utilisateur s'est déconnecté manuellement, on ne le reconnecte pas automatiquement
-      if (localStorage.getItem('manualLogout') === 'true') {
-        setIsAutoLogging(false);
+    const attemptAuth = async () => {
+      // 1. Si on est déjà connecté via localStorage, on redirige vers l'accueil
+      if (localStorage.getItem('token')) {
+        navigate('/');
         return;
       }
 
+      // 2. Vérifier si on a des infos dans l'URL (Retour de SSO Redirect)
+      const params = new URLSearchParams(window.location.search);
+      const urlLogin = params.get('login');
+      const urlName = params.get('name');
+      const urlEmail = params.get('email');
+
+      if (urlLogin) {
+        // Tentative d'auto-login avec ce login Windows
+        try {
+          const response = await fetch(`/api/auth/auto-login?login=${urlLogin}`, { credentials: 'include' });
+          if (response.ok) {
+            const data = await response.json();
+            localStorage.setItem('token', data.accessToken);
+            localStorage.setItem('user', JSON.stringify(data.user));
+            localStorage.removeItem('manualLogout');
+            // Nettoyer l'URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            navigate('/');
+            return;
+          }
+        } catch (err) {
+          console.error('Auto-login from URL error:', err);
+        }
+      }
+
+      // 3. Tentative d'auto-login direct (NTLM silencieux)
       try {
         const response = await fetch('/api/auth/auto-login', { credentials: 'include' });
         if (response.ok) {
@@ -25,20 +51,24 @@ const Login: React.FC = () => {
           localStorage.setItem('user', JSON.stringify(data.user));
           localStorage.removeItem('manualLogout');
           navigate('/');
+          return;
         }
       } catch (err) {
         console.error('Auto-login error:', err);
-      } finally {
-        setIsAutoLogging(false);
       }
+
+      // 4. Si toujours rien, on tente la redirection SSO réelle une seule fois
+      if (!sessionStorage.getItem('sso_attempted') && !localStorage.getItem('manualLogout')) {
+        sessionStorage.setItem('sso_attempted', 'true');
+        window.location.href = `/api/auth/sso-redirect?redirect=${encodeURIComponent(window.location.href)}`;
+        return;
+      }
+
+      // 5. Sinon, on affiche le formulaire de login
+      setIsAutoLogging(false);
     };
 
-    // Si on est déjà connecté, on redirige
-    if (localStorage.getItem('token')) {
-      navigate('/');
-    } else {
-      attemptAutoLogin();
-    }
+    attemptAuth();
   }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {

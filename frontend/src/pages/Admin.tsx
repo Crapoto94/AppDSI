@@ -5,7 +5,8 @@ import {
   Plus, Trash2, X, UserPlus, Users, Edit2, 
   ChevronUp, ChevronDown, Check, LayoutDashboard, LayoutGrid,
   FileText, Mail, ChevronRight, ArrowLeft,
-  Link as LinkIcon, ExternalLink
+  Link as LinkIcon, ExternalLink, Loader2, Search, ShieldCheck, Radio, AlertCircle, Save,
+  Power, Zap, CheckCircle2, AlertTriangle, HelpCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -67,7 +68,7 @@ const AVAILABLE_ICONS = [
 ];
 
 const Admin: React.FC = () => {
-  const [activeSection, setActiveSection] = useState<'main' | 'tiles' | 'users'>('main');
+  const [activeSection, setActiveSection] = useState<'main' | 'tiles' | 'users' | 'ad'>('main');
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
   const [newTile, setNewTile] = useState({ title: '', icon: 'Box', description: '', status: 'active' as any });
@@ -76,6 +77,21 @@ const Admin: React.FC = () => {
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
+  
+  // Active Directory states
+  const [adConfig, setAdConfig] = useState({ 
+    is_enabled: false,
+    host: '10.103.130.118', 
+    port: 389,
+    base_dn: 'DC=ivry,DC=local',
+    required_group: 'gantto',
+    bind_dn: 'CN=testo,OU=IRS,OU=IVRY,DC=ivry,DC=local',
+    bind_password: ''
+  });
+  const [testUser, setTestUser] = useState({ username: '' });
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
@@ -93,10 +109,98 @@ const Admin: React.FC = () => {
     if (response.ok) setUsers(await response.json());
   };
 
+  const fetchADSettings = async () => {
+    try {
+      const response = await fetch('/api/ad-settings', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAdConfig({ 
+          is_enabled: !!data.is_enabled,
+          host: data.host || '',
+          port: data.port || 389,
+          base_dn: data.base_dn || '',
+          required_group: data.required_group || '',
+          bind_dn: data.bind_dn || '',
+          bind_password: data.bind_password || ''
+        });
+      }
+    } catch (error) {
+      console.error('Erreur chargement AD:', error);
+    }
+  };
+
   useEffect(() => {
-    fetchTiles();
-    fetchUsers();
-  }, []);
+    if (activeSection === 'tiles') fetchTiles();
+    if (activeSection === 'users') fetchUsers();
+    if (activeSection === 'ad') fetchADSettings();
+    if (activeSection === 'main') { fetchTiles(); fetchUsers(); }
+  }, [activeSection]);
+
+  const handleSaveAD = async () => {
+    setIsSaving(true);
+    setTestResult(null);
+    try {
+      const response = await fetch('/api/ad-settings', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(adConfig)
+      });
+      if (response.ok) {
+        setTestResult({ success: true, message: 'Configuration enregistrée avec succès.' });
+      } else {
+        setTestResult({ success: false, message: 'Erreur lors de l\'enregistrement.' });
+      }
+    } catch (error) {
+      setTestResult({ success: false, message: 'Erreur de connexion.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handlePingAD = async () => {
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const response = await fetch('/api/auth/ad-ping', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(adConfig)
+      });
+      const data = await response.json();
+      setTestResult({ success: response.ok, message: data.message });
+    } catch (error) {
+      setTestResult({ success: false, message: 'Erreur de liaison au serveur AD.' });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    // Gardé pour compatibilité si besoin, mais handlePingAD est plus spécifique au bouton demandé
+    handlePingAD();
+  };
+
+  const handleVerifyUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testUser.username) return;
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const response = await fetch('/api/auth/ad-test', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...adConfig, username: testUser.username })
+      });
+      const data = await response.json();
+      setTestResult({ success: response.ok, message: data.message, data: data.data });
+    } catch (error) {
+      setTestResult({ success: false, message: 'Erreur de recherche.' });
+    } finally {
+      setIsTesting(false);
+    }
+  };
 
   const handleAddTile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,7 +246,6 @@ const Admin: React.FC = () => {
     if (res.ok) {
       setNewLink({ label: '', url: '', is_internal: true });
       fetchTiles();
-      // Update editing tile links if we are editing it
       if (editingTile && editingTile.id === tileId) {
         const updatedTiles = await (await fetch('/api/tiles', { headers: { 'Authorization': `Bearer ${token}` } })).json();
         const updatedTile = updatedTiles.find((t: any) => t.id === tileId);
@@ -237,7 +340,8 @@ const Admin: React.FC = () => {
             )}
             <h1 style={{ color: 'var(--color-navy)', fontWeight: 800, margin: 0 }}>
               {activeSection === 'main' ? 'Administration Système' : 
-               activeSection === 'tiles' ? 'Configuration du Hub' : 'Gestion des Utilisateurs'}
+               activeSection === 'tiles' ? 'Configuration du Hub' : 
+               activeSection === 'users' ? 'Gestion des Utilisateurs' : 'Liaison Active Directory'}
             </h1>
           </div>
         </div>
@@ -279,7 +383,15 @@ const Admin: React.FC = () => {
               color="#0ea5e9"
               onClick={() => navigate('/admin/magapp')}
             />
-            </div>        )}
+            <AdminTile 
+              title="Active Directory" 
+              description="Lier les comptes Windows et tester l'authentification réseau."
+              icon={<ShieldCheck size={32} />}
+              color="#ef4444"
+              onClick={() => setActiveSection('ad')}
+            />
+          </div>
+        )}
 
         {activeSection === 'tiles' && (
           <div className="section-content">
@@ -382,6 +494,295 @@ const Admin: React.FC = () => {
           </div>
         )}
 
+        {activeSection === 'ad' && (
+          <div className="section-content ad-config-container" style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '30px', padding: '0', alignItems: 'start' }}>
+            {/* Colonne de gauche : Configuration principale */}
+            <div className="ad-left-panel" style={{ background: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+              <div className="panel-header" style={{ background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)', color: 'white', padding: '20px 25px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <ShieldCheck size={24} />
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700 }}>Paramètres Active Directory</h3>
+                    <p style={{ margin: 0, fontSize: '0.8rem', opacity: 0.9 }}>Configurez la liaison avec votre annuaire d'entreprise</p>
+                  </div>
+                </div>
+                <div style={{ 
+                  background: adConfig.is_enabled ? '#dcfce7' : '#f1f5f9', 
+                  color: adConfig.is_enabled ? '#166534' : '#64748b',
+                  padding: '4px 12px',
+                  borderRadius: '20px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  textTransform: 'uppercase'
+                }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: adConfig.is_enabled ? '#22c55e' : '#94a3b8' }}></div>
+                  {adConfig.is_enabled ? 'Activé' : 'Désactivé'}
+                </div>
+              </div>
+              
+              <div className="panel-body" style={{ padding: '30px' }}>
+                {/* Toggle d'activation */}
+                <div style={{ 
+                  background: '#f8fafc', 
+                  padding: '15px 20px', 
+                  borderRadius: '12px', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between',
+                  marginBottom: '30px',
+                  border: '1px solid #f1f5f9'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <div style={{ background: '#3b82f620', color: '#3b82f6', padding: '10px', borderRadius: '10px' }}>
+                      <Power size={20} />
+                    </div>
+                    <div>
+                      <span style={{ fontWeight: 700, fontSize: '1rem', display: 'block' }}>Authentification AD</span>
+                      <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Permettre aux utilisateurs de se connecter via Windows</span>
+                    </div>
+                  </div>
+                  <label className="switch">
+                    <input type="checkbox" checked={adConfig.is_enabled} onChange={e => setAdConfig({...adConfig, is_enabled: e.target.checked})} />
+                    <span className="slider round"></span>
+                  </label>
+                </div>
+
+                <div style={{ opacity: adConfig.is_enabled ? 1 : 0.6, pointerEvents: adConfig.is_enabled ? 'auto' : 'none', transition: 'all 0.3s ease' }}>
+                  <h4 style={{ fontSize: '0.9rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '20px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
+                    Connexion au serveur
+                  </h4>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: '20px', marginBottom: '25px' }}>
+                    <div className="form-group">
+                      <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem' }}>Hôte (Serveur ou IP)</label>
+                      <input 
+                        style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.95rem' }}
+                        value={adConfig.host} 
+                        onChange={e => setAdConfig({...adConfig, host: e.target.value})} 
+                        placeholder="Ex: 10.103.130.118 ou ldap.ivry.fr" 
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem' }}>Port</label>
+                      <input 
+                        type="number" 
+                        style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.95rem' }}
+                        value={adConfig.port} 
+                        onChange={e => setAdConfig({...adConfig, port: parseInt(e.target.value) || 389})} 
+                        placeholder="389" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '25px' }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem' }}>Base DN (Contexte de recherche)</label>
+                    <input 
+                      style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.95rem' }}
+                      value={adConfig.base_dn} 
+                      onChange={e => setAdConfig({...adConfig, base_dn: e.target.value})} 
+                      placeholder="DC=ivry,DC=local" 
+                    />
+                  </div>
+
+                  <h4 style={{ fontSize: '0.9rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '20px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', marginTop: '40px' }}>
+                    Sécurité et Liaison
+                  </h4>
+
+                  <div className="form-group" style={{ marginBottom: '25px' }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem' }}>Groupe AD requis (Optionnel)</label>
+                    <input 
+                      style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.95rem' }}
+                      value={adConfig.required_group} 
+                      onChange={e => setAdConfig({...adConfig, required_group: e.target.value})} 
+                      placeholder="Ex: gantto" 
+                    />
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px', display: 'block' }}>
+                      Seuls les membres de ce groupe pourront se connecter.
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px' }}>
+                    <div className="form-group">
+                      <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem' }}>Bind DN (Compte technique)</label>
+                      <input 
+                        style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.95rem' }}
+                        value={adConfig.bind_dn} 
+                        onChange={e => setAdConfig({...adConfig, bind_dn: e.target.value})} 
+                        placeholder="CN=user,OU=IRS,..." 
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem' }}>Mot de passe Liaison</label>
+                      <input 
+                        type="password" 
+                        style={{ width: '100%', padding: '10px 15px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.95rem' }}
+                        value={adConfig.bind_password} 
+                        onChange={e => setAdConfig({...adConfig, bind_password: e.target.value})} 
+                        placeholder="••••••••••••••••" 
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '15px', borderTop: '1px solid #f1f5f9', paddingTop: '25px', marginTop: '10px' }}>
+                  <button className="btn btn-primary" onClick={handleSaveAD} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 30px', borderRadius: '10px' }}>
+                    {isSaving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
+                    Enregistrer la configuration
+                  </button>
+                  <button 
+                    className="btn btn-outline" 
+                    onClick={handlePingAD} 
+                    disabled={isTesting} 
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '10px', 
+                      padding: '12px 20px', 
+                      borderRadius: '10px',
+                      border: '1px solid #3b82f6',
+                      color: '#3b82f6',
+                      background: 'white',
+                      fontWeight: 600
+                    }}
+                  >
+                    {isTesting ? <Loader2 className="animate-spin" size={20} /> : <Radio size={20} />}
+                    Tester la liaison
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Colonne de droite : Outils de recherche et Aide */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="ad-right-panel" style={{ background: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '25px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                  <div style={{ background: '#3b82f615', color: '#3b82f6', padding: '8px', borderRadius: '8px' }}>
+                    <Search size={22} />
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Chercher un utilisateur</h3>
+                </div>
+                
+                <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '25px', lineHeight: '1.5' }}>
+                  Saisissez l'identifiant Windows (sAMAccountName) pour vérifier ses informations dans l'AD.
+                </p>
+
+                <form onSubmit={handleVerifyUser} style={{ display: 'flex', gap: '10px' }}>
+                  <input 
+                    style={{ flex: 1, padding: '12px 15px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.95rem' }}
+                    placeholder="Identifiant (ex: jdoe)" 
+                    value={testUser.username} 
+                    onChange={e => setTestUser({...testUser, username: e.target.value})} 
+                  />
+                  <button 
+                    type="submit" 
+                    className="btn btn-primary" 
+                    disabled={isTesting || !testUser.username}
+                    style={{ padding: '12px 20px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    {isTesting ? <Loader2 className="animate-spin" size={20} /> : <Search size={20} />}
+                  </button>
+                </form>
+
+                {testResult && (
+                  <div style={{ 
+                    marginTop: '25px', 
+                    padding: '15px', 
+                    borderRadius: '10px', 
+                    background: testResult.success ? '#f0fdf4' : '#fef2f2', 
+                    border: `1px solid ${testResult.success ? '#bbf7d0' : '#fecaca'}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <div style={{ color: testResult.success ? '#166534' : '#991b1b' }}>
+                        {testResult.success ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: testResult.success ? '#166534' : '#991b1b', fontWeight: 600 }}>
+                        {testResult.message}
+                      </div>
+                    </div>
+
+                    {testResult.success && testResult.data && (
+                      <div style={{ marginTop: '10px', borderTop: '1px solid #dcfce7', paddingTop: '15px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}>
+                          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#16653410', color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 700 }}>
+                            {(testResult.data.displayName || testResult.data.cn || '?').charAt(0)}
+                          </div>
+                          <div>
+                            <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700 }}>{testResult.data.displayName || testResult.data.cn}</h4>
+                            <span style={{ fontSize: '0.75rem', opacity: 0.8 }}>{testResult.data.mail || 'Pas d\'email'}</span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem' }}>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <Icons.Building2 size={14} style={{ opacity: 0.5 }} />
+                            <span><strong>Service :</strong> {testResult.data.department || 'Non renseigné'}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <Icons.Fingerprint size={14} style={{ opacity: 0.5 }} />
+                            <span style={{ wordBreak: 'break-all' }}><strong>DN :</strong> {testResult.data.dn}</span>
+                          </div>
+                          
+                          <div style={{ marginTop: '8px' }}>
+                            <strong style={{ fontSize: '0.75rem', opacity: 0.7, display: 'block', marginBottom: '5px' }}>GROUPES AD</strong>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '100px', overflowY: 'auto' }}>
+                              {testResult.data.memberOf ? (
+                                (Array.isArray(testResult.data.memberOf) ? testResult.data.memberOf : [testResult.data.memberOf]).map((group: string, idx: number) => {
+                                  const groupName = group.split(',')[0].replace('CN=', '');
+                                  const isRequired = adConfig.required_group && groupName.toLowerCase().includes(adConfig.required_group.toLowerCase());
+                                  return (
+                                    <span key={idx} style={{ 
+                                      fontSize: '0.65rem', 
+                                      padding: '2px 6px', 
+                                      borderRadius: '3px', 
+                                      background: isRequired ? '#16653420' : '#00000008', 
+                                      color: isRequired ? '#166534' : '#475569',
+                                      border: `1px solid ${isRequired ? '#16653430' : '#00000010'}`,
+                                      fontWeight: isRequired ? 700 : 400
+                                    }}>
+                                      {groupName}
+                                    </span>
+                                  );
+                                })
+                              ) : <span>Aucun</span>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ background: '#f8fafc', borderRadius: '16px', border: '1px dashed #cbd5e1', padding: '25px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px', color: '#64748b' }}>
+                  <HelpCircle size={18} />
+                  <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700 }}>Aide au paramétrage</h4>
+                </div>
+                <ul style={{ padding: 0, margin: 0, listStyle: 'none', fontSize: '0.8rem', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <li style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ color: '#3b82f6', fontWeight: 700 }}>•</div>
+                    <span><strong>Base DN:</strong> En général DC=ivry,DC=local. C'est la racine où l'appli cherchera les comptes.</span>
+                  </li>
+                  <li style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ color: '#3b82f6', fontWeight: 700 }}>•</div>
+                    <span><strong>Bind DN:</strong> Chemin complet du compte technique. Ex: CN=Svc_Hub,OU=Comptes,DC=ivry,DC=local.</span>
+                  </li>
+                  <li style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ color: '#3b82f6', fontWeight: 700 }}>•</div>
+                    <span><strong>Login:</strong> L'application utilise le <i>sAMAccountName</i> pour identifier l'utilisateur.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeSection === 'users' && (
           <div className="section-content">
             <div className="section-actions" style={{ marginBottom: '20px' }}>
@@ -420,7 +821,7 @@ const Admin: React.FC = () => {
                     <strong>{u.username}</strong>
                     <div style={{ display: 'flex', gap: '10px', fontSize: '12px', color: '#64748b' }}>
                       <span>Rôle: {u.role}</span>
-                      <span>Activé: {formatActivityDate(u.last_activity)}</span>
+                      <span>Activité: {formatActivityDate(u.last_activity)}</span>
                     </div>
                   </div>
                   <div className="tile-actions">
@@ -471,6 +872,26 @@ const Admin: React.FC = () => {
         .reorder-controls { display: flex; flex-direction: column; gap: 2px; margin-right: 15px; }
         .btn-reorder { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 2px; }
         .btn-reorder:disabled { opacity: 0.2; cursor: not-allowed; }
+        
+        .form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+        .form-group label { font-size: 13px; font-weight: 600; color: #475569; }
+        
+        .animate-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        .test-alert.success { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+        .test-alert.error { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+
+        .switch { position: relative; display: inline-block; width: 44px; height: 22px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .4s; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .4s; }
+        input:checked + .slider { background-color: #2563eb; }
+        input:checked + .slider:before { transform: translateX(22px); }
+        .slider.round { border-radius: 34px; }
+        .slider.round:before { border-radius: 50%; }
+
+        .btn-outline:hover { background: #f0f9ff !important; }
       `}</style>
     </div>
   );

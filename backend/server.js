@@ -12,6 +12,170 @@ const ntlm = require('express-ntlm');
 const pdf = require('pdf-parse');
 const nodemailer = require('nodemailer');
 const brevoTransport = require('nodemailer-brevo-transport');
+const ldap = require('ldapjs');
+
+/**
+ * Tente d'authentifier un utilisateur via Active Directory
+ * @returns {Promise<Object|null>} L'utilisateur AD ou null si échec
+ */
+async function authenticateAD(username, password, config) {
+    return new Promise((resolve, reject) => {
+        if (!config.is_enabled) return resolve(null);
+
+        const client = ldap.createClient({
+            url: `ldap://${config.host}:${config.port}`,
+            connectTimeout: 5000,
+            timeout: 5000
+        });
+
+        client.on('error', (err) => {
+            console.error('LDAP Client Error:', err.message);
+            resolve(null);
+        });
+
+        // 1. Liaison avec le compte technique (Bind DN)
+        client.bind(config.bind_dn, config.bind_password, (err) => {
+            if (err) {
+                console.error('AD Bind DN Error:', err.message);
+                client.destroy();
+                return reject(new Error('Erreur de liaison AD : ' + err.message));
+            }
+
+            // 2. Recherche de l'utilisateur par son sAMAccountName
+            const searchOptions = {
+                filter: `(sAMAccountName=${username})`,
+                scope: 'sub',
+                attributes: ['dn', 'cn', 'memberOf', 'mail', 'displayName']
+            };
+
+            client.search(config.base_dn, searchOptions, (err, res) => {
+                if (err) {
+                    client.destroy();
+                    return reject(new Error('Erreur de recherche AD : ' + err.message));
+                }
+
+                let userEntry = null;
+
+                res.on('searchEntry', (entry) => {
+                    userEntry = entry.object;
+                });
+
+                res.on('error', (err) => {
+                    client.destroy();
+                    reject(new Error('Erreur lors de la recherche AD : ' + err.message));
+                });
+
+                res.on('end', (result) => {
+                    if (!userEntry) {
+                        client.destroy();
+                        return resolve(null); // Utilisateur non trouvé
+                    }
+
+                    // 3. Vérification du mot de passe de l'utilisateur (Re-bind avec son DN)
+                    const userClient = ldap.createClient({
+                        url: `ldap://${config.host}:${config.port}`,
+                        connectTimeout: 5000,
+                        timeout: 5000
+                    });
+
+                    userClient.bind(userEntry.dn, password, (err) => {
+                        userClient.destroy();
+                        client.destroy();
+
+                        if (err) {
+                            return resolve(null); // Mot de passe incorrect
+                        }
+
+                        // 4. Vérification de l'appartenance au groupe si requis
+                        if (config.required_group) {
+                            const groups = Array.isArray(userEntry.memberOf) ? userEntry.memberOf : [userEntry.memberOf];
+                            const hasGroup = groups.some(g => g && g.toLowerCase().includes(config.required_group.toLowerCase()));
+                            if (!hasGroup) {
+                                return reject(new Error(`L'utilisateur n'appartient pas au groupe requis : ${config.required_group}`));
+                            }
+                        }
+
+                        resolve({
+                            username: username,
+                            displayName: userEntry.displayName || userEntry.cn,
+                            email: userEntry.mail,
+                            dn: userEntry.dn
+                        });
+                    });
+                });
+            });
+        });
+    });
+}
+
+/**
+ * Récupère les informations d'un utilisateur AD (sans mot de passe)
+ */
+async function getADUserInfo(username, config) {
+    return new Promise((resolve, reject) => {
+        if (!config.is_enabled) return resolve(null);
+
+        const client = ldap.createClient({
+            url: `ldap://${config.host}:${config.port}`,
+            connectTimeout: 5000,
+            timeout: 5000
+        });
+
+        client.on('error', (err) => {
+            console.error('LDAP Client Error (getADUserInfo):', err.message);
+            resolve(null);
+        });
+
+        client.bind(config.bind_dn, config.bind_password, (err) => {
+            if (err) {
+                client.destroy();
+                return resolve(null);
+            }
+
+            // Stratégie de recherche : Priorité à l'identifiant exact
+            const searchOptions = {
+                filter: `(|(sAMAccountName=${username})(cn=${username}))`,
+                scope: 'sub',
+                attributes: ['dn', 'cn', 'mail', 'displayName', 'department', 'sAMAccountName']
+            };
+
+            client.search(config.base_dn, searchOptions, (err, res) => {
+                if (err) {
+                    client.destroy();
+                    return resolve(null);
+                }
+
+                let userEntry = null;
+                res.on('searchEntry', (entry) => {
+                    const attrs = entry.pojo ? entry.pojo.attributes : [];
+                    const obj = entry.object || {};
+                    const getAttr = (name) => obj[name] || attrs.find(a => a.type === name)?.values[0];
+
+                    // Si on trouve plusieurs résultats, on prend celui qui match EXACTEMENT le login (insensible à la casse)
+                    const foundSam = getAttr('sAMAccountName');
+                    if (foundSam && foundSam.toLowerCase() === username.toLowerCase()) {
+                        userEntry = {
+                            displayName: getAttr('displayName') || getAttr('cn') || foundSam,
+                            mail: getAttr('mail') || ''
+                        };
+                    } else if (!userEntry) {
+                        // Premier résultat par défaut si pas encore de match exact
+                        userEntry = {
+                            displayName: getAttr('displayName') || getAttr('cn') || getAttr('sAMAccountName'),
+                            mail: getAttr('mail') || ''
+                        };
+                    }
+                });
+
+                res.on('error', (err) => { client.destroy(); resolve(null); });
+                res.on('end', () => {
+                    client.destroy();
+                    resolve(userEntry);
+                });
+            });
+        });
+    });
+}
 
 // Configuration Multer dynamique
 const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img', 'file_telecom'];
@@ -58,8 +222,31 @@ const app = express();
 const PORT = 3001;
 const SECRET_KEY = 'votre_cle_secrete_ici'; // À changer en production
 
+// Logger global : enregistre TOUTES les requêtes dans mouchard.log
+app.use((req, res, next) => {
+    // Ne pas logger les accès au mouchard lui-même pour éviter de polluer
+    if (req.url.startsWith('/mouchard') || req.url === '/favicon.ico') return next();
+
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        const msg = `${req.method} ${req.url} - ${res.statusCode} - par ${req.headers['authorization'] ? 'Utilisateur authentifié' : 'Anonyme'} (${duration}ms)`;
+        const time = new Date().toISOString();
+        const line = `[${time}] ${msg}\n`;
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
+    });
+    next();
+});
+
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5174'],
+    origin: [
+        'http://localhost:5173', 
+        'http://localhost:5174',
+        'http://po22038:5173',
+        'http://po22038:5174',
+        'http://PO22038:5173',
+        'http://PO22038:5174'
+    ],
     credentials: true
 }));
 app.use(express.json());
@@ -79,15 +266,128 @@ app.use('/api/file_factures', express.static(path.join(__dirname, 'file_factures
 app.use('/file_certif', express.static(path.join(__dirname, 'file_certif')));
 app.use('/api/file_certif', express.static(path.join(__dirname, 'file_certif')));
 
-// Configuration NTLM pour Ivry
-const ntlmMiddleware = ntlm({
+// Middleware to verify JWT
+const authenticateJWT = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+        const token = authHeader.split(' ')[1];
+        jwt.verify(token, SECRET_KEY, (err, user) => {
+            if (err) return res.status(403).json({ message: 'Session expirée ou invalide' });
+            req.user = user;
+            next();
+        });
+    } else {
+        res.status(401).json({ message: 'Authentification requise' });
+    }
+};
+
+// Middleware for Admin only
+const authenticateAdmin = (req, res, next) => {
+    authenticateJWT(req, res, () => {
+        if (req.user && req.user.role === 'admin') {
+            next();
+        } else {
+            res.status(403).json({ message: 'Accès refusé : administrateur uniquement' });
+        }
+    });
+};
+
+// Middleware for Admin or Finances or Compta
+const authenticateAdminOrFinances = (req, res, next) => {
+    authenticateJWT(req, res, () => {
+        if (req.user && (req.user.role === 'admin' || req.user.role === 'finances' || req.user.role === 'compta')) {
+            next();
+        } else {
+            res.status(403).json({ message: 'Accès refusé : administrateur ou finances/compta uniquement' });
+        }
+    });
+};
+
+// Configuration NTLM
+const ntlmMiddleware = ntlm({ domain: 'IVRY' }); 
+const ntlmMiddlewareForced = ntlm({
     domain: 'IVRY'
 });
 
+// Route SSO avec redirection (pour éviter les problèmes de CORS avec NTLM)
+app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
+    const login = req.ntlm ? req.ntlm.UserName : null;
+    const redirectUrl = req.query.redirect || 'http://localhost:5174';
+    
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect triggered. Detected login: ${login}\n`);
+    
+    let displayName = login;
+    let email = '';
+
+    if (login) {
+        try {
+            const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+            if (adSettings && adSettings.is_enabled) {
+                const info = await getADUserInfo(login, adSettings);
+                if (info) {
+                    if (info.displayName) displayName = info.displayName;
+                    if (info.mail) email = info.mail;
+                }
+            }
+        } catch (e) {
+            console.error('Erreur SSO Redirect AD:', e.message);
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO AD Error: ${e.message}\n`);
+        }
+    } else {
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect failed to detect login\n`);
+    }
+
+    // On redirige vers le frontend avec les infos en paramètres (encodés)
+    const url = new URL(redirectUrl);
+    if (login) {
+        url.searchParams.set('login', login);
+        if (displayName) url.searchParams.set('name', displayName);
+        if (email) url.searchParams.set('email', email);
+    } else {
+        url.searchParams.set('error', 'no_login_detected');
+    }
+    
+    res.redirect(url.toString());
+});
+
 // Route NTLM spécifique pour la détection du login Windows
-app.get('/api/auth/ntlm', ntlmMiddleware, (req, res) => {
+app.get('/api/auth/ntlm', (req, res, next) => {
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] HIT /api/auth/ntlm (Optional-NTLM)\n`);
+    next();
+}, ntlmMiddleware, async (req, res) => {
+    const login = req.ntlm ? req.ntlm.UserName : null;
+    let displayName = login;
+    let email = '';
+
+    const logMsg = `NTLM Call: User=${login}, Domain=${req.ntlm ? req.ntlm.Domain : 'N/A'}, Workstation=${req.ntlm ? req.ntlm.Workstation : 'N/A'}`;
+    console.log(logMsg);
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+
+    if (login) {
+        try {
+            const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+            if (adSettings && adSettings.is_enabled) {
+                const info = await getADUserInfo(login, adSettings);
+                if (info) {
+                    if (info.displayName) displayName = info.displayName;
+                    if (info.mail) email = info.mail;
+                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Success: DisplayName=${displayName}\n`);
+                } else {
+                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Failed for ${login}\n`);
+                }
+            } else {
+                fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD disabled or no settings\n`);
+            }
+        } catch (e) {
+            console.error('Erreur lookup AD pour NTLM:', e.message);
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Error: ${e.message}\n`);
+        }
+    }
+
     res.json({
-        login: req.ntlm.UserName,
+        login: login,
+        displayName: displayName,
+        email: email,
         domain: req.ntlm.Domain,
         workstation: req.ntlm.Workstation
     });
@@ -96,8 +396,12 @@ app.get('/api/auth/ntlm', ntlmMiddleware, (req, res) => {
 // Route d'auto-login via NTLM
 app.get('/api/auth/auto-login', ntlmMiddleware, async (req, res) => {
     try {
-        const winLogin = req.ntlm.UserName;
-        if (!winLogin) return res.status(401).json({ message: 'Login Windows non détecté' });
+        // On prend soit le login détecté par NTLM, soit celui passé en paramètre (retour de redirect)
+        const winLogin = req.query.login || req.ntlm.UserName;
+        
+        if (!winLogin) {
+            return res.status(401).json({ message: 'Login Windows non détecté' });
+        }
 
         // Chercher l'utilisateur de façon insensible à la casse
         const user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE LOWER(username) = LOWER(?)', [winLogin]);
@@ -106,11 +410,142 @@ app.get('/api/auth/auto-login', ntlmMiddleware, async (req, res) => {
             const accessToken = jwt.sign({ id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement }, SECRET_KEY);
             res.json({ accessToken, user: { id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement } });
         } else {
-            res.status(404).json({ message: 'Utilisateur Windows non reconnu dans la base' });
+            res.status(404).json({ message: `Utilisateur Windows "${winLogin}" non reconnu dans la base` });
         }
     } catch (error) {
         res.status(500).json({ message: 'Erreur auto-login', error: error.message });
     }
+});
+
+// Active Directory Settings API
+app.get('/api/ad-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lecture paramètres AD' });
+    }
+});
+
+app.post('/api/ad-settings', authenticateAdmin, async (req, res) => {
+    const { is_enabled, host, port, base_dn, required_group, bind_dn, bind_password } = req.body;
+    try {
+        await db.run(
+            'UPDATE ad_settings SET is_enabled = ?, host = ?, port = ?, base_dn = ?, required_group = ?, bind_dn = ?, bind_password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+            [is_enabled ? 1 : 0, host, port, base_dn, required_group, bind_dn, bind_password]
+        );
+        res.json({ message: 'Paramètres AD enregistrés' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur enregistrement paramètres AD' });
+    }
+});
+
+// Route de test de liaison Active Directory (Compte technique uniquement)
+app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
+    const { host, port, base_dn, bind_dn, bind_password } = req.body;
+    
+    const logMsg = `Ping AD: Tentative de liaison pour ${host}:${port} avec ${bind_dn}`;
+    console.log(logMsg);
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+
+    const client = ldap.createClient({
+        url: `ldap://${host}:${port}`,
+        connectTimeout: 5000,
+        timeout: 5000
+    });
+
+    client.on('error', (err) => {
+        console.error('LDAP Ping Client Error:', err.message);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Erreur: ${err.message}\n`);
+        res.status(500).json({ success: false, message: `Impossible de contacter le serveur : ${err.message}` });
+    });
+
+    client.bind(bind_dn, bind_password, (err) => {
+        client.destroy();
+        if (err) {
+            console.error('AD Ping Bind Error:', err.message);
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Echec Bind: ${err.message}\n`);
+            return res.status(401).json({ success: false, message: `Liaison échouée : ${err.message}` });
+        }
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Succès\n`);
+        res.json({ success: true, message: 'La liaison avec l\'Active Directory a réussi !' });
+    });
+});
+
+// Route de test Active Directory (Outil de recherche / Lookup)
+app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
+    const { host, port, base_dn, bind_dn, bind_password, username } = req.body;
+    
+    const logMsg = `Lookup AD: Recherche d'infos pour ${username} via le compte technique ${bind_dn}`;
+    console.log(logMsg);
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+
+    const client = ldap.createClient({
+        url: `ldap://${host}:${port}`,
+        connectTimeout: 5000,
+        timeout: 5000
+    });
+
+    client.on('error', (err) => {
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Erreur: ${err.message}\n`);
+        res.status(500).json({ success: false, message: `Erreur client LDAP : ${err.message}` });
+    });
+
+    client.bind(bind_dn, bind_password, (err) => {
+        if (err) {
+            client.destroy();
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Echec Bind: ${err.message}\n`);
+            return res.status(401).json({ success: false, message: `Liaison technique échouée : ${err.message}` });
+        }
+
+        const searchOptions = {
+            filter: `(|(sAMAccountName=*${username}*)(cn=*${username}*)(displayName=*${username}*))`,
+            scope: 'sub',
+            attributes: ['dn', 'cn', 'mail', 'displayName', 'memberOf', 'title', 'department']
+        };
+
+        client.search(base_dn, searchOptions, (err, searchRes) => {
+            if (err) {
+                client.destroy();
+                return res.status(500).json({ success: false, message: `Erreur recherche : ${err.message}` });
+            }
+
+            let userEntry = null;
+            searchRes.on('searchEntry', (entry) => { 
+                // Extraction robuste des attributs via pojo ou object
+                const attrs = entry.pojo ? entry.pojo.attributes : [];
+                const obj = entry.object || {};
+                
+                userEntry = {
+                    dn: entry.pojo ? entry.pojo.objectName : entry.dn,
+                    cn: obj.cn || attrs.find(a => a.type === 'cn')?.values[0],
+                    sAMAccountName: obj.sAMAccountName || attrs.find(a => a.type === 'sAMAccountName')?.values[0],
+                    displayName: obj.displayName || attrs.find(a => a.type === 'displayName')?.values[0],
+                    mail: obj.mail || attrs.find(a => a.type === 'mail')?.values[0],
+                    memberOf: obj.memberOf || attrs.find(a => a.type === 'memberOf')?.values,
+                    title: obj.title || attrs.find(a => a.type === 'title')?.values[0],
+                    department: obj.department || attrs.find(a => a.type === 'department')?.values[0]
+                };
+            });
+            searchRes.on('error', (err) => { 
+                client.destroy(); 
+                res.status(500).json({ success: false, message: err.message }); 
+            });
+            searchRes.on('end', (result) => {
+                client.destroy();
+                if (!userEntry) {
+                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Utilisateur non trouvé\n`);
+                    return res.status(404).json({ success: false, message: `Utilisateur "${username}" non trouvé dans l'AD.` });
+                }
+                fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Succès pour ${username}\n`);
+                res.json({ 
+                    success: true, 
+                    message: `Informations récupérées pour ${userEntry.displayName || userEntry.cn || username}`,
+                    data: userEntry 
+                });
+            });
+        });
+    });
 });
 
 // Logger global : enregistre TOUTES les requêtes dans mouchard.log
@@ -205,6 +640,33 @@ setupDb().then(async database => {
         await db.run('ALTER TABLE users ADD COLUMN service_complement TEXT');
     } catch (e) {}
 
+    // Initialisation table ad_settings
+    try {
+        await db.run(`
+            CREATE TABLE IF NOT EXISTS ad_settings (
+                id INTEGER PRIMARY KEY,
+                is_enabled BOOLEAN DEFAULT 0,
+                host TEXT,
+                port INTEGER DEFAULT 389,
+                base_dn TEXT,
+                required_group TEXT,
+                bind_dn TEXT,
+                bind_password TEXT,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        const adExists = await db.get('SELECT id FROM ad_settings WHERE id = 1');
+        if (!adExists) {
+            await db.run(`
+                INSERT INTO ad_settings (id, is_enabled, host, port, base_dn, required_group, bind_dn, bind_password) 
+                VALUES (1, 0, "10.103.130.118", 389, "DC=ivry,DC=local", "gantto", "CN=testo,OU=IRS,OU=IVRY,DC=ivry,DC=local", "")
+
+            `);
+        }
+    } catch (e) {
+        console.error('Erreur init ad_settings:', e);
+    }
+
     // Recalcul au démarrage
     await recalculateAllOperations();
 
@@ -254,43 +716,6 @@ async function recalculateAllOperations() {
         console.error('Erreur synchronisation:', error);
     }
 }
-
-// Middleware to verify JWT
-const authenticateJWT = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (authHeader) {
-        const token = authHeader.split(' ')[1];
-        jwt.verify(token, SECRET_KEY, (err, user) => {
-            if (err) return res.status(403).json({ message: 'Session expirée ou invalide' });
-            req.user = user;
-            next();
-        });
-    } else {
-        res.status(401).json({ message: 'Authentification requise' });
-    }
-};
-
-// Middleware for Admin only
-const authenticateAdmin = (req, res, next) => {
-    authenticateJWT(req, res, () => {
-        if (req.user && req.user.role === 'admin') {
-            next();
-        } else {
-            res.status(403).json({ message: 'Accès refusé : administrateur uniquement' });
-        }
-    });
-};
-
-// Middleware for Admin or Finances or Compta
-const authenticateAdminOrFinances = (req, res, next) => {
-    authenticateJWT(req, res, () => {
-        if (req.user && (req.user.role === 'admin' || req.user.role === 'finances' || req.user.role === 'compta')) {
-            next();
-        } else {
-            res.status(403).json({ message: 'Accès refusé : administrateur ou finances/compta uniquement' });
-        }
-    });
-};
 
 // Magapp Public Routes
 app.get('/api/magapp/categories', async (req, res) => {
@@ -831,9 +1256,49 @@ app.post('/api/sql-query', authenticateAdminOrFinances, async (req, res) => {
 // Auth Routes
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
+    
+    // 1. Tentative via Active Directory si activé
+    try {
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (adSettings && adSettings.is_enabled) {
+            const adUser = await authenticateAD(username, password, adSettings);
+            if (adUser) {
+                // L'utilisateur est authentifié AD. On cherche son rôle localement.
+                const user = await db.get('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+                
+                if (!user) {
+                    return res.status(403).json({ message: "Compte AD valide, mais non autorisé dans l'application. Contactez un administrateur." });
+                }
+
+                const accessToken = jwt.sign({ 
+                    id: user.id, 
+                    username: user.username, 
+                    role: user.role, 
+                    service_code: user.service_code, 
+                    service_complement: user.service_complement 
+                }, SECRET_KEY);
+                
+                return res.json({ 
+                    accessToken, 
+                    user: { 
+                        id: user.id, 
+                        username: user.username, 
+                        role: user.role, 
+                        service_code: user.service_code, 
+                        service_complement: user.service_complement 
+                    } 
+                });
+            }
+        }
+    } catch (error) {
+        console.error('AD Auth error during login:', error.message);
+        // On continue vers l'auth locale en cas d'erreur AD (mode dégradé)
+    }
+
+    // 2. Auth locale (Fallback ou comptes locaux)
     const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
 
-    if (user && await bcrypt.compare(password, user.password)) {
+    if (user && user.password && await bcrypt.compare(password, user.password)) {
         const accessToken = jwt.sign({ id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement }, SECRET_KEY);
         res.json({ accessToken, user: { id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement } });
     } else {
