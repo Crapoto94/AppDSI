@@ -68,6 +68,24 @@ function App() {
     appsByCategory[app.category_id].push(app);
   });
 
+  const handleAppClick = async (app: AppItem) => {
+    try {
+      // Tentative de récupération du login Windows via NTLM (si disponible)
+      let username = 'Anonyme';
+      try {
+        const authRes = await axios.get('/api/auth/ntlm');
+        if (authRes.data && authRes.data.login) username = authRes.data.login;
+      } catch (e) { /* Pas de NTLM, on reste anonyme */ }
+
+      await axios.post('/api/magapp/clicks', {
+        app_id: app.id,
+        username: username
+      });
+    } catch (error) {
+      console.error("Erreur de tracking", error);
+    }
+  };
+
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '';
     return new Date(dateStr).toLocaleDateString('fr-FR');
@@ -112,7 +130,13 @@ function App() {
                       rel="noopener noreferrer" 
                       className={`app-card ${isMaint ? 'maintenance' : ''}`}
                       title={isMaint ? `En maintenance du ${formatDate(app.maintenance_start)} au ${formatDate(app.maintenance_end)}` : app.description}
-                      onClick={(e) => { if (isMaint) e.preventDefault(); }}
+                      onClick={(e) => { 
+                        if (isMaint) {
+                          e.preventDefault(); 
+                        } else {
+                          handleAppClick(app);
+                        }
+                      }}
                       style={{ cursor: isMaint ? 'not-allowed' : 'pointer' }}
                     >
                       <div className="app-icon-container">

@@ -389,9 +389,26 @@ try { await db.run("ALTER TABLE contacts ADD COLUMN is_order_recipient INTEGER D
             url TEXT,
             icon TEXT,
             display_order INTEGER DEFAULT 0,
+            is_maintenance INTEGER DEFAULT 0,
+            maintenance_start TEXT,
+            maintenance_end TEXT,
             FOREIGN KEY(category_id) REFERENCES magapp_categories(id)
         );
+        CREATE TABLE IF NOT EXISTS magapp_clicks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            app_id INTEGER,
+            username TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (app_id) REFERENCES magapp_apps (id)
+        );
     `);
+
+    // Ensure maintenance columns exist for existing databases
+    try { await db.run("ALTER TABLE magapp_apps ADD COLUMN is_maintenance INTEGER DEFAULT 0"); } catch (e) {}
+    try { await db.run("ALTER TABLE magapp_apps ADD COLUMN maintenance_start TEXT"); } catch (e) {}
+    try { await db.run("ALTER TABLE magapp_apps ADD COLUMN maintenance_end TEXT"); } catch (e) {}
 
     // Add Magasin d'application tile if it doesn't exist
     const magappTile = await db.get('SELECT * FROM tiles WHERE title = ?', ["Magasin d'application"]);

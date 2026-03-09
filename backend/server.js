@@ -14,7 +14,7 @@ const nodemailer = require('nodemailer');
 const brevoTransport = require('nodemailer-brevo-transport');
 
 // Configuration Multer dynamique
-const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif'];
+const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img'];
 folders.forEach(f => {
     const dir = path.join(__dirname, f);
     if (!fs.existsSync(dir)) {
@@ -301,6 +301,91 @@ app.get('/api/magapp/apps', async (req, res) => {
         res.json(apps);
     } catch (err) {
         res.status(500).json({ message: 'Error fetching apps' });
+    }
+});
+
+app.get('/api/magapp/icons', authenticateJWT, (req, res) => {
+    const dir = path.join(__dirname, '../frontend/public/img');
+    try {
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const files = fs.readdirSync(dir);
+        res.json(files.map(f => `/img/${f}`));
+    } catch (err) {
+        res.status(500).json({ message: 'Error reading icons', error: err.message });
+    }
+});
+
+app.post('/api/magapp/icons/upload', authenticateJWT, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).send('No file uploaded.');
+    
+    try {
+        const fileName = req.file.filename;
+        const sourcePath = req.file.path;
+        
+        // Copier vers les deux dossiers public
+        const hubDest = path.join(__dirname, '../frontend/public/img', fileName);
+        const magappDest = path.join(__dirname, '../magapp-frontend/public/img', fileName);
+        
+        // S'assurer que les dossiers existent
+        if (!fs.existsSync(path.dirname(hubDest))) fs.mkdirSync(path.dirname(hubDest), { recursive: true });
+        if (!fs.existsSync(path.dirname(magappDest))) fs.mkdirSync(path.dirname(magappDest), { recursive: true });
+        
+        fs.copyFileSync(sourcePath, hubDest);
+        fs.copyFileSync(sourcePath, magappDest);
+        
+        // Supprimer le fichier temporaire dans uploads
+        fs.unlinkSync(sourcePath);
+        
+        res.json({ message: 'Icône uploadée avec succès', path: `/img/${fileName}` });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de l\'upload de l\'icône', error: error.message });
+    }
+});
+
+// Click Statistics API for Admin
+app.get('/api/magapp/stats', authenticateJWT, async (req, res) => {
+    try {
+        const stats = await db.all(`
+            WITH daily_stats AS (
+                SELECT 
+                    app_id, 
+                    date(clicked_at, 'localtime') as day, 
+                    COUNT(*) as click_count,
+                    COUNT(DISTINCT COALESCE(username, ip_address)) as unique_users
+                FROM magapp_clicks
+                GROUP BY app_id, day
+            ),
+            day_counts AS (
+                SELECT app_id, COUNT(DISTINCT day) as total_days
+                FROM daily_stats
+                GROUP BY app_id
+            ),
+            today_stats AS (
+                SELECT app_id, COUNT(*) as today_clicks
+                FROM magapp_clicks
+                WHERE date(clicked_at, 'localtime') = date('now', 'localtime')
+                GROUP BY app_id
+            )
+            SELECT 
+                a.id,
+                a.name,
+                COALESCE(SUM(ds.click_count), 0) as total_clicks,
+                ROUND(CAST(COALESCE(SUM(ds.click_count), 0) AS REAL) / COALESCE(dc.total_days, 1), 2) as avg_clicks_per_day,
+                ROUND(CAST(COALESCE(SUM(ds.unique_users), 0) AS REAL) / COALESCE(dc.total_days, 1), 2) as avg_unique_users_per_day,
+                COALESCE(ts.today_clicks, 0) as today_clicks,
+                CASE WHEN ts.today_clicks IS NOT NULL THEN 1 ELSE 0 END as has_today_stats
+            FROM magapp_apps a
+            LEFT JOIN daily_stats ds ON a.id = ds.app_id
+            LEFT JOIN day_counts dc ON a.id = dc.app_id
+            LEFT JOIN today_stats ts ON a.id = ts.app_id
+            GROUP BY a.id
+            ORDER BY a.name ASC
+        `);
+
+        res.json(stats);
+    } catch (error) {
+        console.error('STATS ERROR:', error);
+        res.status(500).json({ message: 'Error fetching stats', error: error.message, stack: error.stack });
     }
 });
 

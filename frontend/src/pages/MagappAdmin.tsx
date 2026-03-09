@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, ArrowLeft, Save, X, Globe, Type, AlignLeft, Image as ImageIcon, Hash, LayoutGrid, AlertTriangle, Calendar } from 'lucide-react';
+import { Plus, Edit2, Trash2, ArrowLeft, Save, X, Globe, Type, AlignLeft, Image as ImageIcon, Hash, LayoutGrid, AlertTriangle, Calendar, BarChart2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
-import '../App.css';
 
 interface Category {
   id: number;
   name: string;
+  icon: string;
+  display_order: number;
 }
 
 interface AppItem {
@@ -22,33 +23,53 @@ interface AppItem {
   maintenance_end: string | null;
 }
 
+interface ClickStats {
+  id: number;
+  name: string;
+  total_clicks: number;
+  avg_clicks_per_day: number;
+  avg_unique_users_per_day: number;
+  has_today_stats: number;
+  today_clicks: number;
+}
+
 const MagappAdmin: React.FC = () => {
   const [apps, setApps] = useState<AppItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [stats, setStats] = useState<ClickStats[]>([]);
+  const [availableIcons, setAvailableIcons] = useState<string[]>([]);
+  const [showStats, setShowStats] = useState(false);
+  const [showAllStats, setShowAllStats] = useState(false);
+  const [showCategories, setShowCategories] = useState(false);
   const [editingApp, setEditingApp] = useState<AppItem | null>(null);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [newCategory, setNewCategory] = useState<Partial<Category>>({ name: '', icon: '', display_order: 0 });
   const [newApp, setNewApp] = useState<Partial<AppItem>>({
     name: '', 
     category_id: 1, 
     description: '', 
     url: '', 
-    icon: 'https://magapp.ivry.local/img/default.png', 
+    icon: '/img/default.png', 
     display_order: 0,
     is_maintenance: 0,
     maintenance_start: '',
     maintenance_end: ''
   });
-  
+  const [showIconSelector, setShowIconSelector] = useState<{ type: 'new' | 'edit', open: boolean }>({ type: 'new', open: false });
+
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
 
   const fetchData = async () => {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
-      const [appsRes, catsRes] = await Promise.all([
+      const [appsRes, catsRes, statsRes, iconsRes] = await Promise.all([
         fetch('/api/magapp/apps', { headers }),
-        fetch('/api/magapp/categories', { headers })
+        fetch('/api/magapp/categories', { headers }),
+        fetch('/api/magapp/stats', { headers }),
+        fetch('/api/magapp/icons', { headers })
       ]);
-      
+
       if (appsRes.ok) {
         const appsData = await appsRes.json();
         setApps(appsData.sort((a: any, b: any) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
@@ -56,6 +77,12 @@ const MagappAdmin: React.FC = () => {
       if (catsRes.ok) {
         const catsData = await catsRes.json();
         setCategories(catsData.sort((a: any, b: any) => a.display_order - b.display_order));
+      }
+      if (statsRes.ok) {
+        setStats(await statsRes.json());
+      }
+      if (iconsRes.ok) {
+        setAvailableIcons(await iconsRes.json());
       }
     } catch (e) {
       console.error("Erreur de chargement", e);
@@ -66,41 +93,75 @@ const MagappAdmin: React.FC = () => {
     fetchData();
   }, []);
 
-  const handleSaveApp = async (app: Partial<AppItem>, isEditing: boolean) => {
-    const url = isEditing ? `/api/magapp/apps/${app.id}` : '/api/magapp/apps';
+  const handleSaveApp = async (appData: Partial<AppItem>, isEditing: boolean) => {
+    const url = isEditing ? `/api/magapp/apps/${appData.id}` : '/api/magapp/apps';
     const method = isEditing ? 'PUT' : 'POST';
     
-    const response = await fetch(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(app)
-    });
-
-    if (response.ok) {
-      setEditingApp(null);
-      setNewApp({ 
-        name: '', 
-        category_id: categories.length > 0 ? categories[0].id : 1, 
-        description: '', 
-        url: '', 
-        icon: 'https://magapp.ivry.local/img/default.png', 
-        display_order: 0,
-        is_maintenance: 0,
-        maintenance_start: '',
-        maintenance_end: ''
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(appData)
       });
-      fetchData();
-    } else {
-      alert("Erreur lors de l'enregistrement de l'application.");
+
+      if (response.ok) {
+        setEditingApp(null);
+        if (!isEditing) {
+          setNewApp({ 
+            name: '', 
+            category_id: categories.length > 0 ? categories[0].id : 1, 
+            description: '', 
+            url: '', 
+            icon: '/img/default.png', 
+            display_order: 0,
+            is_maintenance: 0,
+            maintenance_start: '',
+            maintenance_end: ''
+          });
+        }
+        fetchData();
+      } else {
+        const err = await response.json();
+        alert(`Erreur: ${err.message || "Erreur lors de l'enregistrement"}`);
+      }
+    } catch (e) {
+      alert("Erreur de connexion au serveur.");
     }
   };
 
-  const handleDeleteApp = async (id: number) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir supprimer cette application ?")) return;
-    const response = await fetch(`/api/magapp/apps/${id}`, {
+  const handleSaveCategory = async (catData: Partial<Category>, isEditing: boolean) => {
+    const url = isEditing ? `/api/magapp/categories/${catData.id}` : '/api/magapp/categories';
+    const method = isEditing ? 'PUT' : 'POST';
+    
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(catData)
+      });
+
+      if (response.ok) {
+        setEditingCategory(null);
+        if (!isEditing) setNewCategory({ name: '', icon: '', display_order: 0 });
+        fetchData();
+      } else {
+        const err = await response.json();
+        alert(`Erreur: ${err.message || "Erreur lors de l'enregistrement"}`);
+      }
+    } catch (e) {
+      alert("Erreur de connexion au serveur.");
+    }
+  };
+
+  const handleDeleteCategory = async (id: number) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer cette catégorie ?")) return;
+    const response = await fetch(`/api/magapp/categories/${id}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
     });
@@ -108,6 +169,8 @@ const MagappAdmin: React.FC = () => {
       fetchData();
     }
   };
+
+  const filteredStats = showAllStats ? stats : stats.filter(s => s.has_today_stats === 1);
 
   return (
     <div className="admin-container">
@@ -121,7 +184,98 @@ const MagappAdmin: React.FC = () => {
             <h1>Catalogue MagApp</h1>
             <p>Gérez les applications visibles sur le portail public</p>
           </div>
+          <div className="header-actions">
+            <button className={`stats-toggle-btn ${showCategories ? 'active' : ''}`} onClick={() => setShowCategories(!showCategories)} style={{ marginRight: '10px' }}>
+              <LayoutGrid size={20} /> {showCategories ? 'Masquer catégories' : 'Gérer catégories'}
+            </button>
+            <button className={`stats-toggle-btn ${showStats ? 'active' : ''}`} onClick={() => setShowStats(!showStats)}>
+              <BarChart2 size={20} /> {showStats ? 'Masquer les stats' : 'Voir les statistiques'}
+            </button>
+          </div>
         </div>
+
+        {showStats && (
+          <section className="admin-card stats-section">
+            <div className="card-header" style={{ justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <BarChart2 size={20} className="header-icon" />
+                <h2>Statistiques d'utilisation {!showAllStats && "(Aujourd'hui)"}</h2>
+              </div>
+              <button 
+                className={`stats-filter-btn ${showAllStats ? 'active' : ''}`}
+                onClick={() => setShowAllStats(!showAllStats)}
+              >
+                {showAllStats ? "Stats du jour uniquement" : "Toutes les applis"}
+              </button>
+            </div>
+            <div className="stats-table-wrapper">
+              <table className="stats-table">
+                <thead>
+                  <tr>
+                    <th>Application</th>
+                    <th>Clics Totaux</th>
+                    <th>Moy. Clics / jour</th>
+                    <th>Moy. Utilisateurs / jour</th>
+                    {!showAllStats && <th>Clics Aujourd'hui</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredStats.map(s => (
+                    <tr key={s.id}>
+                      <td className="stat-name">{s.name}</td>
+                      <td>{s.total_clicks}</td>
+                      <td className="stat-highlight">{s.avg_clicks_per_day}</td>
+                      <td className="stat-highlight-users">{s.avg_unique_users_per_day}</td>
+                      {!showAllStats && <td className="stat-highlight">{s.today_clicks}</td>}
+                    </tr>
+                  ))}
+                  {filteredStats.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>{showAllStats ? "Aucune donnée enregistrée" : "Aucun clic aujourd'hui"}</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {showCategories && (
+          <section className="admin-card categories-admin-section">
+            <div className="card-header">
+              <LayoutGrid size={20} className="header-icon" />
+              <h2>Gestion des Catégories</h2>
+            </div>
+            
+            <div className="category-creation-row">
+              <input type="text" placeholder="Nom de la catégorie" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} />
+              <input type="number" placeholder="Ordre" value={newCategory.display_order} onChange={e => setNewCategory({...newCategory, display_order: parseInt(e.target.value)})} style={{ width: '80px' }} />
+              <button className="add-cat-btn" onClick={() => handleSaveCategory(newCategory, false)} disabled={!newCategory.name}>
+                <Plus size={16} /> Ajouter
+              </button>
+            </div>
+
+            <div className="categories-list">
+              {categories.map(cat => (
+                <div key={cat.id} className="category-item">
+                  {editingCategory?.id === cat.id ? (
+                    <div className="cat-edit-mode">
+                      <input type="text" value={editingCategory.name} onChange={e => setEditingCategory({...editingCategory, name: e.target.value})} />
+                      <input type="number" value={editingCategory.display_order} onChange={e => setEditingCategory({...editingCategory, display_order: parseInt(e.target.value)})} style={{ width: '80px' }} />
+                      <button className="save-icon-btn" onClick={() => handleSaveCategory(editingCategory, true)}><Save size={16} /></button>
+                      <button className="cancel-icon-btn" onClick={() => setEditingCategory(null)}><X size={16} /></button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="cat-name">{cat.name}</span>
+                      <span className="cat-order">Ordre: {cat.display_order}</span>
+                      <div className="cat-actions">
+                        <button className="edit-icon-btn" onClick={() => setEditingCategory(cat)}><Edit2 size={14} /></button>
+                        <button className="delete-icon-btn" onClick={() => handleDeleteCategory(cat.id)}><Trash2 size={14} /></button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section className="admin-card creation-section">
           <div className="card-header">
@@ -148,8 +302,13 @@ const MagappAdmin: React.FC = () => {
               <input type="text" placeholder="Description courte pour l'infobulle..." value={newApp.description} onChange={e => setNewApp({...newApp, description: e.target.value})} />
             </div>
             <div className="form-group">
-              <label><ImageIcon size={14} /> URL Icône</label>
-              <input type="text" placeholder="./img/..." value={newApp.icon} onChange={e => setNewApp({...newApp, icon: e.target.value})} />
+              <label><ImageIcon size={14} /> Icône</label>
+              <div className="icon-selector-input">
+                <img src={newApp.icon} alt="Aperçu" className="icon-preview" onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} />
+                <button className="select-icon-btn" onClick={() => setShowIconSelector({ type: 'new', open: true })}>
+                  Choisir une icône
+                </button>
+              </div>
             </div>
             <div className="form-group">
               <label><Hash size={14} /> Ordre</label>
@@ -178,6 +337,35 @@ const MagappAdmin: React.FC = () => {
           </div>
         </section>
 
+        {showIconSelector.open && (
+          <div className="modal-overlay" onClick={() => setShowIconSelector({ ...showIconSelector, open: false })}>
+            <div className="modal-content icon-picker-modal" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>Choisir une icône locale</h2>
+                <button className="close-btn" onClick={() => setShowIconSelector({ ...showIconSelector, open: false })}><X size={20} /></button>
+              </div>
+              <div className="icons-grid">
+                {availableIcons.map(iconPath => (
+                  <div 
+                    key={iconPath} 
+                    className={`icon-item ${ (showIconSelector.type === 'new' ? newApp.icon : editingApp?.icon) === iconPath ? 'selected' : ''}`}
+                    onClick={() => {
+                      if (showIconSelector.type === 'new') {
+                        setNewApp({ ...newApp, icon: iconPath });
+                      } else if (editingApp) {
+                        setEditingApp({ ...editingApp, icon: iconPath });
+                      }
+                      setShowIconSelector({ ...showIconSelector, open: false });
+                    }}
+                  >
+                    <img src={iconPath} alt="Icon" title={iconPath.split('/').pop()} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <section className="list-section">
           <div className="list-header">
             <h2>Applications configurées ({apps.length})</h2>
@@ -195,7 +383,16 @@ const MagappAdmin: React.FC = () => {
                       </select>
                     </div>
                     <input type="text" value={editingApp.url} onChange={e => setEditingApp({...editingApp, url: e.target.value})} placeholder="URL" />
-                    <input type="text" value={editingApp.icon} onChange={e => setEditingApp({...editingApp, icon: e.target.value})} placeholder="Icône" />
+                    
+                    <div className="edit-icon-selector">
+                      <label><ImageIcon size={14} /> Icône</label>
+                      <div className="icon-selector-input">
+                        <img src={editingApp.icon} alt="Aperçu" className="icon-preview" onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} />
+                        <button className="select-icon-btn" onClick={() => setShowIconSelector({ type: 'edit', open: true })}>
+                          Changer
+                        </button>
+                      </div>
+                    </div>
                     
                     <div className="edit-maintenance-row">
                       <label className="checkbox-label">
@@ -222,7 +419,7 @@ const MagappAdmin: React.FC = () => {
                     <div className="app-card-content">
                       <div className="app-card-main">
                         <div className="app-card-icon">
-                          <img src={app.icon} alt={app.name} onError={(e) => { (e.target as HTMLImageElement).src = 'https://magapp.ivry.local/img/default.png'; }} />
+                          <img src={app.icon} alt={app.name} onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} />
                         </div>
                         <div className="app-card-text">
                           <div className="app-card-title-row">
@@ -270,6 +467,78 @@ const MagappAdmin: React.FC = () => {
           color: #1e293b;
         }
 
+        .stats-toggle-btn {
+          margin-left: auto;
+          background: white;
+          border: 1px solid #e2e8f0;
+          padding: 10px 20px;
+          border-radius: 12px;
+          cursor: pointer;
+          color: #64748b;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          transition: all 0.2s;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        .stats-toggle-btn:hover {
+          color: #0078a4;
+          border-color: #0078a4;
+        }
+
+        .stats-toggle-btn.active {
+          background: #0078a4;
+          color: white;
+          border-color: #0078a4;
+        }
+
+        .stats-section {
+          background: #f8fafc !important;
+          border: 1px dashed #cbd5e1 !important;
+        }
+
+        .stats-table-wrapper {
+          overflow-x: auto;
+        }
+
+        .stats-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 0.9rem;
+        }
+
+        .stats-table th {
+          text-align: left;
+          padding: 12px;
+          border-bottom: 2px solid #e2e8f0;
+          color: #64748b;
+          font-weight: 700;
+        }
+
+        .stats-table td {
+          padding: 12px;
+          border-bottom: 1px solid #f1f5f9;
+        }
+
+        .stat-name {
+          font-weight: 700;
+          color: #1e293b;
+        }
+
+        .stat-highlight {
+          color: #0078a4;
+          font-weight: 800;
+          font-size: 1rem;
+        }
+
+        .stat-highlight-users {
+          color: #10b981;
+          font-weight: 800;
+          font-size: 1rem;
+        }
+
         .admin-main {
           max-width: 1200px;
           margin: 0 auto;
@@ -282,6 +551,132 @@ const MagappAdmin: React.FC = () => {
           gap: 20px;
           margin-bottom: 40px;
         }
+
+        .header-actions {
+          margin-left: auto;
+          display: flex;
+          gap: 10px;
+        }
+
+        .stats-toggle-btn {
+          background: white;
+          border: 1px solid #e2e8f0;
+          padding: 10px 20px;
+          border-radius: 12px;
+          cursor: pointer;
+          color: #64748b;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          transition: all 0.2s;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        .stats-filter-btn {
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          padding: 6px 14px;
+          border-radius: 8px;
+          cursor: pointer;
+          color: #64748b;
+          font-size: 0.85rem;
+          font-weight: 600;
+          transition: all 0.2s;
+        }
+
+        .stats-filter-btn:hover {
+          background: #e2e8f0;
+        }
+
+        .stats-filter-btn.active {
+          background: #0078a4;
+          color: white;
+          border-color: #0078a4;
+        }
+
+        .categories-admin-section {
+          background: #f0f9ff !important;
+          border: 1px solid #bae6fd !important;
+        }
+
+        .category-creation-row {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 20px;
+          padding-bottom: 20px;
+          border-bottom: 1px solid #e0f2fe;
+        }
+
+        .category-creation-row input {
+          padding: 8px 12px;
+          border: 1px solid #bae6fd;
+          border-radius: 8px;
+        }
+
+        .add-cat-btn {
+          background: #0078a4;
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .categories-list {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 15px;
+        }
+
+        .category-item {
+          background: white;
+          padding: 12px 16px;
+          border-radius: 10px;
+          border: 1px solid #e0f2fe;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .cat-name {
+          font-weight: 700;
+          color: #0369a1;
+          flex-grow: 1;
+        }
+
+        .cat-order {
+          font-size: 0.8rem;
+          color: #64748b;
+          background: #f1f5f9;
+          padding: 2px 8px;
+          border-radius: 4px;
+        }
+
+        .cat-actions {
+          display: flex;
+          gap: 5px;
+        }
+
+        .cat-edit-mode {
+          display: flex;
+          gap: 8px;
+          width: 100%;
+        }
+
+        .cat-edit-mode input {
+          padding: 4px 8px;
+          border: 1px solid #0078a4;
+          border-radius: 4px;
+          font-size: 0.9rem;
+        }
+
+        .edit-icon-btn, .save-icon-btn { color: #0078a4; background: none; border: none; cursor: pointer; }
+        .delete-icon-btn, .cancel-icon-btn { color: #ef4444; background: none; border: none; cursor: pointer; }
 
         .back-button {
           background: white;
@@ -449,6 +844,113 @@ const MagappAdmin: React.FC = () => {
         .submit-btn:disabled {
           background: #cbd5e1;
           cursor: not-allowed;
+        }
+
+        .icon-selector-input {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          background: #f8fafc;
+          padding: 8px;
+          border-radius: 8px;
+          border: 1px solid #e2e8f0;
+        }
+
+        .icon-preview {
+          width: 32px;
+          height: 32px;
+          object-fit: contain;
+          background: white;
+          border-radius: 4px;
+          padding: 2px;
+          border: 1px solid #e2e8f0;
+        }
+
+        .select-icon-btn {
+          background: #0078a4;
+          color: white;
+          border: none;
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          backdrop-filter: blur(4px);
+        }
+
+        .icon-picker-modal {
+          background: white;
+          width: 90%;
+          max-width: 600px;
+          max-height: 80vh;
+          border-radius: 16px;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .modal-header {
+          padding: 20px;
+          border-bottom: 1px solid #e2e8f0;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .icons-grid {
+          padding: 20px;
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+          gap: 12px;
+          overflow-y: auto;
+        }
+
+        .icon-item {
+          aspect-ratio: 1;
+          padding: 8px;
+          border-radius: 8px;
+          border: 1px solid #e2e8f0;
+          cursor: pointer;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .icon-item:hover {
+          border-color: #0078a4;
+          background: #f0f9ff;
+        }
+
+        .icon-item.selected {
+          border-color: #0078a4;
+          background: #e0f2fe;
+          box-shadow: 0 0 0 2px #0078a4;
+        }
+
+        .icon-item img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+        }
+
+        .close-btn {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #64748b;
         }
 
         .list-header {
@@ -652,6 +1154,12 @@ const MagappAdmin: React.FC = () => {
         .maint-dates {
           display: flex;
           align-items: center;
+          gap: 8px;
+        }
+
+        .edit-icon-selector {
+          display: flex;
+          flex-direction: column;
           gap: 8px;
         }
 

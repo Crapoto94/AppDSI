@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.2.7",
+  "currentVersion": "0.2.8",
   "history": [
+    {
+      "version": "0.2.8",
+      "date": "2026-03-09",
+      "changes": [
+        "Magasin d'Applications : Filtrage par défaut des statistiques pour n'afficher que les applications ayant eu des clics aujourd'hui.",
+        "Magasin d'Applications : Ajout d'un bouton 'Toutes les applis' pour basculer vers l'affichage de l'intégralité des statistiques.",
+        "Magasin d'Applications : Ajout d'un nouveau module de gestion et d'édition des catégories (création, modification, suppression) dans l'interface d'administration."
+      ]
+    },
     {
       "version": "0.2.7",
       "date": "2026-03-09",
@@ -165,7 +174,7 @@
       "changes": [
         "Mise en place de la gestion des états pour les tuiles du Hub : 'Active', 'En maintenance' et 'Bientôt disponible'.",
         "Ajout d'un sélecteur d'état dans le menu de configuration (Administration).",
-        "Amélioration visuelle des tuiles avec des superpositions (overlays) et des icônes spécifiques pour les états non-actifs.",
+        "Amélioration visuelle des tuiles with des superpositions (overlays) et des icônes spécifiques pour les états non-actifs.",
         "Désactivation automatique des liens et boutons pour les services en maintenance ou à venir."
       ]
     },
