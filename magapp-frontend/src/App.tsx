@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User } from 'lucide-react';
 import './index.css';
 
 interface Category {
@@ -28,16 +28,21 @@ function App() {
   const [apps, setApps] = useState<AppItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [windowLogin, setWindowLogin] = useState<string>('');
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [catsRes, appsRes] = await Promise.all([
+        const [catsRes, appsRes, authRes] = await Promise.all([
           axios.get<Category[]>('/api/magapp/categories'),
-          axios.get<AppItem[]>('/api/magapp/apps')
+          axios.get<AppItem[]>('/api/magapp/apps'),
+          axios.get('/api/auth/ntlm').catch(() => ({ data: { login: '' } }))
         ]);
         setCategories(catsRes.data.sort((a, b) => a.display_order - b.display_order));
         setApps(appsRes.data.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
+        if (authRes.data && authRes.data.login) {
+          setWindowLogin(authRes.data.login);
+        }
       } catch (error) {
         console.error("Erreur de chargement des données", error);
       } finally {
@@ -70,16 +75,9 @@ function App() {
 
   const handleAppClick = async (app: AppItem) => {
     try {
-      // Tentative de récupération du login Windows via NTLM (si disponible)
-      let username = 'Anonyme';
-      try {
-        const authRes = await axios.get('/api/auth/ntlm');
-        if (authRes.data && authRes.data.login) username = authRes.data.login;
-      } catch (e) { /* Pas de NTLM, on reste anonyme */ }
-
       await axios.post('/api/magapp/clicks', {
         app_id: app.id,
-        username: username
+        username: windowLogin || 'Anonyme'
       });
     } catch (error) {
       console.error("Erreur de tracking", error);
@@ -114,6 +112,12 @@ function App() {
 
   return (
     <div className="magapp-container">
+      {windowLogin && (
+        <div className="user-info" title="Connecté via Windows">
+          <User size={16} />
+          <span className="user-login">{windowLogin}</span>
+        </div>
+      )}
       <div className="search-container">
         <Search className="search-icon" size={20} />
         <input 

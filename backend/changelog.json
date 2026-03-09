@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.2.13",
+  "currentVersion": "0.2.14",
   "history": [
+    {
+      "version": "0.2.14",
+      "date": "2026-03-09",
+      "changes": [
+        "Télécom : Correction manuelle du numéro de facture 9A0039089776N (suppression du 'N' final).",
+        "Magasin d'Applications : Affichage du login Windows (NTLM) en haut à droite de l'interface.",
+        "Magasin d'Applications : Optimisation du tracking des clics utilisant le login déjà récupéré au chargement."
+      ]
+    },
     {
       "version": "0.2.13",
       "date": "2026-03-09",
