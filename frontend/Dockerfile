@@ -7,7 +7,7 @@ COPY frontend/package*.json ./frontend/
 RUN cd frontend && npm ci --omit=dev
 
 # Copier le reste du code source frontend
-COPY frontend/ .
+COPY . .
 
 # Construire l'application React/Vite
 RUN cd frontend && npm run build

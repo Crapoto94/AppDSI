@@ -7,7 +7,7 @@ COPY magapp-frontend/package*.json ./magapp-frontend/
 RUN cd magapp-frontend && npm ci --omit=dev
 
 # Copier le reste du code source magapp-frontend
-COPY magapp-frontend/ .
+COPY . .
 
 # Construire l'application React/Vite
 RUN cd magapp-frontend && npm run build
