@@ -25,6 +25,10 @@ export default defineConfig({
       '/file_certif': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+      },
+      '/file_telecom': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
       }
     }
   }

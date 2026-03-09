@@ -454,9 +454,23 @@ try { await db.run("ALTER TABLE contacts ADD COLUMN is_order_recipient INTEGER D
             commitment_number TEXT UNIQUE,
             label TEXT,
             amount REAL,
+            invoiced_amount REAL DEFAULT 0,
             year INTEGER,
             operator_name TEXT,
             external_ref TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS telecom_invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_number TEXT,
+            operator_id INTEGER,
+            billing_account_id INTEGER,
+            amount_ttc REAL,
+            invoice_date DATE,
+            file_path TEXT,
+            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (operator_id) REFERENCES telecom_operators(id),
+            FOREIGN KEY (billing_account_id) REFERENCES telecom_billing_accounts(id)
         );
     `);
 

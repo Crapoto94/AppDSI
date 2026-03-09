@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Phone, 
   Plus, 
+  Edit2,
   Trash2, 
   Search, 
   Building2, 
@@ -15,7 +16,11 @@ import {
   User,
   ShoppingBag,
   List,
-  Upload
+  Upload,
+  Save,
+  X,
+  FileText,
+  AlertCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
@@ -42,6 +47,11 @@ interface BillingAccount {
   market_number: string;
   function_code: string;
   commitment_number: string;
+  commitment_amount?: number;
+  commitment_label?: string;
+  invoice_count?: number;
+  total_invoiced?: number;
+  account_balance?: number;
 }
 
 interface Commitment {
@@ -49,23 +59,48 @@ interface Commitment {
   commitment_number: string;
   label: string;
   amount: number;
+  invoiced_amount: number;
   year: number;
   operator_name: string;
   external_ref: string;
 }
 
+interface TelecomInvoice {
+  id: number;
+  invoice_number: string;
+  operator_id: number;
+  billing_account_id: number;
+  amount_ttc: number;
+  invoice_date: string;
+  file_path: string;
+  uploaded_at: string;
+  operator_name?: string;
+  account_number?: string;
+}
+
 const TelecomManagement: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'invoices' | 'lines'>('invoices');
+  const [activeTab, setActiveTab] = useState<'invoices' | 'lines' | 'pdfs'>('invoices');
   const [operators, setOperators] = useState<Operator[]>([]);
   const [billingAccounts, setBillingAccounts] = useState<Record<number, BillingAccount[]>>({});
   const [commitments, setCommitments] = useState<Commitment[]>([]);
+  const [telecomInvoices, setTelecomInvoices] = useState<TelecomInvoice[]>([]);
   const [allTiers, setAllTiers] = useState<Tier[]>([]);
   const [showAddOperator, setShowAddOperator] = useState(false);
   const [tierSearch, setTierSearch] = useState('');
   const [expandedOperators, setExpandedOperators] = useState<number[]>([]);
   const [showAddAccount, setShowAddAccount] = useState<number | null>(null);
+  const [editingAccount, setEditingAccount] = useState<BillingAccount | null>(null);
   
+  // Invoices Filtering & Grouping State
+  const [invoiceSearch, setInvoiceSearch] = useState('');
+  const [invoiceAccountFilter, setInvoiceAccountFilter] = useState<number | null>(null);
+  const [invoiceOperatorFilter, setInvoiceOperatorFilter] = useState<number | null>(null);
+  
+  // Validation Modal State
+  const [pendingInvoice, setPendingInvoice] = useState<any>(null);
+  const [showValidation, setShowValidation] = useState(false);
+
   const [newAccount, setNewAccount] = useState<Partial<BillingAccount>>({
     type: 'Fixe',
     account_number: '',
@@ -88,7 +123,6 @@ const TelecomManagement: React.FC = () => {
       if (opRes.ok) {
         const ops = await opRes.json();
         setOperators(ops);
-        // Fetch accounts for each operator
         ops.forEach((op: Operator) => fetchAccounts(op.id));
       }
 
@@ -100,6 +134,9 @@ const TelecomManagement: React.FC = () => {
 
       const commRes = await fetch('/api/telecom/commitments', { headers: { 'Authorization': `Bearer ${token}` } });
       if (commRes.ok) setCommitments(await commRes.json());
+
+      const invRes = await fetch('/api/telecom/invoices', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (invRes.ok) setTelecomInvoices(await invRes.json());
     } catch (e) {
       console.error(e);
     }
@@ -153,18 +190,24 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
-  const handleAddAccount = async (operatorId: number) => {
+  const handleSaveAccount = async (operatorId: number) => {
+    const isEditing = !!editingAccount;
+    const url = isEditing ? `/api/telecom/billing-accounts/${editingAccount.id}` : '/api/telecom/billing-accounts';
+    const method = isEditing ? 'PUT' : 'POST';
+    const body = isEditing ? editingAccount : { ...newAccount, operator_id: operatorId };
+
     try {
-      const res = await fetch('/api/telecom/billing-accounts', {
-        method: 'POST',
+      const res = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ ...newAccount, operator_id: operatorId })
+        body: JSON.stringify(body)
       });
       if (res.ok) {
         setShowAddAccount(null);
+        setEditingAccount(null);
         setNewAccount({ type: 'Fixe', account_number: '', designation: '', customer_number: '', market_number: '', function_code: '', commitment_number: '' });
         fetchAccounts(operatorId);
       }
@@ -184,6 +227,11 @@ const TelecomManagement: React.FC = () => {
     } catch (e) {
       alert("Erreur");
     }
+  };
+
+  const startEditAccount = (acc: BillingAccount) => {
+    setEditingAccount(acc);
+    setShowAddAccount(acc.operator_id);
   };
 
   const handleImportCommitments = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -211,16 +259,125 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
+  const handleUploadInvoice = async (e: React.ChangeEvent<HTMLInputElement> | null, overwrite = false, existingFile?: File) => {
+    const file = e ? e.target.files?.[0] : existingFile;
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('target_type', 'telecom_invoice');
+    formData.append('file', file);
+    if (overwrite) formData.append('overwrite', 'true');
+
+    try {
+      const res = await fetch('/api/telecom/invoices/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+
+      if (res.status === 409) {
+        const data = await res.json();
+        if (window.confirm(data.message)) {
+          handleUploadInvoice(null, true, file);
+        }
+        return;
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        // data now contains { id, file_path, ... } directly from the backend
+        if (!data.operator_id || !data.billing_account_id || data.invoice_number === 'Inconnu' || !data.invoice_date || data.amount_ttc === 0) {
+          setPendingInvoice(data);
+          setShowValidation(true);
+        } else {
+          alert(`Facture ${data.invoice_number} uploadée et analysée avec succès.`);
+          fetchData();
+        }
+      } else {
+        alert("Erreur lors de l'upload");
+      }
+    } catch (e) {
+      alert("Erreur de connexion");
+    }
+  };
+
+  const handleSaveValidation = async () => {
+    if (!pendingInvoice) return;
+    try {
+      const res = await fetch(`/api/telecom/invoices/${pendingInvoice.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(pendingInvoice)
+      });
+      if (res.ok) {
+        setShowValidation(false);
+        setPendingInvoice(null);
+        fetchData();
+      } else {
+        alert("Erreur lors de la mise à jour");
+      }
+    } catch (e) {
+      alert("Erreur de connexion");
+    }
+  };
+
+  const handleDeleteTelecomInvoice = async (id: number) => {
+    if (!window.confirm("Supprimer cette facture ?")) return;
+    try {
+      const res = await fetch(`/api/telecom/invoices/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) fetchData();
+    } catch (e) {
+      alert("Erreur");
+    }
+  };
+
   const toggleOperator = (id: number) => {
     setExpandedOperators(prev => 
       prev.includes(id) ? prev.filter(oid => oid !== id) : [...prev, id]
     );
   };
 
+  const handleViewInvoices = (accountId: number, operatorId: number) => {
+    setInvoiceAccountFilter(accountId);
+    setInvoiceOperatorFilter(operatorId);
+    setActiveTab('pdfs');
+  };
+
   const filteredTiers = allTiers.filter(t => 
     t.nom.toLowerCase().includes(tierSearch.toLowerCase()) && 
     !operators.some(op => op.tier_id === t.id)
   ).slice(0, 5);
+
+  const filteredInvoices = telecomInvoices.filter(inv => {
+    const matchesSearch = !invoiceSearch || 
+      inv.invoice_number.toLowerCase().includes(invoiceSearch.toLowerCase()) || 
+      (inv.account_number || '').toLowerCase().includes(invoiceSearch.toLowerCase());
+    const matchesOperator = !invoiceOperatorFilter || inv.operator_id === invoiceOperatorFilter;
+    const matchesAccount = !invoiceAccountFilter || inv.billing_account_id === invoiceAccountFilter;
+    return matchesSearch && matchesOperator && matchesAccount;
+  }).sort((a, b) => new Date(b.invoice_date).getTime() - new Date(a.invoice_date).getTime());
+
+  // Group by month
+  const groupedInvoices: Record<string, TelecomInvoice[]> = {};
+  filteredInvoices.forEach(inv => {
+    const date = inv.invoice_date ? new Date(inv.invoice_date) : null;
+    const monthKey = date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` : 'Inconnue';
+    if (!groupedInvoices[monthKey]) groupedInvoices[monthKey] = [];
+    groupedInvoices[monthKey].push(inv);
+  });
+
+  const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+  const formatMonthKey = (key: string) => {
+    if (key === 'Inconnue') return 'Date inconnue';
+    const [year, month] = key.split('-');
+    return `${monthNames[parseInt(month) - 1]} ${year}`;
+  };
 
   return (
     <div className="telecom-container">
@@ -236,10 +393,13 @@ const TelecomManagement: React.FC = () => {
           </div>
           <div className="tab-switcher">
             <button className={activeTab === 'invoices' ? 'active' : ''} onClick={() => setActiveTab('invoices')}>
-              <CreditCard size={18} /> Gestion des factures
+              <Building2 size={18} /> Comptes
+            </button>
+            <button className={activeTab === 'pdfs' ? 'active' : ''} onClick={() => setActiveTab('pdfs')}>
+              <CreditCard size={18} /> Factures PDF
             </button>
             <button className={activeTab === 'lines' ? 'active' : ''} onClick={() => setActiveTab('lines')}>
-              <List size={18} /> Gestion des engagements
+              <List size={18} /> Engagements
             </button>
           </div>
         </div>
@@ -303,21 +463,24 @@ const TelecomManagement: React.FC = () => {
                     <div className="operator-card-body">
                       <div className="accounts-header">
                         <h4>Comptes de facturation</h4>
-                        <button className="add-account-btn" onClick={() => setShowAddAccount(op.id)}>
+                        <button className="add-account-btn" onClick={() => { setEditingAccount(null); setShowAddAccount(op.id); }}>
                           <Plus size={14} /> Nouveau compte
                         </button>
                       </div>
 
                       {showAddAccount === op.id && (
                         <div className="add-account-form">
+                          <div className="form-header-small">
+                            {editingAccount ? "Modifier le compte" : "Ajouter un nouveau compte"}
+                          </div>
                           <div className="form-grid">
                             <div className="form-group">
                               <label>N° de compte</label>
-                              <input type="text" value={newAccount.account_number} onChange={e => setNewAccount({...newAccount, account_number: e.target.value})} />
+                              <input type="text" value={editingAccount ? editingAccount.account_number : newAccount.account_number} onChange={e => editingAccount ? setEditingAccount({...editingAccount, account_number: e.target.value}) : setNewAccount({...newAccount, account_number: e.target.value})} />
                             </div>
                             <div className="form-group">
                               <label>Type</label>
-                              <select value={newAccount.type} onChange={e => setNewAccount({...newAccount, type: e.target.value})}>
+                              <select value={editingAccount ? editingAccount.type : newAccount.type} onChange={e => editingAccount ? setEditingAccount({...editingAccount, type: e.target.value}) : setNewAccount({...newAccount, type: e.target.value})}>
                                 <option value="Fixe">Téléphonie fixe</option>
                                 <option value="Mobile">Téléphonie mobile</option>
                                 <option value="Interco">Liens interco</option>
@@ -326,28 +489,28 @@ const TelecomManagement: React.FC = () => {
                             </div>
                             <div className="form-group">
                               <label>Désignation</label>
-                              <input type="text" value={newAccount.designation} onChange={e => setNewAccount({...newAccount, designation: e.target.value})} />
+                              <input type="text" value={editingAccount ? editingAccount.designation : newAccount.designation} onChange={e => editingAccount ? setEditingAccount({...editingAccount, designation: e.target.value}) : setNewAccount({...newAccount, designation: e.target.value})} />
                             </div>
                             <div className="form-group">
                               <label>N° Client</label>
-                              <input type="text" value={newAccount.customer_number} onChange={e => setNewAccount({...newAccount, customer_number: e.target.value})} />
+                              <input type="text" value={editingAccount ? editingAccount.customer_number : newAccount.customer_number} onChange={e => editingAccount ? setEditingAccount({...editingAccount, customer_number: e.target.value}) : setNewAccount({...newAccount, customer_number: e.target.value})} />
                             </div>
                             <div className="form-group">
                               <label>N° Marché</label>
-                              <input type="text" value={newAccount.market_number} onChange={e => setNewAccount({...newAccount, market_number: e.target.value})} />
+                              <input type="text" value={editingAccount ? editingAccount.market_number : newAccount.market_number} onChange={e => editingAccount ? setEditingAccount({...editingAccount, market_number: e.target.value}) : setNewAccount({...newAccount, market_number: e.target.value})} />
                             </div>
                             <div className="form-group">
                               <label>Code Fonction</label>
-                              <input type="text" value={newAccount.function_code} onChange={e => setNewAccount({...newAccount, function_code: e.target.value})} />
+                              <input type="text" value={editingAccount ? editingAccount.function_code : newAccount.function_code} onChange={e => editingAccount ? setEditingAccount({...editingAccount, function_code: e.target.value}) : setNewAccount({...newAccount, function_code: e.target.value})} />
                             </div>
                             <div className="form-group">
                               <label>N° Engagement</label>
-                              <input type="text" value={newAccount.commitment_number} onChange={e => setNewAccount({...newAccount, commitment_number: e.target.value})} />
+                              <input type="text" value={editingAccount ? editingAccount.commitment_number : newAccount.commitment_number} onChange={e => editingAccount ? setEditingAccount({...editingAccount, commitment_number: e.target.value}) : setNewAccount({...newAccount, commitment_number: e.target.value})} />
                             </div>
                           </div>
                           <div className="form-actions">
-                            <button className="cancel-btn" onClick={() => setShowAddAccount(null)}>Annuler</button>
-                            <button className="save-btn" onClick={() => handleAddAccount(op.id)}>Enregistrer</button>
+                            <button className="cancel-btn" onClick={() => { setShowAddAccount(null); setEditingAccount(null); }}>Annuler</button>
+                            <button className="save-btn" onClick={() => handleSaveAccount(op.id)}><Save size={16} /> {editingAccount ? "Mettre à jour" : "Enregistrer"}</button>
                           </div>
                         </div>
                       )}
@@ -359,8 +522,10 @@ const TelecomManagement: React.FC = () => {
                               <th>Type</th>
                               <th>N° Compte</th>
                               <th>Désignation</th>
-                              <th>N° Marché</th>
-                              <th>N° Engagement</th>
+                              <th>Engagement</th>
+                              <th>Factures</th>
+                              <th>Total Facturé</th>
+                              <th>Solde Engagement</th>
                               <th>Actions</th>
                             </tr>
                           </thead>
@@ -370,17 +535,46 @@ const TelecomManagement: React.FC = () => {
                                 <td><span className={`type-badge ${acc.type.toLowerCase()}`}>{acc.type}</span></td>
                                 <td>{acc.account_number}</td>
                                 <td>{acc.designation}</td>
-                                <td>{acc.market_number}</td>
-                                <td>{acc.commitment_number}</td>
                                 <td>
-                                  <button className="delete-icon-btn" onClick={() => handleDeleteAccount(acc.id, op.id)}>
-                                    <Trash2 size={16} />
-                                  </button>
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <span className="num-badge">{acc.commitment_number}</span>
+                                    <small style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                      {(acc.commitment_amount || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                    </small>
+                                  </div>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span 
+                                    className="invoice-count-badge clickable" 
+                                    onClick={() => handleViewInvoices(acc.id, op.id)}
+                                    title="Voir les factures de ce compte"
+                                  >
+                                    {acc.invoice_count || 0}
+                                  </span>
+                                </td>
+                                <td className="amount-col">
+                                  {(acc.total_invoiced || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                </td>
+                                <td className="amount-col" style={{ 
+                                  color: (acc.account_balance || 0) < 0 ? '#ef4444' : '#059669',
+                                  fontWeight: 700 
+                                }}>
+                                  {(acc.account_balance || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                </td>
+                                <td>
+                                  <div className="action-btns">
+                                    <button className="edit-icon-btn" onClick={() => startEditAccount(acc)}>
+                                      <Edit2 size={16} />
+                                    </button>
+                                    <button className="delete-icon-btn" onClick={() => handleDeleteAccount(acc.id, op.id)}>
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             ))}
                             {(!billingAccounts[op.id] || billingAccounts[op.id].length === 0) && (
-                              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '20px', color: '#64748b' }}>Aucun compte configuré</td></tr>
+                              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '20px', color: '#64748b' }}>Aucun compte configuré</td></tr>
                             )}
                           </tbody>
                         </table>
@@ -395,6 +589,123 @@ const TelecomManagement: React.FC = () => {
                   <p>Aucun opérateur configuré. Commencez par en ajouter un.</p>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'pdfs' && (
+          <div className="tab-content">
+            <div className="section-header">
+              <h2>Historique des factures PDF</h2>
+              <div className="action-group">
+                <input 
+                  type="file" 
+                  id="upload-telecom-invoice" 
+                  style={{ display: 'none' }} 
+                  accept=".pdf"
+                  onChange={handleUploadInvoice}
+                />
+                <button className="add-btn" onClick={() => document.getElementById('upload-telecom-invoice')?.click()}>
+                  <Plus size={18} /> Ajouter une facture (PDF)
+                </button>
+              </div>
+            </div>
+
+            <div className="invoice-filters admin-card">
+              <div className="filters-grid">
+                <div className="filter-group">
+                  <label>Rechercher</label>
+                  <div className="search-input-wrapper-mini">
+                    <Search size={14} />
+                    <input 
+                      type="text" 
+                      placeholder="N° facture, compte..." 
+                      value={invoiceSearch}
+                      onChange={e => setInvoiceSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="filter-group">
+                  <label>Opérateur</label>
+                  <select 
+                    value={invoiceOperatorFilter || ''} 
+                    onChange={e => {
+                      const val = e.target.value ? parseInt(e.target.value) : null;
+                      setInvoiceOperatorFilter(val);
+                      setInvoiceAccountFilter(null);
+                    }}
+                  >
+                    <option value="">Tous les opérateurs</option>
+                    {operators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}
+                  </select>
+                </div>
+                <div className="filter-group">
+                  <label>Compte</label>
+                  <select 
+                    value={invoiceAccountFilter || ''} 
+                    onChange={e => setInvoiceAccountFilter(e.target.value ? parseInt(e.target.value) : null)}
+                    disabled={!invoiceOperatorFilter}
+                  >
+                    <option value="">Tous les comptes</option>
+                    {invoiceOperatorFilter && billingAccounts[invoiceOperatorFilter]?.map(acc => (
+                      <option key={acc.id} value={acc.id}>{acc.account_number} ({acc.designation})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="filter-group-actions">
+                  <button className="clear-filters" onClick={() => {
+                    setInvoiceSearch('');
+                    setInvoiceOperatorFilter(null);
+                    setInvoiceAccountFilter(null);
+                  }}>Réinitialiser</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="invoices-list admin-card">
+              <table className="commitments-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>N° Facture</th>
+                    <th>Opérateur</th>
+                    <th>N° Compte</th>
+                    <th>Montant TTC</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(groupedInvoices).sort((a, b) => b[0].localeCompare(a[0])).map(([monthKey, invoices]) => (
+                    <React.Fragment key={monthKey}>
+                      <tr className="month-break-row">
+                        <td colSpan={6}>{formatMonthKey(monthKey)}</td>
+                      </tr>
+                      {invoices.map(inv => (
+                        <tr key={inv.id}>
+                          <td>{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('fr-FR') : 'Inconnue'}</td>
+                          <td style={{ fontWeight: 700 }}>{inv.invoice_number}</td>
+                          <td>{inv.operator_name || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
+                          <td>{inv.account_number || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
+                          <td style={{ fontWeight: 700 }}>{inv.amount_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                          <td>
+                            <div className="action-btns">
+                              <a href={`/api/${inv.file_path}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Voir le PDF">
+                                <FileText size={18} />
+                              </a>
+                              <button className="delete-icon-btn" onClick={() => handleDeleteTelecomInvoice(inv.id)}>
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                  {filteredInvoices.length === 0 && (
+                    <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune facture trouvée</td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -425,7 +736,9 @@ const TelecomManagement: React.FC = () => {
                     <th>N° Engagement</th>
                     <th>Libellé</th>
                     <th>Opérateur</th>
-                    <th>Montant</th>
+                    <th>Montant Engagé</th>
+                    <th>Montant Facturé</th>
+                    <th>Solde</th>
                     <th>Référence</th>
                   </tr>
                 </thead>
@@ -436,12 +749,16 @@ const TelecomManagement: React.FC = () => {
                       <td className="num-cell">{c.commitment_number}</td>
                       <td>{c.label}</td>
                       <td>{c.operator_name}</td>
-                      <td className="amount-cell">{c.amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                      <td className="amount-cell">{(c.amount || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                      <td className="amount-cell" style={{ color: '#64748b' }}>{(c.invoiced_amount || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                      <td className="amount-cell" style={{ color: ((c.amount || 0) - (c.invoiced_amount || 0)) < 0 ? '#ef4444' : '#059669', fontWeight: 700 }}>
+                        {((c.amount || 0) - (c.invoiced_amount || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
                       <td>{c.external_ref}</td>
                     </tr>
                   ))}
                   {commitments.length === 0 && (
-                    <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement importé</td></tr>
+                    <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement importé</td></tr>
                   )}
                 </tbody>
               </table>
@@ -449,6 +766,73 @@ const TelecomManagement: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Validation Modal for Missing Info */}
+      {showValidation && pendingInvoice && (
+        <div className="validation-modal-overlay">
+          <div className="validation-modal-content">
+            <div className="validation-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <AlertCircle color="#f59e0b" size={24} />
+                <h2>Validation de la facture</h2>
+              </div>
+              <button className="close-btn" onClick={() => setShowValidation(false)}><X size={24} /></button>
+            </div>
+            <div className="validation-body">
+              <div className="pdf-viewer-side">
+                <iframe src={`/api/${pendingInvoice.file_path}`} title="PDF Viewer" width="100%" height="100%" />
+              </div>
+              <div className="form-side">
+                <p className="validation-hint">Veuillez désigner ou saisir les informations manquantes en consultant le document à gauche.</p>
+                <div className="validation-form">
+                  <div className="form-group">
+                    <label>Numéro de facture</label>
+                    <input type="text" value={pendingInvoice.invoice_number} onChange={e => setPendingInvoice({...pendingInvoice, invoice_number: e.target.value})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Opérateur</label>
+                    <select 
+                      value={pendingInvoice.operator_id || ''} 
+                      onChange={e => {
+                        const opId = parseInt(e.target.value);
+                        setPendingInvoice({...pendingInvoice, operator_id: opId, billing_account_id: null});
+                        if (opId) fetchAccounts(opId);
+                      }}
+                    >
+                      <option value="">-- Sélectionner l'opérateur --</option>
+                      {operators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Compte de facturation</label>
+                    <select 
+                      value={pendingInvoice.billing_account_id || ''} 
+                      onChange={e => setPendingInvoice({...pendingInvoice, billing_account_id: parseInt(e.target.value)})}
+                      disabled={!pendingInvoice.operator_id}
+                    >
+                      <option value="">-- Sélectionner le compte --</option>
+                      {billingAccounts[pendingInvoice.operator_id]?.map(acc => (
+                        <option key={acc.id} value={acc.id}>{acc.account_number} ({acc.designation})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Montant TTC (€)</label>
+                    <input type="number" step="0.01" value={pendingInvoice.amount_ttc} onChange={e => setPendingInvoice({...pendingInvoice, amount_ttc: parseFloat(e.target.value)})} />
+                  </div>
+                  <div className="form-group">
+                    <label>Date de facture</label>
+                    <input type="date" value={pendingInvoice.invoice_date || ''} onChange={e => setPendingInvoice({...pendingInvoice, invoice_date: e.target.value})} />
+                  </div>
+                  <button className="confirm-btn" onClick={handleSaveValidation}>
+                    <Save size={18} /> Valider les informations
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         .telecom-container { min-height: 100vh; background: #f8fafc; }
@@ -496,12 +880,13 @@ const TelecomManagement: React.FC = () => {
         .add-account-btn { background: #f1f5f9; color: #475569; border: none; padding: 4px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; }
 
         .add-account-form { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+        .form-header-small { font-size: 0.85rem; font-weight: 700; color: #0078a4; margin-bottom: 15px; text-transform: uppercase; }
         .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; }
         .form-group label { display: block; font-size: 0.8rem; font-weight: 600; color: #64748b; margin-bottom: 5px; }
         .form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; }
         .form-actions { display: flex; justify-content: flex-end; gap: 10px; }
         .cancel-btn { background: white; border: 1px solid #e2e8f0; padding: 8px 16px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-        .save-btn { background: #0078a4; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+        .save-btn { background: #0078a4; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; }
 
         .accounts-table { width: 100%; border-collapse: collapse; }
         .accounts-table th { text-align: left; padding: 12px; font-size: 0.8rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.025em; border-bottom: 1px solid #f1f5f9; }
@@ -511,8 +896,26 @@ const TelecomManagement: React.FC = () => {
         .type-badge.mobile { background: #eff6ff; color: #2563eb; }
         .type-badge.interco { background: #faf5ff; color: #7c3aed; }
         .type-badge.internet { background: #fff7ed; color: #d97706; }
+        .num-badge { font-weight: 700; color: #0078a4; }
+        .amount-col { font-weight: 700; color: #1e293b; text-align: right; }
+        .action-btns { display: flex; gap: 8px; }
+        .edit-icon-btn { color: #0078a4; background: none; border: none; cursor: pointer; transition: color 0.2s; }
         .delete-icon-btn { color: #94a3b8; background: none; border: none; cursor: pointer; transition: color 0.2s; }
         .delete-icon-btn:hover { color: #ef4444; }
+
+        .invoice-count-badge.clickable { cursor: pointer; transition: all 0.2s; }
+        .invoice-count-badge.clickable:hover { background: #0078a4; color: white; transform: scale(1.1); }
+
+        .invoice-filters { padding: 20px; margin-bottom: 24px; }
+        .filters-grid { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 20px; align-items: flex-end; }
+        .filter-group label { display: block; font-size: 0.75rem; font-weight: 700; color: #64748b; margin-bottom: 6px; text-transform: uppercase; }
+        .filter-group select { width: 100%; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; }
+        .search-input-wrapper-mini { display: flex; align-items: center; gap: 8px; background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0 12px; height: 38px; }
+        .search-input-wrapper-mini input { border: none; outline: none; font-size: 0.9rem; width: 100%; }
+        .clear-filters { background: #f1f5f9; border: none; padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; color: #64748b; cursor: pointer; height: 38px; transition: all 0.2s; }
+        .clear-filters:hover { background: #e2e8f0; color: #1e293b; }
+
+        .month-break-row td { background: #f8fafc; font-weight: 700; color: #0078a4; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 15px; border-bottom: 2px solid #e2e8f0; }
 
         .commitments-table { width: 100%; border-collapse: collapse; }
         .commitments-table th { background: #f8fafc; padding: 15px; text-align: left; font-size: 0.8rem; color: #64748b; border-bottom: 1px solid #e2e8f0; }
@@ -524,6 +927,18 @@ const TelecomManagement: React.FC = () => {
 
         .empty-state { text-align: center; padding: 60px; color: #94a3b8; }
         .empty-state p { margin-top: 15px; font-size: 1.1rem; }
+
+        /* Validation Modal Styles */
+        .validation-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 40px; }
+        .validation-modal-content { background: white; width: 100%; height: 100%; border-radius: 20px; display: flex; flex-direction: column; overflow: hidden; }
+        .validation-header { padding: 20px 30px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+        .validation-body { flex-grow: 1; display: flex; overflow: hidden; }
+        .pdf-viewer-side { flex: 1; background: #525659; border-right: 1px solid #e2e8f0; }
+        .form-side { width: 400px; padding: 30px; overflow-y: auto; background: #f8fafc; }
+        .validation-hint { font-size: 0.9rem; color: #64748b; margin-bottom: 20px; padding: 12px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; line-height: 1.4; }
+        .validation-form { display: flex; flex-direction: column; gap: 20px; }
+        .confirm-btn { margin-top: 10px; background: #059669; color: white; border: none; padding: 14px; border-radius: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: all 0.2s; }
+        .confirm-btn:hover { background: #047857; transform: translateY(-1px); }
       `}</style>
     </div>
   );
