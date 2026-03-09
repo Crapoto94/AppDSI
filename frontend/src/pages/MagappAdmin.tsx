@@ -49,8 +49,14 @@ const MagappAdmin: React.FC = () => {
         fetch('/api/magapp/categories', { headers })
       ]);
       
-      if (appsRes.ok) setApps(await appsRes.json());
-      if (catsRes.ok) setCategories(await catsRes.json());
+      if (appsRes.ok) {
+        const appsData = await appsRes.json();
+        setApps(appsData.sort((a: any, b: any) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
+      }
+      if (catsRes.ok) {
+        const catsData = await catsRes.json();
+        setCategories(catsData.sort((a: any, b: any) => a.display_order - b.display_order));
+      }
     } catch (e) {
       console.error("Erreur de chargement", e);
     }

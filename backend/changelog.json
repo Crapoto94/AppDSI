@@ -1,6 +1,13 @@
 {
-  "currentVersion": "0.2.6",
+  "currentVersion": "0.2.7",
   "history": [
+    {
+      "version": "0.2.7",
+      "date": "2026-03-09",
+      "changes": [
+        "Magasin d'Applications : Tri alphabétique automatique de toutes les applications dans le catalogue public et l'interface d'administration."
+      ]
+    },
     {
       "version": "0.2.6",
       "date": "2026-03-09",

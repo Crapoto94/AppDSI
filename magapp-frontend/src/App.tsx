@@ -36,8 +36,8 @@ function App() {
           axios.get<Category[]>('/api/magapp/categories'),
           axios.get<AppItem[]>('/api/magapp/apps')
         ]);
-        setCategories(catsRes.data);
-        setApps(appsRes.data);
+        setCategories(catsRes.data.sort((a, b) => a.display_order - b.display_order));
+        setApps(appsRes.data.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       } catch (error) {
         console.error("Erreur de chargement des données", error);
       } finally {
