@@ -1,16 +1,16 @@
-FROM node:20-slim
-
+# Stage 1: Build the backend application
+FROM node:lts-alpine AS builder
 WORKDIR /app
 
-# Installation des dépendances
+# Copier les fichiers de package et installer les dépendances
 COPY package*.json ./
-RUN npm install --production
+RUN npm ci --omit=dev
 
-# Copie du code source
+# Copier le reste du code source
 COPY . .
 
-# Exposition du port
+# Exposer le port utilisé par le serveur backend
 EXPOSE 3001
 
-# Commande de démarrage
-CMD ["node", "server.js"]
+# Commande pour démarrer le serveur backend
+CMD [ "node", "server.js" ]

@@ -5,8 +5,7 @@ import {
   Plus, Trash2, X, UserPlus, Users, Edit2, 
   ChevronUp, ChevronDown, Check, LayoutDashboard, LayoutGrid,
   FileText, Mail, ChevronRight, ArrowLeft,
-  Link as LinkIcon, ExternalLink, Loader2, Search, ShieldCheck, Radio, AlertCircle, Save,
-  Power, Zap, CheckCircle2, AlertTriangle, HelpCircle
+  Link as LinkIcon, ExternalLink, Loader2, Search, ShieldCheck, Radio, Save,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -177,10 +176,7 @@ const Admin: React.FC = () => {
     }
   };
 
-  const handleTestConnection = async () => {
-    // Gardé pour compatibilité si besoin, mais handlePingAD est plus spécifique au bouton demandé
-    handlePingAD();
-  };
+
 
   const handleVerifyUser = async (e: React.FormEvent) => {
     e.preventDefault();

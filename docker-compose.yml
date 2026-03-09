@@ -2,35 +2,59 @@ version: '3.8'
 
 services:
   backend:
-    build: 
+    build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: appdsi-backend
-    restart: unless-stopped
     ports:
+      # Mappe le port 3001 du conteneur vers le port 3001 de l'hôte Proxmox
       - "3001:3001"
     volumes:
-      # Utilisation d'un montage direct pour préserver le code source et faciliter la sauvegarde
-      - ./backend/database.sqlite:/app/database.sqlite
+      # Monte le volume nommé 'db_data' pour persister la base de données SQLite
+      - db_data:/app/database.sqlite
+      # Optionnel : Monte les fichiers de logs pour une consultation facile
       - ./backend/mouchard.log:/app/mouchard.log
-      - uploads_data:/app/uploads
-      - commandes_data:/app/file_commandes
-      - factures_data:/app/file_factures
-      - certif_data:/app/file_certif
+      - ./backend/import_error.log:/app/import_error.log
+    networks:
+      - app-network
+    # Redémarre automatiquement le conteneur sauf s'il est explicitement arrêté
+    restart: unless-stopped
 
   frontend:
-    build: 
+    build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: appdsi-frontend
-    restart: unless-stopped
     ports:
-      - "80:80"
+      # Mappe le port 5173 du conteneur vers le port 5173 de l'hôte Proxmox
+      - "5173:5173"
+    # Le frontend n'a généralement pas besoin de monter la base de données directement
+    # Les logs peuvent être redirigés si nécessaire, mais souvent gérés par le backend
     depends_on:
-      - backend
+      - backend # S'assure que le backend démarre avant le frontend
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  magapp-frontend:
+    build:
+      context: ./magapp-frontend
+      dockerfile: Dockerfile
+    container_name: appdsi-magapp-frontend
+    ports:
+      # Mappe le port 5174 du conteneur vers le port 5174 de l'hôte Proxmox
+      - "5174:5174"
+    depends_on:
+      - backend # S'assure que le backend démarre avant le magapp-frontend
+    networks:
+      - app-network
+    restart: unless-stopped
 
 volumes:
-  uploads_data:
-  commandes_data:
-  factures_data:
-  certif_data:
+  # Définit un volume nommé pour persister les données de la base de données SQLite
+  db_data:
+
+networks:
+  # Définit un réseau commun pour que les conteneurs puissent communiquer entre eux
+  app-network:
+    driver: bridge

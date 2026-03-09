@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, ArrowLeft, Save, X, Globe, Type, AlignLeft, Image as ImageIcon, Hash, LayoutGrid, AlertTriangle, Calendar, BarChart2, Bell } from 'lucide-react';
+import { Plus, Edit2, Trash2, ArrowLeft, Save, X, Globe, AlignLeft, Image as ImageIcon, Hash, LayoutGrid, AlertTriangle, BarChart2, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 

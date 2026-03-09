@@ -771,7 +771,6 @@ const TelecomManagement: React.FC = () => {
                     <th>Montant Engagé</th>
                     <th>Montant Facturé</th>
                     <th>Solde</th>
-                    <th>Référence</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -786,7 +785,7 @@ const TelecomManagement: React.FC = () => {
                       <td className="amount-cell" style={{ color: ((c.amount || 0) - (c.invoiced_amount || 0)) < 0 ? '#ef4444' : '#059669', fontWeight: 700 }}>
                         {((c.amount || 0) - (c.invoiced_amount || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                       </td>
-                      <td>{c.external_ref}</td>
+                      
                     </tr>
                   ))}
                   {commitments.length === 0 && (

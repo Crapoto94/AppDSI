@@ -20,8 +20,7 @@ const Login: React.FC = () => {
       // 2. Vérifier si on a des infos dans l'URL (Retour de SSO Redirect)
       const params = new URLSearchParams(window.location.search);
       const urlLogin = params.get('login');
-      const urlName = params.get('name');
-      const urlEmail = params.get('email');
+
 
       if (urlLogin) {
         // Tentative d'auto-login avec ce login Windows
