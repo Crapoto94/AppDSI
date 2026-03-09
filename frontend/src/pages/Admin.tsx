@@ -3,7 +3,7 @@ import Header from '../components/Header';
 import * as Icons from 'lucide-react';
 import { 
   Plus, Trash2, X, UserPlus, Users, Edit2, 
-  ChevronUp, ChevronDown, Check, LayoutDashboard,
+  ChevronUp, ChevronDown, Check, LayoutDashboard, LayoutGrid,
   FileText, Mail, ChevronRight, ArrowLeft,
   Link as LinkIcon, ExternalLink
 } from 'lucide-react';
@@ -265,15 +265,21 @@ const Admin: React.FC = () => {
               color="#6366f1"
               onClick={() => setActiveSection('users')}
             />
-            <AdminTile 
-              title="Serveur de Messagerie" 
+            <AdminTile
+              title="Serveur de Messagerie"
               description="Relais SMTP, Proxy et Template global des emails."
               icon={<Mail size={32} />}
               color="#f59e0b"
               onClick={() => navigate('/admin/mail')}
             />
-          </div>
-        )}
+            <AdminTile
+              title="Magasin d'Applications"
+              description="Gérer le catalogue des applications du portail."
+              icon={<LayoutGrid size={32} />}
+              color="#0ea5e9"
+              onClick={() => navigate('/admin/magapp')}
+            />
+            </div>        )}
 
         {activeSection === 'tiles' && (
           <div className="section-content">

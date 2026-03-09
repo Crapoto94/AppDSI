@@ -1,6 +1,25 @@
 {
-  "currentVersion": "0.2.4",
+  "currentVersion": "0.2.6",
   "history": [
+    {
+      "version": "0.2.6",
+      "date": "2026-03-09",
+      "changes": [
+        "Magasin d'Applications : Ajout d'un mode maintenance avec dates de début et de fin.",
+        "Magasin d'Applications : Désactivation automatique de l'accès aux applications en maintenance sur le portail public.",
+        "Magasin d'Applications : Tri alphabétique par défaut de toutes les applications.",
+        "Administration : Interface enrichie pour la gestion de la maintenance."
+      ]
+    },
+    {
+      "version": "0.2.5",
+      "date": "2026-03-09",
+      "changes": [
+        "Magasin d'Applications : Ajout d'une interface d'administration complète (Création, Modification, Suppression) accessible depuis le Hub DSI.",
+        "Magasin d'Applications : Nouveau front indépendant sur le port 5174 avec design fidèle à l'original.",
+        "Magasin d'Applications : Importation exhaustive des 70 applications depuis magapp.ivry.local."
+      ]
+    },
     {
       "version": "0.2.4",
       "date": "2026-03-09",

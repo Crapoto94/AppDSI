@@ -58,7 +58,7 @@ const PORT = 3001;
 const SECRET_KEY = 'votre_cle_secrete_ici'; // À changer en production
 
 app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: ['http://localhost:5173', 'http://localhost:5174'],
     credentials: true
 }));
 app.use(express.json());
@@ -174,24 +174,6 @@ app.get('/api/changelog', (req, res) => {
     }
 });
 
-app.get('/api/magapp/categories', async (req, res) => {
-    try {
-        const categories = await db.all('SELECT * FROM magapp_categories ORDER BY display_order ASC, name ASC');
-        res.json(categories);
-    } catch (err) {
-        res.status(500).json({ message: 'Error fetching categories' });
-    }
-});
-
-app.get('/api/magapp/apps', async (req, res) => {
-    try {
-        const apps = await db.all('SELECT * FROM magapp_apps ORDER BY display_order ASC, name ASC');
-        res.json(apps);
-    } catch (err) {
-        res.status(500).json({ message: 'Error fetching apps' });
-    }
-});
-
 let db;
 
 // Initialize Database
@@ -302,6 +284,84 @@ const authenticateAdminOrFinances = (req, res, next) => {
         }
     });
 };
+
+// Magapp Public Routes
+app.get('/api/magapp/categories', async (req, res) => {
+    try {
+        const categories = await db.all('SELECT * FROM magapp_categories ORDER BY display_order ASC, name ASC');
+        res.json(categories);
+    } catch (err) {
+        res.status(500).json({ message: 'Error fetching categories' });
+    }
+});
+
+app.get('/api/magapp/apps', async (req, res) => {
+    try {
+        const apps = await db.all('SELECT * FROM magapp_apps ORDER BY name ASC');
+        res.json(apps);
+    } catch (err) {
+        res.status(500).json({ message: 'Error fetching apps' });
+    }
+});
+
+// Admin endpoints for Magapp
+app.post('/api/magapp/categories', authenticateAdmin, async (req, res) => {
+    const { name, icon, display_order } = req.body;
+    try {
+        const result = await db.run('INSERT INTO magapp_categories (name, icon, display_order) VALUES (?, ?, ?)', [name, icon, display_order || 0]);
+        res.json({ id: result.lastID, message: 'Catégorie créée' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur création', error: error.message });
+    }
+});
+
+app.put('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => {
+    const { name, icon, display_order } = req.body;
+    try {
+        await db.run('UPDATE magapp_categories SET name = ?, icon = ?, display_order = ? WHERE id = ?', [name, icon, display_order || 0, req.params.id]);
+        res.json({ message: 'Catégorie mise à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur mise à jour', error: error.message });
+    }
+});
+
+app.delete('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await db.run('DELETE FROM magapp_categories WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Catégorie supprimée' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur suppression', error: error.message });
+    }
+});
+
+app.post('/api/magapp/apps', authenticateAdmin, async (req, res) => {
+    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end } = req.body;
+    try {
+        const result = await db.run('INSERT INTO magapp_apps (category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null]);
+        res.json({ id: result.lastID, message: 'Application créée' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur création', error: error.message });
+    }
+});
+
+app.put('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
+    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end } = req.body;
+    try {
+        await db.run('UPDATE magapp_apps SET category_id = ?, name = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ? WHERE id = ?', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, req.params.id]);
+        res.json({ message: 'Application mise à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur mise à jour', error: error.message });
+    }
+});
+
+app.delete('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await db.run('DELETE FROM magapp_apps WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Application supprimée' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur suppression', error: error.message });
+    }
+});
 
 // Mail API
 app.get('/api/mail-settings', authenticateAdmin, async (req, res) => {

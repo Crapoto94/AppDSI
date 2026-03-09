@@ -9,6 +9,7 @@ import Certif from './pages/Certif';
 import MailSettings from './pages/MailSettings';
 import EmailTemplates from './pages/EmailTemplates';
 import Tiers from './pages/Tiers';
+import MagappAdmin from './pages/MagappAdmin';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
@@ -93,6 +94,14 @@ function App() {
           element={
             <PrivateRoute allowedRoles={['admin']}>
               <EmailTemplates />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/admin/magapp" 
+          element={
+            <PrivateRoute allowedRoles={['admin']}>
+              <MagappAdmin />
             </PrivateRoute>
           } 
         />
