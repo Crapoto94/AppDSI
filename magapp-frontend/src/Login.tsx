@@ -7,7 +7,6 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess, isAutoLogging }) => {
-
   return (
     <div className="login-screen">
       <div className="login-card">
@@ -23,24 +22,15 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, isAutoLogging }) => {
             <span>Vérification de votre session Windows</span>
           </div>
         ) : (
-          <div className="login-form">
-            <h2>Accès Restreint</h2>
-            <p className="login-subtitle">Le SSO n'a pas pu vous identifier automatiquement.</p>
-
-            <div className="error-banner">
-              L'accès à cette plateforme nécessite une session Windows active sur le réseau de la ville.
-            </div>
-
-            <div className="login-footer" style={{ borderTop: 'none', marginTop: 0 }}>
-              <p>Si vous êtes connecté au VPN ou au bureau et que ce message persiste, merci de contacter le support DSI.</p>
-              <button 
-                onClick={() => window.location.reload()} 
-                className="login-button" 
-                style={{ marginTop: '20px' }}
-              >
-                Réessayer la connexion
-              </button>
-            </div>
+          <div className="login-footer" style={{ borderTop: 'none', marginTop: 0 }}>
+            <p>Si vous êtes connecté au VPN ou au bureau et que ce message persiste, merci de contacter le support DSI.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="login-button"
+              style={{ marginTop: '20px' }}
+            >
+              Réessayer la connexion
+            </button>
           </div>
         )}
       </div>
