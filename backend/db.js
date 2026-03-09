@@ -410,7 +410,7 @@ try { await db.run("ALTER TABLE contacts ADD COLUMN is_order_recipient INTEGER D
     try { await db.run("ALTER TABLE magapp_apps ADD COLUMN maintenance_start TEXT"); } catch (e) {}
     try { await db.run("ALTER TABLE magapp_apps ADD COLUMN maintenance_end TEXT"); } catch (e) {}
 
-    // Add Magasin d'application tile if it doesn't exist
+    // Magasin d'application tile
     const magappTile = await db.get('SELECT * FROM tiles WHERE title = ?', ["Magasin d'application"]);
     if (!magappTile) {
         const result = await db.run('INSERT INTO tiles (title, icon, description, sort_order) VALUES (?, ?, ?, ?)', [
@@ -424,6 +424,56 @@ try { await db.run("ALTER TABLE contacts ADD COLUMN is_order_recipient INTEGER D
             'Ouvrir le Magasin',
             'http://localhost:5174',
             0
+        ]);
+    }
+
+    // Telecom Management tables
+    await db.exec(`
+        CREATE TABLE IF NOT EXISTS telecom_operators (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tier_id INTEGER UNIQUE,
+            name TEXT,
+            FOREIGN KEY (tier_id) REFERENCES tiers(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS telecom_billing_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operator_id INTEGER,
+            account_number TEXT,
+            type TEXT, -- 'Fixe', 'Mobile', 'Interco', 'Internet'
+            designation TEXT,
+            customer_number TEXT,
+            market_number TEXT,
+            function_code TEXT,
+            commitment_number TEXT,
+            FOREIGN KEY (operator_id) REFERENCES telecom_operators(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS telecom_commitments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            commitment_number TEXT UNIQUE,
+            label TEXT,
+            amount REAL,
+            year INTEGER,
+            operator_name TEXT,
+            external_ref TEXT
+        );
+    `);
+
+    // Add Telecom tile if it doesn't exist
+    const telecomTile = await db.get('SELECT * FROM tiles WHERE title = ?', ["Gestion Télécom"]);
+    if (!telecomTile) {
+        const result = await db.run('INSERT INTO tiles (title, icon, description, sort_order) VALUES (?, ?, ?, ?)', [
+            "Gestion Télécom", 
+            'Phone', 
+            'Suivi des factures, lignes et engagements télécom.', 
+            5
+        ]);
+        await db.run('INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)', [
+            result.lastID,
+            'Gérer le parc Télécom',
+            '/telecom',
+            1
         ]);
     }
 

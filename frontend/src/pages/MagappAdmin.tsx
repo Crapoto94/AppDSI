@@ -217,7 +217,7 @@ const MagappAdmin: React.FC = () => {
     }
   };
 
-  const filteredStats = showAllStats ? stats : stats.filter(s => s.has_today_stats === 1);
+  const filteredStats = showAllStats ? stats : stats.filter(s => s.today_clicks > 0);
 
   return (
     <div className="admin-container">

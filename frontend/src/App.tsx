@@ -10,6 +10,7 @@ import MailSettings from './pages/MailSettings';
 import EmailTemplates from './pages/EmailTemplates';
 import Tiers from './pages/Tiers';
 import MagappAdmin from './pages/MagappAdmin';
+import TelecomManagement from './pages/TelecomManagement';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
@@ -102,6 +103,14 @@ function App() {
           element={
             <PrivateRoute allowedRoles={['admin']}>
               <MagappAdmin />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/telecom" 
+          element={
+            <PrivateRoute>
+              <TelecomManagement />
             </PrivateRoute>
           } 
         />

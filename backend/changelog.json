@@ -1,6 +1,17 @@
 {
-  "currentVersion": "0.2.9",
+  "currentVersion": "0.3.0",
   "history": [
+    {
+      "version": "0.3.0",
+      "date": "2026-03-09",
+      "changes": [
+        "Télécom : Création d'un module complet de gestion du parc Télécom accessible via une nouvelle tuile sur le Hub.",
+        "Télécom : Gestion des opérateurs basée sur le référentiel des tiers avec filtrage intelligent.",
+        "Télécom : Gestion détaillée des comptes de facturation (Fixe, Mobile, Interco, Internet) par opérateur.",
+        "Télécom : Importation automatisée des engagements depuis des fichiers Excel pour un suivi budgétaire précis.",
+        "Télécom : Interface moderne avec navigation par onglets et vues détaillées par opérateur."
+      ]
+    },
     {
       "version": "0.2.9",
       "date": "2026-03-09",
@@ -8,28 +19,12 @@
         "Magasin d'Applications : Ajout de la possibilité d'uploader de nouvelles icônes d'applications directement depuis l'interface d'administration."
       ]
     },
-    {
-      "version": "0.2.8",
-      "date": "2026-03-09",
-      "changes": [
-        "Magasin d'Applications : Filtrage par défaut des statistiques pour n'afficher que les applications ayant eu des clics aujourd'hui.",
-        "Magasin d'Applications : Ajout d'un bouton 'Toutes les applis' pour basculer vers l'affichage de l'intégralité des statistiques.",
-        "Magasin d'Applications : Ajout d'un nouveau module de gestion et d'édition des catégories (création, modification, suppression) dans l'interface d'administration."
-      ]
-    },
-    {
-      "version": "0.2.7",
-      "date": "2026-03-09",
-      "changes": [
-        "Magasin d'Applications : Tri alphabétique automatique de toutes les applications dans le catalogue public et l'interface d'administration."
-      ]
-    },
 ...
     {
       "version": "0.1.1",
       "date": "2026-03-06",
       "changes": [
-        "Version initiale avec fonctionnalités de base (Hub, Budget)."
+        "Version initiale with fonctionnalit\u00e9s de base (Hub, Budget)."
       ]
     }
   ]

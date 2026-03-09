@@ -304,6 +304,22 @@ app.get('/api/magapp/apps', async (req, res) => {
     }
 });
 
+app.post('/api/magapp/clicks', async (req, res) => {
+    const { app_id, username } = req.body;
+    const ip_address = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const user_agent = req.headers['user-agent'];
+
+    try {
+        await db.run(
+            'INSERT INTO magapp_clicks (app_id, username, ip_address, user_agent) VALUES (?, ?, ?, ?)',
+            [app_id, username || 'Anonyme', ip_address, user_agent]
+        );
+        res.json({ message: 'Click recorded' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error recording click', error: error.message });
+    }
+});
+
 app.get('/api/magapp/icons', authenticateJWT, (req, res) => {
     const dir = path.join(__dirname, '../frontend/public/img');
     try {
@@ -346,39 +362,25 @@ app.post('/api/magapp/icons/upload', authenticateJWT, upload.single('file'), asy
 app.get('/api/magapp/stats', authenticateJWT, async (req, res) => {
     try {
         const stats = await db.all(`
-            WITH daily_stats AS (
-                SELECT 
-                    app_id, 
-                    date(clicked_at, 'localtime') as day, 
-                    COUNT(*) as click_count,
-                    COUNT(DISTINCT COALESCE(username, ip_address)) as unique_users
-                FROM magapp_clicks
-                GROUP BY app_id, day
-            ),
-            day_counts AS (
-                SELECT app_id, COUNT(DISTINCT day) as total_days
-                FROM daily_stats
-                GROUP BY app_id
-            ),
-            today_stats AS (
-                SELECT app_id, COUNT(*) as today_clicks
-                FROM magapp_clicks
-                WHERE date(clicked_at, 'localtime') = date('now', 'localtime')
-                GROUP BY app_id
-            )
             SELECT 
                 a.id,
                 a.name,
-                COALESCE(SUM(ds.click_count), 0) as total_clicks,
-                ROUND(CAST(COALESCE(SUM(ds.click_count), 0) AS REAL) / COALESCE(dc.total_days, 1), 2) as avg_clicks_per_day,
-                ROUND(CAST(COALESCE(SUM(ds.unique_users), 0) AS REAL) / COALESCE(dc.total_days, 1), 2) as avg_unique_users_per_day,
-                COALESCE(ts.today_clicks, 0) as today_clicks,
-                CASE WHEN ts.today_clicks IS NOT NULL THEN 1 ELSE 0 END as has_today_stats
+                COALESCE(total_info.total_clicks, 0) as total_clicks,
+                COALESCE(today_info.today_clicks, 0) as today_clicks,
+                CASE WHEN COALESCE(today_info.today_clicks, 0) > 0 THEN 1 ELSE 0 END as has_today_stats,
+                ROUND(CAST(COALESCE(total_info.total_clicks, 0) AS REAL) / COALESCE(total_info.total_days, 1), 2) as avg_clicks_per_day,
+                ROUND(CAST(COALESCE(total_info.unique_users_total, 0) AS REAL) / COALESCE(total_info.total_days, 1), 2) as avg_unique_users_per_day
             FROM magapp_apps a
-            LEFT JOIN daily_stats ds ON a.id = ds.app_id
-            LEFT JOIN day_counts dc ON a.id = dc.app_id
-            LEFT JOIN today_stats ts ON a.id = ts.app_id
-            GROUP BY a.id
+            LEFT JOIN (
+                SELECT app_id, COUNT(*) as total_clicks, COUNT(DISTINCT date(clicked_at, 'localtime')) as total_days, COUNT(DISTINCT COALESCE(username, ip_address)) as unique_users_total
+                FROM magapp_clicks GROUP BY app_id
+            ) total_info ON a.id = total_info.app_id
+            LEFT JOIN (
+                SELECT app_id, COUNT(*) as today_clicks
+                FROM magapp_clicks 
+                WHERE date(clicked_at, 'localtime') = date('now', 'localtime')
+                GROUP BY app_id
+            ) today_info ON a.id = today_info.app_id
             ORDER BY a.name ASC
         `);
 
@@ -1828,6 +1830,117 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
     } catch (error) {
         console.error('Import error:', error);
         res.status(500).json({ message: 'Erreur lors de l\'import des commandes', error: error.message });
+    }
+});
+
+// Telecom API
+app.get('/api/telecom/operators', authenticateJWT, async (req, res) => {
+    try {
+        const operators = await db.all('SELECT * FROM telecom_operators ORDER BY name');
+        res.json(operators);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching operators', error: error.message });
+    }
+});
+
+app.post('/api/telecom/operators', authenticateJWT, async (req, res) => {
+    const { tier_id, name } = req.body;
+    try {
+        const result = await db.run('INSERT INTO telecom_operators (tier_id, name) VALUES (?, ?)', [tier_id, name]);
+        res.json({ id: result.lastID, message: 'Opérateur ajouté' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur ajout opérateur', error: error.message });
+    }
+});
+
+app.delete('/api/telecom/operators/:id', authenticateJWT, async (req, res) => {
+    try {
+        await db.run('DELETE FROM telecom_operators WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Opérateur supprimé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur suppression', error: error.message });
+    }
+});
+
+app.get('/api/telecom/operators/:id/accounts', authenticateJWT, async (req, res) => {
+    try {
+        const accounts = await db.all('SELECT * FROM telecom_billing_accounts WHERE operator_id = ?', [req.params.id]);
+        res.json(accounts);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching accounts', error: error.message });
+    }
+});
+
+app.post('/api/telecom/billing-accounts', authenticateJWT, async (req, res) => {
+    const { operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number } = req.body;
+    try {
+        const result = await db.run(
+            'INSERT INTO telecom_billing_accounts (operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number]
+        );
+        res.json({ id: result.lastID, message: 'Compte de facturation ajouté' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur ajout compte', error: error.message });
+    }
+});
+
+app.delete('/api/telecom/billing-accounts/:id', authenticateJWT, async (req, res) => {
+    try {
+        await db.run('DELETE FROM telecom_billing_accounts WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Compte supprimé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur suppression', error: error.message });
+    }
+});
+
+app.get('/api/telecom/commitments', authenticateJWT, async (req, res) => {
+    try {
+        const commitments = await db.all('SELECT * FROM telecom_commitments ORDER BY year DESC, commitment_number');
+        res.json(commitments);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching commitments', error: error.message });
+    }
+});
+
+app.post('/api/telecom/import-commitments', authenticateJWT, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).send('No file uploaded.');
+    try {
+        const workbook = xlsx.readFile(req.file.path);
+        const sheetName = workbook.SheetNames[0];
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        let imported = 0;
+        let updated = 0;
+
+        for (const row of data) {
+            const num = row['Numéro engagement'] || row['Engagement'] || row['N° Engagement'] || row['commitment_number'];
+            if (!num) continue;
+
+            const existing = await db.get('SELECT id FROM telecom_commitments WHERE commitment_number = ?', [num.toString()]);
+            
+            const label = row['Libellé'] || row['Label'] || '';
+            const amount = parseFloat(row['Montant'] || row['Amount'] || 0);
+            const year = row['Année'] || row['Year'] || new Date().getFullYear();
+            const operator = row['Opérateur'] || row['Operator'] || '';
+            const ref = row['Référence'] || row['Reference'] || '';
+
+            if (existing) {
+                await db.run(
+                    'UPDATE telecom_commitments SET label = ?, amount = ?, year = ?, operator_name = ?, external_ref = ? WHERE id = ?',
+                    [label, amount, year, operator, ref, existing.id]
+                );
+                updated++;
+            } else {
+                await db.run(
+                    'INSERT INTO telecom_commitments (commitment_number, label, amount, year, operator_name, external_ref) VALUES (?, ?, ?, ?, ?, ?)',
+                    [num.toString(), label, amount, year, operator, ref]
+                );
+                imported++;
+            }
+        }
+        res.json({ message: `${imported} engagements importés, ${updated} mis à jour` });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de l\'import des engagements', error: error.message });
     }
 });
 
