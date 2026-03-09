@@ -1,6 +1,15 @@
 {
-  "currentVersion": "0.2.11",
+  "currentVersion": "0.2.12",
   "history": [
+    {
+      "version": "0.2.12",
+      "date": "2026-03-09",
+      "changes": [
+        "Administration MagApp : Ajout d'une interface de gestion des abonnements.",
+        "Administration MagApp : Possibilité de visualiser et de supprimer les abonnés aux notifications de maintenance.",
+        "Backend : Ajout des endpoints de gestion des abonnements (GET, DELETE)."
+      ]
+    },
     {
       "version": "0.2.11",
       "date": "2026-03-09",

@@ -342,6 +342,29 @@ app.post('/api/magapp/subscribe', async (req, res) => {
     }
 });
 
+app.get('/api/magapp/subscriptions', authenticateAdmin, async (req, res) => {
+    try {
+        const subs = await db.all(`
+            SELECT s.*, a.name as app_name 
+            FROM magapp_subscriptions s
+            JOIN magapp_apps a ON s.app_id = a.id
+            ORDER BY a.name, s.email
+        `);
+        res.json(subs);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lecture abonnements', error: error.message });
+    }
+});
+
+app.delete('/api/magapp/subscriptions/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await db.run('DELETE FROM magapp_subscriptions WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Abonnement supprimé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur suppression abonnement', error: error.message });
+    }
+});
+
 app.get('/api/magapp/icons', authenticateJWT, (req, res) => {
     const dir = path.join(__dirname, '../frontend/public/img');
     try {

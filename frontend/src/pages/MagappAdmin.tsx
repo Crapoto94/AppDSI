@@ -33,14 +33,24 @@ interface ClickStats {
   today_clicks: number;
 }
 
+interface Subscription {
+  id: number;
+  app_id: number;
+  email: string;
+  app_name: string;
+  subscribed_at: string;
+}
+
 const MagappAdmin: React.FC = () => {
   const [apps, setApps] = useState<AppItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [stats, setStats] = useState<ClickStats[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [availableIcons, setAvailableIcons] = useState<string[]>([]);
   const [showStats, setShowStats] = useState(false);
   const [showAllStats, setShowAllStats] = useState(false);
   const [showCategories, setShowCategories] = useState(false);
+  const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [editingApp, setEditingApp] = useState<AppItem | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [newCategory, setNewCategory] = useState<Partial<Category>>({ name: '', icon: '', display_order: 0 });
@@ -89,9 +99,39 @@ const MagappAdmin: React.FC = () => {
     }
   };
 
+  const fetchSubscriptions = async () => {
+    try {
+      const response = await fetch('/api/magapp/subscriptions', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        setSubscriptions(await response.json());
+      }
+    } catch (e) {
+      console.error("Erreur abonnements", e);
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (showSubscriptions) fetchSubscriptions();
+  }, [showSubscriptions]);
+
+  const handleDeleteSubscription = async (id: number) => {
+    if (!window.confirm("Supprimer cet abonnement ?")) return;
+    try {
+      const response = await fetch(`/api/magapp/subscriptions/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) fetchSubscriptions();
+    } catch (e) {
+      alert("Erreur suppression");
+    }
+  };
 
   const handleSaveApp = async (appData: Partial<AppItem>, isEditing: boolean) => {
     const url = isEditing ? `/api/magapp/apps/${appData.id}` : '/api/magapp/apps';
@@ -232,6 +272,9 @@ const MagappAdmin: React.FC = () => {
             <p>Gérez les applications visibles sur le portail public</p>
           </div>
           <div className="header-actions">
+            <button className={`stats-toggle-btn ${showSubscriptions ? 'active' : ''}`} onClick={() => setShowSubscriptions(!showSubscriptions)} style={{ marginRight: '10px' }}>
+              <Bell size={20} /> {showSubscriptions ? 'Masquer abonnements' : 'Gérer abonnements'}
+            </button>
             <button className={`stats-toggle-btn ${showCategories ? 'active' : ''}`} onClick={() => setShowCategories(!showCategories)} style={{ marginRight: '10px' }}>
               <LayoutGrid size={20} /> {showCategories ? 'Masquer catégories' : 'Gérer catégories'}
             </button>
@@ -240,6 +283,42 @@ const MagappAdmin: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {showSubscriptions && (
+          <section className="admin-card subscriptions-admin-section">
+            <div className="card-header">
+              <Bell size={20} className="header-icon" />
+              <h2>Abonnements aux notifications de maintenance</h2>
+            </div>
+            <div className="stats-table-wrapper">
+              <table className="stats-table">
+                <thead>
+                  <tr>
+                    <th>Application</th>
+                    <th>Email de l'abonné</th>
+                    <th>Date d'inscription</th>
+                    <th style={{ textAlign: 'center' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subscriptions.map(sub => (
+                    <tr key={sub.id}>
+                      <td className="stat-name">{sub.app_name}</td>
+                      <td>{sub.email}</td>
+                      <td>{new Date(sub.subscribed_at).toLocaleString('fr-FR')}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button className="delete-icon-btn" onClick={() => handleDeleteSubscription(sub.id)}>
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {subscriptions.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px' }}>Aucun abonnement enregistré</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {showStats && (
           <section className="admin-card stats-section">
@@ -660,6 +739,16 @@ const MagappAdmin: React.FC = () => {
         .categories-admin-section {
           background: #f0f9ff !important;
           border: 1px solid #bae6fd !important;
+        }
+
+        .subscriptions-admin-section {
+          background: #fdf2f8 !important;
+          border: 1px solid #fbcfe8 !important;
+        }
+
+        .subscriptions-admin-section .header-icon {
+          color: #db2777;
+          background: #fce7f3;
         }
 
         .category-creation-row {
