@@ -1,13 +1,28 @@
 {
-  "currentVersion": "0.2.10",
+  "currentVersion": "0.2.11",
   "history": [
+    {
+      "version": "0.2.11",
+      "date": "2026-03-09",
+      "changes": [
+        "Magasin d'Applications : Ajout d'un système d'abonnement aux maintenances par email pour les utilisateurs.",
+        "Magasin d'Applications : Notification automatique par email à tous les abonnés lors du passage en maintenance d'une application.",
+        "Magasin d'Applications : Création d'un nouveau gabarit d'email 'Maintenance Application' paramétrable.",
+        "Base de données : Création de la table magapp_subscriptions et initialisation du template de mail par défaut."
+      ]
+    },
     {
       "version": "0.2.10",
       "date": "2026-03-09",
       "changes": [
-        "Télécom : Filtrage des factures par clic sur le badge de compte.",
-        "Télécom : Ajout de filtres multicritères sur l'historique des factures PDF.",
-        "Télécom : Groupement mensuel (rupture) dans la liste des factures télécom."
+        "Télécom : Navigation simplifiée avec ajout de l'onglet dans le menu principal.",
+        "Télécom : Filtrage interactif par clic sur le nouveau bouton 'Factures' (icône document) dans la liste des comptes.",
+        "Télécom : Historique PDF enrichi avec filtres multicritères (recherche, opérateur, compte) et groupement par mois.",
+        "Télécom : Gestion intelligente des engagements avec regroupement des comptes par numéro d'engagement.",
+        "Télécom : Calcul du solde d'engagement mutualisé (Montant Engagement - Somme de toutes les factures du groupe de comptes).",
+        "Télécom : Corrélation avec la comptabilité générale pour afficher l'état réel des factures (Importée/Non importée).",
+        "Télécom : Normalisation automatique des numéros de facture (suppression du 'N' final de SFR) à l'import, à l'édition et en base de données.",
+        "Télécom : Jointure robuste avec les factures générales gérant les incohérences de format (espaces, suffixes)."
       ]
     },
     {

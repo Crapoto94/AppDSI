@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { User, LogOut, Info, X, LayoutDashboard, Wallet, Users, FileCheck, Settings } from 'lucide-react';
+import { User, LogOut, Info, X, LayoutDashboard, Wallet, Users, FileCheck, Settings, Phone } from 'lucide-react';
 
 const Header: React.FC = () => {
   const navigate = useNavigate();
@@ -37,6 +37,7 @@ const Header: React.FC = () => {
     { path: '/', label: 'Tableau de bord', icon: <LayoutDashboard size={18} /> },
     { path: '/budget', label: 'Budget', icon: <Wallet size={18} /> },
     { path: '/tiers', label: 'Tiers', icon: <Users size={18} /> },
+    { path: '/telecom', label: 'Télécom', icon: <Phone size={18} /> },
     { path: '/certif', label: 'Certificats', icon: <FileCheck size={18} /> },
   ];
 

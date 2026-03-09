@@ -62,7 +62,7 @@ interface Commitment {
   invoiced_amount: number;
   year: number;
   operator_name: string;
-  external_ref: string;
+  function_code: string;
 }
 
 interface TelecomInvoice {
@@ -76,6 +76,7 @@ interface TelecomInvoice {
   uploaded_at: string;
   operator_name?: string;
   account_number?: string;
+  general_status?: string;
 }
 
 const TelecomManagement: React.FC = () => {
@@ -516,68 +517,89 @@ const TelecomManagement: React.FC = () => {
                       )}
 
                       <div className="accounts-table-wrapper">
-                        <table className="accounts-table">
-                          <thead>
-                            <tr>
-                              <th>Type</th>
-                              <th>N° Compte</th>
-                              <th>Désignation</th>
-                              <th>Engagement</th>
-                              <th>Factures</th>
-                              <th>Total Facturé</th>
-                              <th>Solde Engagement</th>
-                              <th>Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {billingAccounts[op.id]?.map(acc => (
-                              <tr key={acc.id}>
-                                <td><span className={`type-badge ${acc.type.toLowerCase()}`}>{acc.type}</span></td>
-                                <td>{acc.account_number}</td>
-                                <td>{acc.designation}</td>
-                                <td>
-                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    <span className="num-badge">{acc.commitment_number}</span>
-                                    <small style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                                      {(acc.commitment_amount || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                                    </small>
+                        {(() => {
+                          const accountsByCommitment: Record<string, BillingAccount[]> = {};
+                          (billingAccounts[op.id] || []).forEach(acc => {
+                            const key = acc.commitment_number || 'Sans engagement';
+                            if (!accountsByCommitment[key]) accountsByCommitment[key] = [];
+                            accountsByCommitment[key].push(acc);
+                          });
+
+                          return Object.entries(accountsByCommitment).map(([commNum, accounts]) => {
+                            const totalInvoicedForComm = accounts.reduce((sum, a) => sum + (a.total_invoiced || 0), 0);
+                            const commAmount = accounts[0]?.commitment_amount || 0;
+                            const commBalance = commAmount - totalInvoicedForComm;
+                            const hasMultiple = accounts.length > 1;
+
+                            return (
+                              <div key={commNum} className="commitment-group">
+                                <div className="commitment-group-header">
+                                  <div className="comm-info-tag">
+                                    <span className="comm-label">Engagement : </span>
+                                    <span className="comm-value">{commNum}</span>
+                                    {commNum !== 'Sans engagement' && (
+                                      <>
+                                        <span className="comm-amount-tag">
+                                          ({commAmount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })})
+                                        </span>
+                                        <span className={`comm-balance-tag ${commBalance < 0 ? 'negative' : 'positive'}`}>
+                                          Solde : {commBalance.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                        </span>
+                                      </>
+                                    )}
                                   </div>
-                                </td>
-                                <td style={{ textAlign: 'center' }}>
-                                  <span 
-                                    className="invoice-count-badge clickable" 
-                                    onClick={() => handleViewInvoices(acc.id, op.id)}
-                                    title="Voir les factures de ce compte"
-                                  >
-                                    {acc.invoice_count || 0}
-                                  </span>
-                                </td>
-                                <td className="amount-col">
-                                  {(acc.total_invoiced || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                                </td>
-                                <td className="amount-col" style={{ 
-                                  color: (acc.account_balance || 0) < 0 ? '#ef4444' : '#059669',
-                                  fontWeight: 700 
-                                }}>
-                                  {(acc.account_balance || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                                </td>
-                                <td>
-                                  <div className="action-btns">
-                                    <button className="edit-icon-btn" onClick={() => startEditAccount(acc)}>
-                                      <Edit2 size={16} />
-                                    </button>
-                                    <button className="delete-icon-btn" onClick={() => handleDeleteAccount(acc.id, op.id)}>
-                                      <Trash2 size={16} />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                            {(!billingAccounts[op.id] || billingAccounts[op.id].length === 0) && (
-                              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '20px', color: '#64748b' }}>Aucun compte configuré</td></tr>
-                            )}
-                          </tbody>
-                        </table>
+                                </div>
+                                <table className="accounts-table">
+                                  <thead>
+                                    <tr>
+                                      <th style={{ width: '100px' }}>Type</th>
+                                      <th style={{ width: '150px' }}>N° Compte</th>
+                                      <th>Désignation</th>
+                                      <th style={{ width: '80px', textAlign: 'center' }}>Factures</th>
+                                      <th style={{ width: '120px', textAlign: 'right' }}>Facturé</th>
+                                      <th style={{ width: '100px', textAlign: 'center' }}>Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {accounts.map(acc => (
+                                      <tr key={acc.id}>
+                                        <td><span className={`type-badge ${acc.type.toLowerCase()}`}>{acc.type}</span></td>
+                                        <td style={{ fontWeight: 600 }}>{acc.account_number}</td>
+                                        <td>{acc.designation}</td>
+                                        <td style={{ textAlign: 'center' }}>
+                                          <button 
+                                            className="invoice-count-btn" 
+                                            onClick={() => handleViewInvoices(acc.id, op.id)}
+                                            title="Voir les factures de ce compte"
+                                          >
+                                            <FileText size={14} />
+                                            <span>{acc.invoice_count || 0}</span>
+                                          </button>
+                                        </td>
+                                        <td className="amount-col">
+                                          {(acc.total_invoiced || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                        </td>
+                                        <td>
+                                          <div className="action-btns" style={{ justifyContent: 'center' }}>
+                                            <button className="edit-icon-btn" onClick={() => startEditAccount(acc)}>
+                                              <Edit2 size={16} />
+                                            </button>
+                                            <button className="delete-icon-btn" onClick={() => handleDeleteAccount(acc.id, op.id)}>
+                                              <Trash2 size={16} />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            );
+                          });
+                        })()}
+                        {(!billingAccounts[op.id] || billingAccounts[op.id].length === 0) && (
+                          <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun compte configuré</div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -671,6 +693,7 @@ const TelecomManagement: React.FC = () => {
                     <th>Opérateur</th>
                     <th>N° Compte</th>
                     <th>Montant TTC</th>
+                    <th>État</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -678,7 +701,7 @@ const TelecomManagement: React.FC = () => {
                   {Object.entries(groupedInvoices).sort((a, b) => b[0].localeCompare(a[0])).map(([monthKey, invoices]) => (
                     <React.Fragment key={monthKey}>
                       <tr className="month-break-row">
-                        <td colSpan={6}>{formatMonthKey(monthKey)}</td>
+                        <td colSpan={7}>{formatMonthKey(monthKey)}</td>
                       </tr>
                       {invoices.map(inv => (
                         <tr key={inv.id}>
@@ -687,6 +710,15 @@ const TelecomManagement: React.FC = () => {
                           <td>{inv.operator_name || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
                           <td>{inv.account_number || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
                           <td style={{ fontWeight: 700 }}>{inv.amount_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                          <td>
+                            {inv.general_status ? (
+                              <span className="status-tag imported" title={`Statut : ${inv.general_status}`}>
+                                Importée ({inv.general_status})
+                              </span>
+                            ) : (
+                              <span className="status-tag pending">Non importée</span>
+                            )}
+                          </td>
                           <td>
                             <div className="action-btns">
                               <a href={`/api/${inv.file_path}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Voir le PDF">
@@ -702,7 +734,7 @@ const TelecomManagement: React.FC = () => {
                     </React.Fragment>
                   ))}
                   {filteredInvoices.length === 0 && (
-                    <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune facture trouvée</td></tr>
+                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune facture trouvée</td></tr>
                   )}
                 </tbody>
               </table>
@@ -903,6 +935,37 @@ const TelecomManagement: React.FC = () => {
         .delete-icon-btn { color: #94a3b8; background: none; border: none; cursor: pointer; transition: color 0.2s; }
         .delete-icon-btn:hover { color: #ef4444; }
 
+        .commitment-group { margin-bottom: 24px; border: 1px solid #f1f5f9; border-radius: 12px; overflow: hidden; }
+        .commitment-group-header { background: #f8fafc; padding: 10px 15px; border-bottom: 1px solid #f1f5f9; }
+        .comm-info-tag { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; }
+        .comm-label { color: #64748b; font-weight: 600; }
+        .comm-value { color: #0078a4; font-weight: 800; }
+        .comm-amount-tag { color: #64748b; font-weight: 500; }
+        .comm-balance-tag { margin-left: auto; padding: 2px 10px; border-radius: 6px; font-weight: 700; }
+        .comm-balance-tag.positive { background: #ecfdf5; color: #059669; }
+        .comm-balance-tag.negative { background: #fef2f2; color: #ef4444; }
+
+        .invoice-count-btn { 
+          display: inline-flex; 
+          align-items: center; 
+          gap: 6px; 
+          background: #eff6ff; 
+          color: #2563eb; 
+          border: 1px solid #dbeafe; 
+          padding: 4px 10px; 
+          border-radius: 8px; 
+          font-weight: 700; 
+          cursor: pointer; 
+          transition: all 0.2s;
+          font-size: 0.85rem;
+        }
+        .invoice-count-btn:hover { 
+          background: #2563eb; 
+          color: white; 
+          transform: translateY(-1px);
+          box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+        }
+
         .invoice-count-badge.clickable { cursor: pointer; transition: all 0.2s; }
         .invoice-count-badge.clickable:hover { background: #0078a4; color: white; transform: scale(1.1); }
 
@@ -916,6 +979,10 @@ const TelecomManagement: React.FC = () => {
         .clear-filters:hover { background: #e2e8f0; color: #1e293b; }
 
         .month-break-row td { background: #f8fafc; font-weight: 700; color: #0078a4; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 15px; border-bottom: 2px solid #e2e8f0; }
+
+        .status-tag { padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: inline-block; }
+        .status-tag.imported { background: #ecfdf5; color: #059669; border: 1px solid #d1fae5; }
+        .status-tag.pending { background: #fff7ed; color: #d97706; border: 1px solid #ffedd5; }
 
         .commitments-table { width: 100%; border-collapse: collapse; }
         .commitments-table th { background: #f8fafc; padding: 15px; text-align: left; font-size: 0.8rem; color: #64748b; border-bottom: 1px solid #e2e8f0; }

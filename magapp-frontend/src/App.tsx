@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, AlertTriangle, Clock } from 'lucide-react';
+import { Search, Loader2, Clock, Bell } from 'lucide-react';
 import './index.css';
 
 interface Category {
@@ -91,6 +91,27 @@ function App() {
     return new Date(dateStr).toLocaleDateString('fr-FR');
   };
 
+  const handleSubscribe = async (e: React.MouseEvent, app: AppItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const email = window.prompt(`Entrez votre adresse email pour être informé des maintenances de ${app.name} :`);
+    if (!email) return;
+    
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      alert("Veuillez entrer une adresse email valide.");
+      return;
+    }
+
+    try {
+      const res = await axios.post('/api/magapp/subscribe', { app_id: app.id, email });
+      alert(res.data.message);
+    } catch (error) {
+      console.error("Erreur d'abonnement", error);
+      alert("Une erreur est survenue lors de l'abonnement.");
+    }
+  };
+
   return (
     <div className="magapp-container">
       <div className="search-container">
@@ -124,6 +145,13 @@ function App() {
                 
                 return (
                   <div key={app.id} style={{ position: 'relative' }}>
+                    <button 
+                      className="subscribe-btn"
+                      onClick={(e) => handleSubscribe(e, app)}
+                      title="S'abonner aux alertes maintenance"
+                    >
+                      <Bell size={14} />
+                    </button>
                     <a 
                       href={isMaint ? undefined : app.url} 
                       target={isMaint ? undefined : "_blank"} 

@@ -403,12 +403,28 @@ try { await db.run("ALTER TABLE contacts ADD COLUMN is_order_recipient INTEGER D
             clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (app_id) REFERENCES magapp_apps (id)
         );
+        CREATE TABLE IF NOT EXISTS magapp_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            app_id INTEGER,
+            email TEXT NOT NULL,
+            subscribed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (app_id) REFERENCES magapp_apps (id) ON DELETE CASCADE,
+            UNIQUE(app_id, email)
+        );
     `);
 
     // Ensure maintenance columns exist for existing databases
     try { await db.run("ALTER TABLE magapp_apps ADD COLUMN is_maintenance INTEGER DEFAULT 0"); } catch (e) {}
     try { await db.run("ALTER TABLE magapp_apps ADD COLUMN maintenance_start TEXT"); } catch (e) {}
     try { await db.run("ALTER TABLE magapp_apps ADD COLUMN maintenance_end TEXT"); } catch (e) {}
+
+    // Seed maintenance template
+    await db.run(`
+        INSERT OR IGNORE INTO email_templates (slug, label, context, subject, body)
+        VALUES ('MAINTENANCE_APP', 'Maintenance Application', 'maintenance_app', 
+        'Maintenance de l''application {{app_name}}',
+        'Bonjour,\n\nNous vous informons que l''application {{app_name}} est actuellement en maintenance.\n\nDescription : {{description}}\n{{maintenance_info}}\n\nCordialement,\nLe service DSI - Ville d''Ivry-sur-Seine')
+    `);
 
     // Magasin d'application tile
     const magappTile = await db.get('SELECT * FROM tiles WHERE title = ?', ["Magasin d'application"]);
@@ -451,13 +467,13 @@ try { await db.run("ALTER TABLE contacts ADD COLUMN is_order_recipient INTEGER D
 
         CREATE TABLE IF NOT EXISTS telecom_commitments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            commitment_number TEXT UNIQUE,
+            commitment_number TEXT,
             label TEXT,
             amount REAL,
             invoiced_amount REAL DEFAULT 0,
             year INTEGER,
             operator_name TEXT,
-            external_ref TEXT
+            function_code TEXT
         );
 
         CREATE TABLE IF NOT EXISTS telecom_invoices (

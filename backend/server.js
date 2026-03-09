@@ -327,6 +327,21 @@ app.post('/api/magapp/clicks', async (req, res) => {
     }
 });
 
+app.post('/api/magapp/subscribe', async (req, res) => {
+    const { app_id, email } = req.body;
+    if (!app_id || !email) return res.status(400).json({ message: 'Données manquantes' });
+
+    try {
+        await db.run(
+            'INSERT OR IGNORE INTO magapp_subscriptions (app_id, email) VALUES (?, ?)',
+            [app_id, email]
+        );
+        res.json({ message: 'Vous recevrez désormais les notifications de maintenance pour cette application.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de l\'abonnement', error: error.message });
+    }
+});
+
 app.get('/api/magapp/icons', authenticateJWT, (req, res) => {
     const dir = path.join(__dirname, '../frontend/public/img');
     try {
@@ -441,7 +456,15 @@ app.post('/api/magapp/apps', authenticateAdmin, async (req, res) => {
 app.put('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
     const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end } = req.body;
     try {
+        const oldApp = await db.get('SELECT is_maintenance FROM magapp_apps WHERE id = ?', [req.params.id]);
+        
         await db.run('UPDATE magapp_apps SET category_id = ?, name = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ? WHERE id = ?', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, req.params.id]);
+        
+        // Si on vient d'activer la maintenance, on prévient les abonnés
+        if (is_maintenance && (!oldApp || !oldApp.is_maintenance)) {
+            sendMaintenanceEmail(req.params.id).catch(err => console.error("Error in sendMaintenanceEmail:", err));
+        }
+
         res.json({ message: 'Application mise à jour' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur mise à jour', error: error.message });
@@ -1747,6 +1770,48 @@ async function sendMailWithAttachment(to, subject, content, filePath, fileName) 
     });
 }
 
+async function sendMaintenanceEmail(app_id) {
+    const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
+    if (!s) return;
+
+    const application = await db.get('SELECT * FROM magapp_apps WHERE id = ?', [app_id]);
+    if (!application) return;
+
+    const template = await db.get('SELECT * FROM email_templates WHERE slug = "MAINTENANCE_APP"');
+    if (!template) return;
+
+    const subscribers = await db.all('SELECT email FROM magapp_subscriptions WHERE app_id = ?', [app_id]);
+    if (subscribers.length === 0) return;
+
+    const transporter = nodemailer.createTransport(
+        new brevoTransport({ apiKey: s.smtp_pass })
+    );
+
+    const maintenance_info = (application.maintenance_start && application.maintenance_end) 
+        ? `Prévue du ${application.maintenance_start} au ${application.maintenance_end}`
+        : "Durée indéterminée";
+
+    const body = template.body
+        .replace(/{{app_name}}/g, application.name)
+        .replace(/{{description}}/g, application.description || "Pas de description")
+        .replace(/{{maintenance_info}}/g, maintenance_info);
+
+    const html = s.template_html.replace('{{content}}', body.replace(/\n/g, '<br>'));
+
+    for (const sub of subscribers) {
+        try {
+            await transporter.sendMail({
+                from: `"${s.sender_name}" <${s.sender_email}>`,
+                to: sub.email,
+                subject: template.subject.replace(/{{app_name}}/g, application.name),
+                html
+            });
+        } catch (err) {
+            console.error(`Failed to send maintenance email to ${sub.email}:`, err);
+        }
+    }
+}
+
 app.get('/api/attachments/:type/:id', authenticateJWT, async (req, res) => {
     const { type, id } = req.params;
     try {
@@ -1936,9 +2001,10 @@ app.get('/api/telecom/commitments', authenticateJWT, async (req, res) => {
                     FROM telecom_invoices i 
                     JOIN telecom_billing_accounts a ON i.billing_account_id = a.id
                     WHERE a.commitment_number = c.commitment_number
+                    AND (a.function_code = c.function_code OR c.function_code IS NULL OR c.function_code = '')
                 ), 0) as pdf_invoiced_total
             FROM telecom_commitments c
-            ORDER BY c.year DESC, c.commitment_number
+            ORDER BY c.year DESC, c.commitment_number, c.function_code
         `);
         res.json(commitments);
     } catch (error) {
@@ -1946,45 +2012,75 @@ app.get('/api/telecom/commitments', authenticateJWT, async (req, res) => {
     }
 });
 
+const logStream = fs.createWriteStream(path.join(__dirname, 'import_error.log'), { flags: 'a' });
+logStream.write(`[${new Date().toISOString()}] Log stream initialized.\n`); // Test d'écriture immédiat
+const logError = (message) => {
+    const timestamp = new Date().toISOString();
+    logStream.write(`[${timestamp}] ${message}\n`);
+    console.error(message);
+};
+
+process.on('uncaughtException', (err, origin) => {
+    logError(`FATAL: Uncaught exception at: ${origin}, error: ${err.stack || err}`);
+});
+
 app.post('/api/telecom/import-commitments', authenticateJWT, upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
+    logError('--- NEW IMPORT ---');
     try {
-        const workbook = xlsx.readFile(req.file.path);
+        let workbook;
+        try {
+            logError('Reading file...');
+            workbook = xlsx.readFile(req.file.path);
+            logError('File read OK.');
+        } catch (e) {
+            logError(`Erreur de lecture du fichier Excel: ${e.stack}`);
+            return res.status(400).json({ message: "Fichier Excel invalide ou corrompu.", error: e.message });
+        }
+
         const sheetName = workbook.SheetNames[0];
         const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        logError(`Found ${data.length} rows.`);
 
         let imported = 0;
         let updated = 0;
 
-        for (const row of data) {
+        for (let i = 0; i < data.length; i++) {
+            const row = data[i];
+            logError(`Processing row ${i + 1}: ${JSON.stringify(row)}`);
             const num = row['Numéro engagement'] || row['Engagement'] || row['N° Engagement'] || row['engagement_number'] || row['Engagement (Code)'];
-            if (!num) continue;
+            if (!num) {
+                logError(`Skipping row ${i + 1}: No commitment number.`);
+                continue;
+            }
 
-            const existing = await db.get('SELECT id FROM telecom_commitments WHERE commitment_number = ?', [num.toString()]);
+            const func = row['Fonction (Code)'] || row['Fonction'] || row['Référence'] || row['Reference'] || '';
+            const existing = await db.get('SELECT id FROM telecom_commitments WHERE commitment_number = ? AND function_code = ?', [num.toString(), func.toString()]);
             
             const label = row['Libellé'] || row['Label'] || row['Libellé de l\'engagement'] || row['Engagement (Libellé)'] || '';
             const amount = parseFloat(row['Montant'] || row['Amount'] || row['Mt Engagé (Budg) '] || row['Mt. engagé'] || 0);
             const invoiced = parseFloat(row['Montant Facturé'] || row['Invoiced Amount'] || row['Mt Facturé (Budg) '] || row['Mt. facturé'] || 0);
             const year = row['Année'] || row['Year'] || row['Exercice'] || new Date().getFullYear();
             const operator = row['Opérateur'] || row['Operator'] || row['Tiers (Nom)'] || row['Fournisseur'] || '';
-            const ref = row['Référence'] || row['Reference'] || row['Fonction (Code)'] || '';
 
             if (existing) {
                 await db.run(
-                    'UPDATE telecom_commitments SET label = ?, amount = ?, invoiced_amount = ?, year = ?, operator_name = ?, external_ref = ? WHERE id = ?',
-                    [label, amount, invoiced, year, operator, ref, existing.id]
+                    'UPDATE telecom_commitments SET label = ?, amount = ?, invoiced_amount = ?, year = ?, operator_name = ?, function_code = ? WHERE id = ?',
+                    [label, amount, invoiced, year, operator, func.toString(), existing.id]
                 );
                 updated++;
             } else {
                 await db.run(
-                    'INSERT INTO telecom_commitments (commitment_number, label, amount, invoiced_amount, year, operator_name, external_ref) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [num.toString(), label, amount, invoiced, year, operator, ref]
+                    'INSERT INTO telecom_commitments (commitment_number, label, amount, invoiced_amount, year, operator_name, function_code) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [num.toString(), label, amount, invoiced, year, operator, func.toString()]
                 );
                 imported++;
             }
         }
+        logError('Import successful.');
         res.json({ message: `${imported} engagements importés, ${updated} mis à jour` });
     } catch (error) {
+        logError(`Erreur lors de l'import des engagements: ${error.stack}`);
         res.status(500).json({ message: 'Erreur lors de l\'import des engagements', error: error.message });
     }
 });
@@ -1992,10 +2088,19 @@ app.post('/api/telecom/import-commitments', authenticateJWT, upload.single('file
 app.get('/api/telecom/invoices', authenticateJWT, async (req, res) => {
     try {
         const invoices = await db.all(`
-            SELECT i.*, o.name as operator_name, a.account_number
+            SELECT 
+                i.*, 
+                o.name as operator_name, 
+                a.account_number,
+                v.Etat as general_status
             FROM telecom_invoices i
             LEFT JOIN telecom_operators o ON i.operator_id = o.id
             LEFT JOIN telecom_billing_accounts a ON i.billing_account_id = a.id
+            LEFT JOIN invoices v ON (
+                UPPER(TRIM(i.invoice_number)) = UPPER(TRIM(v."N° Facture fournisseur"))
+                OR UPPER(TRIM(i.invoice_number)) = UPPER(TRIM(RTRIM(v."N° Facture fournisseur", 'N')))
+                OR UPPER(REPLACE(i.invoice_number, ' ', '')) = UPPER(REPLACE(v."N° Facture fournisseur", ' ', ''))
+            )
             ORDER BY i.invoice_date DESC
         `);
         res.json(invoices);
@@ -2048,6 +2153,11 @@ app.post('/api/telecom/invoices/upload', authenticateJWT, upload.single('file'),
         const invNumRegex = /(?:Facture\s*n°|FactureN°|N°defacture)[:\s]*([A-Z0-9\-_]{3,20})/i;
         const invNumMatch = content.match(invNumRegex) || flatContent.match(invNumRegex);
         let invoice_number = invNumMatch ? invNumMatch[1] : 'Inconnu';
+
+        // Nettoyage : Enlever le 'N' final (cas fréquent chez SFR)
+        if (invoice_number.endsWith('N')) {
+            invoice_number = invoice_number.slice(0, -1);
+        }
 
         // Extraction Montant TTC (plus précis)
         const amountRegex = /(?:Total\s*TTC|Montant\s*à\s*payer|MontantTTC)[:\s]*(\d+[.,]\d{2})/i;
@@ -2137,7 +2247,13 @@ app.post('/api/telecom/invoices/upload', authenticateJWT, upload.single('file'),
 });
 
 app.put('/api/telecom/invoices/:id', authenticateJWT, async (req, res) => {
-    const { invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date } = req.body;
+    let { invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date } = req.body;
+    
+    // Nettoyage systématique du 'N' final (SFR)
+    if (invoice_number && invoice_number.endsWith('N')) {
+        invoice_number = invoice_number.slice(0, -1);
+    }
+
     try {
         await db.run(
             'UPDATE telecom_invoices SET invoice_number = ?, operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ? WHERE id = ?',
