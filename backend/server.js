@@ -2175,6 +2175,35 @@ app.get('/api/telecom/operators', authenticateJWT, async (req, res) => {
     }
 });
 
+app.post('/api/telecom/operators', authenticateAdmin, async (req, res) => {
+    const { name, logo_url } = req.body;
+    try {
+        const result = await db.run('INSERT INTO telecom_operators (name, logo_url) VALUES (?, ?)', [name, logo_url]);
+        res.json({ id: result.lastID, message: 'Opérateur créé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error creating operator', error: error.message });
+    }
+});
+
+app.put('/api/telecom/operators/:id', authenticateAdmin, async (req, res) => {
+    const { name, logo_url } = req.body;
+    try {
+        await db.run('UPDATE telecom_operators SET name = ?, logo_url = ? WHERE id = ?', [name, logo_url, req.params.id]);
+        res.json({ message: 'Opérateur mis à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating operator', error: error.message });
+    }
+});
+
+app.delete('/api/telecom/operators/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await db.run('DELETE FROM telecom_operators WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Opérateur supprimé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting operator', error: error.message });
+    }
+});
+
 app.get('/api/telecom/accounts', authenticateJWT, async (req, res) => {
     try {
         const accounts = await db.all(`
@@ -2186,6 +2215,35 @@ app.get('/api/telecom/accounts', authenticateJWT, async (req, res) => {
         res.json(accounts);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching accounts', error: error.message });
+    }
+});
+
+app.post('/api/telecom/accounts', authenticateAdmin, async (req, res) => {
+    const { operator_id, account_number, label } = req.body;
+    try {
+        const result = await db.run('INSERT INTO telecom_billing_accounts (operator_id, account_number, label) VALUES (?, ?, ?)', [operator_id, account_number, label]);
+        res.json({ id: result.lastID, message: 'Compte créé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error creating account', error: error.message });
+    }
+});
+
+app.put('/api/telecom/accounts/:id', authenticateAdmin, async (req, res) => {
+    const { operator_id, account_number, label } = req.body;
+    try {
+        await db.run('UPDATE telecom_billing_accounts SET operator_id = ?, account_number = ?, label = ? WHERE id = ?', [operator_id, account_number, label, req.params.id]);
+        res.json({ message: 'Compte mis à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating account', error: error.message });
+    }
+});
+
+app.delete('/api/telecom/accounts/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await db.run('DELETE FROM telecom_billing_accounts WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Compte supprimé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting account', error: error.message });
     }
 });
 
@@ -2201,6 +2259,35 @@ app.get('/api/telecom/commitments', authenticateJWT, async (req, res) => {
         res.json(commitments);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching commitments', error: error.message });
+    }
+});
+
+app.post('/api/telecom/commitments', authenticateAdmin, async (req, res) => {
+    const { commitment_number, operator_id, billing_account_id, label, amount_ttc, start_date, end_date } = req.body;
+    try {
+        const result = await db.run('INSERT INTO telecom_commitments (commitment_number, operator_id, billing_account_id, label, amount_ttc, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?)', [commitment_number, operator_id, billing_account_id, label, amount_ttc, start_date, end_date]);
+        res.json({ id: result.lastID, message: 'Engagement créé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error creating commitment', error: error.message });
+    }
+});
+
+app.put('/api/telecom/commitments/:id', authenticateAdmin, async (req, res) => {
+    const { commitment_number, operator_id, billing_account_id, label, amount_ttc, start_date, end_date } = req.body;
+    try {
+        await db.run('UPDATE telecom_commitments SET commitment_number = ?, operator_id = ?, billing_account_id = ?, label = ?, amount_ttc = ?, start_date = ?, end_date = ? WHERE id = ?', [commitment_number, operator_id, billing_account_id, label, amount_ttc, start_date, end_date, req.params.id]);
+        res.json({ message: 'Engagement mis à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating commitment', error: error.message });
+    }
+});
+
+app.delete('/api/telecom/commitments/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await db.run('DELETE FROM telecom_commitments WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Engagement supprimé' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting commitment', error: error.message });
     }
 });
 
