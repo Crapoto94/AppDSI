@@ -199,7 +199,8 @@ const storage = multer.diskStorage({
         
         const logMsg = `Multer Destination: type=${type}, folder=${folder}, dest=${dest}`;
         console.log(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+`);
         
         cb(null, dest);
     },
@@ -210,7 +211,8 @@ const storage = multer.diskStorage({
         
         const logMsg = `Multer Filename: target_id=${req.body.target_id}, final_name=${fname}`;
         console.log(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+`);
         
         cb(null, fname);
     }
@@ -219,11 +221,36 @@ const upload = multer({ storage });
 const uploadMemory = multer({ storage: multer.memoryStorage() });
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 const SECRET_KEY = 'votre_cle_secrete_ici'; // À changer en production
 
 // Logger global : enregistre TOUTES les requêtes dans mouchard.log
 app.use((req, res, next) => {
+    const originalStatus = res.status;
+    const originalSend = res.send;
+    const originalJson = res.json;
+
+    res.status = function(code) {
+        this.statusCode = code;
+        return originalStatus.apply(this, arguments);
+    };
+
+    res.send = function(body) {
+        if (this.statusCode === 500) {
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] BODY 500 (${req.url}): ${body}
+`);
+        }
+        return originalSend.apply(this, arguments);
+    };
+
+    res.json = function(body) {
+        if (this.statusCode === 500) {
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] JSON 500 (${req.url}): ${JSON.stringify(body)}
+`);
+        }
+        return originalJson.apply(this, arguments);
+    };
+
     // Ne pas logger les accès au mouchard lui-même pour éviter de polluer
     if (req.url.startsWith('/mouchard') || req.url === '/favicon.ico') return next();
 
@@ -232,7 +259,8 @@ app.use((req, res, next) => {
         const duration = Date.now() - start;
         const msg = `${req.method} ${req.url} - ${res.statusCode} - par ${req.headers['authorization'] ? 'Utilisateur authentifié' : 'Anonyme'} (${duration}ms)`;
         const time = new Date().toISOString();
-        const line = `[${time}] ${msg}\n`;
+        const line = `[${time}] ${msg}
+`;
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
     });
     next();
@@ -255,8 +283,10 @@ app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     next();
 });
+app.use('/img', express.static(path.join(__dirname, 'magapp_img')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/img', express.static(path.join(__dirname, 'magapp_img')));
 app.use('/file_telecom', express.static(path.join(__dirname, 'file_telecom')));
 app.use('/api/file_telecom', express.static(path.join(__dirname, 'file_telecom')));
 app.use('/file_commandes', express.static(path.join(__dirname, 'file_commandes')));
@@ -304,17 +334,56 @@ const authenticateAdminOrFinances = (req, res, next) => {
 };
 
 // Configuration NTLM
-const ntlmMiddleware = ntlm({ domain: 'IVRY' }); 
-const ntlmMiddlewareForced = ntlm({
-    domain: 'IVRY'
-});
+const ntlmOptions = {
+    domain: 'IVRY',
+    domaincontroller: 'ldap://10.103.130.118',
+    internalservererror: function(req, res, next) {
+        const msg = `NTLM Internal Error (${req.url}): Session cassée ou erreur proxy. Forcing retry.`;
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${msg}\n`);
+        console.error(msg);
+        
+        // On force la fermeture de la connexion et on demande au navigateur de recommencer (401)
+        res.setHeader('Connection', 'close');
+        res.setHeader('WWW-Authenticate', 'NTLM');
+        
+        // Pour la route optionnelle, on peut aussi choisir de continuer sans auth 
+        // mais pour sso-redirect il vaut mieux que le navigateur réessaie proprement.
+        if (req.url.includes('/api/auth/ntlm')) {
+            // Pour l'appel axios, on préfère que ça échoue proprement plutôt que de boucler à l'infini
+            // si c'est vraiment un problème de proxy
+            req.ntlm = { UserName: null, Authenticated: false };
+            return next();
+        }
+        
+        if (req.url.includes('/api/auth/sso-redirect')) {
+            // Pour sso-redirect, on renvoie vers le frontend avec un flag de retry ou d'erreur
+            const redirectUrl = req.query.redirect || 'http://localhost:5174';
+            try {
+                const url = new URL(redirectUrl);
+                url.searchParams.set('error', 'ntlm_handshake_failed');
+                return res.redirect(url.toString());
+            } catch (e) {
+                // Si l'URL de redirection est invalide, on continue vers le 401 standard
+            }
+        }
+        res.status(401).send(msg);
+    },
+    debug: function() {
+        const msg = Array.prototype.slice.call(arguments).join(' ');
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] NTLM DEBUG: ${msg}\n`);
+    }
+};
+
+const ntlmMiddleware = ntlm(ntlmOptions); 
+const ntlmMiddlewareForced = ntlm(ntlmOptions);
 
 // Route SSO avec redirection (pour éviter les problèmes de CORS avec NTLM)
 app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
     const login = req.ntlm ? req.ntlm.UserName : null;
     const redirectUrl = req.query.redirect || 'http://localhost:5174';
     
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect triggered. Detected login: ${login}\n`);
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect triggered. Detected login: ${login}
+`);
     
     let displayName = login;
     let email = '';
@@ -331,10 +400,12 @@ app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
             }
         } catch (e) {
             console.error('Erreur SSO Redirect AD:', e.message);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO AD Error: ${e.message}\n`);
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO AD Error: ${e.message}
+`);
         }
     } else {
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect failed to detect login\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect failed to detect login
+`);
     }
 
     // On redirige vers le frontend avec les infos en paramètres (encodés)
@@ -352,7 +423,8 @@ app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
 
 // Route NTLM spécifique pour la détection du login Windows
 app.get('/api/auth/ntlm', (req, res, next) => {
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] HIT /api/auth/ntlm (Optional-NTLM)\n`);
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] HIT /api/auth/ntlm (Optional-NTLM)
+`);
     next();
 }, ntlmMiddleware, async (req, res) => {
     const login = req.ntlm ? req.ntlm.UserName : null;
@@ -361,7 +433,8 @@ app.get('/api/auth/ntlm', (req, res, next) => {
 
     const logMsg = `NTLM Call: User=${login}, Domain=${req.ntlm ? req.ntlm.Domain : 'N/A'}, Workstation=${req.ntlm ? req.ntlm.Workstation : 'N/A'}`;
     console.log(logMsg);
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+`);
 
     if (login) {
         try {
@@ -371,16 +444,20 @@ app.get('/api/auth/ntlm', (req, res, next) => {
                 if (info) {
                     if (info.displayName) displayName = info.displayName;
                     if (info.mail) email = info.mail;
-                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Success: DisplayName=${displayName}\n`);
+                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Success: DisplayName=${displayName}
+`);
                 } else {
-                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Failed for ${login}\n`);
+                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Failed for ${login}
+`);
                 }
             } else {
-                fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD disabled or no settings\n`);
+                fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD disabled or no settings
+`);
             }
         } catch (e) {
             console.error('Erreur lookup AD pour NTLM:', e.message);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Error: ${e.message}\n`);
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Error: ${e.message}
+`);
         }
     }
 
@@ -388,8 +465,8 @@ app.get('/api/auth/ntlm', (req, res, next) => {
         login: login,
         displayName: displayName,
         email: email,
-        domain: req.ntlm.Domain,
-        workstation: req.ntlm.Workstation
+        domain: req.ntlm ? req.ntlm.Domain : 'N/A',
+        workstation: req.ntlm ? req.ntlm.Workstation : 'N/A'
     });
 });
 
@@ -446,7 +523,8 @@ app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
     
     const logMsg = `Ping AD: Tentative de liaison pour ${host}:${port} avec ${bind_dn}`;
     console.log(logMsg);
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+`);
 
     const client = ldap.createClient({
         url: `ldap://${host}:${port}`,
@@ -456,21 +534,22 @@ app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
 
     client.on('error', (err) => {
         console.error('LDAP Ping Client Error:', err.message);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Erreur: ${err.message}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Erreur: ${err.message}
+`);
         res.status(500).json({ success: false, message: `Impossible de contacter le serveur : ${err.message}` });
     });
 
     client.bind(bind_dn, bind_password, (err) => {
-        client.destroy();
         if (err) {
+            client.destroy();
             console.error('AD Ping Bind Error:', err.message);
             fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Echec Bind: ${err.message}\n`);
             return res.status(401).json({ success: false, message: `Liaison échouée : ${err.message}` });
         }
+        client.destroy();
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Succès\n`);
         res.json({ success: true, message: 'La liaison avec l\'Active Directory a réussi !' });
-    });
-});
+    });});
 
 // Route de test Active Directory (Outil de recherche / Lookup)
 app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
@@ -478,7 +557,8 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
     
     const logMsg = `Lookup AD: Recherche d'infos pour ${username} via le compte technique ${bind_dn}`;
     console.log(logMsg);
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+`);
 
     const client = ldap.createClient({
         url: `ldap://${host}:${port}`,
@@ -487,14 +567,16 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
     });
 
     client.on('error', (err) => {
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Erreur: ${err.message}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Erreur: ${err.message}
+`);
         res.status(500).json({ success: false, message: `Erreur client LDAP : ${err.message}` });
     });
 
     client.bind(bind_dn, bind_password, (err) => {
         if (err) {
             client.destroy();
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Echec Bind: ${err.message}\n`);
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Echec Bind: ${err.message}
+`);
             return res.status(401).json({ success: false, message: `Liaison technique échouée : ${err.message}` });
         }
 
@@ -510,13 +592,12 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
                 return res.status(500).json({ success: false, message: `Erreur recherche : ${err.message}` });
             }
 
-            let userEntry = null;
+            let entries = [];
             searchRes.on('searchEntry', (entry) => { 
-                // Extraction robuste des attributs via pojo ou object
                 const attrs = entry.pojo ? entry.pojo.attributes : [];
                 const obj = entry.object || {};
                 
-                userEntry = {
+                entries.push({
                     dn: entry.pojo ? entry.pojo.objectName : entry.dn,
                     cn: obj.cn || attrs.find(a => a.type === 'cn')?.values[0],
                     sAMAccountName: obj.sAMAccountName || attrs.find(a => a.type === 'sAMAccountName')?.values[0],
@@ -525,7 +606,7 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
                     memberOf: obj.memberOf || attrs.find(a => a.type === 'memberOf')?.values,
                     title: obj.title || attrs.find(a => a.type === 'title')?.values[0],
                     department: obj.department || attrs.find(a => a.type === 'department')?.values[0]
-                };
+                });
             });
             searchRes.on('error', (err) => { 
                 client.destroy(); 
@@ -533,11 +614,16 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
             });
             searchRes.on('end', (result) => {
                 client.destroy();
-                if (!userEntry) {
+                if (entries.length === 0) {
                     fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Utilisateur non trouvé\n`);
                     return res.status(404).json({ success: false, message: `Utilisateur "${username}" non trouvé dans l'AD.` });
                 }
-                fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Succès pour ${username}\n`);
+
+                // Trier pour privilégier l'exact match
+                const exactMatch = entries.find(e => e.sAMAccountName && e.sAMAccountName.toLowerCase() === username.toLowerCase());
+                const userEntry = exactMatch || entries[0];
+
+                fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Succès pour ${username} (Match: ${userEntry.sAMAccountName})\n`);
                 res.json({ 
                     success: true, 
                     message: `Informations récupérées pour ${userEntry.displayName || userEntry.cn || username}`,
@@ -548,25 +634,13 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
     });
 });
 
-// Logger global : enregistre TOUTES les requêtes dans mouchard.log
-app.use((req, res, next) => {
-    // Ne pas logger les accès au mouchard lui-même pour éviter de polluer
-    if (req.url.startsWith('/mouchard') || req.url === '/favicon.ico') return next();
-
-    const start = Date.now();
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        const msg = `${req.method} ${req.url} - ${res.statusCode} - par ${req.headers['authorization'] ? 'Utilisateur authentifié' : 'Anonyme'} (${duration}ms)`;
-        const time = new Date().toISOString();
-        const line = `[${time}] ${msg}\n`;
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
-    });
-    next();
-});
 // Route pour voir les logs dans le navigateur
 app.get('/mouchard', (req, res) => {
     try {
-        const logs = fs.readFileSync(path.join(__dirname, 'mouchard.log'), 'utf8');
+        const logPath = path.join(__dirname, 'mouchard.log');
+        if (!fs.existsSync(logPath)) return res.send("Aucun log disponible.");
+        
+        const logs = fs.readFileSync(logPath, 'utf8');
         const lines = logs.split('\n').filter(l => l.trim().length > 0).reverse().slice(0, 100);
         
         const formatLine = (l) => {
@@ -575,7 +649,7 @@ app.get('/mouchard', (req, res) => {
             if (l.includes('POST')) color = '#4caf50';
             if (l.includes('PUT')) color = '#ff9800';
             if (l.includes('SUCCÈS')) color = '#00ff00';
-            if (l.includes('ERREUR') || l.includes('ÉCHEC')) color = '#ff0000';
+            if (l.includes('ERREUR') || l.includes('Échec') || l.includes('Error')) color = '#ff0000';
             return `<div class="line" style="color: ${color}">${l}</div>`;
         };
 
@@ -603,7 +677,7 @@ app.get('/mouchard', (req, res) => {
             </html>
         `);
     } catch (err) {
-        res.send("Aucun log disponible.");
+        res.send("Erreur lors de la lecture des logs: " + err.message);
     }
 });
 
@@ -670,8 +744,8 @@ setupDb().then(async database => {
     // Recalcul au démarrage
     await recalculateAllOperations();
 
-    app.listen(PORT, () => {
-        console.log(`Backend server running on http://localhost:${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Backend server running on http://0.0.0.0:${PORT}`);
     });
 }).catch(err => {
     console.error('Failed to setup database:', err);
@@ -736,6 +810,40 @@ app.get('/api/magapp/apps', async (req, res) => {
     }
 });
 
+// Favorites Routes
+app.get('/api/magapp/favorites', async (req, res) => {
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ message: 'Username requis' });
+    try {
+        const favorites = await db.all('SELECT app_id FROM magapp_favorites WHERE username = ?', [username]);
+        res.json(favorites.map(f => f.app_id));
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur lecture favoris' });
+    }
+});
+
+app.post('/api/magapp/favorites', async (req, res) => {
+    const { username, app_id } = req.body;
+    if (!username || !app_id) return res.status(400).json({ message: 'Données manquantes' });
+    try {
+        await db.run('INSERT OR IGNORE INTO magapp_favorites (username, app_id) VALUES (?, ?)', [username, app_id]);
+        res.json({ message: 'Ajouté aux favoris' });
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur ajout favoris' });
+    }
+});
+
+app.delete('/api/magapp/favorites', async (req, res) => {
+    const { username, app_id } = req.query;
+    if (!username || !app_id) return res.status(400).json({ message: 'Données manquantes' });
+    try {
+        await db.run('DELETE FROM magapp_favorites WHERE username = ? AND app_id = ?', [username, app_id]);
+        res.json({ message: 'Retiré des favoris' });
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur suppression favoris' });
+    }
+});
+
 app.post('/api/magapp/clicks', async (req, res) => {
     const { app_id, username } = req.body;
     const ip_address = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -763,7 +871,29 @@ app.post('/api/magapp/subscribe', async (req, res) => {
         );
         res.json({ message: 'Vous recevrez désormais les notifications de maintenance pour cette application.' });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur lors de l\'abonnement', error: error.message });
+        res.status(500).json({ message: "Erreur lors de l'abonnement", error: error.message });
+    }
+});
+
+app.get('/api/magapp/user-subscriptions', async (req, res) => {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ message: 'Email requis' });
+    try {
+        const subs = await db.all('SELECT app_id FROM magapp_subscriptions WHERE email = ?', [email]);
+        res.json(subs.map(s => s.app_id));
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur lecture abonnements' });
+    }
+});
+
+app.delete('/api/magapp/user-subscriptions', async (req, res) => {
+    const { email, app_id } = req.query;
+    if (!email || !app_id) return res.status(400).json({ message: 'Données manquantes' });
+    try {
+        await db.run('DELETE FROM magapp_subscriptions WHERE email = ? AND app_id = ?', [email, app_id]);
+        res.json({ message: 'Désabonné avec succès' });
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur désabonnement' });
     }
 });
 
@@ -801,30 +931,53 @@ app.get('/api/magapp/icons', authenticateJWT, (req, res) => {
     }
 });
 
-app.post('/api/magapp/icons/upload', authenticateJWT, upload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).send('No file uploaded.');
+// Added Multer error handling middleware here
+app.post('/api/magapp/icons/upload', authenticateJWT, (err, req, res, next) => {
+    // Custom Multer error handler
+    if (err instanceof multer.MulterError) {
+        // A Multer error occurred when uploading.
+        const logMsg = `Multer Error during upload: ${err.message}`;
+        console.error(logMsg);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+`);
+        return res.status(500).json({ message: 'Erreur lors de la gestion du fichier uploadé', error: err.message });
+    } else if (err) {
+        // An unknown error occurred when uploading.
+        const logMsg = `Unknown Error during upload: ${err.message}`;
+        console.error(logMsg);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+`);
+        return res.status(500).json({ message: "Erreur inconnue lors de l'upload", error: err.message });
+    }
+    // If no error, proceed to the next middleware/route handler
+    next();
+}, upload.single('file'), async (req, res) => {
+    if (!req.file) {
+        const logMsg = 'No file received in /api/magapp/icons/upload';
+        console.error(logMsg);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+`);
+        return res.status(400).send('No file uploaded.');
+    }
     
     try {
         const fileName = req.file.filename;
         const sourcePath = req.file.path;
         
-        // Copier vers les deux dossiers public
-        const hubDest = path.join(__dirname, '../frontend/public/img', fileName);
-        const magappDest = path.join(__dirname, '../magapp-frontend/public/img', fileName);
+        // Destination unique dans le dossier statique du backend
+        const destPath = path.join(__dirname, 'magapp_img', fileName);
         
-        // S'assurer que les dossiers existent
-        if (!fs.existsSync(path.dirname(hubDest))) fs.mkdirSync(path.dirname(hubDest), { recursive: true });
-        if (!fs.existsSync(path.dirname(magappDest))) fs.mkdirSync(path.dirname(magappDest), { recursive: true });
+        // S'assurer que le dossier existe
+        if (!fs.existsSync(path.dirname(destPath))) fs.mkdirSync(path.dirname(destPath), { recursive: true });
         
-        fs.copyFileSync(sourcePath, hubDest);
-        fs.copyFileSync(sourcePath, magappDest);
+        fs.copyFileSync(sourcePath, destPath);
         
         // Supprimer le fichier temporaire dans uploads
         fs.unlinkSync(sourcePath);
         
         res.json({ message: 'Icône uploadée avec succès', path: `/img/${fileName}` });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur lors de l\'upload de l\'icône', error: error.message });
+        res.status(500).json({ message: "Erreur lors de l'upload de l'icône", error: error.message });
     }
 });
 
@@ -963,14 +1116,16 @@ app.post('/api/send-test-mail', authenticateAdmin, async (req, res) => {
     try {
         const logMsg = `Tentative d'envoi de mail de test à: ${to}`;
         console.log(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+`);
 
         await sendMail(to, "Test d'envoi DSI Hub", "<p>Ceci est un mail de test envoyé depuis le paramétrage du <strong>DSI Hub Ivry</strong>.</p><p>Si vous recevez ce message, la configuration est correcte.</p>");
         res.json({ message: 'Mail de test envoyé avec succès' });
     } catch (error) {
         const errMsg = `ÉCHEC envoi mail de test: ${error.message}`;
         console.error(errMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${errMsg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${errMsg}
+`);
         res.status(500).json({ message: "Erreur d'envoi", error: error.message });
     }
 });
@@ -1002,7 +1157,8 @@ app.delete('/api/certificates/:id', authenticateAdmin, async (req, res) => {
         await db.run('DELETE FROM certificates WHERE id = ?', [req.params.id]);
         
         const logMsg = `Certificat supprimé: ID ${req.params.id} (${cert.order_number})`;
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+`);
         
         res.json({ message: 'Certificat supprimé avec succès' });
     } catch (error) {
@@ -1025,7 +1181,8 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
         if (err) {
             const logMsg = `Multer Error during upload: ${err.message}`;
             console.error(logMsg);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}\n`);
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+`);
             return res.status(500).json({ message: 'Erreur Multer', error: err.message });
         }
         next();
@@ -1034,7 +1191,8 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
     if (!req.file) {
         const logMsg = 'No file received in /api/certificates/upload';
         console.error(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+`);
         return res.status(400).send('No file uploaded.');
     }
 
@@ -1045,7 +1203,8 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
         
         const logMsg = `Processing file: ${filePath}`;
         console.log(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+`);
 
         if (fileName.toLowerCase().endsWith('.pdf')) {
             const dataBuffer = fs.readFileSync(filePath);
@@ -1053,7 +1212,8 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
             content = pdfData.text;
             const logParsed = `PDF Parsed successfully. Text length: ${content.length}`;
             console.log(logParsed);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logParsed}\n`);
+            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logParsed}
+`);
         } else {
             fs.unlinkSync(filePath);
             return res.status(400).json({ message: 'Seuls les fichiers PDF sont acceptés pour les certificats.' });
@@ -1107,7 +1267,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
         };
 
         // 1. Extraction directe du libellé dans le PDF (Champ LIBELLE : ...)
-        const libelleMatch = content.match(/LIBELLE\s*:\s*([^ \n\r]+.*)/i);
+        const libelleMatch = content.match(/LIBELLE\s*:\s*([^ \n]+.*)/i);
         if (libelleMatch) {
             data.product_label = libelleMatch[1].trim();
         } else {
@@ -1145,7 +1305,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
 
         // Extraction du nom du bénéficiaire améliorée
         // ... (extraction name logic unchanged) ...
-        const prefNomMatch = content.match(/PRENOM \/ NOM\s*:\s*([^ \n\r]+.*)/i);
+        const prefNomMatch = content.match(/PRENOM \/ NOM\s*:\s*([^ \n]+.*)/i);
         if (prefNomMatch) {
             data.beneficiary_name = prefNomMatch[1].trim();
         } else {
@@ -1213,17 +1373,32 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
 
         res.json({ id: result.lastID, ...data });
     } catch (error) {
-        const logErr = `Certif upload error: ${error.message}\nStack: ${error.stack}`;
+        const logErr = `Certif upload error: ${error.message}
+Stack: ${error.stack}`;
         console.error(logErr);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR CRITIQUE: ${logErr}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR CRITIQUE: ${logErr}
+`);
         res.status(500).json({ message: 'Error processing certificate PDF', error: error.message });
     }
 });
 
 // Default Error Handler (must be after all routes)
 app.use((err, req, res, next) => {
-    console.error('Unhandled Express Error:', err);
-    res.status(500).json({ message: 'Erreur interne du serveur', error: err.message });
+    const time = new Date().toISOString();
+    const errMsg = `[${time}] ERREUR CRITIQUE (${req.method} ${req.url}): ${err.message}
+Stack: ${err.stack}
+`;
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), errMsg);
+    console.error(errMsg);
+    
+    if (res.headersSent) {
+        return next(err);
+    }
+    res.status(500).json({ 
+        message: 'Erreur interne du serveur', 
+        error: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
 });
 
 // Capture les erreurs non gérées au niveau global pour éviter que le processus Node ne plante silencieusement
@@ -1249,7 +1424,7 @@ app.post('/api/sql-query', authenticateAdminOrFinances, async (req, res) => {
         }
         res.json({ data: result || [] });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur d\'exécution de la requête', error: error.message });
+        res.status(500).json({ message: "Erreur d'exécution de la requête", error: error.message });
     }
 });
 
@@ -1478,12 +1653,13 @@ app.post('/api/tiers/import', authenticateAdminOrFinances, uploadMemory.single('
 
         const msg = `Import Excel tiers: ${created} créés, ${updated} mis à jour`;
         const time = new Date().toISOString();
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${time}] POST /api/tiers/import - 200 - par ${req.user.username}: ${msg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${time}] POST /api/tiers/import - 200 - par ${req.user.username}: ${msg}
+`);
         
         res.json({ message: 'Import réussi', created, updated });
     } catch (error) {
         console.error('Import error:', error);
-        res.status(500).json({ message: 'Erreur lors de l\'import', error: error.message });
+        res.status(500).json({ message: "Erreur lors de l'import", error: error.message });
     }
 });
 
@@ -1627,7 +1803,8 @@ app.put('/api/budget/operations/:id', authenticateAdminOrFinances, async (req, r
 // Ajout d'un log système
 const logMouchard = (msg) => {
     const time = new Date().toISOString();
-    const line = `[${time}] ${msg}\n`;
+    const line = `[${time}] ${msg}
+`;
     fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
     console.log(line);
 };
@@ -1734,7 +1911,7 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
         res.json({ message: `${imported} lignes budgétaires importées, ${updated} mises à jour` });
     } catch (error) {
         console.error('Import error:', error);
-        res.status(500).json({ message: 'Erreur lors de l\'import', error: error.message });
+        res.status(500).json({ message: "Erreur lors de l'import", error: error.message });
     }
 });
 
@@ -1947,7 +2124,7 @@ app.post('/api/m57-plan', authenticateAdminOrFinances, async (req, res) => {
         );
         res.json({ id: result.lastID, message: 'Code ajouté au référentiel' });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur lors de l\'ajout', error: error.message });
+        res.status(500).json({ message: "Erreur lors de l'ajout", error: error.message });
     }
 });
 
@@ -1963,828 +2140,3 @@ app.put('/api/m57-plan/:id', authenticateAdminOrFinances, async (req, res) => {
         res.status(500).json({ message: 'Erreur lors de la mise à jour', error: error.message });
     }
 });
-
-app.delete('/api/m57-plan/:id', authenticateAdminOrFinances, async (req, res) => {
-    try {
-        await db.run('DELETE FROM m57_plan WHERE id = ?', [req.params.id]);
-        res.json({ message: 'Code supprimé du référentiel' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur lors de la suppression', error: error.message });
-    }
-});
-
-// Column Settings API
-app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
-    const page = req.params.page;
-    // Map page to table name
-    let tableName = page;
-    if (page === 'lines') tableName = 'budget_lines';
-    if (page === 'orders') tableName = 'orders';
-    if (page === 'operations') tableName = 'operations';
-    if (page === 'tiers') tableName = 'tiers';
-    
-    let settings = await db.all('SELECT * FROM column_settings WHERE page = ?', [page]);
-    
-    // Auto-initialize if empty
-    if (settings.length === 0) {
-        try {
-            const cols = await db.all(`PRAGMA table_info(${tableName})`);
-            if (cols.length > 0) {
-                for (const col of cols) {
-                    if (col.name !== 'id') {
-                        await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible, display_order) VALUES (?, ?, ?, 1, 0)', [page, col.name, col.name]);
-                    }
-                }
-                settings = await db.all('SELECT * FROM column_settings WHERE page = ?', [page]);
-            }
-        } catch(e) {
-            console.error("Auto-init columns failed:", e);
-        }
-    }
-    res.json(settings);
-});
-
-app.post('/api/column-settings/:page', authenticateAdminOrFinances, async (req, res) => {
-    const { column_key, is_visible } = req.body;
-    await db.run('UPDATE column_settings SET is_visible = ? WHERE page = ? AND column_key = ?', [is_visible ? 1 : 0, req.params.page, column_key]);
-    res.json({ message: 'Settings updated' });
-});
-
-app.post('/api/column-settings/:page/bulk', authenticateAdminOrFinances, async (req, res) => {
-    const settings = req.body;
-    if (Array.isArray(settings)) {
-        for (const s of settings) {
-            await db.run(
-                'UPDATE column_settings SET is_visible = ?, display_order = ?, color = ?, is_bold = ?, is_italic = ? WHERE page = ? AND column_key = ?',
-                [s.is_visible ? 1 : 0, s.display_order || 0, s.color || null, s.is_bold ? 1 : 0, s.is_italic ? 1 : 0, req.params.page, s.column_key]
-            );
-        }
-    }
-    res.json({ message: 'Settings bulk updated' });
-});
-
-// Raw Table API
-app.get('/api/raw-data/:table', authenticateAdminOrFinances, async (req, res) => {
-    const allowedTables = ['orders', 'budget_lines', 'invoices', 'm57_plan', 'operations'];
-    if (!allowedTables.includes(req.params.table)) return res.status(403).json({ message: 'Table non autorisée' });
-    
-    try {
-        const query = `SELECT * FROM ${req.params.table}`;
-        const data = await db.all(query);
-        res.json({ query, data });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur SQL', error: error.message });
-    }
-});
-
-app.post('/api/users', authenticateAdmin, async (req, res) => {
-    const { username, password, role, service_code, service_complement } = req.body;
-    if (!username || !password) return res.status(400).json({ message: 'Username and password required' });
-    
-    try {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const result = await db.run('INSERT INTO users (username, password, role, service_code, service_complement) VALUES (?, ?, ?, ?, ?)', [username, hashedPassword, role || 'user', service_code || null, service_complement || null]);
-        res.json({ id: result.lastID, username, role: role || 'user', service_code, service_complement });
-    } catch (error) {
-        res.status(500).json({ message: 'Error creating user', error: error.message });
-    }
-});
-
-app.put('/api/users/:id', authenticateAdmin, async (req, res) => {
-    const { username, role, service_code, service_complement, password } = req.body;
-    const { id } = req.params;
-    console.log(`Tentative de mise à jour utilisateur ID ${id}:`, { username, role, service_code, service_complement });
-    
-    try {
-        if (password) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            await db.run('UPDATE users SET username = ?, password = ?, role = ?, service_code = ?, service_complement = ? WHERE id = ?', [username, hashedPassword, role, service_code, service_complement, id]);
-        } else {
-            await db.run('UPDATE users SET username = ?, role = ?, service_code = ?, service_complement = ? WHERE id = ?', [username, role, service_code, service_complement, id]);
-        }
-        console.log(`Succès mise à jour utilisateur ${username}`);
-        res.json({ message: 'User updated' });
-    } catch (error) {
-        console.error('Error updating user:', error);
-        res.status(500).json({ message: 'Error updating user', error: error.message });
-    }
-});
-
-app.delete('/api/users/:id', authenticateAdmin, async (req, res) => {
-    // Prevent deleting the last admin or yourself if possible, but for now simple delete
-    await db.run('DELETE FROM users WHERE id = ?', [req.params.id]);
-    res.json({ message: 'User deleted' });
-});
-
-// Email Templates API
-app.get('/api/email-templates', authenticateAdmin, async (req, res) => {
-    try {
-        const templates = await db.all('SELECT * FROM email_templates');
-        res.json(templates);
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur templates', error: error.message });
-    }
-});
-
-app.post('/api/email-templates', authenticateAdmin, async (req, res) => {
-    const { label, slug, context, subject, body } = req.body;
-    try {
-        await db.run(
-            'INSERT INTO email_templates (label, slug, context, subject, body) VALUES (?, ?, ?, ?, ?)',
-            [label, slug, context, subject, body]
-        );
-        res.json({ message: 'Modèle créé' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur création template', error: error.message });
-    }
-});
-
-app.put('/api/email-templates/:id', authenticateAdmin, async (req, res) => {
-    const { label, slug, context, subject, body } = req.body;
-    try {
-        await db.run(
-            'UPDATE email_templates SET label = ?, slug = ?, context = ?, subject = ?, body = ? WHERE id = ?', 
-            [label, slug, context, subject, body, req.params.id]
-        );
-        res.json({ message: 'Modèle mis à jour' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur mise à jour template', error: error.message });
-    }
-});
-
-app.delete('/api/email-templates/:id', authenticateAdmin, async (req, res) => {
-    try {
-        await db.run('DELETE FROM email_templates WHERE id = ?', [req.params.id]);
-        res.json({ message: 'Modèle supprimé' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur suppression template', error: error.message });
-    }
-});
-
-// Attachments API
-app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).send('No file uploaded.');
-    const { target_type, target_id } = req.body;
-    if (!target_type || !target_id) return res.status(400).send('target_type and target_id are required.');
-
-    try {
-        // Supprimer l'ancienne pièce jointe si elle existe
-        const existing = await db.get('SELECT * FROM attachments WHERE target_type = ? AND target_id = ?', [target_type, target_id]);
-        if (existing) {
-            const oldPath = path.join(__dirname, existing.file_path);
-            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-            await db.run('DELETE FROM attachments WHERE id = ?', [existing.id]);
-        }
-
-        const folder = target_type === 'order' ? 'file_commandes' : 'file_factures';
-        const filePath = `${folder}/${req.file.filename}`;
-        const result = await db.run(
-            'INSERT INTO attachments (target_type, target_id, file_path, original_name, username) VALUES (?, ?, ?, ?, ?)',
-            [target_type, target_id, filePath, req.file.filename, req.user.username]
-        );
-
-        res.json({ id: result.lastID, original_name: req.file.originalname });
-    } catch (error) {
-        console.error('Upload DB error:', error);
-        res.status(500).json({ message: 'Error saving attachment info', error: error.message });
-    }
-});
-
-app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => {
-    try {
-        logMouchard(`[DEBUG] Recherche destinataires pour pièce jointe #${req.params.id}`);
-        const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
-        if (!attachment) return res.status(404).json({ message: 'Pièce jointe non trouvée' });
-
-        const target_id = attachment.target_id;
-        const order = await db.get('SELECT Fournisseur FROM orders WHERE "N° Commande" = ? OR "N° Commande" LIKE ?', [target_id, `%${target_id}%`]);
-        
-        if (!order) {
-            logMouchard(`[DEBUG] Commande ${target_id} non trouvée`);
-            return res.status(404).json({ message: `Commande "${target_id}" non trouvée` });
-        }
-
-        const supplierName = (order.Fournisseur || '').trim();
-        logMouchard(`[DEBUG] Fournisseur dans commande: "${supplierName}"`);
-        
-        // Match RESILIENT : On enlève les espaces des deux côtés en SQL pour être certain
-        let tier = await db.get('SELECT id, nom FROM tiers WHERE TRIM(UPPER(nom)) = UPPER(?)', [supplierName]);
-        
-        if (!tier) {
-            logMouchard(`[DEBUG] Tiers non trouvé par nom exact, tentative par LIKE`);
-            tier = await db.get('SELECT id, nom FROM tiers WHERE nom LIKE ?', [`%${supplierName}%`]);
-        }
-        
-        if (!tier) {
-            logMouchard(`[DEBUG] ÉCHEC: Aucun tiers trouvé pour "${supplierName}"`);
-            return res.status(404).json({ message: `Fournisseur "${supplierName}" non trouvé dans la base des Tiers` });
-        }
-
-        logMouchard(`[DEBUG] Tiers identifié: ${tier.nom} (ID: ${tier.id})`);
-        const recipients = await db.all('SELECT nom, prenom, email FROM contacts WHERE tier_id = ? AND (is_order_recipient = 1 OR is_order_recipient = "1")', [tier.id]);
-        
-        logMouchard(`[DEBUG] Nombre de contacts trouvés: ${recipients.length}`);
-        res.json(recipients);
-    } catch (error) {
-        logMouchard(`[DEBUG] ERREUR CRITIQUE: ${error.message}`);
-        res.status(500).json({ message: 'Erreur récupération destinataires', error: error.message });
-    }
-});
-
-app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) => {
-    try {
-        const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
-        if (!attachment) return res.status(404).json({ message: 'Pièce jointe non trouvée' });
-
-        const target_id = attachment.target_id;
-        const order = await db.get('SELECT Fournisseur FROM orders WHERE "N° Commande" = ? OR "N° Commande" LIKE ?', [target_id, `%${target_id}%`]);
-        
-        if (!order) return res.status(404).json({ message: 'Commande non trouvée' });
-
-        const supplierName = (order.Fournisseur || '').trim();
-        let tier = await db.get('SELECT id FROM tiers WHERE TRIM(UPPER(nom)) = UPPER(?)', [supplierName]);
-        if (!tier) {
-            tier = await db.get('SELECT id, nom FROM tiers WHERE nom LIKE ?', [`%${supplierName}%`]);
-        }
-        
-        if (!tier) return res.status(404).json({ message: `Fournisseur "${supplierName}" non trouvé` });
-
-        const recipients = await db.all('SELECT nom, prenom, email FROM contacts WHERE tier_id = ? AND is_order_recipient = 1', [tier.id]);
-        const emails = recipients.map(r => r.email).filter(e => e && e.includes('@'));
-
-        if (emails.length === 0) {
-            return res.status(400).json({ message: 'Aucun contact destinataire avec email valide.' });
-        }
-
-        const template = await db.get('SELECT * FROM email_templates WHERE slug = "NOUVELLE_COMMANDE"');
-        if (!template) return res.status(500).json({ message: 'Modèle email manquant' });
-
-        await sendMailWithAttachment(
-            emails.join(','),
-            template.subject,
-            template.body,
-            path.join(__dirname, attachment.file_path),
-            attachment.original_name
-        );
-
-        logMouchard(`[ENVOI] Commande ${target_id} envoyée à ${emails.join(', ')}`);
-        res.json({ message: `Commande envoyée à ${emails.length} contact(s).` });
-
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur lors de l\'envoi', error: error.message });
-    }
-});
-
-// Helper Mail avec pièce jointe
-async function sendMailWithAttachment(to, subject, content, filePath, fileName) {
-    const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
-    if (!s) throw new Error("Paramètres mail non configurés");
-
-    const transporter = nodemailer.createTransport(
-        new brevoTransport({ apiKey: s.smtp_pass })
-    );
-    
-    const html = s.template_html.replace('{{content}}', content.replace(/\n/g, '<br>'));
-
-    await transporter.sendMail({
-        from: `"${s.sender_name}" <${s.sender_email}>`,
-        to,
-        subject,
-        html,
-        attachments: [{
-            filename: fileName,
-            path: filePath
-        }]
-    });
-}
-
-async function sendMaintenanceEmail(app_id) {
-    const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
-    if (!s) return;
-
-    const application = await db.get('SELECT * FROM magapp_apps WHERE id = ?', [app_id]);
-    if (!application) return;
-
-    const template = await db.get('SELECT * FROM email_templates WHERE slug = "MAINTENANCE_APP"');
-    if (!template) return;
-
-    const subscribers = await db.all('SELECT email FROM magapp_subscriptions WHERE app_id = ?', [app_id]);
-    if (subscribers.length === 0) return;
-
-    const transporter = nodemailer.createTransport(
-        new brevoTransport({ apiKey: s.smtp_pass })
-    );
-
-    const maintenance_info = (application.maintenance_start && application.maintenance_end) 
-        ? `Prévue du ${application.maintenance_start} au ${application.maintenance_end}`
-        : "Durée indéterminée";
-
-    const body = template.body
-        .replace(/{{app_name}}/g, application.name)
-        .replace(/{{description}}/g, application.description || "Pas de description")
-        .replace(/{{maintenance_info}}/g, maintenance_info);
-
-    const html = s.template_html.replace('{{content}}', body.replace(/\n/g, '<br>'));
-
-    for (const sub of subscribers) {
-        try {
-            await transporter.sendMail({
-                from: `"${s.sender_name}" <${s.sender_email}>`,
-                to: sub.email,
-                subject: template.subject.replace(/{{app_name}}/g, application.name),
-                html
-            });
-        } catch (err) {
-            console.error(`Failed to send maintenance email to ${sub.email}:`, err);
-        }
-    }
-}
-
-app.get('/api/attachments/:type/:id', authenticateJWT, async (req, res) => {
-    const { type, id } = req.params;
-    try {
-        const attachments = await db.all(
-            'SELECT * FROM attachments WHERE target_type = ? AND target_id = ? ORDER BY uploaded_at DESC',
-            [type, id]
-        );
-        res.json(attachments);
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching attachments', error: error.message });
-    }
-});
-
-app.delete('/api/attachments/:id', authenticateJWT, async (req, res) => {
-    try {
-        const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
-        if (!attachment) return res.status(404).json({ message: 'Attachment not found' });
-
-        // Optionally delete physical file
-        if (fs.existsSync(attachment.file_path)) {
-            fs.unlinkSync(attachment.file_path);
-        }
-
-        await db.run('DELETE FROM attachments WHERE id = ?', [req.params.id]);
-        res.json({ message: 'Attachment deleted' });
-    } catch (error) {
-        res.status(500).json({ message: 'Error deleting attachment', error: error.message });
-    }
-});
-
-// Import Orders from Excel
-app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).send('No file uploaded.');
-    try {
-        const workbook = xlsx.readFile(req.file.path);
-        const sheetName = workbook.SheetNames[0];
-        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { cellDates: true });
-
-        let imported = 0;
-        let updated = 0;
-        for (const row of data) {
-            // Get all possible columns for the table (excluding 'id')
-            const tableColumns = await db.all("PRAGMA table_info(orders)");
-            const colNames = tableColumns.filter(c => c.name !== 'id').map(c => c.name);
-
-            // Special handling for dates
-            if (row['Date de la commande'] && typeof row['Date de la commande'] === 'number') {
-                const date = new Date((row['Date de la commande'] - 25569) * 86400 * 1000);
-                row['Date de la commande'] = date.toISOString().split('T')[0];
-            } else if (row['Date de la commande'] instanceof Date) {
-                row['Date de la commande'] = row['Date de la commande'].toISOString().split('T')[0];
-            }
-
-            const orderNumber = row['N° Commande']?.toString() || row['order_number'];
-            const lineNumber = row['N° ligne']?.toString();
-
-            // Check for existence by Order Number AND Line Number
-            const exists = await db.get('SELECT id FROM orders WHERE "N° Commande" = ? AND "N° ligne" = ?', [orderNumber, lineNumber]);
-            
-            const keys = [];
-            const values = [];
-            const placeholders = [];
-
-            for (const col of colNames) {
-                if (row[col] !== undefined) {
-                    keys.push(`"${col}"`);
-                    values.push(row[col]?.toString());
-                    placeholders.push('?');
-                }
-            }
-
-            if (keys.length > 0) {
-                if (!exists) {
-                    const query = `INSERT INTO orders (${keys.join(', ')}) VALUES (${placeholders.join(', ')})`;
-                    await db.run(query, values);
-                    imported++;
-                } else {
-                    const updateSets = keys.map(k => `${k} = ?`).join(', ');
-                    const query = `UPDATE orders SET ${updateSets} WHERE id = ?`;
-                    await db.run(query, [...values, exists.id]);
-                    updated++;
-                }
-            }
-        }
-        await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['orders', req.user.username]);
-        await updateTierStats(db);
-        res.json({ message: `${imported} commandes importées, ${updated} mises à jour` });
-    } catch (error) {
-        console.error('Import error:', error);
-        res.status(500).json({ message: 'Erreur lors de l\'import des commandes', error: error.message });
-    }
-});
-
-// Telecom API
-app.get('/api/telecom/operators', authenticateJWT, async (req, res) => {
-    try {
-        const operators = await db.all('SELECT * FROM telecom_operators ORDER BY name');
-        res.json(operators);
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching operators', error: error.message });
-    }
-});
-
-app.post('/api/telecom/operators', authenticateJWT, async (req, res) => {
-    const { tier_id, name } = req.body;
-    try {
-        const result = await db.run('INSERT INTO telecom_operators (tier_id, name) VALUES (?, ?)', [tier_id, name]);
-        res.json({ id: result.lastID, message: 'Opérateur ajouté' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur ajout opérateur', error: error.message });
-    }
-});
-
-app.delete('/api/telecom/operators/:id', authenticateJWT, async (req, res) => {
-    try {
-        await db.run('DELETE FROM telecom_operators WHERE id = ?', [req.params.id]);
-        res.json({ message: 'Opérateur supprimé' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur suppression', error: error.message });
-    }
-});
-
-app.get('/api/telecom/operators/:id/accounts', authenticateJWT, async (req, res) => {
-    try {
-        const accounts = await db.all(`
-            SELECT 
-                a.*, 
-                c.amount as commitment_amount, 
-                c.label as commitment_label,
-                COUNT(i.id) as invoice_count,
-                COALESCE(SUM(i.amount_ttc), 0) as total_invoiced,
-                COALESCE(c.amount, 0) - COALESCE(SUM(i.amount_ttc), 0) as account_balance
-            FROM telecom_billing_accounts a
-            LEFT JOIN telecom_commitments c ON a.commitment_number = c.commitment_number
-            LEFT JOIN telecom_invoices i ON a.id = i.billing_account_id
-            WHERE a.operator_id = ?
-            GROUP BY a.id
-        `, [req.params.id]);
-        res.json(accounts);
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching accounts', error: error.message });
-    }
-});
-
-app.post('/api/telecom/billing-accounts', authenticateJWT, async (req, res) => {
-    const { operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number } = req.body;
-    try {
-        const result = await db.run(
-            'INSERT INTO telecom_billing_accounts (operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number]
-        );
-        res.json({ id: result.lastID, message: 'Compte de facturation ajouté' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur ajout compte', error: error.message });
-    }
-});
-
-app.put('/api/telecom/billing-accounts/:id', authenticateJWT, async (req, res) => {
-    const { account_number, type, designation, customer_number, market_number, function_code, commitment_number } = req.body;
-    try {
-        await db.run(
-            'UPDATE telecom_billing_accounts SET account_number = ?, type = ?, designation = ?, customer_number = ?, market_number = ?, function_code = ?, commitment_number = ? WHERE id = ?',
-            [account_number, type, designation, customer_number, market_number, function_code, commitment_number, req.params.id]
-        );
-        res.json({ message: 'Compte mis à jour' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur mise à jour', error: error.message });
-    }
-});
-
-app.delete('/api/telecom/billing-accounts/:id', authenticateJWT, async (req, res) => {
-    try {
-        await db.run('DELETE FROM telecom_billing_accounts WHERE id = ?', [req.params.id]);
-        res.json({ message: 'Compte supprimé' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur suppression', error: error.message });
-    }
-});
-
-app.get('/api/telecom/commitments', authenticateJWT, async (req, res) => {
-    try {
-        const commitments = await db.all(`
-            SELECT 
-                c.*,
-                COALESCE((
-                    SELECT SUM(i.amount_ttc) 
-                    FROM telecom_invoices i 
-                    JOIN telecom_billing_accounts a ON i.billing_account_id = a.id
-                    WHERE a.commitment_number = c.commitment_number
-                    AND (a.function_code = c.function_code OR c.function_code IS NULL OR c.function_code = '')
-                ), 0) as pdf_invoiced_total
-            FROM telecom_commitments c
-            ORDER BY c.year DESC, c.commitment_number, c.function_code
-        `);
-        res.json(commitments);
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching commitments', error: error.message });
-    }
-});
-
-const logStream = fs.createWriteStream(path.join(__dirname, 'import_error.log'), { flags: 'a' });
-logStream.write(`[${new Date().toISOString()}] Log stream initialized.\n`); // Test d'écriture immédiat
-const logError = (message) => {
-    const timestamp = new Date().toISOString();
-    logStream.write(`[${timestamp}] ${message}\n`);
-    console.error(message);
-};
-
-process.on('uncaughtException', (err, origin) => {
-    logError(`FATAL: Uncaught exception at: ${origin}, error: ${err.stack || err}`);
-});
-
-app.post('/api/telecom/import-commitments', authenticateJWT, upload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).send('No file uploaded.');
-    logError('--- NEW IMPORT ---');
-    try {
-        let workbook;
-        try {
-            logError('Reading file...');
-            workbook = xlsx.readFile(req.file.path);
-            logError('File read OK.');
-        } catch (e) {
-            logError(`Erreur de lecture du fichier Excel: ${e.stack}`);
-            return res.status(400).json({ message: "Fichier Excel invalide ou corrompu.", error: e.message });
-        }
-
-        const sheetName = workbook.SheetNames[0];
-        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-        logError(`Found ${data.length} rows.`);
-
-        let imported = 0;
-        let updated = 0;
-
-        for (let i = 0; i < data.length; i++) {
-            const row = data[i];
-            logError(`Processing row ${i + 1}: ${JSON.stringify(row)}`);
-            const num = row['Numéro engagement'] || row['Engagement'] || row['N° Engagement'] || row['engagement_number'] || row['Engagement (Code)'];
-            if (!num) {
-                logError(`Skipping row ${i + 1}: No commitment number.`);
-                continue;
-            }
-
-            const func = row['Fonction (Code)'] || row['Fonction'] || row['Référence'] || row['Reference'] || '';
-            const existing = await db.get('SELECT id FROM telecom_commitments WHERE commitment_number = ? AND function_code = ?', [num.toString(), func.toString()]);
-            
-            const label = row['Libellé'] || row['Label'] || row['Libellé de l\'engagement'] || row['Engagement (Libellé)'] || '';
-            const amount = parseFloat(row['Montant'] || row['Amount'] || row['Mt Engagé (Budg) '] || row['Mt. engagé'] || 0);
-            const invoiced = parseFloat(row['Montant Facturé'] || row['Invoiced Amount'] || row['Mt Facturé (Budg) '] || row['Mt. facturé'] || 0);
-            const year = row['Année'] || row['Year'] || row['Exercice'] || new Date().getFullYear();
-            const operator = row['Opérateur'] || row['Operator'] || row['Tiers (Nom)'] || row['Fournisseur'] || '';
-
-            if (existing) {
-                await db.run(
-                    'UPDATE telecom_commitments SET label = ?, amount = ?, invoiced_amount = ?, year = ?, operator_name = ?, function_code = ? WHERE id = ?',
-                    [label, amount, invoiced, year, operator, func.toString(), existing.id]
-                );
-                updated++;
-            } else {
-                await db.run(
-                    'INSERT INTO telecom_commitments (commitment_number, label, amount, invoiced_amount, year, operator_name, function_code) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [num.toString(), label, amount, invoiced, year, operator, func.toString()]
-                );
-                imported++;
-            }
-        }
-        logError('Import successful.');
-        res.json({ message: `${imported} engagements importés, ${updated} mis à jour` });
-    } catch (error) {
-        logError(`Erreur lors de l'import des engagements: ${error.stack}`);
-        res.status(500).json({ message: 'Erreur lors de l\'import des engagements', error: error.message });
-    }
-});
-
-app.get('/api/telecom/invoices', authenticateJWT, async (req, res) => {
-    try {
-        const invoices = await db.all(`
-            SELECT 
-                i.*, 
-                o.name as operator_name, 
-                a.account_number,
-                v.Etat as general_status
-            FROM telecom_invoices i
-            LEFT JOIN telecom_operators o ON i.operator_id = o.id
-            LEFT JOIN telecom_billing_accounts a ON i.billing_account_id = a.id
-            LEFT JOIN invoices v ON (
-                UPPER(TRIM(i.invoice_number)) = UPPER(TRIM(v."N° Facture fournisseur"))
-                OR UPPER(TRIM(i.invoice_number)) = UPPER(TRIM(RTRIM(v."N° Facture fournisseur", 'N')))
-                OR UPPER(REPLACE(i.invoice_number, ' ', '')) = UPPER(REPLACE(v."N° Facture fournisseur", ' ', ''))
-            )
-            ORDER BY i.invoice_date DESC
-        `);
-        res.json(invoices);
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching invoices', error: error.message });
-    }
-});
-
-app.post('/api/telecom/invoices/upload', authenticateJWT, upload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).send('No file uploaded.');
-    
-    try {
-        const dataBuffer = fs.readFileSync(req.file.path);
-        const pdfData = await pdf(dataBuffer);
-        const content = pdfData.text;
-        
-        // Journalisation du texte extrait pour futur apprentissage
-        const logEntry = `PDF Content (first 500 chars): ${content.substring(0, 500).replace(/\n/g, ' ')}`;
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] DEBUG_PDF: ${logEntry}\n`);
-
-        // Stratégie d'extraction 1 : Suppression de tous les espaces pour les libellés collés
-        const flatContent = content.replace(/\s+/g, '');
-        
-        // Recherche du numéro de compte (très robuste)
-        let account_number = null;
-        const accountPatterns = [
-            /N°decomptedefacturation[:\s]*(\d+)/i,
-            /Compte[:\s]*(\d+)/i,
-            /N°decompte[:\s]*(\d+)/i,
-            /Facturationn°[:\s]*(\d+)/i
-        ];
-
-        for (const pattern of accountPatterns) {
-            const match = flatContent.match(pattern);
-            if (match) {
-                account_number = match[1];
-                break;
-            }
-        }
-
-        // Si non trouvé en "flat", on tente en texte normal (pour les cas avec espaces)
-        if (!account_number) {
-            const normalAccountMatch = content.match(/N°\s*de\s*compte\s*de\s*facturation\s*[:\s]*(\d+)/i) || 
-                                     content.match(/Compte\s*n°\s*[:\s]*(\d+)/i);
-            if (normalAccountMatch) account_number = normalAccountMatch[1];
-        }
-
-        // Extraction numéro de facture (plus précis, max 20 caractères)
-        // On cherche un motif alphanumérique après les libellés classiques
-        const invNumRegex = /(?:Facture\s*n°|FactureN°|N°defacture)[:\s]*([A-Z0-9\-_]{3,20})/i;
-        const invNumMatch = content.match(invNumRegex) || flatContent.match(invNumRegex);
-        let invoice_number = invNumMatch ? invNumMatch[1] : 'Inconnu';
-
-        // Nettoyage : Enlever le 'N' final (cas fréquent chez SFR)
-        if (invoice_number.endsWith('N')) {
-            invoice_number = invoice_number.slice(0, -1);
-        }
-
-        // Extraction Montant TTC (plus précis)
-        const amountRegex = /(?:Total\s*TTC|Montant\s*à\s*payer|MontantTTC)[:\s]*(\d+[.,]\d{2})/i;
-        const amountMatch = content.match(amountRegex) || flatContent.match(amountRegex);
-        let amount_ttc = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 0;
-        
-        // Extraction Date
-        const dateMatch = content.match(/Date\s*:\s*(\d{2}\/\d{2}\/\d{4})/i) || 
-                         flatContent.match(/Date:(\d{2}\/\d{2}\/\d{4})/i) ||
-                         content.match(/(\d{2}\/\d{2}\/\d{4})/);
-        
-        let invoice_date = null;
-        if (dateMatch) {
-            const [d, m, y] = dateMatch[1].split('/');
-            invoice_date = `${y}-${m}-${d}`;
-        }
-
-        // Vérification des doublons
-        const { overwrite } = req.body;
-        const existingInvoice = await db.get('SELECT id, file_path FROM telecom_invoices WHERE invoice_number = ?', [invoice_number]);
-        
-        if (existingInvoice && overwrite !== 'true') {
-            return res.status(409).json({ 
-                message: `La facture n°${invoice_number} existe déjà. Souhaitez-vous la remplacer ?`,
-                invoice_number 
-            });
-        }
-
-        // Identification Automatique de l'Opérateur et du Compte
-        let operator_id = null;
-        let billing_account_id = null;
-
-        if (account_number) {
-            const acc = await db.get('SELECT id, operator_id FROM telecom_billing_accounts WHERE account_number = ?', [account_number]);
-            if (acc) {
-                billing_account_id = acc.id;
-                operator_id = acc.operator_id;
-            }
-        }
-
-        // Fallback Opérateur par détection de nom dans le texte
-        if (!operator_id) {
-            const operators = await db.all('SELECT id, name FROM telecom_operators');
-            for (const op of operators) {
-                if (content.toUpperCase().includes(op.name.toUpperCase())) {
-                    operator_id = op.id;
-                    break;
-                }
-            }
-        }
-
-        let finalId = existingInvoice ? existingInvoice.id : null;
-        const relativePath = `file_telecom/${req.file.filename}`;
-
-        if (existingInvoice && overwrite === 'true') {
-            // Suppression de l'ancien fichier
-            if (existingInvoice.file_path) {
-                const oldPath = path.join(__dirname, existingInvoice.file_path);
-                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-            }
-            await db.run(
-                'UPDATE telecom_invoices SET operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ?, file_path = ?, uploaded_at = CURRENT_TIMESTAMP WHERE id = ?',
-                [operator_id, billing_account_id, amount_ttc, invoice_date, relativePath, existingInvoice.id]
-            );
-        } else {
-            const result = await db.run(
-                'INSERT INTO telecom_invoices (invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, file_path) VALUES (?, ?, ?, ?, ?, ?)',
-                [invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, relativePath]
-            );
-            finalId = result.lastID;
-        }
-
-        res.json({ 
-            id: finalId, 
-            invoice_number, 
-            account_number, 
-            amount_ttc, 
-            invoice_date,
-            operator_id,
-            billing_account_id,
-            file_path: relativePath,
-            message: existingInvoice ? 'Facture mise à jour' : 'Analyse terminée' 
-        });
-    } catch (error) {
-        res.status(500).json({ message: 'Error processing PDF', error: error.message });
-    }
-});
-
-app.put('/api/telecom/invoices/:id', authenticateJWT, async (req, res) => {
-    let { invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date } = req.body;
-    
-    // Nettoyage systématique du 'N' final (SFR)
-    if (invoice_number && invoice_number.endsWith('N')) {
-        invoice_number = invoice_number.slice(0, -1);
-    }
-
-    try {
-        await db.run(
-            'UPDATE telecom_invoices SET invoice_number = ?, operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ? WHERE id = ?',
-            [invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, req.params.id]
-        );
-        res.json({ message: 'Facture mise à jour avec succès' });
-    } catch (error) {
-        res.status(500).json({ message: 'Error updating invoice', error: error.message });
-    }
-});
-
-app.delete('/api/telecom/invoices/:id', authenticateJWT, async (req, res) => {
-    try {
-        const inv = await db.get('SELECT file_path FROM telecom_invoices WHERE id = ?', [req.params.id]);
-        if (inv && inv.file_path) {
-            const fullPath = path.join(__dirname, inv.file_path);
-            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-        }
-        await db.run('DELETE FROM telecom_invoices WHERE id = ?', [req.params.id]);
-        res.json({ message: 'Facture supprimée' });
-    } catch (error) {
-        res.status(500).json({ message: 'Error deleting invoice', error: error.message });
-    }
-});
-
-// Helper Mail
-async function sendMail(to, subject, content) {
-    const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
-    if (!s) throw new Error("Paramètres mail non configurés");
-
-    // Utilisation de l'API REST de Brevo car le relais SMTP rejette l'auth
-    const transporter = nodemailer.createTransport(
-        new brevoTransport({
-            apiKey: s.smtp_pass // La clé API est stockée dans smtp_pass
-        })
-    );
-    
-    const html = s.template_html.replace('{{content}}', content);
-
-    await transporter.sendMail({
-        from: `"${s.sender_name}" <${s.sender_email}>`,
-        to,
-        subject,
-        html
-    });
-}

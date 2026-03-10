@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut } from 'lucide-react';
 import './index.css';
-import logoDsiHub from './assets/logo-dsi-hub.svg';
+import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
 
 interface Category {
@@ -28,6 +28,8 @@ interface AppItem {
 function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [apps, setApps] = useState<AppItem[]>([]);
+  const [favorites, setFavorites] = useState<number[]>([]);
+  const [subscriptions, setSubscriptions] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAutoLogging, setIsAutoLogging] = useState(true);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -38,7 +40,8 @@ function App() {
   const [showSubs, setShowSubs] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
 
-  const apiBase = `/api`; // Utiliser le proxy Vite
+  const apiBase = `/api`; // Utiliser le proxy Vite pour les données
+  const directApiBase = `http://localhost:3001/api`; // URL directe pour NTLM (plus fiable)
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -48,6 +51,7 @@ function App() {
         const urlLogin = params.get('login');
         const urlName = params.get('name');
         const urlEmail = params.get('email');
+        const urlError = params.get('error');
 
         if (urlLogin) {
           setWindowLogin(urlLogin);
@@ -55,7 +59,7 @@ function App() {
           setUserEmail(urlEmail || '');
           setIsLoggedIn(true);
           setIsAutoLogging(false);
-          
+
           // Sauvegarder pour la session en cours uniquement
           sessionStorage.setItem('magapp_user', JSON.stringify({
             username: urlLogin,
@@ -65,7 +69,7 @@ function App() {
 
           // Nettoyer l'URL
           window.history.replaceState({}, document.title, window.location.pathname);
-          await loadAppData();
+          await loadAppData(urlLogin, urlEmail || '');
           return;
         }
 
@@ -78,37 +82,20 @@ function App() {
           setUserEmail(user.email);
           setIsLoggedIn(true);
           setIsAutoLogging(false);
-          await loadAppData();
+          await loadAppData(user.username, user.email);
           return;
         }
 
-        // 3. Tenter l'appel NTLM direct
-        try {
-          const authRes = await axios.get(`${apiBase}/auth/ntlm`, { 
-            withCredentials: true,
-            timeout: 2000 
-          });
-          if (authRes.data && authRes.data.login) {
-            setWindowLogin(authRes.data.login);
-            setDisplayName(authRes.data.displayName || authRes.data.login);
-            setUserEmail(authRes.data.email || '');
-            setIsLoggedIn(true);
-            setIsAutoLogging(false);
-            await loadAppData();
-            return;
-          }
-        } catch (e) {
-          console.log("Appel NTLM direct impossible");
-        }
-
-        // 4. Tenter la redirection SSO si pas déjà fait
-        if (!sessionStorage.getItem('sso_attempted')) {
+        // 3. Tenter la redirection SSO (Via URL directe du backend pour NTLM)
+        // On évite COMPLÈTEMENT le proxy Vite pour le handshake NTLM
+        if (!sessionStorage.getItem('sso_attempted') || urlError === 'ntlm_handshake_failed') {
           sessionStorage.setItem('sso_attempted', 'true');
-          window.location.href = `${apiBase}/auth/sso-redirect?redirect=${encodeURIComponent(window.location.href)}`;
+          const currentUrl = window.location.origin + window.location.pathname;
+          window.location.href = `${directApiBase}/auth/sso-redirect?redirect=${encodeURIComponent(currentUrl)}`;
           return;
         }
 
-        // 5. Si on arrive ici, le SSO a échoué
+        // 4. Si on arrive ici et qu'on a déjà tenté le SSO sans succès, on arrête
         setIsAutoLogging(false);
         setIsLoggedIn(false);
         setLoading(false);
@@ -122,19 +109,40 @@ function App() {
     checkAuth();
   }, []);
 
-  const loadAppData = async () => {
+  const loadAppData = async (username: string, email: string) => {
     try {
       setLoading(true);
-      const [catsRes, appsRes] = await Promise.all([
+      const [catsRes, appsRes, favsRes, subsRes] = await Promise.all([
         axios.get<Category[]>(`${apiBase}/magapp/categories`),
-        axios.get<AppItem[]>(`${apiBase}/magapp/apps`)
+        axios.get<AppItem[]>(`${apiBase}/magapp/apps`),
+        axios.get<number[]>(`${apiBase}/magapp/favorites?username=${username}`),
+        email ? axios.get<number[]>(`${apiBase}/magapp/user-subscriptions?email=${email}`) : Promise.resolve({ data: [] })
       ]);
       setCategories(catsRes.data.sort((a, b) => a.display_order - b.display_order));
       setApps(appsRes.data.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
+      setFavorites(favsRes.data);
+      setSubscriptions(subsRes.data);
     } catch (error) {
       console.error("Erreur de chargement des données", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleFavorite = async (e: React.MouseEvent, appId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const isFav = favorites.includes(appId);
+    try {
+      if (isFav) {
+        await axios.delete(`${apiBase}/magapp/favorites?username=${windowLogin}&app_id=${appId}`);
+        setFavorites(prev => prev.filter(id => id !== appId));
+      } else {
+        await axios.post(`${apiBase}/magapp/favorites`, { username: windowLogin, app_id: appId });
+        setFavorites(prev => [...prev, appId]);
+      }
+    } catch (err) {
+      console.error("Erreur favoris", err);
     }
   };
 
@@ -144,7 +152,7 @@ function App() {
     setWindowLogin(user.username);
     setDisplayName(user.username);
     setIsLoggedIn(true);
-    loadAppData();
+    loadAppData(user.username, '');
   };
 
   const handleLogout = () => {
@@ -174,6 +182,8 @@ function App() {
     (app.description && app.description.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  const favoriteApps = apps.filter(app => favorites.includes(app.id));
+
   const appsByCategory: Record<number, AppItem[]> = {};
   filteredApps.forEach(app => {
     if (!appsByCategory[app.category_id]) {
@@ -202,6 +212,20 @@ function App() {
     e.preventDefault();
     e.stopPropagation();
     
+    const isSubscribed = subscriptions.includes(app.id);
+
+    if (isSubscribed) {
+      if (window.confirm(`Voulez-vous vous désabonner des alertes pour "${app.name}" ?`)) {
+        try {
+          await axios.delete(`${apiBase}/magapp/user-subscriptions?email=${userEmail}&app_id=${app.id}`);
+          setSubscriptions(prev => prev.filter(id => id !== app.id));
+        } catch (error) {
+          alert("Erreur lors du désabonnement.");
+        }
+      }
+      return;
+    }
+
     if (!userEmail) {
       const email = window.prompt(`Nous n'avons pas trouvé votre email AD. Entrez votre adresse email pour être informé des maintenances de ${app.name} :`);
       if (!email) return;
@@ -211,6 +235,7 @@ function App() {
       }
       try {
         const res = await axios.post(`${apiBase}/magapp/subscribe`, { app_id: app.id, email });
+        setSubscriptions(prev => [...prev, app.id]);
         alert(res.data.message);
       } catch (error) {
         alert("Une erreur est survenue lors de l'abonnement.");
@@ -221,6 +246,7 @@ function App() {
     if (window.confirm(`Voulez-vous vous abonner aux alertes de maintenance pour "${app.name}" via votre adresse : ${userEmail} ?`)) {
       try {
         const res = await axios.post(`${apiBase}/magapp/subscribe`, { app_id: app.id, email: userEmail });
+        setSubscriptions(prev => [...prev, app.id]);
         alert(res.data.message);
       } catch (error) {
         console.error("Erreur d'abonnement", error);
@@ -377,9 +403,29 @@ function App() {
         />
       </div>
 
-      <div className="logo-header">
-        <img src={logoDsiHub} alt="Logo Ivry DSI" />
-      </div>
+      {/* Mes Favoris Section Dynamique */}
+      {favoriteApps.length > 0 && (
+        <section className="category-section">
+          <h2 className="category-title" style={{ color: '#e11d48', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Heart size={24} fill="#e11d48" color="#e11d48" />
+            Mes applications ({favoriteApps.length})
+          </h2>
+          <div className="apps-grid">
+            {favoriteApps.map(app => (
+              <AppCard 
+                key={`fav-${app.id}`} 
+                app={app} 
+                isFavorite={true}
+                isSubscribed={subscriptions.includes(app.id)}
+                toggleFavorite={toggleFavorite}
+                handleSubscribe={handleSubscribe}
+                handleAppClick={handleAppClick}
+                formatDate={formatDate}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {categories.map(category => {
         const catApps = appsByCategory[category.id] || [];
@@ -392,53 +438,18 @@ function App() {
             </h2>
             
             <div className="apps-grid">
-              {catApps.map(app => {
-                const isMaint = app.is_maintenance === 1;
-                
-                return (
-                  <div key={app.id} style={{ position: 'relative' }}>
-                    <button 
-                      className="subscribe-btn"
-                      onClick={(e) => handleSubscribe(e, app)}
-                      title="S'abonner aux alertes maintenance"
-                    >
-                      <Bell size={14} />
-                    </button>
-                    <a 
-                      href={isMaint ? undefined : app.url} 
-                      target={isMaint ? undefined : "_blank"} 
-                      rel="noopener noreferrer" 
-                      className={`app-card ${isMaint ? 'maintenance' : ''}`}
-                      title={isMaint ? `En maintenance du ${formatDate(app.maintenance_start)} au ${formatDate(app.maintenance_end)}` : app.description}
-                      onClick={(e) => { 
-                        if (isMaint) {
-                          e.preventDefault(); 
-                        } else {
-                          handleAppClick(app);
-                        }
-                      }}
-                      style={{ cursor: isMaint ? 'not-allowed' : 'pointer' }}
-                    >
-                      <div className="app-icon-container">
-                        <img 
-                          src={app.icon} 
-                          alt={app.name} 
-                          style={{ filter: isMaint ? 'grayscale(1) opacity(0.5)' : 'none' }}
-                          onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} 
-                        />
-                      </div>
-                      <span className="app-name" style={{ color: isMaint ? '#94a3b8' : 'var(--text-blue)' }}>{app.name}</span>
-                      
-                      {isMaint && (
-                        <div className="maintenance-overlay">
-                          <Clock size={14} />
-                          <span>Maintenance</span>
-                        </div>
-                      )}
-                    </a>
-                  </div>
-                );
-              })}
+              {catApps.map(app => (
+                <AppCard 
+                  key={app.id} 
+                  app={app} 
+                  isFavorite={favorites.includes(app.id)}
+                  isSubscribed={subscriptions.includes(app.id)}
+                  toggleFavorite={toggleFavorite}
+                  handleSubscribe={handleSubscribe}
+                  handleAppClick={handleAppClick}
+                  formatDate={formatDate}
+                />
+              ))}
             </div>
           </section>
         );
@@ -446,5 +457,100 @@ function App() {
     </div>
   );
 }
+
+interface AppCardProps {
+  app: AppItem;
+  isFavorite: boolean;
+  isSubscribed: boolean;
+  toggleFavorite: (e: React.MouseEvent, appId: number) => void;
+  handleSubscribe: (e: React.MouseEvent, app: AppItem) => void;
+  handleAppClick: (app: AppItem) => void;
+  formatDate: (dateStr: string | null) => string;
+}
+
+const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, toggleFavorite, handleSubscribe, handleAppClick, formatDate }) => {
+  const isMaint = app.is_maintenance === 1;
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <a 
+        href={isMaint ? undefined : app.url} 
+        target={isMaint ? undefined : "_blank"} 
+        rel="noopener noreferrer" 
+        className={`app-card ${isMaint ? 'maintenance' : ''}`}
+        title={isMaint ? `En maintenance du ${formatDate(app.maintenance_start)} au ${formatDate(app.maintenance_end)}` : app.description}
+        onClick={(e) => { 
+          if (isMaint) {
+            e.preventDefault(); 
+          } else {
+            handleAppClick(app);
+          }
+        }}
+        style={{ cursor: isMaint ? 'not-allowed' : 'pointer', flexGrow: 1 }}
+      >
+        <div className="app-icon-container">
+          <img 
+            src={app.icon} 
+            alt={app.name} 
+            style={{ filter: isMaint ? 'grayscale(1) opacity(0.5)' : 'none' }}
+            onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} 
+          />
+        </div>
+        <span className="app-name" style={{ color: isMaint ? '#94a3b8' : 'var(--text-blue)', paddingRight: '80px' }}>{app.name}</span>
+        
+        {isMaint && (
+          <div className="maintenance-overlay" style={{ right: '85px' }}>
+            <Clock size={14} />
+            <span>Maintenance</span>
+          </div>
+        )}
+      </a>
+
+      <div className="card-actions" style={{ position: 'absolute', right: '25px', display: 'flex', gap: '8px', zIndex: 5 }}>
+        <button 
+          className="subscribe-btn-custom"
+          onClick={(e) => handleSubscribe(e, app)}
+          title={isSubscribed ? "Se désabonner des alertes" : "S'abonner aux alertes maintenance"}
+          style={{ 
+            background: 'white', 
+            border: '1px solid #e2e8f0', 
+            borderRadius: '50%', 
+            width: '32px', 
+            height: '32px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            cursor: 'pointer',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+            color: isSubscribed ? '#0078a4' : '#94a3b8',
+            transition: 'all 0.2s'
+          }}
+        >
+          <Bell size={16} fill={isSubscribed ? "#0078a4" : "none"} />
+        </button>
+        <button 
+          className="favorite-btn"
+          onClick={(e) => toggleFavorite(e, app.id)}
+          title={isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
+          style={{ 
+            background: 'white', 
+            border: '1px solid #e2e8f0', 
+            borderRadius: '50%', 
+            width: '32px', 
+            height: '32px', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            cursor: 'pointer',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+            color: isFavorite ? '#e11d48' : '#94a3b8',
+            transition: 'all 0.2s'
+          }}
+        >
+          <Heart size={18} fill={isFavorite ? "#e11d48" : "none"} />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 export default App;

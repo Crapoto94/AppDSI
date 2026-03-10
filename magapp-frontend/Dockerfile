@@ -16,7 +16,7 @@ RUN npm run build
 FROM nginx:alpine
 # Copier les fichiers statiques buildés dans le répertoire de Nginx
 COPY --from=builder /app/dist /usr/share/nginx/html
-# Copier un fichier de configuration Nginx personnalisé si nécessaire (optionnel)
-# COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copier un fichier de configuration Nginx personnalisé
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 5174
 CMD ["nginx", "-g", "daemon off;"]
