@@ -1,6 +1,19 @@
 {
-  "currentVersion": "0.2.14",
+  "currentVersion": "0.3.0",
   "history": [
+    {
+      "version": "0.3.0",
+      "date": "2026-03-10",
+      "changes": [
+        "Magasin d'Applications : Refonte de l'interface avec déplacement des icônes d'action sur la droite.",
+        "Magasin d'Applications : Système d'abonnement visuel (cloche pleine) et gestion simplifiée des alertes.",
+        "Télécom : Restauration complète des routes de gestion (Opérateurs, Comptes, Engagements).",
+        "Télécom : Amélioration de l'association automatique des factures PDF aux comptes de facturation.",
+        "Télécom : Récupération en temps réel de l'état de paiement depuis la comptabilité générale.",
+        "Infrastructure : Optimisation du déploiement Docker sur Proxmox avec persistance des données et proxy Nginx unifié.",
+        "Performance : Chargement des données plus robuste et résilient aux erreurs API."
+      ]
+    },
     {
       "version": "0.2.14",
       "date": "2026-03-09",
@@ -48,81 +61,6 @@
         "Télécom : Corrélation avec la comptabilité générale pour afficher l'état réel des factures (Importée/Non importée).",
         "Télécom : Normalisation automatique des numéros de facture (suppression du 'N' final de SFR) à l'import, à l'édition et en base de données.",
         "Télécom : Jointure robuste avec les factures générales gérant les incohérences de format (espaces, suffixes)."
-      ]
-    },
-    {
-      "version": "0.2.9",
-      "date": "2026-03-09",
-      "changes": [
-        "Télécom : Création d'un module complet de gestion du parc Télécom (Factures, Comptes, Engagements).",
-        "Télécom : Gestion des opérateurs et importation automatisée des engagements Excel.",
-        "Magasin d'Applications : Ajout de la possibilité d'uploader de nouvelles icônes d'applications.",
-        "Magasin d'Applications : Filtrage par défaut des statistiques sur l'activité du jour."
-      ]
-    },
-    {
-      "version": "0.2.8",
-      "date": "2026-03-09",
-      "changes": [
-        "Magasin d'Applications : Ajout d'un nouveau module de gestion et d'édition des catégories."
-      ]
-    },
-    {
-      "version": "0.2.7",
-      "date": "2026-03-09",
-      "changes": [
-        "Magasin d'Applications : Tri alphabétique automatique de toutes les applications."
-      ]
-    },
-    {
-      "version": "0.2.6",
-      "date": "2026-03-09",
-      "changes": [
-        "Magasin d'Applications : Ajout d'un mode maintenance avec dates de début et de fin.",
-        "Administration : Interface enrichie pour la gestion de la maintenance."
-      ]
-    },
-    {
-      "version": "0.2.5",
-      "date": "2026-03-09",
-      "changes": [
-        "Magasin d'Applications : Interface d'administration complète et nouveau front indépendant."
-      ]
-    },
-    {
-      "version": "0.2.4",
-      "date": "2026-03-09",
-      "changes": [
-        "Certificats : Correction de l'extraction de l'adresse email lors de l'import PDF."
-      ]
-    },
-    {
-      "version": "0.2.3",
-      "date": "2026-03-08",
-      "changes": [
-        "Tiers : Module complet de gestion des tiers et de leurs contacts.",
-        "Commandes : Envoi des bons de commande par email aux contacts ciblés."
-      ]
-    },
-    {
-      "version": "0.2.2",
-      "date": "2026-03-07",
-      "changes": [
-        "Messagerie : Refonte avec API Brevo et nouveau Studio de templates HTML."
-      ]
-    },
-    {
-      "version": "0.2.1",
-      "date": "2026-03-07",
-      "changes": [
-        "Déploiement : Conteneurisation avec Docker et configuration Nginx."
-      ]
-    },
-    {
-      "version": "0.1.1",
-      "date": "2026-03-06",
-      "changes": [
-        "Version initiale avec fonctionnalités de base (Hub, Budget)."
       ]
     }
   ]

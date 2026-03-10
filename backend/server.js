@@ -2207,11 +2207,12 @@ app.delete('/api/telecom/operators/:id', authenticateAdmin, async (req, res) => 
 app.get('/api/telecom/accounts', authenticateJWT, async (req, res) => {
     try {
         const accounts = await db.all(`
-            SELECT a.*, o.name as operator_name 
+            SELECT a.*, o.name as operator_name
             FROM telecom_billing_accounts a
             JOIN telecom_operators o ON a.operator_id = o.id
             ORDER BY o.name, a.account_number
         `);
+        // Note: commitment_number est déjà dans a.* (telecom_billing_accounts)
         res.json(accounts);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching accounts', error: error.message });

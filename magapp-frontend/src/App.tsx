@@ -158,15 +158,6 @@ function App() {
     }
   };
 
-  const handleLoginSuccess = (user: any, token: string) => {
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
-    setWindowLogin(user.username);
-    setDisplayName(user.username);
-    setIsLoggedIn(true);
-    loadAppData(user.username, '');
-  };
-
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
