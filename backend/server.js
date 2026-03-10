@@ -1568,7 +1568,9 @@ app.get('/api/tiers', authenticateJWT, async (req, res) => {
         const showAll = req.query.all === 'true';
         
         let query = `
-            SELECT t.*, ts.order_count, ts.invoice_count,
+            SELECT t.*, 
+                   COALESCE(ts.order_count, 0) as order_count, 
+                   COALESCE(ts.invoice_count, 0) as invoice_count,
                    (SELECT COUNT(*) FROM contacts c WHERE c.tier_id = t.id AND c.is_order_recipient = 1) as has_order_recipient
             FROM tiers t
             LEFT JOIN tier_stats ts ON t.id = ts.tier_id
@@ -2205,7 +2207,8 @@ app.get('/api/telecom/commitments', authenticateJWT, async (req, res) => {
 app.get('/api/telecom/invoices', authenticateJWT, async (req, res) => {
     try {
         const invoices = await db.all(`
-            SELECT i.*, o.name as operator_name, a.account_number
+            SELECT i.*, o.name as operator_name, a.account_number,
+            (SELECT "Etat" FROM invoices WHERE LOWER(TRIM("N° Facture fournisseur")) = LOWER(TRIM(i.invoice_number)) LIMIT 1) as general_status
             FROM telecom_invoices i
             JOIN telecom_operators o ON i.operator_id = o.id
             LEFT JOIN telecom_billing_accounts a ON i.billing_account_id = a.id
@@ -2283,14 +2286,29 @@ app.post('/api/telecom/invoices/upload', authenticateJWT, upload.single('file'),
         let operator_id = null;
         let billing_account_id = null;
 
+        const allAccounts = await db.all('SELECT id, operator_id, account_number FROM telecom_billing_accounts');
+        
+        // 1. Essayer le numéro de compte extrait explicitement
         if (account_number) {
-            const acc = await db.get('SELECT id, operator_id FROM telecom_billing_accounts WHERE account_number = ?', [account_number]);
+            const acc = allAccounts.find(a => a.account_number === account_number);
             if (acc) {
                 billing_account_id = acc.id;
                 operator_id = acc.operator_id;
             }
         }
 
+        // 2. Si pas trouvé, chercher si un des numéros de compte connus apparaît dans le texte (flatContent)
+        if (!billing_account_id) {
+            for (const acc of allAccounts) {
+                if (flatContent.includes(acc.account_number)) {
+                    billing_account_id = acc.id;
+                    operator_id = acc.operator_id;
+                    break;
+                }
+            }
+        }
+
+        // 3. Si toujours pas de compte, essayer de matcher au moins l'opérateur par son nom
         if (!operator_id) {
             const operators = await db.all('SELECT id, name FROM telecom_operators');
             for (const op of operators) {
@@ -2364,6 +2382,94 @@ app.delete('/api/telecom/invoices/:id', authenticateJWT, async (req, res) => {
         res.json({ message: 'Facture supprimée' });
     } catch (error) {
         res.status(500).json({ message: 'Error deleting invoice', error: error.message });
+    }
+});
+
+// Column Settings API
+app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
+    try {
+        const page = req.params.page;
+        // Map common aliases
+        let dbPage = page;
+        if (page === 'lines') dbPage = 'budget_lines';
+        
+        const settings = await db.all('SELECT * FROM column_settings WHERE page = ? ORDER BY display_order', [dbPage]);
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching column settings' });
+    }
+});
+
+app.post('/api/column-settings/:page', authenticateAdminOrFinances, async (req, res) => {
+    const { column_key, label, is_visible, display_order, color, is_bold, is_italic } = req.body;
+    try {
+        await db.run(
+            `INSERT INTO column_settings (page, column_key, label, is_visible, display_order, color, is_bold, is_italic) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [req.params.page, column_key, label, is_visible, display_order, color, is_bold, is_italic]
+        );
+        res.json({ message: 'Setting saved' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error saving setting' });
+    }
+});
+
+app.post('/api/column-settings/:page/bulk', authenticateAdminOrFinances, async (req, res) => {
+    const settings = req.body;
+    const page = req.params.page;
+    try {
+        await db.run('BEGIN TRANSACTION');
+        for (const s of settings) {
+            await db.run(
+                `UPDATE column_settings SET label = ?, is_visible = ?, display_order = ?, color = ?, is_bold = ?, is_italic = ? 
+                 WHERE page = ? AND column_key = ?`,
+                [s.label, s.is_visible, s.display_order, s.color, s.is_bold, s.is_italic, page, s.column_key]
+            );
+        }
+        await db.run('COMMIT');
+        res.json({ message: 'Settings updated' });
+    } catch (error) {
+        await db.run('ROLLBACK');
+        res.status(500).json({ message: 'Error updating settings' });
+    }
+});
+
+// Attachments API
+app.get('/api/attachments/:type/:id', authenticateJWT, async (req, res) => {
+    const { type, id } = req.params;
+    try {
+        const attachments = await db.all(
+            'SELECT * FROM attachments WHERE target_type = ? AND target_id = ? ORDER BY uploaded_at DESC',
+            [type, id]
+        );
+        res.json(attachments);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching attachments' });
+    }
+});
+
+app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), async (req, res) => {
+    const { target_type, target_id } = req.body;
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+    try {
+        const relativePath = req.file.path.replace(__dirname + path.sep, '').replace(/\\/g, '/');
+        
+        // Supprimer l'ancien fichier s'il existe (remplacement)
+        const existing = await db.get('SELECT file_path FROM attachments WHERE target_type = ? AND target_id = ?', [target_type, target_id]);
+        if (existing) {
+            const oldPath = path.join(__dirname, existing.file_path);
+            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+            await db.run('DELETE FROM attachments WHERE target_type = ? AND target_id = ?', [target_type, target_id]);
+        }
+
+        await db.run(
+            'INSERT INTO attachments (target_type, target_id, file_path, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?, ?)',
+            [target_type, target_id, relativePath, req.file.originalname, req.file.mimetype, req.file.size]
+        );
+        res.json({ message: 'Upload réussi' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error uploading attachment', error: error.message });
     }
 });
 
