@@ -1,13 +1,12 @@
 import React from 'react';
 import { Loader2 } from 'lucide-react';
-import logoDsiHub from './assets/logo-dsi-hub.svg';
+import logoDsiHub from './assets/DSI.png';
 
 interface LoginProps {
-  onLoginSuccess: (user: any, token: string) => void;
   isAutoLogging: boolean;
 }
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess, isAutoLogging }) => {
+const Login: React.FC<LoginProps> = ({ isAutoLogging }) => {
   return (
     <div className="login-screen">
       <div className="login-card">
