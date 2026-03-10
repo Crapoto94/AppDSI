@@ -10,8 +10,15 @@ services:
       # Mappe le port 3001 du conteneur vers le port 3001 de l'hôte Proxmox
       - "3001:3001"
     volumes:
-      # Monte le volume nommé 'db_data' pour persister la base de données SQLite
-      - db_data:/app/database.sqlite
+      # Monte le volume pour persister la base de données SQLite
+      - ./backend/database.sqlite:/app/database.sqlite
+      # Dossiers de fichiers persistés
+      - ./backend/uploads:/app/uploads
+      - ./backend/file_commandes:/app/file_commandes
+      - ./backend/file_factures:/app/file_factures
+      - ./backend/file_certif:/app/file_certif
+      - ./backend/file_telecom:/app/file_telecom
+      - ./backend/magapp_img:/app/magapp_img
       # Optionnel : Monte les fichiers de logs pour une consultation facile
       - ./backend/mouchard.log:/app/mouchard.log
       - ./backend/import_error.log:/app/import_error.log
