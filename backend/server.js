@@ -897,6 +897,28 @@ app.delete('/api/magapp/user-subscriptions', async (req, res) => {
     }
 });
 
+app.get('/api/magapp/user-subscriptions', async (req, res) => {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ message: 'Email requis' });
+    try {
+        const subs = await db.all('SELECT app_id FROM magapp_subscriptions WHERE email = ?', [email]);
+        res.json(subs.map(s => s.app_id));
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur lecture abonnements' });
+    }
+});
+
+app.delete('/api/magapp/user-subscriptions', async (req, res) => {
+    const { email, app_id } = req.query;
+    if (!email || !app_id) return res.status(400).json({ message: 'Données manquantes' });
+    try {
+        await db.run('DELETE FROM magapp_subscriptions WHERE email = ? AND app_id = ?', [email, app_id]);
+        res.json({ message: 'Désabonné avec succès' });
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur désabonnement' });
+    }
+});
+
 app.get('/api/magapp/subscriptions', authenticateAdmin, async (req, res) => {
     try {
         const subs = await db.all(`
@@ -2140,3 +2162,254 @@ app.put('/api/m57-plan/:id', authenticateAdminOrFinances, async (req, res) => {
         res.status(500).json({ message: 'Erreur lors de la mise à jour', error: error.message });
     }
 });
+
+// Telecom Routes
+app.get('/api/telecom/operators', authenticateJWT, async (req, res) => {
+    try {
+        const operators = await db.all('SELECT * FROM telecom_operators ORDER BY name');
+        res.json(operators);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching operators', error: error.message });
+    }
+});
+
+app.get('/api/telecom/accounts', authenticateJWT, async (req, res) => {
+    try {
+        const accounts = await db.all(`
+            SELECT a.*, o.name as operator_name 
+            FROM telecom_billing_accounts a
+            JOIN telecom_operators o ON a.operator_id = o.id
+            ORDER BY o.name, a.account_number
+        `);
+        res.json(accounts);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching accounts', error: error.message });
+    }
+});
+
+app.get('/api/telecom/commitments', authenticateJWT, async (req, res) => {
+    try {
+        const commitments = await db.all(`
+            SELECT c.*, o.name as operator_name, a.account_number
+            FROM telecom_commitments c
+            JOIN telecom_operators o ON c.operator_id = o.id
+            LEFT JOIN telecom_billing_accounts a ON c.billing_account_id = a.id
+            ORDER BY c.commitment_number
+        `);
+        res.json(commitments);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching commitments', error: error.message });
+    }
+});
+
+app.get('/api/telecom/invoices', authenticateJWT, async (req, res) => {
+    try {
+        const invoices = await db.all(`
+            SELECT i.*, o.name as operator_name, a.account_number
+            FROM telecom_invoices i
+            JOIN telecom_operators o ON i.operator_id = o.id
+            LEFT JOIN telecom_billing_accounts a ON i.billing_account_id = a.id
+            ORDER BY i.invoice_date DESC
+        `);
+        res.json(invoices);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching invoices', error: error.message });
+    }
+});
+
+app.post('/api/telecom/invoices/upload', authenticateJWT, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+    try {
+        const dataBuffer = fs.readFileSync(req.file.path);
+        const pdfData = await pdf(dataBuffer);
+        const content = pdfData.text;
+
+        // Stratégie d'extraction 1 : Suppression de tous les espaces pour les libellés collés
+        const flatContent = content.replace(/\s+/g, '');
+
+        // Recherche du numéro de compte
+        let account_number = null;
+        const accountPatterns = [
+            /N°decomptedefacturation[:\s]*(\d+)/i,
+            /Compte[:\s]*(\d+)/i,
+            /N°decompte[:\s]*(\d+)/i,
+            /Facturationn°[:\s]*(\d+)/i
+        ];
+
+        for (const pattern of accountPatterns) {
+            const match = flatContent.match(pattern);
+            if (match) {
+                account_number = match[1];
+                break;
+            }
+        }
+
+        // Extraction numéro de facture
+        const invNumRegex = /(?:Facture\s*n°|FactureN°|N°defacture)[:\s]*([A-Z0-9\-_]{3,20})/i;
+        const invNumMatch = content.match(invNumRegex) || flatContent.match(invNumRegex);
+        let invoice_number = invNumMatch ? invNumMatch[1] : 'Inconnu';
+
+        if (invoice_number.endsWith('N')) {
+            invoice_number = invoice_number.slice(0, -1);
+        }
+
+        // Extraction Montant TTC
+        const amountRegex = /(?:Total\s*TTC|Montant\s*à\s*payer|MontantTTC)[:\s]*(\d+[.,]\d{2})/i;
+        const amountMatch = content.match(amountRegex) || flatContent.match(amountRegex);
+        let amount_ttc = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 0;
+
+        // Extraction Date
+        const dateMatch = content.match(/Date\s*:\s*(\d{2}\/\d{2}\/\d{4})/i) ||
+                         flatContent.match(/Date:(\d{2}\/\d{2}\/\d{4})/i) ||
+                         content.match(/(\d{2}\/\d{2}\/\d{4})/);
+
+        let invoice_date = null;
+        if (dateMatch) {
+            const [d, m, y] = dateMatch[1].split('/');
+            invoice_date = `${y}-${m}-${d}`;
+        }
+
+        const { overwrite } = req.body;
+        const existingInvoice = await db.get('SELECT id, file_path FROM telecom_invoices WHERE invoice_number = ?', [invoice_number]);
+
+        if (existingInvoice && overwrite !== 'true') {
+            return res.status(409).json({
+                message: `La facture n°${invoice_number} existe déjà. Souhaitez-vous la remplacer ?`,
+                invoice_number
+            });
+        }
+
+        let operator_id = null;
+        let billing_account_id = null;
+
+        if (account_number) {
+            const acc = await db.get('SELECT id, operator_id FROM telecom_billing_accounts WHERE account_number = ?', [account_number]);
+            if (acc) {
+                billing_account_id = acc.id;
+                operator_id = acc.operator_id;
+            }
+        }
+
+        if (!operator_id) {
+            const operators = await db.all('SELECT id, name FROM telecom_operators');
+            for (const op of operators) {
+                if (content.toUpperCase().includes(op.name.toUpperCase())) {
+                    operator_id = op.id;
+                    break;
+                }
+            }
+        }
+
+        let finalId = existingInvoice ? existingInvoice.id : null;
+        const relativePath = `file_telecom/${req.file.filename}`;
+
+        if (existingInvoice && overwrite === 'true') {
+            if (existingInvoice.file_path) {
+                const oldPath = path.join(__dirname, existingInvoice.file_path);
+                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+            }
+            await db.run(
+                'UPDATE telecom_invoices SET operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ?, file_path = ?, uploaded_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [operator_id, billing_account_id, amount_ttc, invoice_date, relativePath, existingInvoice.id]
+            );
+        } else {
+            const result = await db.run(
+                'INSERT INTO telecom_invoices (invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, file_path) VALUES (?, ?, ?, ?, ?, ?)',
+                [invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, relativePath]
+            );
+            finalId = result.lastID;
+        }
+
+        res.json({
+            id: finalId,
+            invoice_number,
+            account_number,
+            amount_ttc,
+            invoice_date,
+            operator_id,
+            billing_account_id,
+            file_path: relativePath,
+            message: existingInvoice ? 'Facture mise à jour' : 'Analyse terminée'
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error processing PDF', error: error.message });
+    }
+});
+
+app.put('/api/telecom/invoices/:id', authenticateJWT, async (req, res) => {
+    let { invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date } = req.body;
+    if (invoice_number && invoice_number.endsWith('N')) {
+        invoice_number = invoice_number.slice(0, -1);
+    }
+    try {
+        await db.run(
+            'UPDATE telecom_invoices SET invoice_number = ?, operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ? WHERE id = ?',
+            [invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, req.params.id]
+        );
+        res.json({ message: 'Facture mise à jour avec succès' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating invoice', error: error.message });
+    }
+});
+
+app.delete('/api/telecom/invoices/:id', authenticateJWT, async (req, res) => {
+    try {
+        const inv = await db.get('SELECT file_path FROM telecom_invoices WHERE id = ?', [req.params.id]);
+        if (inv && inv.file_path) {
+            const fullPath = path.join(__dirname, inv.file_path);
+            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+        }
+        await db.run('DELETE FROM telecom_invoices WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Facture supprimée' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting invoice', error: error.message });
+    }
+});
+
+// Helper Mail
+async function sendMail(to, subject, content) {
+    const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
+    if (!s) throw new Error("Paramètres mail non configurés");
+
+    const transporter = nodemailer.createTransport(
+        new brevoTransport({
+            apiKey: s.smtp_pass
+        })
+    );
+
+    const html = s.template_html.replace('{{content}}', content);
+
+    await transporter.sendMail({
+        from: `"${s.sender_name}" <${s.sender_email}>`,
+        to,
+        subject,
+        html
+    });
+    }
+
+    async function sendMaintenanceEmail(appId) {
+    try {
+        const app = await db.get('SELECT * FROM magapp_apps WHERE id = ?', [appId]);
+        if (!app) return;
+
+        const subs = await db.all('SELECT email FROM magapp_subscriptions WHERE app_id = ?', [appId]);
+        if (subs.length === 0) return;
+
+        const subject = `[DSI Hub] Maintenance en cours : ${app.name}`;
+        const content = `
+            <h2>Alerte Maintenance</h2>
+            <p>L'application <strong>${app.name}</strong> est actuellement en maintenance.</p>
+            <p><strong>Début :</strong> ${new Date(app.maintenance_start).toLocaleString('fr-FR')}</p>
+            <p><strong>Fin estimée :</strong> ${new Date(app.maintenance_end).toLocaleString('fr-FR')}</p>
+            <br>
+            <p>Vous recevez ce mail car vous êtes abonné aux alertes pour cette application.</p>
+        `;
+
+        for (const sub of subs) {
+            await sendMail(sub.email, subject, content);
+        }
+    } catch (error) {
+        console.error('Error sending maintenance emails:', error);
+    }
+    }
