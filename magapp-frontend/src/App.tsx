@@ -112,18 +112,30 @@ function App() {
   const loadAppData = async (username: string, email: string) => {
     try {
       setLoading(true);
-      const [catsRes, appsRes, favsRes, subsRes] = await Promise.all([
-        axios.get<Category[]>(`${apiBase}/magapp/categories`),
-        axios.get<AppItem[]>(`${apiBase}/magapp/apps`),
-        axios.get<number[]>(`${apiBase}/magapp/favorites?username=${username}`),
-        email ? axios.get<number[]>(`${apiBase}/magapp/user-subscriptions?email=${email}`) : Promise.resolve({ data: [] })
+      
+      const fetchSafe = async (url: string, defaultValue: any) => {
+        try {
+          const res = await axios.get(url);
+          return res.data;
+        } catch (e) {
+          console.error(`Erreur lors du fetch de ${url}:`, e);
+          return defaultValue;
+        }
+      };
+
+      const [cats, appsData, favs, subs] = await Promise.all([
+        fetchSafe(`${apiBase}/magapp/categories`, []),
+        fetchSafe(`${apiBase}/magapp/apps`, []),
+        fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
+        email ? fetchSafe(`${apiBase}/magapp/user-subscriptions?email=${email}`, []) : Promise.resolve([])
       ]);
-      setCategories(catsRes.data.sort((a, b) => a.display_order - b.display_order));
-      setApps(appsRes.data.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
-      setFavorites(favsRes.data);
-      setSubscriptions(subsRes.data);
+
+      setCategories(cats.sort((a: any, b: any) => (a.display_order || 0) - (b.display_order || 0)));
+      setApps(appsData.sort((a: any, b: any) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
+      setFavorites(favs);
+      setSubscriptions(subs);
     } catch (error) {
-      console.error("Erreur de chargement des données", error);
+      console.error("Erreur globale de chargement des données", error);
     } finally {
       setLoading(false);
     }
@@ -166,7 +178,7 @@ function App() {
   };
 
   if (!isLoggedIn) {
-    return <Login onLoginSuccess={handleLoginSuccess} isAutoLogging={isAutoLogging} />;
+    return <Login isAutoLogging={isAutoLogging} />;
   }
 
   if (loading) {
