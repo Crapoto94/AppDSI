@@ -45,6 +45,3 @@ backend/mouchard.log
 
 # Temporaires
 tmp/
-"nul" 
-"*.log" 
-"backend/nul" 

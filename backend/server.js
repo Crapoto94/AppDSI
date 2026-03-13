@@ -862,9 +862,13 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
             try {
                 // Prepare query
                 let query = `SELECT * FROM ${tableName}`;
-                const whereClause = config.where_clause ? config.where_clause.trim() : '';
+                const rawWhere = config.where_clause ? config.where_clause.trim() : "";
+                // Oracle: Remplacer les doubles quotes par des simples quotes pour les littéraux (évite ORA-00904)
+                const whereClause = rawWhere.replace(/"/g, "'");
+
                 if (whereClause) {
-                    const formattedWhere = whereClause.toUpperCase().startsWith('WHERE') ? whereClause : `WHERE ${whereClause}`;
+                    const hasWhere = /^where\s/i.test(whereClause);
+                    const formattedWhere = hasWhere ? whereClause : `WHERE ${whereClause}`;
                     query += ` ${formattedWhere}`;
                 }
 

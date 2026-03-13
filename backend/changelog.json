@@ -1,6 +1,14 @@
 {
-    "currentVersion": "0.3.4",
+    "currentVersion": "0.3.5",
     "history": [
+        {
+            "version": "0.3.5",
+            "date": "13/03/2026",
+            "changes": [
+                "Oracle : Correction de l'erreur ORA-00904 lors de l'utilisation de filtres avec guillemets doubles (remplacement automatique par des guillemets simples).",
+                "Oracle : Amélioration de la détection de la clause WHERE dans les filtres personnalisés."
+            ]
+        },
         {
             "version": "0.3.4",
             "date": "13/03/2026",

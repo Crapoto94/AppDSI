@@ -96,8 +96,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [selectedTables, setSelectedTables] = useState<Record<string, string[]>>({});
   const [tableFilters, setTableFilters] = useState<Record<string, Record<string, string>>>({});
   const [tableSearch, setTableSearch] = useState<Record<string, string>>({});
-  const [importing, setImporting] = useState(false);
-  const [importReport, setImportReport] = useState<any[] | null>(null);
+  const [importing, setImporting] = useState<Record<string, boolean>>({});
+  const [importReports, setImportReports] = useState<Record<string, any[] | null>>({});
 
   const { token } = useAuth();
 
@@ -107,8 +107,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     
     if (!window.confirm(`Confirmer l'importation de ${tables.length} objet(s) (tables/vues) depuis Oracle ${type} vers la base locale ?\nLes tables locales seront préfixées par 'oracle_'.`)) return;
 
-    setImporting(true);
-    setImportReport(null);
+    setImporting(prev => ({ ...prev, [type]: true }));
+    setImportReports(prev => ({ ...prev, [type]: null }));
     try {
       const res = await axios.post('/api/oracle/import-tables', { 
         type, 
@@ -117,12 +117,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setImportReport(res.data.report);
+      setImportReports(prev => ({ ...prev, [type]: res.data.report }));
       alert(res.data.message);
     } catch (error: any) {
       alert(error.response?.data?.message || "Erreur lors de l'importation");
     } finally {
-      setImporting(false);
+      setImporting(prev => ({ ...prev, [type]: false }));
     }
   };
 
@@ -978,147 +978,146 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       </div>
 
                       <div className="card-actions">
-                        <button className="btn-save-luxe" onClick={() => handleSaveOracle(config)} disabled={isSaving}>
-                          <Save size={18} /> Enregistrer Paramètres Connexion
+                      <button className="btn-save-luxe" onClick={() => handleSaveOracle(config)} disabled={isSaving}>
+                        <Save size={18} /> Enregistrer Paramètres Connexion
+                      </button>
+                      <div className="btn-group">
+                        <button className="btn-test-luxe" onClick={() => handleTestOracle(type)} disabled={testing}>
+                          {testing ? <Loader2 className="animate-spin" size={18} /> : <Zap size={18} />}
+                          Tester Connexion
                         </button>
-                        <div className="btn-group">
-                          <button className="btn-test-luxe" onClick={() => handleTestOracle(type)} disabled={testing}>
-                            {testing ? <Loader2 className="animate-spin" size={18} /> : <Zap size={18} />}
-                            Tester Connexion
-                          </button>
-                          <button className="btn-test-luxe" onClick={() => handleCheckOracleTables(type)} disabled={testing}>
-                            <LayoutGrid size={18} /> Lister Tables & Vues Oracle
-                          </button>
-                        </div>
+                        <button className="btn-test-luxe" onClick={() => handleCheckOracleTables(type)} disabled={testing}>
+                          <LayoutGrid size={18} /> Lister Tables & Vues Oracle
+                        </button>
+                      </div>
                       </div>
 
                       {result && result.details && result.details.length > 0 && (
-                        <div className="oracle-tables-selector mt-4">
-                          <div className="selector-header flex justify-between items-center mb-4">
-                            <h4 className="selector-title mb-0">Sélection des objets (tables/vues) à synchroniser :</h4>
-                            <div className="search-mini">
-                              <Search size={14} />
-                              <input 
-                                type="text" 
-                                placeholder="Chercher table ou vue..." 
-                                value={tableSearch[type] || ''}
-                                onChange={(e) => setTableSearch({ ...tableSearch, [type]: e.target.value })}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="tables-grid">
-                            {result.details
-                              .filter((name: string) => !tableSearch[type] || name.toLowerCase().includes(tableSearch[type].toLowerCase()))
-                              .map((tableName: string) => {
-                                const isSelected = selectedTables[type]?.includes(tableName);
-                                return (
-                                  <div key={tableName} className={`table-row-config ${isSelected ? 'selected' : ''}`}>
-                                    <label className="table-checkbox-label">
-                                      <input 
-                                        type="checkbox" 
-                                        checked={isSelected || false}
-                                        onChange={(e) => {
-                                          const current = selectedTables[type] || [];
-                                          const updated = e.target.checked 
-                                            ? [...current, tableName]
-                                            : current.filter(t => t !== tableName);
-                                          setSelectedTables({ ...selectedTables, [type]: updated });
-                                        }}
-                                      />
-                                      <span className="table-name">{tableName}</span>
-                                    </label>
-                                    
-                                    {isSelected && (
-                                      <div className="table-filter-input animate-in slide-in-from-left-2 duration-200">
-                                        <input 
-                                          type="text"
-                                          placeholder="Clause WHERE (ex: ANNEE=2024)"
-                                          value={tableFilters[type]?.[tableName] || ''}
-                                          onChange={(e) => {
-                                            const currentFilters = tableFilters[type] || {};
-                                            setTableFilters({
-                                              ...tableFilters,
-                                              [type]: { ...currentFilters, [tableName]: e.target.value }
-                                            });
-                                          }}
-                                        />
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                          </div>
-
-                          <div className="selector-footer mt-4 pt-4 border-t border-gray-200 flex flex-col gap-3">
-                            <button 
-                              className="btn-save-luxe bg-blue-600 hover:bg-blue-700" 
-                              onClick={() => handleSaveOracleSyncConfig(type)} 
-                              disabled={isSaving}
-                            >
-                              <Save size={18} /> Enregistrer la configuration
-                            </button>
-                            
-                            <button 
-                              className="btn-import-oracle" 
-                              disabled={importing || !(selectedTables[type]?.length > 0)}
-                              onClick={() => handleImportOracleTables(type)}
-                            >
-                              {importing ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
-                              Lancer l'Import (Tables & Vues)
-                            </button>
-                            
-                            <p className="text-[10px] text-gray-400 mt-1 italic text-center">
-                              La synchronisation supprimera et recréera les tables locales sélectionnées.
-                            </p>
+                      <div className="oracle-tables-selector mt-4">
+                        <div className="selector-header flex justify-between items-center mb-4">
+                          <h4 className="selector-title mb-0">Sélection des objets (tables/vues) à synchroniser :</h4>
+                          <div className="search-mini">
+                            <Search size={14} />
+                            <input 
+                              type="text" 
+                              placeholder="Chercher table ou vue..." 
+                              value={tableSearch[type] || ''}
+                              onChange={(e) => setTableSearch({ ...tableSearch, [type]: e.target.value })}
+                            />
                           </div>
                         </div>
+
+                        <div className="tables-grid">
+                          {result.details
+                            .filter((name: string) => !tableSearch[type] || name.toLowerCase().includes(tableSearch[type].toLowerCase()))
+                            .map((tableName: string) => {
+                              const isSelected = selectedTables[type]?.includes(tableName);
+                              return (
+                                <div key={tableName} className={`table-row-config ${isSelected ? 'selected' : ''}`}>
+                                  <label className="table-checkbox-label">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={isSelected || false}
+                                      onChange={(e) => {
+                                        const current = selectedTables[type] || [];
+                                        const updated = e.target.checked 
+                                          ? [...current, tableName]
+                                          : current.filter(t => t !== tableName);
+                                        setSelectedTables({ ...selectedTables, [type]: updated });
+                                      }}
+                                    />
+                                    <span className="table-name">{tableName}</span>
+                                  </label>
+
+                                  {isSelected && (
+                                    <div className="table-filter-input animate-in slide-in-from-left-2 duration-200">
+                                      <input 
+                                        type="text"
+                                        placeholder="Clause WHERE (ex: ANNEE=2024)"
+                                        value={tableFilters[type]?.[tableName] || ''}
+                                        onChange={(e) => {
+                                          const currentFilters = tableFilters[type] || {};
+                                          setTableFilters({
+                                            ...tableFilters,
+                                            [type]: { ...currentFilters, [tableName]: e.target.value }
+                                          });
+                                        }}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                        </div>
+
+                        <div className="selector-footer mt-4 pt-4 border-t border-gray-200 flex flex-col gap-3">
+                          <button 
+                            className="btn-save-luxe bg-blue-600 hover:bg-blue-700" 
+                            onClick={() => handleSaveOracleSyncConfig(type)} 
+                            disabled={isSaving}
+                          >
+                            <Save size={18} /> Enregistrer la configuration
+                          </button>
+
+                          <button 
+                            className="btn-import-oracle" 
+                            disabled={importing[type] || !(selectedTables[type]?.length > 0)}
+                            onClick={() => handleImportOracleTables(type)}
+                          >
+                            {importing[type] ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
+                            Lancer l'Import (Tables & Vues)
+                          </button>
+
+                          <p className="text-[10px] text-gray-400 mt-1 italic text-center">
+                            La synchronisation supprimera et recréera les tables locales sélectionnées.
+                          </p>
+                        </div>
+                      </div>
                       )}
 
                       {/* Default import button (when tables list is NOT visible) but config is saved */}
                       {(!result || !result.details) && selectedTables[type]?.length > 0 && (
-                        <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                          <p className="text-xs font-bold text-gray-500 mb-3 flex items-center gap-2">
-                             <Check size={14} className="text-green-500" /> 
-                             {selectedTables[type].length} objet(s) configuré(s) pour synchronisation.
-                          </p>
-                          <button 
-                            className="btn-import-oracle" 
-                            disabled={importing}
-                            onClick={() => handleImportOracleTables(type)}
-                          >
-                            {importing ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
-                            Synchroniser maintenant
-                          </button>
-                        </div>
+                      <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                        <p className="text-xs font-bold text-gray-500 mb-3 flex items-center gap-2">
+                           <Check size={14} className="text-green-500" /> 
+                           {selectedTables[type].length} objet(s) configuré(s) pour synchronisation.
+                        </p>
+                        <button 
+                          className="btn-import-oracle" 
+                          disabled={importing[type]}
+                          onClick={() => handleImportOracleTables(type)}
+                        >
+                          {importing[type] ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
+                          Synchroniser maintenant
+                        </button>
+                      </div>
                       )}
 
                       {result && !result.details && (
-                        <div className={`result-feedback ${result.success ? 'success' : 'error'}`}>
-                          {result.success ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-                          <div className="result-content">
-                            <span className="result-title">{result.message}</span>
-                          </div>
+                      <div className={`result-feedback ${result.success ? 'success' : 'error'}`}>
+                        {result.success ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+                        <div className="result-content">
+                          <span className="result-title">{result.message}</span>
                         </div>
+                      </div>
                       )}
 
-                      {importReport && (
-                        <div className="import-report mt-4">
-                          <h4 className="report-title">Rapport d'import :</h4>
-                          <div className="report-list">
-                            {importReport.map((item: any, idx: number) => (
-                              <div key={idx} className={`report-item ${item.status.toLowerCase()}`}>
-                                <span className="item-table">{item.table}</span>
-                                <span className="item-status">{item.status}</span>
-                                {item.count !== undefined && <span className="item-count">{item.count} lignes</span>}
-                                {item.message && <span className="item-msg">{item.message}</span>}
-                              </div>
-                            ))}
-                          </div>
+                      {importReports[type] && (
+                      <div className="import-report mt-4">
+                        <h4 className="report-title">Rapport d'import {type} :</h4>
+                        <div className="report-list">
+                          {importReports[type]?.map((item: any, idx: number) => (
+                            <div key={idx} className={`report-item ${item.status.toLowerCase()}`}>
+                              <span className="item-table">{item.table}</span>
+                              <span className="item-status">{item.status}</span>
+                              {item.count !== undefined && <span className="item-count">{item.count} lignes</span>}
+                              {item.message && <span className="item-msg">{item.message}</span>}
+                            </div>
+                          ))}
                         </div>
+                      </div>
                       )}
-                    </div>
-                  </div>
+                      </div>                  </div>
                 );
               })}
             </div>
