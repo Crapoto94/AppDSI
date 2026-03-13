@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: appdsi-backend
+    ports:
+      # Mappe le port 3001 du conteneur vers le port 3001 de l'hôte Proxmox
+      - "3001:3001"
+    volumes:
+      # Monte le volume pour persister la base de données SQLite
+      - ./backend/database.sqlite:/app/database.sqlite
+      # Dossiers de fichiers persistés
+      - ./backend/uploads:/app/uploads
+      - ./backend/file_commandes:/app/file_commandes
+      - ./backend/file_factures:/app/file_factures
+      - ./backend/file_certif:/app/file_certif
+      - ./backend/file_telecom:/app/file_telecom
+      - ./backend/magapp_img:/app/magapp_img
+      # Optionnel : Monte les fichiers de logs pour une consultation facile
+      - ./backend/mouchard.log:/app/mouchard.log
+      - ./backend/import_error.log:/app/import_error.log
+    networks:
+      - app-network
+    # Redémarre automatiquement le conteneur sauf s'il est explicitement arrêté
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: appdsi-frontend
+    ports:
+      # Mappe le port 5173 du conteneur (configuré dans nginx.conf) vers le port 5173 de l'hôte
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  magapp-frontend:
+    build:
+      context: ./magapp-frontend
+      dockerfile: Dockerfile
+    container_name: appdsi-magapp-frontend
+    ports:
+      # Mappe le port 5174 du conteneur (configuré dans nginx.conf) vers le port 5174 de l'hôte
+      - "5174:5174"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    restart: unless-stopped
+
+volumes:
+  # Définit un volume nommé pour persister les données de la base de données SQLite
+  db_data:
+
+networks:
+  # Définit un réseau commun pour que les conteneurs puissent communiquer entre eux
+  app-network:
+    driver: bridge

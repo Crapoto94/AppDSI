@@ -828,6 +828,33 @@ app.post('/api/oracle/table-columns', authenticateAdmin, async (req, res) => {
     }
 });
 
+app.post('/api/oracle/table-preview', authenticateAdmin, async (req, res) => {
+    const { type, tableName } = req.body;
+    let connection;
+    try {
+        const settings = await db.get('SELECT * FROM oracle_settings WHERE type = ?', [type]);
+        connection = await getOracleConnection(settings);
+        
+        // On récupère juste la première ligne pour l'aperçu
+        const result = await connection.execute(
+            `SELECT * FROM ${tableName.toUpperCase()} WHERE ROWNUM <= 1`, 
+            [], 
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        
+        res.json({ 
+            success: true, 
+            preview: result.rows.length > 0 ? result.rows[0] : {}
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    } finally {
+        if (connection) {
+            try { await connection.close(); } catch (e) {}
+        }
+    }
+});
+
 // --- Oracle Sync Config Routes ---
 app.get('/api/oracle/sync-config/:type', authenticateAdmin, async (req, res) => {
     const { type } = req.params;
@@ -840,30 +867,91 @@ app.get('/api/oracle/sync-config/:type', authenticateAdmin, async (req, res) => 
 });
 
 app.post('/api/oracle/sync-config', authenticateAdmin, async (req, res) => {
-    const { type, tables, filters } = req.body;
+    const { type, tables, filters, advancedConfigs } = req.body;
     try {
+        await db.run('BEGIN TRANSACTION');
         await db.run('DELETE FROM oracle_sync_config WHERE type = ?', [type]);
         for (const tableName of tables) {
             const filter = filters && filters[tableName] ? filters[tableName] : '';
+            const configJson = advancedConfigs && advancedConfigs[tableName] ? JSON.stringify(advancedConfigs[tableName]) : null;
             await db.run(
-                'INSERT INTO oracle_sync_config (type, table_name, where_clause) VALUES (?, ?, ?)',
-                [type, tableName, filter]
+                'INSERT INTO oracle_sync_config (type, table_name, where_clause, config_json) VALUES (?, ?, ?, ?)',
+                [type, tableName, filter, configJson]
             );
         }
+        await db.run('COMMIT');
         res.json({ success: true, message: 'Configuration de synchronisation enregistrée' });
     } catch (error) {
+        await db.run('ROLLBACK');
         res.status(500).json({ message: 'Erreur sauvegarde config sync Oracle', error: error.message });
     }
 });
 
+// Helper pour extraire une date propre d'une chaîne Oracle
+function parseOracleDate(val) {
+    if (val === null || val === undefined) return null;
+    const s = String(val).trim();
+    if (!s) return null;
+
+    // Si c'est déjà un format ISO YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
+
+    // Format Français DD/MM/YYYY
+    const frMatch = s.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
+    if (frMatch) {
+        const d = frMatch[1].padStart(2, '0');
+        const m = frMatch[2].padStart(2, '0');
+        const y = frMatch[3];
+        return `${y}-${m}-${d}`;
+    }
+
+    // Tentative via JS Date native (nettoyage des parenthèses de timezone)
+    try {
+        const cleanS = s.replace(/\s*\(.*\)$/, '');
+        const d = new Date(cleanS);
+        if (!isNaN(d.getTime())) {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+    } catch (e) {}
+
+    return s;
+}
+
+app.post('/api/oracle/test-join', authenticateAdmin, async (req, res) => {
+    const { type, secondaryTable, joinField, labelFields, searchValue } = req.body;
+    let connection;
+    try {
+        const settings = await db.get('SELECT * FROM oracle_settings WHERE type = ?', [type]);
+        connection = await getOracleConnection(settings);
+        
+        // On concatène les champs demandés pour le test
+        const concatLabel = labelFields.map(f => `"${f}"`).join(" || ' ' || ");
+        const query = `SELECT ${concatLabel} as RESULT FROM ${secondaryTable} WHERE ${joinField} = :val AND ROWNUM <= 1`;
+        const result = await connection.execute(query, [searchValue], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        
+        res.json({ 
+            success: true, 
+            result: result.rows.length > 0 ? result.rows[0].RESULT : null 
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    } finally {
+        if (connection) { try { await connection.close(); } catch (e) {} }
+    }
+});
+
 app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
-    const { type, tables: providedTables, filters: providedFilters, substitutions } = req.body;
+    const { type, tables: providedTables, filters: providedFilters, substitutions, tableConfig, primaryKeys } = req.body;
+    // Défense contre dateFields manquant ou non défini
+    const dateFields = req.body.dateFields || {};
     
     let tablesToSync = [];
     let connection;
 
     try {
-        // Determine which tables to sync
         if (providedTables && Array.isArray(providedTables) && providedTables.length > 0) {
             tablesToSync = providedTables.map(t => ({
                 table_name: t,
@@ -874,117 +962,116 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
             tablesToSync = savedConfig;
         }
 
-        if (tablesToSync.length === 0) {
-            return res.status(400).json({ success: false, message: "Aucun objet (table/vue) à synchroniser" });
-        }
-
+        if (tablesToSync.length === 0) return res.status(400).json({ success: false, message: "Aucun objet à synchroniser" });
         const settings = await db.get('SELECT * FROM oracle_settings WHERE type = ?', [type]);
-        if (!settings) return res.status(404).json({ success: false, message: "Paramètres non trouvés" });
-
         connection = await getOracleConnection(settings);
         const report = [];
 
         for (const config of tablesToSync) {
             const tableName = config.table_name;
+            const mainPrefix = tableName.toUpperCase() + "_";
+            
             try {
-                // Gestion des substitutions (Remplacement de code par libellé via jointure)
-                // Format attendu: substitutions[tableName][fieldName] = { secondaryTable, joinField, labelField }
+                const selectedCols = tableConfig && tableConfig[tableName] ? tableConfig[tableName] : null;
+                const pkField = primaryKeys && primaryKeys[tableName] ? primaryKeys[tableName] : null;
                 const tableSubst = substitutions && substitutions[tableName] ? substitutions[tableName] : {};
-                const hasSubst = Object.keys(tableSubst).length > 0;
+                
+                const metaRes = await connection.execute(`SELECT * FROM ${tableName} WHERE 1=0`, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+                const allTableColumns = metaRes.metaData.map(m => m.name);
+                const columnsToImport = selectedCols ? allTableColumns.filter(c => selectedCols.includes(c)) : allTableColumns;
 
-                let query;
-                let columnsToImport = [];
+                let selectParts = [];
+                let joinParts = [];
+                let aliasIdx = 1;
+                
+                // Mappage des colonnes finales vers leur origine pour le parsing de date
+                // key: localColName, value: originalMainFieldName
+                const colSourceMap = {};
 
-                if (!hasSubst) {
-                    query = `SELECT * FROM ${tableName}`;
-                } else {
-                    // Construction d'une requête avec JOIN
-                    let selectParts = [];
-                    let joinParts = [];
-                    let aliasIdx = 1;
-
-                    // 1. Récupérer toutes les colonnes de la table principale pour savoir quoi sélectionner
-                    const colRes = await connection.execute(`SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = :t`, [tableName.toUpperCase()]);
-                    const mainColumns = colRes.rows.map(r => r[0]);
-
-                    for (const col of mainColumns) {
-                        if (tableSubst[col]) {
-                            const { secondaryTable, joinField, labelField } = tableSubst[col];
-                            const alias = `S${aliasIdx++}`;
-                            // On sélectionne le libellé de la table secondaire à la place du champ original
-                            selectParts.push(`${alias}.${labelField} AS ${col}`);
-                            joinParts.push(`LEFT JOIN ${secondaryTable} ${alias} ON T1.${col} = ${alias}.${joinField}`);
+                for (const col of columnsToImport) {
+                    if (tableSubst[col]) {
+                        const { secondaryTable, joinField, labelFields } = tableSubst[col];
+                        const alias = `S${aliasIdx++}`;
+                        const secPrefix = secondaryTable.toUpperCase() + "_";
+                        
+                        if (labelFields && labelFields.length > 0) {
+                            labelFields.forEach(f => {
+                                const localJoinCol = `${secPrefix}${f}`;
+                                selectParts.push(`NVL(CAST(${alias}."${f}" AS VARCHAR2(4000)), 'XXXXX') AS "${localJoinCol}"`);
+                            });
                         } else {
-                            selectParts.push(`T1.${col}`);
+                            // Fallback
+                            const localColName = `${mainPrefix}${col}`;
+                            selectParts.push(`T1."${col}" AS "${localColName}"`);
+                            colSourceMap[localColName] = col;
                         }
-                        columnsToImport.push(col);
+                        joinParts.push(`LEFT JOIN ${secondaryTable} ${alias} ON T1."${col}" = ${alias}."${joinField}"`);
+                    } else {
+                        const localColName = `${mainPrefix}${col}`;
+                        selectParts.push(`T1."${col}" AS "${localColName}"`);
+                        colSourceMap[localColName] = col;
                     }
-                    query = `SELECT ${selectParts.join(', ')} FROM ${tableName} T1 ${joinParts.join(' ')}`;
                 }
+
+                let query = `SELECT ${selectParts.join(', ')} FROM ${tableName} T1 ${joinParts.join(' ')}`;
 
                 const rawWhere = config.where_clause ? config.where_clause.trim() : "";
                 const whereClause = rawWhere.replace(/"/g, "'");
 
                 if (whereClause) {
                     const hasWhere = /^where\s/i.test(whereClause);
-                    const formattedWhere = hasWhere ? whereClause : `WHERE ${whereClause}`;
-                    // Si on a des substitutions, on utilise l'alias T1 pour la table principale dans le WHERE
-                    const finalWhere = hasSubst ? formattedWhere.replace(/(\b[a-zA-Z0-9_]+\b)/g, (match) => {
-                        // On n'ajoute T1. que si ce n'est pas un mot clé SQL réservé simple
-                        const reserved = ['WHERE', 'AND', 'OR', 'LIKE', 'IN', 'NULL', 'IS', 'NOT', 'BETWEEN', 'ORDER', 'BY'];
-                        if (reserved.includes(match.toUpperCase())) return match;
-                        return `T1.${match}`;
-                    }) : formattedWhere;
+                    let formattedWhere = hasWhere ? whereClause : `WHERE ${whereClause}`;
+                    const reserved = ['WHERE','AND','OR','LIKE','IN','NULL','IS','NOT','BETWEEN','ORDER','BY','DESC','ASC','DATE','TO_DATE','TO_CHAR','NVL','COALESCE','TRIM','UPPER','LOWER','SUBSTR','INSTR','COUNT','SUM','ROWNUM'];
                     
-                    query += ` ${hasSubst ? formattedWhere.replace(/\b([a-zA-Z0-9_]+)\b/g, 'T1.$1').replace(/T1\.(WHERE|AND|OR|LIKE|IN|NULL|IS|NOT|BETWEEN)/gi, '$1') : formattedWhere}`;
+                    formattedWhere = formattedWhere.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match) => {
+                        if (reserved.includes(match.toUpperCase())) return match;
+                        return `T1."${match}"`;
+                    });
+                    query += ` ${formattedWhere}`;
                 }
 
-                // Fetch data
-                const result = await connection.execute(
-                    query,
-                    [],
-                    { outFormat: oracledb.OUT_FORMAT_OBJECT }
-                );
-
+                const result = await connection.execute(query, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
                 const localTableName = `oracle_${tableName.toLowerCase()}`;
-                const columns = result.metaData.map(m => m.name);
+                const finalColumns = result.metaData.map(m => m.name);
 
-                // OVERWRITE: Drop and recreate
                 await db.run(`DROP TABLE IF EXISTS ${localTableName}`);
-                const createCols = columns.map(col => `"${col}" TEXT`).join(', ');
+                const pkLocalField = pkField ? `${mainPrefix}${pkField}` : null;
+                
+                const createCols = finalColumns.map(col => `"${col}" TEXT${col === pkLocalField ? ' PRIMARY KEY' : ''}`).join(', ');
                 await db.run(`CREATE TABLE ${localTableName} (${createCols})`);
 
-                // Insert data
                 if (result.rows.length > 0) {
-                    const placeholders = columns.map(() => '?').join(',');
-                    const insertSql = `INSERT INTO ${localTableName} (${columns.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`;
+                    const placeholders = finalColumns.map(() => '?').join(',');
+                    const insertSql = `INSERT INTO ${localTableName} (${finalColumns.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`;
                     
-                    for (const rowObj of result.rows) {
-                        const values = columns.map(col => {
-                            const val = rowObj[col];
-                            return val !== null ? String(val) : null;
-                        });
-                        await db.run(insertSql, values);
-                    }
-                }
+                    const dateConfig = dateFields && dateFields[`${type}:${tableName}`] ? dateFields[`${type}:${tableName}`] : [];
 
-                report.push({ 
-                    table: tableName, 
-                    status: 'OK', 
-                    count: result.rows.length, 
-                    localTable: localTableName,
-                    filter: whereClause || 'Aucun'
-                });
+                    await db.run('BEGIN TRANSACTION');
+                    try {
+                        for (const rowObj of result.rows) {
+                            const values = finalColumns.map(col => {
+                                let val = rowObj[col];
+                                const originalFieldName = colSourceMap[col];
+                                
+                                // On ne parse la date que si le champ source original était marqué comme date
+                                if (originalFieldName && dateConfig.includes(originalFieldName)) {
+                                    val = parseOracleDate(val);
+                                }
+                                
+                                return val !== null ? String(val) : null;
+                            });
+                            await db.run(insertSql, values);
+                        }
+                        await db.run('COMMIT');
+                    } catch (e) { await db.run('ROLLBACK'); throw e; }
+                }
+                report.push({ table: tableName, status: 'OK', count: result.rows.length, localTable: localTableName });
             } catch (err) {
-                report.push({ table: tableName, status: 'ERROR', message: err.message, filter: config.where_clause });
+                console.error(`[ORACLE ERROR] ${tableName}:`, err.message);
+                report.push({ table: tableName, status: 'ERROR', message: err.message });
             }
         }
-
-        res.json({ 
-            success: true, 
-            message: `Synchronisation Oracle ${type} terminée.`,
-            report
-        });
+        res.json({ success: true, message: `Synchronisation Oracle ${type} terminée.`, report });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     } finally {
@@ -1259,7 +1346,8 @@ app.post('/api/glpi/sync-tickets', authenticateAdmin, async (req, res) => {
         await axios.get(`${url}/getFullSession?session_token=${sessionToken}`, { headers: commonHeaders });
 
         // 2. Recherche des 100 derniers par DATE DE CRÉATION (Champ 15)
-        const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34];
+        // Ajout du champ 22 (Email du demandeur) en plus du 34 car selon les versions GLPI, l'un ou l'autre est rempli
+        const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22];
         const forcedStr = forcedFields.map((id, idx) => `forcedisplay[${idx}]=${id}`).join('&');
         const searchUrl = `${url}/search/Ticket?session_token=${sessionToken}&range=0-100&sort=15&order=DESC&get_all_entities=1&${forcedStr}`;
         const ticketsRes = await axios.get(searchUrl, { headers: commonHeaders });
@@ -1283,10 +1371,13 @@ app.post('/api/glpi/sync-tickets', authenticateAdmin, async (req, res) => {
                 const v = t[id];
                 if (v === undefined || v === null) return '';
                 if (typeof v === 'object' && v !== null) return v.name || v.id || JSON.stringify(v);
-                return v;
+                return String(v);
             };
 
             for (const t of tickets) {
+                // Email : priorité au champ 34, sinon 22
+                const email = val(t, 34) || val(t, 22);
+
                 await db.run(`INSERT OR REPLACE INTO tickets (
                     glpi_id, title, status, priority, urgency, impact, 
                     category, type, date_creation, date_mod, date_closed, date_solved, 
@@ -1309,7 +1400,7 @@ app.post('/api/glpi/sync-tickets', authenticateAdmin, async (req, res) => {
                     val(t, 9), // source
                     val(t, 80), // entity
                     val(t, 4) || 'Inconnu', // requester_name
-                    val(t, 34) // requester_email
+                    email // requester_email
                 ]);
                 processedCount++;
                 glpiSyncProgress.processed = processedCount;
@@ -1423,13 +1514,17 @@ app.post('/api/glpi/sync-all-tickets', authenticateAdmin, async (req, res) => {
                 const end = Math.min(start + batchSize, totalCount);
                 console.log(`[GLPI Sync] Récupération tickets ${start}-${end}...`);
                 
-                // forcedisplay pour tous les champs requis
-                const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34];
-                const forcedStr = forcedFields.map((id, idx) => `forcedisplay[${idx}]=${id}`).join('&');
-                const batchRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${start}-${end}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
+                // forcedisplay pour tous les champs requis. Ajout du 22 (Email) car le 34 est parfois vide.
+                const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22];
+                const forcedStr = forcedFields.map((id, idx) => `forcedisplay[${id}]=${id}`).join('&');
+                // GLPI Range est inclusif (0-499 = 500 items). On utilise donc start-${end-1}
+                const batchRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${start}-${end-1}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
                 
                 if (batchRes.data && Array.isArray(batchRes.data.data)) {
                     for (const t of batchRes.data.data) {
+                        // Email : priorité au champ 34, sinon 22
+                        const email = val(t, 34) || val(t, 22);
+
                         await insertStmt.run(
                             t[2], // glpi_id
                             val(t, 1), // title
@@ -1448,7 +1543,7 @@ app.post('/api/glpi/sync-all-tickets', authenticateAdmin, async (req, res) => {
                             val(t, 9), // source
                             val(t, 80), // entity
                             val(t, 4) || 'Inconnu', // requester_name
-                            val(t, 34) // requester_email
+                            email // requester_email
                         );
                         processedCount++;
                         glpiSyncProgress.processed = processedCount;
@@ -1860,42 +1955,24 @@ setupDb().then(async database => {
 async function recalculateAllOperations() {
     try {
         const operations = await db.all('SELECT * FROM operations');
-        const orders = await db.all('SELECT operation_id, "Montant TTC", "Article par nature" FROM orders WHERE operation_id IS NOT NULL');
-        
-        // Fonction helper pour déterminer la section
-        const getSection = (nature) => {
-            if (!nature) return '';
-            const n = nature.toString();
-            if (n.startsWith('2')) return 'I';
-            if (n.startsWith('6') || n.startsWith('7') || n.startsWith('0')) return 'F';
-            return '';
-        };
+        const oracle_commande = await db.all('SELECT operation_id, "Montant TTC" FROM v_orders WHERE operation_id IS NOT NULL');
 
         for (const op of operations) {
-            const linkedOrders = orders.filter(o => String(o.operation_id) === String(op.id));
+            const linkedOrders = oracle_commande.filter(o => String(o.operation_id) === String(op.id));
             const used = linkedOrders.reduce((acc, o) => {
                 let val = o["Montant TTC"];
                 if (!val) return acc;
                 const num = parseFloat(String(val).replace(',', '.').replace(/[^\d.-]/g, '')) || 0;
                 return acc + num;
             }, 0);
-            
-            // Déterminer la section à partir de la première commande liée, ou du champ C. Nature
-            let section = op.Section;
-            if (linkedOrders.length > 0) {
-                section = getSection(linkedOrders[0]["Article par nature"]);
-            } else if (op["C. Nature"]) {
-                section = getSection(op["C. Nature"]);
-            }
 
-            await db.run('UPDATE operations SET used_amount = ?, Section = ? WHERE id = ?', [used, section, op.id]);
+            await db.run('UPDATE operations SET used_amount = ? WHERE id = ?', [used, op.id]);
         }
-        console.log('Synchronisation montants et sections terminée.');
+        console.log('Synchronisation montants terminée.');
     } catch (error) {
         console.error('Erreur synchronisation:', error);
     }
 }
-
 // Magapp Public Routes
 app.get('/api/magapp/categories', async (req, res) => {
     try {
@@ -1984,7 +2061,13 @@ app.get('/api/magapp/tickets', async (req, res) => {
     const { email } = req.query;
     if (!email) return res.status(400).json({ message: 'Email requis' });
     try {
-        const tickets = await db.all('SELECT glpi_id, title, status_label, date_creation FROM v_tickets WHERE LOWER(requester_email) = LOWER(?) ORDER BY glpi_id DESC', [email]);
+        const username = email.split('@')[0].toLowerCase();
+        const tickets = await db.all(`
+            SELECT glpi_id, title, status_label, date_creation 
+            FROM v_tickets 
+            WHERE search_email = ? OR search_username = ?
+            ORDER BY glpi_id DESC
+        `, [email.toLowerCase(), username]);
         res.json(tickets);
     } catch (err) {
         console.error('Erreur tickets list:', err);
@@ -1996,7 +2079,12 @@ app.get('/api/magapp/tickets-count', async (req, res) => {
     const { email } = req.query;
     if (!email) return res.status(400).json({ message: 'Email requis' });
     try {
-        const result = await db.get('SELECT COUNT(*) as count FROM v_tickets WHERE LOWER(requester_email) = LOWER(?)', [email]);
+        const username = email.split('@')[0].toLowerCase();
+        const result = await db.get(`
+            SELECT COUNT(*) as count 
+            FROM v_tickets 
+            WHERE search_email = ? OR search_username = ?
+        `, [email.toLowerCase(), username]);
         res.json({ count: result.count || 0 });
     } catch (err) {
         console.error('Erreur tickets-count:', err);
@@ -2887,7 +2975,7 @@ app.get('/api/tiers', authenticateJWT, async (req, res) => {
         `;        
         if (!showAll) {
             query += `
-                WHERE LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM orders)
+                WHERE LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM v_orders)
                    OR LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM invoices)
             `;
         }
@@ -2899,10 +2987,10 @@ app.get('/api/tiers', authenticateJWT, async (req, res) => {
         // Global stats for the view
         const globalStats = await db.get(`
             SELECT 
-                (SELECT COUNT(*) FROM orders) as total_orders,
+                (SELECT COUNT(*) FROM v_orders) as total_orders,
                 (SELECT COUNT(*) FROM invoices) as total_invoices,
                 (SELECT COUNT(*) FROM tiers) as total_tiers_all,
-                (SELECT COUNT(DISTINCT LOWER(TRIM(t.nom))) FROM tiers t WHERE LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM orders) OR LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM invoices)) as total_tiers_dsi
+                (SELECT COUNT(DISTINCT LOWER(TRIM(t.nom))) FROM tiers t WHERE LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM v_orders) OR LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM invoices)) as total_tiers_dsi
         `);
 
         res.json({ tiers, stats: globalStats || { total_orders: 0, total_invoices: 0, total_tiers_all: 0, total_tiers_dsi: 0 } });
@@ -3007,8 +3095,8 @@ app.get('/api/tiers/:id/contacts', authenticateJWT, async (req, res) => {
 });
 
 // Route de secours compatible avec l'ancienne version du frontend
-app.get('/api/tiers/:id/orders', authenticateJWT, async (req, res) => {
-    console.log(`Fallback orders route called for ID: ${req.params.id}`);
+app.get('/api/tiers/:id/oracle_commande', authenticateJWT, async (req, res) => {
+    console.log(`Fallback oracle_commande route called for ID: ${req.params.id}`);
     res.redirect(`/api/tiers/${req.params.id}/history`);
 });
 
@@ -3020,10 +3108,10 @@ app.get('/api/tiers/:id/history', authenticateJWT, async (req, res) => {
         const tierNom = tier.nom.trim();
         
         // Recherche robuste
-        const orders = await db.all('SELECT * FROM orders WHERE TRIM(UPPER("Fournisseur")) = TRIM(UPPER(?)) OR "Fournisseur" LIKE ?', [tierNom, `%${tierNom}%`]);
+        const oracle_commande = await db.all('SELECT * FROM v_orders WHERE TRIM(UPPER("Fournisseur")) = TRIM(UPPER(?)) OR "Fournisseur" LIKE ?', [tierNom, `%${tierNom}%`]);
         const invoices = await db.all('SELECT * FROM invoices WHERE TRIM(UPPER("Fournisseur")) = TRIM(UPPER(?)) OR "Fournisseur" LIKE ?', [tierNom, `%${tierNom}%`]);
         
-        console.log(`Found ${orders.length} orders and ${invoices.length} invoices for ${tierNom}`);
+        console.log(`Found ${oracle_commande.length} oracle_commande and ${invoices.length} invoices for ${tierNom}`);
 
         // Version ultra-simplifiée pour test
         const invoicesList = invoices.map(inv => ({
@@ -3035,7 +3123,7 @@ app.get('/api/tiers/:id/history', authenticateJWT, async (req, res) => {
         }));
 
         res.json({
-            orders: orders.map(o => ({ ...o, matchedInvoices: [] })),
+            oracle_commande: oracle_commande.map(o => ({ ...o, matchedInvoices: [] })),
             invoices: invoicesList
         });
     } catch (error) {
@@ -3446,20 +3534,20 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
         if (data.length === 0) return res.json({ message: 'Le fichier est vide' });
 
         currentStep = 'Clearing existing data';
-        await db.run('DELETE FROM orders WHERE budgetId = ?', [budgetId]);
+        await db.run('DELETE FROM oracle_commande WHERE budgetId = ?', [budgetId]);
 
         currentStep = 'Preparing columns';
         const excelCols = Object.keys(data[0]);
-        const tableColsInfo = await db.all("PRAGMA table_info(orders)");
+        const tableColsInfo = await db.all("PRAGMA table_info(oracle_commande)");
         const tableCols = tableColsInfo.map(c => c.name);
 
         for (const col of excelCols) {
             if (!tableCols.includes(col)) {
                 try {
-                    await db.run(`ALTER TABLE orders ADD COLUMN "${col}" TEXT`);
+                    await db.run(`ALTER TABLE oracle_commande ADD COLUMN "${col}" TEXT`);
                 } catch (e) {}
             }
-            await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['orders', col, col, 1]);
+            await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['oracle_commande', col, col, 1]);
         }
 
         currentStep = 'Inserting rows';
@@ -3474,7 +3562,7 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
             const finalValues = [...values, budgetId];
             
             const placeholders = finalKeys.map(() => '?').join(',');
-            const sql = `INSERT INTO orders (${finalKeys.map(k => `"${k}"`).join(',')}) VALUES (${placeholders})`;
+            const sql = `INSERT INTO oracle_commande (${finalKeys.map(k => `"${k}"`).join(',')}) VALUES (${placeholders})`;
 
             try {
                 await db.run(sql, finalValues);
@@ -3492,7 +3580,7 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
         await updateTierStats(db);
 
         currentStep = 'Logging import';
-        await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['orders', req.user.username]);
+        await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['oracle_commande', req.user.username]);
         
         res.json({ message: `${imported} commandes importées avec succès pour ce budget` });
     } catch (error) {
@@ -3505,44 +3593,63 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
 app.get('/api/orders', authenticateJWT, async (req, res) => {
     const { fiscalYear, budgetScope } = req.query;
     
+    // Découverte dynamique des colonnes de v_orders
+    const viewColsInfo = await db.all("PRAGMA table_info(v_orders)");
+    const excludedInternal = ['id', 'operation_id', 'budgetId', 'order_number', 'description', 'provider', 'amount_ht', 'date'];
+    
+    for (const col of viewColsInfo) {
+        if (!excludedInternal.includes(col.name)) {
+            await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, 1)', ['orders', col.name, col.name]);
+        }
+    }
+
     // Get visible columns from settings first
-    const settings = await db.all("SELECT column_key FROM column_settings WHERE page = 'orders'");
+    const settings = await db.all("SELECT column_key FROM column_settings WHERE page = 'orders' AND is_visible = 1");
     const validKeys = settings.map(s => s.column_key);
     
     let query = `
         SELECT o.*, op.LIBELLE as operation_label 
-        FROM orders o 
+        FROM v_orders o 
         LEFT JOIN operations op ON o.operation_id = op.id
     `;
     const params = [];
 
+    // On s'assure d'avoir au moins une clause WHERE si fiscalYear est présent
+    const whereClauses = [];
     if (budgetScope === 'Ville' && fiscalYear) {
         const budget = await db.get('SELECT id FROM budgets WHERE Libelle = "Ville" AND Annee = ?', [fiscalYear]);
         if (budget) {
-            query += ' WHERE o.budgetId = ?';
+            whereClauses.push('o.budgetId = ?');
             params.push(budget.id);
         } else {
-            query += ' WHERE 1=0';
+            whereClauses.push('1=0');
         }
     } else if (fiscalYear) {
-        query += ' WHERE ("Exercice" = ? OR o.budgetId IN (SELECT id FROM budgets WHERE Annee = ?))';
-        params.push(fiscalYear, fiscalYear);
+        whereClauses.push('(o.date LIKE ? OR o.budgetId IN (SELECT id FROM budgets WHERE Annee = ?))');
+        params.push(`%${fiscalYear}%`, String(fiscalYear));
     }
 
-    query += ' ORDER BY "N° Commande", "N° ligne"';
+    if (whereClauses.length > 0) {
+        query += ' WHERE ' + whereClauses.join(' AND ');
+    }
 
-    const orders = await db.all(query, params);
+    query += ' ORDER BY o.id';
+
+    const results = await db.all(query, params);
     
-    // Clean each order object to only include valid keys + internal helper fields
-    const cleanedOrders = orders.map(order => {
+    // Clean each order object
+    const cleanedOrders = results.map(order => {
         const cleaned = { 
             id: order.id, 
             operation_id: order.operation_id, 
             operation_label: order.operation_label,
-            "N° Commande": order["N° Commande"],
-            "N° ligne": order["N° ligne"],
-            section: order.section || order.Section || order['Section']
+            section: order.section || order.Section || ''
         };
+        // Exposer toutes les colonnes de la vue + colonnes mappées
+        viewColsInfo.forEach(c => {
+            cleaned[c.name] = order[c.name];
+        });
+        // S'assurer que les clés demandées par settings sont là
         validKeys.forEach(key => {
             if (!cleaned.hasOwnProperty(key)) {
                 cleaned[key] = order[key];
@@ -3557,15 +3664,24 @@ app.get('/api/orders', authenticateJWT, async (req, res) => {
 // Unitary assignment
 app.post('/api/orders/:id/assign-operation', authenticateJWT, async (req, res) => {
     const { operation_id } = req.body;
-    const order_id = req.params.id;
+    const order_id = req.params.id; // C'est le numéro de commande Oracle
     try {
-        const order = await db.get('SELECT "N° Commande" FROM orders WHERE id = ?', [order_id]);
+        const order = await db.get('SELECT "N° Commande" FROM v_orders WHERE id = ?', [order_id]);
         if (!order) return res.status(404).json({ message: 'Commande non trouvée' });
-        await db.run('UPDATE orders SET operation_id = ? WHERE "N° Commande" = ?', [operation_id || null, order['N° Commande']]);
         
-        // Recalculate physical column
+        const nr = order['N° Commande'];
+        
+        if (operation_id) {
+            await db.run(`
+                INSERT INTO oracle_links (target_table, target_id, operation_id) 
+                VALUES ('orders', ?, ?)
+                ON CONFLICT(target_table, target_id) DO UPDATE SET operation_id = excluded.operation_id
+            `, [nr, operation_id]);
+        } else {
+            await db.run('UPDATE oracle_links SET operation_id = NULL WHERE target_table = "orders" AND target_id = ?', [nr]);
+        }
+        
         await recalculateAllOperations();
-        
         res.json({ message: 'Affectation réussie' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur affectation', error: error.message });
@@ -3577,15 +3693,24 @@ app.post('/api/orders/bulk-assign', authenticateJWT, async (req, res) => {
     const { order_numbers, operation_id } = req.body;
     if (!Array.isArray(order_numbers)) return res.status(400).json({ message: 'Données invalides' });
     try {
-        const placeholders = order_numbers.map(() => '?').join(',');
-        await db.run(`UPDATE orders SET operation_id = ? WHERE "N° Commande" IN (${placeholders})`, [operation_id || null, ...order_numbers]);
-        
-        // Recalculate physical column
+        await db.run('BEGIN TRANSACTION');
+        for (const nr of order_numbers) {
+            if (operation_id) {
+                await db.run(`
+                    INSERT INTO oracle_links (target_table, target_id, operation_id) 
+                    VALUES ('orders', ?, ?)
+                    ON CONFLICT(target_table, target_id) DO UPDATE SET operation_id = excluded.operation_id
+                `, [nr, operation_id]);
+            } else {
+                await db.run('UPDATE oracle_links SET operation_id = NULL WHERE target_table = "orders" AND target_id = ?', [nr]);
+            }
+        }
+        await db.run('COMMIT');
         await recalculateAllOperations();
-        
-        res.json({ message: `${order_numbers.length} commandes traitées` });
+        res.json({ message: 'Affectation groupée réussie' });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur affectation en masse', error: error.message });
+        await db.run('ROLLBACK');
+        res.status(500).json({ message: 'Erreur affectation groupée' });
     }
 });
 
@@ -4193,18 +4318,62 @@ app.delete('/api/telecom/invoices/:id', authenticateJWT, async (req, res) => {
 app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
     try {
         const page = req.params.page;
-        // Map common aliases
         let dbPage = page;
         if (page === 'lines') dbPage = 'budget_lines';
-        
-        const settings = await db.all('SELECT * FROM column_settings WHERE page = ? ORDER BY display_order', [dbPage]);
+
+        let sourceTable = dbPage;
+        if (page === 'orders') sourceTable = 'v_orders';
+        if (page === 'invoices') sourceTable = 'invoices';
+        if (page === 'operations') sourceTable = 'operations';
+
+        // 1. Récupérer les colonnes réelles de la source
+        let realCols = [];
+        try {
+            const info = await db.all(`PRAGMA table_info(${sourceTable})`);
+            realCols = info.map(c => c.name);
+        } catch (e) {}
+
+        // 2. NETTOYAGE STRICT : Supprimer tout ce qui n'est plus en base
+        if (realCols.length > 0) {
+            const placeholders = realCols.map(() => '?').join(',');
+            // On garde les colonnes virtuelles vitales
+            await db.run(`DELETE FROM column_settings WHERE page = ? AND column_key NOT IN (${placeholders}, 'operation_label', 'actions')`, [page, ...realCols]);
+
+            // 3. Ajouter les nouvelles sans écraser les labels existants
+            for (const col of realCols) {
+                if (!['id', 'operation_id', 'budgetId', 'order_number', 'amount_ht', 'date'].includes(col)) {
+                    await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, 1)', [page, col, col]);
+                }
+            }
+        }
+
+        const settings = await db.all('SELECT * FROM column_settings WHERE page = ? ORDER BY display_order ASC, id ASC', [page]);
         res.json(settings);
     } catch (error) {
-        res.status(500).json({ message: 'Error fetching column settings' });
+        res.status(500).json({ message: 'Error fetching column settings', error: error.message });
     }
 });
 
-app.post('/api/column-settings/:page', authenticateAdminOrFinances, async (req, res) => {
+app.post('/api/column-settings/:page/bulk', authenticateJWT, async (req, res) => {
+    const { page } = req.params;
+    const settings = req.body;
+    try {
+        await db.run('BEGIN TRANSACTION');
+        for (const col of settings) {
+            await db.run(`
+                UPDATE column_settings 
+                SET label = ?, is_visible = ?, display_order = ?, color = ?, is_bold = ?, is_italic = ? 
+                WHERE page = ? AND column_key = ?`,
+                [col.label, col.is_visible, col.display_order, col.color, col.is_bold, col.is_italic, page, col.column_key]
+            );
+        }
+        await db.run('COMMIT');
+        res.json({ message: 'Settings updated' });
+    } catch (error) {
+        await db.run('ROLLBACK');
+        res.status(500).json({ message: 'Error updating settings' });
+    }
+});app.post('/api/column-settings/:page', authenticateAdminOrFinances, async (req, res) => {
     const { column_key, label, is_visible, display_order, color, is_bold, is_italic } = req.body;
     try {
         await db.run(
@@ -4296,7 +4465,7 @@ app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => 
         }
 
         // Trouver le fournisseur associé à cette commande
-        const order = await db.get('SELECT "Fournisseur" FROM orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
+        const order = await db.get('SELECT "Fournisseur" FROM v_orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
         if (!order || !order.Fournisseur) {
             return res.status(404).json({ message: 'Commande non trouvée ou fournisseur inconnu' });
         }
@@ -4328,7 +4497,7 @@ app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) =>
         }
 
         // Trouver le fournisseur associé
-        const order = await db.get('SELECT "Fournisseur" FROM orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
+        const order = await db.get('SELECT "Fournisseur" FROM v_orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
         if (!order || !order.Fournisseur) {
             return res.status(404).json({ message: 'Fournisseur introuvable' });
         }

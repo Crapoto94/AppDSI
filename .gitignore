@@ -45,3 +45,9 @@ backend/mouchard.log
 
 # Temporaires
 tmp/
+nul 
+*.log 
+uploads/ 
+desktop.ini 
+node_modules/ 
+package-lock.json   # Optionnel, r‚g‚n‚r‚ par npm

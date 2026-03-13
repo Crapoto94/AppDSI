@@ -44,6 +44,7 @@ interface AdminProps {
 }
 
 const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
+  const { token } = useAuth();
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
   const [newTile, setNewTile] = useState({ title: '', icon: 'Box', description: '', status: 'active' as any });
@@ -101,7 +102,59 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [tableColumns, setTableColumns] = useState<Record<string, string[]>>({});
   const [substitutions, setSubstitutions] = useState<Record<string, Record<string, any>>>({});
   const [activeSubstModal, setActiveSubstModal] = useState<{type: string, table: string} | null>(null);
+  const [activeSelectionModal, setActiveSelectionModal] = useState<{type: string, table: string} | null>(null);
+  const [activeFieldConfig, setActiveFieldConfig] = useState<string | null>(null);
+  const [allOracleTables, setAllOracleTables] = useState<Record<string, string[]>>({});
   const [loadingCols, setLoadingCols] = useState(false);
+  const [searchTableRef, setSearchTableRef] = useState('');
+  const [tablePreviews, setTablePreviews] = useState<Record<string, any>>({});
+  const [selectedFields, setSelectedFields] = useState<Record<string, string[]>>({});
+  const [primaryKeys, setPrimaryKeys] = useState<Record<string, string>>({});
+  const [dateFields, setDateFields] = useState<Record<string, string[]>>({});
+  const [joinPreviewResult, setJoinPreviewResult] = useState<string | null>(null);
+
+  const toggleDateField = (type: string, table: string, field: string) => {
+    const key = `${type}:${table}`;
+    const current = dateFields[key] || [];
+    const updated = current.includes(field) 
+      ? current.filter(f => f !== field)
+      : [...current, field];
+    setDateFields({ ...dateFields, [key]: updated });
+  };
+
+  useEffect(() => {
+    if (activeSelectionModal && activeFieldConfig) {
+      const type = activeSelectionModal.type;
+      const table = activeSelectionModal.table;
+      const subst = substitutions[type]?.[table]?.[activeFieldConfig];
+      const previewVal = tablePreviews[`${type}:${table}`]?.[activeFieldConfig];
+      
+      if (subst && subst.secondaryTable && subst.joinField && subst.labelField) {
+        fetchJoinPreview(type, subst, previewVal);
+      } else {
+        setJoinPreviewResult(null);
+      }
+    }
+  }, [activeFieldConfig, substitutions, activeSelectionModal, tablePreviews]);
+
+  const fetchJoinPreview = async (type: string, subst: any, searchValue: any) => {
+    if (!subst.secondaryTable || !subst.joinField || !subst.labelField || searchValue === null || searchValue === undefined) {
+      setJoinPreviewResult(null);
+      return;
+    }
+    try {
+      const res = await axios.post('/api/oracle/test-join', {
+        type,
+        secondaryTable: subst.secondaryTable,
+        joinField: subst.joinField,
+        labelField: subst.labelField,
+        searchValue
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setJoinPreviewResult(res.data.result || "XXXXX");
+    } catch (e) {
+      setJoinPreviewResult("ERREUR");
+    }
+  };
 
   const fetchTableColumns = async (type: string, tableName: string) => {
     setLoadingCols(true);
@@ -117,31 +170,111 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     }
   };
 
-  const handleOpenSubstModal = async (type: string, tableName: string) => {
-    setActiveSubstModal({ type, table: tableName });
+  const fetchTablePreview = async (type: string, tableName: string) => {
+    try {
+      const res = await axios.post('/api/oracle/table-preview', { type, tableName }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTablePreviews(prev => ({ ...prev, [`${type}:${tableName}`]: res.data.preview }));
+    } catch (error) {
+      console.error('Erreur preview:', error);
+    }
+  };
+
+  const handleOpenSelectionModal = async (type: string, tableName: string) => {
+    setActiveSelectionModal({ type, table: tableName });
+    setActiveFieldConfig(null);
+    setSearchTableRef('');
+
     if (!tableColumns[`${type}:${tableName}`]) {
       await fetchTableColumns(type, tableName);
+    }
+    if (!tablePreviews[`${type}:${tableName}`]) {
+      await fetchTablePreview(type, tableName);
+    }
+    
+    // Charger la liste globale des tables pour les jointures
+    if (!allOracleTables[type]) {
+      try {
+        const res = await axios.post('/api/oracle/check-tables', { type }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setAllOracleTables(prev => ({ ...prev, [type]: res.data.details }));
+      } catch (e) {}
+    }
+
+    if (!selectedFields[`${type}:${tableName}`]) {
+      const cols = tableColumns[`${type}:${tableName}`] || [];
+      setSelectedFields(prev => ({ ...prev, [`${type}:${tableName}`]: [...cols] }));
+    }
+  };
+
+  const toggleFieldSelection = (type: string, table: string, field: string) => {
+    const key = `${type}:${table}`;
+    const current = selectedFields[key] || [];
+    const updated = current.includes(field) 
+      ? current.filter(f => f !== field)
+      : [...current, field];
+    setSelectedFields({ ...selectedFields, [key]: updated });
+  };
+
+  const setTablePK = (type: string, table: string, field: string) => {
+    setPrimaryKeys({ ...primaryKeys, [`${type}:${table}`]: field });
+    // Si on choisit un champ comme PK, on s'assure qu'il est sélectionné pour l'import
+    const key = `${type}:${table}`;
+    const current = selectedFields[key] || [];
+    if (!current.includes(field)) {
+      setSelectedFields({ ...selectedFields, [key]: [...current, field] });
+    }
+  };
+
+  const handleSelectRefTable = async (type: string, refTable: string, currentField: string) => {
+    const table = activeSelectionModal?.table || '';
+    const subst = substitutions[type]?.[table]?.[currentField] || {};
+    updateSubstitution(type, table, currentField, { ...subst, secondaryTable: refTable });
+    
+    // Charger les colonnes de cette table de référence
+    if (!tableColumns[`${type}:${refTable}`]) {
+      await fetchTableColumns(type, refTable);
     }
   };
 
   const updateSubstitution = (type: string, table: string, field: string, data: any) => {
-    const current = substitutions[type] || {};
-    const tableSubst = current[table] || {};
-    
-    if (!data) {
-      delete tableSubst[field];
-    } else {
-      tableSubst[field] = data;
-    }
+    setSubstitutions(prev => {
+      const current = prev[type] || {};
+      const tableSubst = { ...(current[table] || {}) };
+      
+      if (!data) {
+        delete tableSubst[field];
+      } else {
+        tableSubst[field] = data;
+      }
 
-    setSubstitutions({
-      ...substitutions,
-      [type]: { ...current, [table]: { ...tableSubst } }
+      return {
+        ...prev,
+        [type]: {
+          ...current,
+          [table]: tableSubst
+        }
+      };
     });
   };
 
+  const toggleLabelField = (type: string, table: string, field: string, labelField: string) => {
+    const current = substitutions[type] || {};
+    const tableSubst = current[table] || {};
+    const subst = tableSubst[field] || { labelFields: [] };
+    
+    let labels = subst.labelFields || [];
+    if (labels.includes(labelField)) {
+      labels = labels.filter(f => f !== labelField);
+    } else {
+      labels = [...labels, labelField];
+    }
 
-  const { token } = useAuth();
+    updateSubstitution(type, table, field, { ...subst, labelFields: labels });
+  };
+
 
   const handleImportOracleTables = async (type: string) => {
     const tables = selectedTables[type] || [];
@@ -151,12 +284,26 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
     setImporting(prev => ({ ...prev, [type]: true }));
     setImportReports(prev => ({ ...prev, [type]: null }));
+
+    // Préparer le mapping pour le backend
+    const tableConfig: Record<string, string[]> = {};
+    const pkConfig: Record<string, string> = {};
+    
+    tables.forEach(table => {
+      const key = `${type}:${table}`;
+      if (selectedFields[key]) tableConfig[table] = selectedFields[key];
+      if (primaryKeys[key]) pkConfig[table] = primaryKeys[key];
+    });
+
     try {
       const res = await axios.post('/api/oracle/import-tables', { 
         type, 
         tables,
         filters: tableFilters[type] || {},
-        substitutions: substitutions[type] || {}
+        substitutions: substitutions[type] || {},
+        tableConfig,
+        primaryKeys: pkConfig,
+        dateFields
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -245,25 +392,60 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           if (configRes.data && Array.isArray(configRes.data)) {
             const tables = configRes.data.map((item: any) => item.table_name);
             const filters: Record<string, string> = {};
+
+            const newSelectedFields: Record<string, string[]> = {};
+            const newPrimaryKeys: Record<string, string> = {};
+            const newSubstitutions: Record<string, any> = {};
+            const newDateFields: Record<string, string[]> = {};
+
             configRes.data.forEach((item: any) => {
               filters[item.table_name] = item.where_clause || '';
+              if (item.config_json) {
+                try {
+                  const config = JSON.parse(item.config_json);
+                  const key = `${type}:${item.table_name}`;
+                  if (config.selectedFields) newSelectedFields[key] = config.selectedFields;
+                  if (config.primaryKey) newPrimaryKeys[key] = config.primaryKey;
+                  if (config.substitutions) newSubstitutions[item.table_name] = config.substitutions;
+                  if (config.dateFields) newDateFields[key] = config.dateFields;
+                } catch (e) {}
+              }
             });
-            
+
             setSelectedTables(prev => ({ ...prev, [type]: tables }));
             setTableFilters(prev => ({ ...prev, [type]: filters }));
+            setSelectedFields(prev => ({ ...prev, ...newSelectedFields }));
+            setPrimaryKeys(prev => ({ ...prev, ...newPrimaryKeys }));
+            setSubstitutions(prev => ({ ...prev, [type]: { ...(prev[type] || {}), ...newSubstitutions } }));
+            setDateFields(prev => ({ ...prev, ...newDateFields }));
           }
-        }
-      }
+        }      }
     } catch (e) {}
   };
 
   const handleSaveOracleSyncConfig = async (type: string) => {
     setIsSaving(true);
+    
+    // Préparer les configurations avancées pour chaque table
+    const advancedConfigs: Record<string, any> = {};
+    const tables = selectedTables[type] || [];
+    
+    tables.forEach(table => {
+      const key = `${type}:${table}`;
+      advancedConfigs[table] = {
+        selectedFields: selectedFields[key] || [],
+        primaryKey: primaryKeys[key] || null,
+        substitutions: substitutions[type]?.[table] || {},
+        dateFields: dateFields[key] || []
+      };
+    });
+
     try {
       await axios.post('/api/oracle/sync-config', {
         type,
-        tables: selectedTables[type] || [],
-        filters: tableFilters[type] || {}
+        tables,
+        filters: tableFilters[type] || {},
+        advancedConfigs
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -627,6 +809,230 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   return (
     <div className="admin-page-content animate-in fade-in duration-500">
+        {/* Modal Substitutions Oracle Assistée */}
+        {/* Modal Super-Configuration Oracle (Structure + Jointures + Preview) */}
+        {activeSelectionModal && (
+          <div className="modal-overlay">
+            <div className="modal-container large" style={{ maxWidth: '1400px', height: '90vh' }}>
+              
+              <div className="modal-header">
+                <div className="modal-header-info">
+                  <div className="modal-icon-box blue">
+                    <Database size={24} />
+                  </div>
+                  <div>
+                    <h3 className="modal-title">Configuration de l'import : {activeSelectionModal.table}</h3>
+                    <p className="modal-subtitle">Définissez la structure, l'identifiant et les transformations de libellés.</p>
+                  </div>
+                </div>
+                <button onClick={() => setActiveSelectionModal(null)} className="icon-btn">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="modal-body" style={{ display: 'flex', overflow: 'hidden' }}>
+                {/* PARTIE GAUCHE : TABLEAU DE STRUCTURE */}
+                <div style={{ flex: 1, overflow: 'auto', borderRight: '1px solid #f1f5f9', background: 'white' }}>
+                  <table className="structure-table">
+                    <thead>
+                      <tr>
+                        <th>Colonne</th>
+                        <th>Aperçu</th>
+                        <th style={{ textAlign: 'center' }}>Import</th>
+                        <th style={{ textAlign: 'center' }}>Index</th>
+                        <th style={{ textAlign: 'center' }}>Date</th>
+                        <th style={{ textAlign: 'center' }}>Jointure</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(tableColumns[`${activeSelectionModal.type}:${activeSelectionModal.table}`] || []).map(col => {
+                        const isSelected = (selectedFields[`${activeSelectionModal.type}:${activeSelectionModal.table}`] || []).includes(col);
+                        const isPK = primaryKeys[`${activeSelectionModal.type}:${activeSelectionModal.table}`] === col;
+                        const isDate = (dateFields[`${activeSelectionModal.type}:${activeSelectionModal.table}`] || []).includes(col);
+                        const hasSubst = !!substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[col];
+                        const isActive = activeFieldConfig === col;
+                        const previewVal = tablePreviews[`${activeSelectionModal.type}:${activeSelectionModal.table}`]?.[col];
+
+                        return (
+                          <tr key={col} style={{ 
+                            background: isActive ? '#eff6ff' : (isPK ? '#f0f9ff' : 'transparent'),
+                            transition: 'all 0.2s'
+                          }}>
+                            <td onClick={() => setActiveFieldConfig(col)} style={{ cursor: 'pointer' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ fontFamily: 'monospace', fontWeight: 'bold', fontSize: '12px', color: isActive ? '#2563eb' : '#334155' }}>{col}</span>
+                                <span style={{ fontSize: '9px', color: '#94a3b8' }}>➜ {activeSelectionModal.table.toUpperCase()}_{col}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="preview-box" style={{ maxWidth: '150px' }}>
+                                {previewVal !== null && previewVal !== undefined ? String(previewVal) : <span style={{ opacity: 0.3, fontStyle: 'italic' }}>NULL</span>}
+                              </div>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <input 
+                                type="checkbox" 
+                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                checked={isSelected}
+                                onChange={() => toggleFieldSelection(activeSelectionModal.type, activeSelectionModal.table, col)}
+                              />
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button 
+                                onClick={() => setTablePK(activeSelectionModal.type, activeSelectionModal.table, col)}
+                                className={`icon-btn ${isPK ? 'active' : ''}`}
+                                style={isPK ? { background: '#2563eb', color: 'white' } : { background: '#f1f5f9' }}
+                              >
+                                <Key size={14} />
+                              </button>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button 
+                                onClick={() => toggleDateField(activeSelectionModal.type, activeSelectionModal.table, col)}
+                                className={`icon-btn ${isDate ? 'active' : ''}`}
+                                style={isDate ? { background: '#f59e0b', color: 'white' } : { background: '#f1f5f9' }}
+                                title="Marquer comme champ Date"
+                              >
+                                <HistoryIcon size={14} />
+                              </button>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button 
+                                onClick={() => { setActiveFieldConfig(col); setSearchTableRef(''); }}
+                                className={`icon-btn ${hasSubst ? 'active' : ''}`}
+                                style={{ 
+                                  background: hasSubst ? '#10b981' : '#f1f5f9', 
+                                  color: hasSubst ? 'white' : '#94a3b8',
+                                  border: isActive ? '2px solid #2563eb' : 'none'
+                                }}
+                              >
+                                <Activity size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* PARTIE DROITE : ASSISTANT DE JOINTURE */}
+                <div style={{ width: '400px', background: '#f8fafc', padding: '30px', overflowY: 'auto' }}>
+                  {!activeFieldConfig ? (
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', opacity: 0.4 }}>
+                      <div style={{ width: '60px', height: '60px', background: '#e2e8f0', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '15px' }}>
+                        <Box size={30} />
+                      </div>
+                      <p style={{ fontSize: '12px', fontWeight: 'bold' }}>Cliquez sur un champ ou sur l'icône <Activity size={12} /> pour configurer une jointure.</p>
+                    </div>
+                  ) : (
+                    <div className="animate-in slide-in-from-right-4 duration-300">
+                      <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '900' }}>Jointure : <span style={{ color: '#2563eb' }}>{activeFieldConfig}</span></h4>
+                        {substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig] && (
+                          <button onClick={() => updateSubstitution(activeSelectionModal.type, activeSelectionModal.table, activeFieldConfig, null)} style={{ fontSize: '10px', color: '#ef4444', fontWeight: 'bold', border: 'none', background: 'none', cursor: 'pointer' }}>Supprimer</button>
+                        )}
+                      </div>
+
+                      <div className="config-section-title"><div className="step-badge">1</div> Table de référence</div>
+                      <div className="search-input-wrapper">
+                        <Search className="search-icon-inside" size={16} />
+                        <input 
+                          style={{ padding: '12px 12px 12px 40px', fontSize: '12px' }}
+                          placeholder="Rechercher (ex: SERVICE...)"
+                          value={searchTableRef}
+                          onChange={(e) => setSearchTableRef(e.target.value.toUpperCase())}
+                        />
+                      </div>
+
+                      {searchTableRef && (
+                        <div className="table-ref-list" style={{ gridTemplateColumns: '1fr' }}>
+                          {(allOracleTables[activeSelectionModal.type] || [])
+                            .filter(t => t.includes(searchTableRef))
+                            .map(t => (
+                              <button key={t} onClick={() => { handleSelectRefTable(activeSelectionModal.type, t, activeFieldConfig); setSearchTableRef(''); }} className="table-ref-item">{t}</button>
+                            ))
+                          }
+                        </div>
+                      )}
+
+                      {substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig]?.secondaryTable && (
+                        <>
+                          <div style={{ padding: '12px', background: '#eff6ff', borderRadius: '12px', border: '1px solid #dbeafe', marginBottom: '20px' }}>
+                            <span className="stat-label-mini">Table liée</span>
+                            <div style={{ fontWeight: 'bold', fontSize: '12px', fontFamily: 'monospace' }}>{substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig].secondaryTable}</div>
+                          </div>
+
+                          <div className="config-section-title"><div className="step-badge">2</div> Champ ID</div>
+                          <select 
+                            className="luxe-select" style={{ padding: '10px', fontSize: '12px', marginBottom: '20px' }}
+                            value={substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig]?.joinField || ''}
+                            onChange={(e) => updateSubstitution(activeSelectionModal.type, activeSelectionModal.table, activeFieldConfig, { ...substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig], joinField: e.target.value })}
+                          >
+                            <option value="">-- Choisir ID --</option>
+                            {(tableColumns[`${activeSelectionModal.type}:${substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig].secondaryTable}`] || []).map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+
+                          <div className="config-section-title"><div className="step-badge">3</div> Champs Libellés (Multi)</div>
+                          <div className="table-ref-list" style={{ gridTemplateColumns: '1fr', maxHeight: '150px' }}>
+                            {(tableColumns[`${activeSelectionModal.type}:${substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig].secondaryTable}`] || []).map(c => {
+                              const isChecked = (substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig]?.labelFields || []).includes(c);
+                              return (
+                                <label key={c} className="table-checkbox-label" style={{ padding: '5px 10px' }}>
+                                  <input 
+                                    type="checkbox" 
+                                    checked={isChecked}
+                                    onChange={() => toggleLabelField(activeSelectionModal.type, activeSelectionModal.table, activeFieldConfig, c)}
+                                  />
+                                  <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{c}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+
+                          <div className="sql-preview" style={{ padding: '15px', fontSize: '9px', marginTop: '20px', border: '1px solid #10b981' }}>
+                            <div style={{ color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', fontWeight: '900' }}>Résultat de la jointure (Concaténé) :</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ color: '#94a3b8' }}>{String(tablePreviews[`${activeSelectionModal.type}:${activeSelectionModal.table}`]?.[activeFieldConfig])}</span>
+                              <span style={{ color: '#10b981' }}>➜</span>
+                              <span style={{ color: joinPreviewResult === "XXXXX" ? '#ef4444' : '#10b981', fontWeight: 'bold', fontSize: '11px' }}>
+                                {joinPreviewResult || "Choisir des champs..."}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="sql-preview" style={{ padding: '15px', fontSize: '9px', marginTop: '10px', opacity: 0.6 }}>
+                            <div style={{ color: '#10b981' }}>REF.{substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig].labelField} AS {activeFieldConfig}</div>
+                            <div style={{ opacity: 0.5 }}>ON T1.{activeFieldConfig} = REF.{substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig].joinField}</div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <div className="footer-stats">
+                  <div className="stat-item">
+                    <span className="stat-label-mini">Colonnes</span>
+                    <span className="stat-value-mini">{(selectedFields[`${activeSelectionModal.type}:${activeSelectionModal.table}`] || []).length} sélectionnés</span>
+                  </div>
+                  <div className="stat-item">
+                    <span className="stat-label-mini">Transformations</span>
+                    <span className="stat-value-mini" style={{ color: '#10b981' }}>{Object.keys(substitutions[activeSelectionModal.type]?.[activeSelectionModal.table] || {}).length} actives</span>
+                  </div>
+                </div>
+                <button onClick={() => setActiveSelectionModal(null)} className="btn btn-primary" style={{ borderRadius: '12px' }}>
+                  <CheckCircle2 size={18} /> Valider la configuration
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Substitutions Oracle Assistée (Retirée car fusionnée) */}
+
         {section === 'main' && (
           <div className="space-y-8">
             <div className="welcome-banner">
@@ -1053,6 +1459,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <div className="tables-grid">
                           {result.details
                             .filter((name: string) => !tableSearch[type] || name.toLowerCase().includes(tableSearch[type].toLowerCase()))
+                            .sort((a: string, b: string) => {
+                              const aSel = selectedTables[type]?.includes(a) ? 1 : 0;
+                              const bSel = selectedTables[type]?.includes(b) ? 1 : 0;
+                              if (aSel !== bSel) return bSel - aSel;
+                              return a.localeCompare(b);
+                            })
                             .map((tableName: string) => {
                               const isSelected = selectedTables[type]?.includes(tableName);
                               return (
@@ -1070,6 +1482,18 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                       }}
                                     />
                                     <span className="table-name">{tableName}</span>
+                                    {isSelected && (
+                                      <div className="flex gap-2 ml-auto pr-4">
+                                        <span className="text-[9px] font-black bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded uppercase">
+                                          {(selectedFields[`${type}:${tableName}`] || []).length} champs
+                                        </span>
+                                        {Object.keys(substitutions[type]?.[tableName] || {}).length > 0 && (
+                                          <span className="text-[9px] font-black bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded uppercase">
+                                            {Object.keys(substitutions[type]?.[tableName] || {}).length} joints
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
                                   </label>
 
                                   {isSelected && (
@@ -1088,12 +1512,28 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                             });
                                           }}
                                         />
-                                        <button 
-                                          className="btn-champs-config px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors"
-                                          onClick={() => handleOpenSubstModal(type, tableName)}
-                                        >
-                                          <LayoutGrid size={12} /> Champs
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                          <button 
+                                            type="button"
+                                            className="btn-champs-config px-3 py-1 bg-white border border-gray-200 hover:bg-gray-50 rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors shadow-sm"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              handleOpenSelectionModal(type, tableName);
+                                            }}
+                                          >
+                                            <Fingerprint size={12} className="text-blue-600" /> Structure
+                                          </button>
+                                          <button 
+                                            type="button"
+                                            className="btn-champs-config px-3 py-1 bg-white border border-gray-200 hover:bg-gray-50 rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors shadow-sm"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              handleOpenSubstModal(type, tableName);
+                                            }}
+                                          >
+                                            <Database size={12} className="text-emerald-600" /> Jointures
+                                          </button>
+                                        </div>
                                       </div>
                                     </div>
                                   )}
@@ -1367,100 +1807,6 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           </div>
         )}
 
-        {/* Modal Substitutions Oracle */}
-        {activeSubstModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                <div>
-                  <h3 className="text-xl font-black text-gray-900 flex items-center gap-2">
-                    <Database size={20} className="text-blue-600" />
-                    Configuration des champs : {activeSubstModal.table}
-                  </h3>
-                  <p className="text-xs text-gray-500 mt-1">Remplacez un code par sa description via une jointure Oracle.</p>
-                </div>
-                <button onClick={() => setActiveSubstModal(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
-                  <X size={24} />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6">
-                {loadingCols ? (
-                  <div className="flex flex-col items-center justify-center py-20 gap-4">
-                    <Loader2 size={40} className="animate-spin text-blue-600" />
-                    <span className="text-sm font-bold text-gray-400">Récupération des colonnes Oracle...</span>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {(tableColumns[`${activeSubstModal.type}:${activeSubstModal.table}`] || []).map(col => {
-                      const subst = substitutions[activeSubstModal.type]?.[activeSubstModal.table]?.[col];
-                      return (
-                        <div key={col} className={`p-4 rounded-xl border-2 transition-all ${subst ? 'border-blue-200 bg-blue-50' : 'border-gray-100 bg-white'}`}>
-                          <div className="flex items-center justify-between mb-3">
-                            <span className="font-mono font-bold text-sm text-gray-700">{col}</span>
-                            {subst ? (
-                              <button 
-                                onClick={() => updateSubstitution(activeSubstModal.type, activeSubstModal.table, col, null)}
-                                className="text-[10px] text-red-500 font-bold hover:underline"
-                              >
-                                Supprimer le remplacement
-                              </button>
-                            ) : (
-                              <span className="text-[10px] text-gray-400 italic">Aucun remplacement</span>
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-3">
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-black text-gray-400 uppercase">Table de référence</label>
-                              <input 
-                                type="text" 
-                                className="w-full p-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="ex: SERVICE"
-                                value={subst?.secondaryTable || ''}
-                                onChange={(e) => updateSubstitution(activeSubstModal.type, activeSubstModal.table, col, { ...subst, secondaryTable: e.target.value.toUpperCase() })}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-black text-gray-400 uppercase">Champ de jointure</label>
-                              <input 
-                                type="text" 
-                                className="w-full p-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="ex: CODE_SERV"
-                                value={subst?.joinField || ''}
-                                onChange={(e) => updateSubstitution(activeSubstModal.type, activeSubstModal.table, col, { ...subst, joinField: e.target.value.toUpperCase() })}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-black text-gray-400 uppercase">Champ du libellé</label>
-                              <input 
-                                type="text" 
-                                className="w-full p-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="ex: LIB_SERV"
-                                value={subst?.labelField || ''}
-                                onChange={(e) => updateSubstitution(activeSubstModal.type, activeSubstModal.table, col, { ...subst, labelField: e.target.value.toUpperCase() })}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
-                <button 
-                  onClick={() => setActiveSubstModal(null)}
-                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-200"
-                >
-                  Terminer la configuration
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {section === 'tiles' && (
           <div className="section-container">
             <div className="section-header">
@@ -1519,6 +1865,64 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       <style>{`
         .admin-page-content { color: #1e293b; }
         .welcome-banner { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white; padding: 40px; border-radius: 24px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        
+        /* Modal Backdrop & Container */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; animation: fadeIn 0.3s ease; }
+        .modal-container { background: white; border-radius: 30px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); width: 100%; max-width: 1000px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; animation: zoomIn 0.3s ease; }
+        .modal-container.large { max-width: 1200px; }
+        
+        /* Modal Header */
+        .modal-header { padding: 30px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; }
+        .modal-header-info { display: flex; align-items: center; gap: 15px; }
+        .modal-icon-box { width: 50px; height: 50px; border-radius: 15px; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3); }
+        .modal-icon-box.blue { background: #2563eb; }
+        .modal-icon-box.emerald { background: #10b981; }
+        .modal-title { font-size: 1.5rem; font-weight: 900; color: #0f172a; margin: 0; }
+        .modal-subtitle { font-size: 0.85rem; color: #64748b; margin-top: 4px; font-weight: 500; }
+        
+        /* Modal Content & Layout */
+        .modal-body { flex: 1; overflow: auto; padding: 0; display: flex; }
+        .modal-body.padding { padding: 30px; }
+        .modal-sidebar { width: 30%; border-right: 1px solid #f1f5f9; background: #f8fafc; overflow-y: auto; padding: 20px; }
+        .modal-main { flex: 1; padding: 30px; overflow-y: auto; background: white; }
+        
+        /* Modal Footer */
+        .modal-footer { padding: 25px 30px; border-top: 1px solid #f1f5f9; background: #f8fafc; display: flex; justify-content: space-between; align-items: center; }
+        .footer-stats { display: flex; gap: 30px; }
+        .stat-item { display: flex; flex-direction: column; }
+        .stat-label-mini { font-size: 10px; font-weight: 900; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px; }
+        .stat-value-mini { font-size: 14px; font-weight: 700; color: #1e293b; }
+
+        /* Tables & Lists inside Modals */
+        .structure-table { width: 100%; border-collapse: collapse; }
+        .structure-table th { position: sticky; top: 0; background: #f8fafc; padding: 15px 20px; font-size: 10px; font-weight: 900; text-transform: uppercase; color: #94a3b8; text-align: left; border-bottom: 1px solid #e2e8f0; z-index: 5; }
+        .structure-table td { padding: 15px 20px; border-bottom: 1px solid #f1f5f9; }
+        .preview-box { background: #f1f5f9; padding: 6px 12px; border-radius: 8px; font-size: 11px; color: #64748b; font-family: monospace; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 1px solid #e2e8f0; }
+        
+        .field-list-btn { width: 100%; text-align: left; padding: 15px; border-radius: 12px; margin-bottom: 8px; border: 1px solid transparent; transition: all 0.2s; display: flex; align-items: center; justify-content: space-between; }
+        .field-list-btn.active { background: #2563eb; color: white; box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2); }
+        .field-list-btn.configured { background: #eff6ff; border-color: #dbeafe; color: #1e40af; }
+        .field-list-btn:not(.active):hover { background: #f1f5f9; }
+
+        /* Assistant Styles */
+        .step-badge { width: 24px; height: 24px; background: #dbeafe; color: #2563eb; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; }
+        .config-section-title { font-size: 11px; font-weight: 900; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        .search-input-wrapper { position: relative; margin-bottom: 20px; }
+        .search-input-wrapper input { width: 100%; padding: 15px 15px 15px 45px; background: #f8fafc; border: 2px solid transparent; border-radius: 15px; font-weight: 700; transition: all 0.2s; }
+        .search-input-wrapper input:focus { background: white; border-color: #2563eb; outline: none; box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1); }
+        .search-icon-inside { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
+        
+        .table-ref-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 200px; overflow-y: auto; padding: 10px; background: #f8fafc; border-radius: 15px; margin-bottom: 20px; }
+        .table-ref-item { padding: 10px; border-radius: 8px; font-size: 11px; font-family: monospace; font-weight: 700; text-align: left; transition: all 0.2s; }
+        .table-ref-item:hover { background: #2563eb; color: white; }
+
+        .luxe-select { width: 100%; padding: 15px; background: #f8fafc; border: 2px solid transparent; border-radius: 15px; font-weight: 700; font-size: 13px; outline: none; appearance: none; cursor: pointer; }
+        .luxe-select:focus { border-color: #2563eb; background: white; }
+
+        .sql-preview { background: #0f172a; padding: 20px; border-radius: 20px; color: #38bdf8; font-family: monospace; font-size: 11px; line-height: 1.6; border: 1px solid #1e293b; margin-top: 25px; }
+
+        @keyframes zoomIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        
         .welcome-banner h2 { font-size: 2rem; font-weight: 800; margin: 0 0 10px 0; }
         .banner-icon { opacity: 0.2; }
 

@@ -1,0 +1,80 @@
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Dashboard from './pages/Dashboard';
+import Login from './pages/Login';
+import Admin from './pages/Admin';
+import Budget from './pages/Budget';
+import Profile from './pages/Profile';
+import Certif from './pages/Certif';
+import MailSettings from './pages/MailSettings';
+import EmailTemplates from './pages/EmailTemplates';
+import Tiers from './pages/Tiers';
+import MagappAdmin from './pages/MagappAdmin';
+import AdminSQL from './pages/AdminSQL';
+import TelecomManagement from './pages/TelecomManagement';
+import AdminMessages from './pages/AdminMessages';
+import AccessRequestPage from './pages/AccessRequestPage';
+import AdminAccessRequests from './pages/AdminAccessRequests';
+import AccessRequestOverlay from './components/AccessRequestOverlay';
+import AdminLayout from './components/AdminLayout';
+
+// Protected Route Component
+const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
+  const token = localStorage.getItem('token');
+  let user: any = {};
+  try {
+    const userStr = localStorage.getItem('user');
+    user = JSON.parse(userStr || '{}');
+  } catch (e) {
+    console.error('Erreur lors du parsing du user en localStorage', e);
+  }
+
+  if (!token) return <Navigate to="/login" />;
+  if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/" />;
+  
+  return <>{children}</>;
+};
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AccessRequestOverlay />
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/request-access" element={<AccessRequestPage />} />
+        
+        <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+        <Route path="/budget" element={<PrivateRoute><Budget /></PrivateRoute>} />
+        <Route path="/tiers" element={<PrivateRoute><Tiers /></PrivateRoute>} />
+        <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
+        <Route path="/certif" element={<PrivateRoute><Certif /></PrivateRoute>} />
+        <Route path="/telecom" element={<PrivateRoute><TelecomManagement /></PrivateRoute>} />
+
+        {/* Admin Routes with Sidebar Layout */}
+        <Route 
+          path="/admin" 
+          element={
+            <PrivateRoute allowedRoles={['admin']}>
+              <AdminLayout />
+            </PrivateRoute>
+          }
+        >
+          <Route index element={<Admin section="main" />} />
+          <Route path="users" element={<Admin section="users" />} />
+          <Route path="tiles" element={<Admin section="tiles" />} />
+          <Route path="ad" element={<Admin section="ad" />} />
+          <Route path="glpi" element={<Admin section="glpi" />} />
+          <Route path="oracle" element={<Admin section="oracle" />} />
+          <Route path="messages" element={<AdminMessages />} />
+          <Route path="access-requests" element={<AdminAccessRequests />} />
+          <Route path="mail" element={<MailSettings />} />
+          <Route path="email-templates" element={<EmailTemplates />} />
+          <Route path="magapp" element={<MagappAdmin />} />
+          <Route path="sql" element={<AdminSQL />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;

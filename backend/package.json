@@ -1,0 +1,33 @@
+{
+  "name": "backend",
+  "version": "0.2.6",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.13.6",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "express-ntlm": "^2.7.0",
+    "jsonwebtoken": "^9.0.3",
+    "ldapjs": "^3.0.7",
+    "multer": "^2.1.1",
+    "nodemailer": "^8.0.1",
+    "nodemailer-brevo-transport": "^2.2.1",
+    "nodemailer-sendinblue-transport": "^2.0.1",
+    "oracledb": "^6.10.0",
+    "pdf-parse": "^1.1.1",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.0.2",
+    "xlsx": "^0.18.5"
+  }
+}
