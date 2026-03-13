@@ -801,6 +801,33 @@ app.post('/api/oracle/check-tables', authenticateAdmin, async (req, res) => {
     }
 });
 
+app.post('/api/oracle/table-columns', authenticateAdmin, async (req, res) => {
+    const { type, tableName } = req.body;
+    let connection;
+    try {
+        const settings = await db.get('SELECT * FROM oracle_settings WHERE type = ?', [type]);
+        if (!settings) return res.status(404).json({ success: false, message: "Paramètres non trouvés" });
+
+        connection = await getOracleConnection(settings);
+        
+        // Describe table to get column names
+        const result = await connection.execute(`SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = :t ORDER BY COLUMN_ID`, [tableName.toUpperCase()]);
+        
+        const columns = result.rows.map(row => row[0]);
+        
+        res.json({ 
+            success: true, 
+            columns
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    } finally {
+        if (connection) {
+            try { await connection.close(); } catch (e) {}
+        }
+    }
+});
+
 // --- Oracle Sync Config Routes ---
 app.get('/api/oracle/sync-config/:type', authenticateAdmin, async (req, res) => {
     const { type } = req.params;
@@ -830,7 +857,7 @@ app.post('/api/oracle/sync-config', authenticateAdmin, async (req, res) => {
 });
 
 app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
-    const { type, tables: providedTables, filters: providedFilters } = req.body;
+    const { type, tables: providedTables, filters: providedFilters, substitutions } = req.body;
     
     let tablesToSync = [];
     let connection;
@@ -860,16 +887,56 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
         for (const config of tablesToSync) {
             const tableName = config.table_name;
             try {
-                // Prepare query
-                let query = `SELECT * FROM ${tableName}`;
+                // Gestion des substitutions (Remplacement de code par libellé via jointure)
+                // Format attendu: substitutions[tableName][fieldName] = { secondaryTable, joinField, labelField }
+                const tableSubst = substitutions && substitutions[tableName] ? substitutions[tableName] : {};
+                const hasSubst = Object.keys(tableSubst).length > 0;
+
+                let query;
+                let columnsToImport = [];
+
+                if (!hasSubst) {
+                    query = `SELECT * FROM ${tableName}`;
+                } else {
+                    // Construction d'une requête avec JOIN
+                    let selectParts = [];
+                    let joinParts = [];
+                    let aliasIdx = 1;
+
+                    // 1. Récupérer toutes les colonnes de la table principale pour savoir quoi sélectionner
+                    const colRes = await connection.execute(`SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = :t`, [tableName.toUpperCase()]);
+                    const mainColumns = colRes.rows.map(r => r[0]);
+
+                    for (const col of mainColumns) {
+                        if (tableSubst[col]) {
+                            const { secondaryTable, joinField, labelField } = tableSubst[col];
+                            const alias = `S${aliasIdx++}`;
+                            // On sélectionne le libellé de la table secondaire à la place du champ original
+                            selectParts.push(`${alias}.${labelField} AS ${col}`);
+                            joinParts.push(`LEFT JOIN ${secondaryTable} ${alias} ON T1.${col} = ${alias}.${joinField}`);
+                        } else {
+                            selectParts.push(`T1.${col}`);
+                        }
+                        columnsToImport.push(col);
+                    }
+                    query = `SELECT ${selectParts.join(', ')} FROM ${tableName} T1 ${joinParts.join(' ')}`;
+                }
+
                 const rawWhere = config.where_clause ? config.where_clause.trim() : "";
-                // Oracle: Remplacer les doubles quotes par des simples quotes pour les littéraux (évite ORA-00904)
                 const whereClause = rawWhere.replace(/"/g, "'");
 
                 if (whereClause) {
                     const hasWhere = /^where\s/i.test(whereClause);
                     const formattedWhere = hasWhere ? whereClause : `WHERE ${whereClause}`;
-                    query += ` ${formattedWhere}`;
+                    // Si on a des substitutions, on utilise l'alias T1 pour la table principale dans le WHERE
+                    const finalWhere = hasSubst ? formattedWhere.replace(/(\b[a-zA-Z0-9_]+\b)/g, (match) => {
+                        // On n'ajoute T1. que si ce n'est pas un mot clé SQL réservé simple
+                        const reserved = ['WHERE', 'AND', 'OR', 'LIKE', 'IN', 'NULL', 'IS', 'NOT', 'BETWEEN', 'ORDER', 'BY'];
+                        if (reserved.includes(match.toUpperCase())) return match;
+                        return `T1.${match}`;
+                    }) : formattedWhere;
+                    
+                    query += ` ${hasSubst ? formattedWhere.replace(/\b([a-zA-Z0-9_]+)\b/g, 'T1.$1').replace(/T1\.(WHERE|AND|OR|LIKE|IN|NULL|IS|NOT|BETWEEN)/gi, '$1') : formattedWhere}`;
                 }
 
                 // Fetch data

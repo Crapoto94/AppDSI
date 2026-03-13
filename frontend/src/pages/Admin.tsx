@@ -97,7 +97,49 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [tableFilters, setTableFilters] = useState<Record<string, Record<string, string>>>({});
   const [tableSearch, setTableSearch] = useState<Record<string, string>>({});
   const [importing, setImporting] = useState<Record<string, boolean>>({});
-  const [importReports, setImportReports] = useState<Record<string, any[] | null>>({});
+  const [importReports, setImportReports] = useState<Record<string, any[]>>({});
+  const [tableColumns, setTableColumns] = useState<Record<string, string[]>>({});
+  const [substitutions, setSubstitutions] = useState<Record<string, Record<string, any>>>({});
+  const [activeSubstModal, setActiveSubstModal] = useState<{type: string, table: string} | null>(null);
+  const [loadingCols, setLoadingCols] = useState(false);
+
+  const fetchTableColumns = async (type: string, tableName: string) => {
+    setLoadingCols(true);
+    try {
+      const res = await axios.post('/api/oracle/table-columns', { type, tableName }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTableColumns(prev => ({ ...prev, [`${type}:${tableName}`]: res.data.columns }));
+    } catch (error) {
+      console.error('Erreur colonnes:', error);
+    } finally {
+      setLoadingCols(false);
+    }
+  };
+
+  const handleOpenSubstModal = async (type: string, tableName: string) => {
+    setActiveSubstModal({ type, table: tableName });
+    if (!tableColumns[`${type}:${tableName}`]) {
+      await fetchTableColumns(type, tableName);
+    }
+  };
+
+  const updateSubstitution = (type: string, table: string, field: string, data: any) => {
+    const current = substitutions[type] || {};
+    const tableSubst = current[table] || {};
+    
+    if (!data) {
+      delete tableSubst[field];
+    } else {
+      tableSubst[field] = data;
+    }
+
+    setSubstitutions({
+      ...substitutions,
+      [type]: { ...current, [table]: { ...tableSubst } }
+    });
+  };
+
 
   const { token } = useAuth();
 
@@ -113,7 +155,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const res = await axios.post('/api/oracle/import-tables', { 
         type, 
         tables,
-        filters: tableFilters[type] || {}
+        filters: tableFilters[type] || {},
+        substitutions: substitutions[type] || {}
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -1031,18 +1074,27 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                                   {isSelected && (
                                     <div className="table-filter-input animate-in slide-in-from-left-2 duration-200">
-                                      <input 
-                                        type="text"
-                                        placeholder="Clause WHERE (ex: ANNEE=2024)"
-                                        value={tableFilters[type]?.[tableName] || ''}
-                                        onChange={(e) => {
-                                          const currentFilters = tableFilters[type] || {};
-                                          setTableFilters({
-                                            ...tableFilters,
-                                            [type]: { ...currentFilters, [tableName]: e.target.value }
-                                          });
-                                        }}
-                                      />
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <input 
+                                          type="text"
+                                          className="flex-1"
+                                          placeholder="Clause WHERE (ex: ANNEE=2024)"
+                                          value={tableFilters[type]?.[tableName] || ''}
+                                          onChange={(e) => {
+                                            const currentFilters = tableFilters[type] || {};
+                                            setTableFilters({
+                                              ...tableFilters,
+                                              [type]: { ...currentFilters, [tableName]: e.target.value }
+                                            });
+                                          }}
+                                        />
+                                        <button 
+                                          className="btn-champs-config px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors"
+                                          onClick={() => handleOpenSubstModal(type, tableName)}
+                                        >
+                                          <LayoutGrid size={12} /> Champs
+                                        </button>
+                                      </div>
                                     </div>
                                   )}
                                 </div>
@@ -1311,6 +1363,100 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         )}
                     </div>
                 </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Substitutions Oracle */}
+        {activeSubstModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <div>
+                  <h3 className="text-xl font-black text-gray-900 flex items-center gap-2">
+                    <Database size={20} className="text-blue-600" />
+                    Configuration des champs : {activeSubstModal.table}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">Remplacez un code par sa description via une jointure Oracle.</p>
+                </div>
+                <button onClick={() => setActiveSubstModal(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                {loadingCols ? (
+                  <div className="flex flex-col items-center justify-center py-20 gap-4">
+                    <Loader2 size={40} className="animate-spin text-blue-600" />
+                    <span className="text-sm font-bold text-gray-400">Récupération des colonnes Oracle...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {(tableColumns[`${activeSubstModal.type}:${activeSubstModal.table}`] || []).map(col => {
+                      const subst = substitutions[activeSubstModal.type]?.[activeSubstModal.table]?.[col];
+                      return (
+                        <div key={col} className={`p-4 rounded-xl border-2 transition-all ${subst ? 'border-blue-200 bg-blue-50' : 'border-gray-100 bg-white'}`}>
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="font-mono font-bold text-sm text-gray-700">{col}</span>
+                            {subst ? (
+                              <button 
+                                onClick={() => updateSubstitution(activeSubstModal.type, activeSubstModal.table, col, null)}
+                                className="text-[10px] text-red-500 font-bold hover:underline"
+                              >
+                                Supprimer le remplacement
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-gray-400 italic">Aucun remplacement</span>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-black text-gray-400 uppercase">Table de référence</label>
+                              <input 
+                                type="text" 
+                                className="w-full p-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="ex: SERVICE"
+                                value={subst?.secondaryTable || ''}
+                                onChange={(e) => updateSubstitution(activeSubstModal.type, activeSubstModal.table, col, { ...subst, secondaryTable: e.target.value.toUpperCase() })}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-black text-gray-400 uppercase">Champ de jointure</label>
+                              <input 
+                                type="text" 
+                                className="w-full p-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="ex: CODE_SERV"
+                                value={subst?.joinField || ''}
+                                onChange={(e) => updateSubstitution(activeSubstModal.type, activeSubstModal.table, col, { ...subst, joinField: e.target.value.toUpperCase() })}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-black text-gray-400 uppercase">Champ du libellé</label>
+                              <input 
+                                type="text" 
+                                className="w-full p-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="ex: LIB_SERV"
+                                value={subst?.labelField || ''}
+                                onChange={(e) => updateSubstitution(activeSubstModal.type, activeSubstModal.table, col, { ...subst, labelField: e.target.value.toUpperCase() })}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                <button 
+                  onClick={() => setActiveSubstModal(null)}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-200"
+                >
+                  Terminer la configuration
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -1,6 +1,15 @@
 {
-    "currentVersion": "0.3.5",
+    "currentVersion": "0.3.6",
     "history": [
+        {
+            "version": "0.3.6",
+            "date": "13/03/2026",
+            "changes": [
+                "Oracle : Nouvelle fonctionnalité de substitution de champs lors de l'importation. Permet de remplacer un code par sa description en provenance d'une table secondaire via une jointure dynamique.",
+                "Admin Oracle : Ajout d'une interface de configuration des champs par table avec support des jointures (Table de référence, Champ de jointure, Champ de libellé).",
+                "Backend : Support des projections SQL avec LEFT JOIN dynamiques pour l'import Oracle."
+            ]
+        },
         {
             "version": "0.3.5",
             "date": "13/03/2026",
