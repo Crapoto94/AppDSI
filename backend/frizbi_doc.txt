@@ -1,0 +1,656 @@
+
+
+ 
+ 
+ 
+ 
+FRIZBI 
+ 
+FRIZBI API V2 SPECIFICATIONS TECHNIQUES 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+OBJECTIF DU DOCUMENT 
+ 
+Ce document a pour objectif de décrire techniquement les 
+services de l'API FRIZBI 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+HISTORIQUE DU DOCUMENT 
+ 
+ 
+Version     Date Rédacteur Description 
+2.0 20/12/2019   Marie Di Caro Description des end points d'envois de SMS via la plateforme Frizbi 
+2.1 10/11/2021   Marie Di caro Ajout de la fonctionnalité Envoi de document 
+2.2 10/01/2022   Marie Di Caro Simplification de l’authentification 
+2.2 08/03/2022   Marie Di Caro Ajout des end point des derniers documents non lus 
+ 2.3 
+ 13/10/2023  Marie Di Caro  Mise à jour de l’adresse Preprod V3 
+ 
+ 
+  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+[APIV2 / V2.3] 
+Dernière modification 13/10/2023 
+Auteur Di Caro Marie Version : 2.3 Page 1 / 16 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[API V2 / V2.0] 
+Dernière modification 13/10/2023 
+ 
+ 
+ 
+SOMMAIRE 
+OBJECTIF DU DOCUMENT ............................................................................................................................................................................ 1 
+HISTORIQUE DU DOCUMENT ........................................................................................................................................................................ 2 
+1. DESCRIPTION DE LA SOLUTION ................................................................................................................................................ 3 
+1.1 CARACTERISTIQUES DE LA SOLUTION ................................................................................................................................................ 3 
+1.2 DOCUMENTATION REFERENCE ......................................................................................................................................................... 3 
+2. API .......................................................................................................................................................................................... 4 
+2.1 ENVIRONNEMENTS DE L'API ............................................................................................................................................... 4 
+2.2 AUTHENTIFICATION API ................................................................................................................................................................. 4 
+3. DESCRIPTION DES SERVICES REST ............................................................................................................................................ 7 
+3.1 Envoi d'un message vers un ou plusieurs contacts .............................................................................................................. 7 
+3.2 EXEMPLE D’ENVOI D’UN SMS UNITAIRE : ......................................................................................................................................... 11 
+3.3 SMS : SPECIFICITES TECHNIQUES ................................................................................................................................................... 12 
+3.4 STATUTS D’UN ENVOI UNITAIRE OU D’UNE  CAMPAGNE ..................................................................................................................... 13 
+3.5 SUPPRESSION D’UN ENVOI ........................................................................................................................................................... 13 
+3.6 NOTIFICATION DES STATUTS EN TEMPS REEL .................................................................................................................................... 14 
+3.7 NOTIFICATION DES DOCUMENTS EN TEMPS REEL .............................................................................................................................. 15 
+3.8 RÉCUPÉRATION DES DERNIERS IDENTIFIANTS DE DOCUMENTS ............................................................................................................. 16 
+3.9 RECUPERATION DES DERNIERS DOCUMENTS EN BASE 64 .................................................................................................................... 17 
+ 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+1. DESCRIPTION DE LA SOLUTION 
+ 
+ 
+1.1 CARACTERISTIQUES DE LA SOLUTION 
+ 
+L'api Frizbi V2 est une API REST qui permet 
+ 
+ 
+L'envoi de sms à un ou plusieurs destinataires 
+ 
+La récupération des statuts des envois unitaires ou en masse 
+ 
+La récupération des réponses aux messages envoyés depuis l’API 
+ 
+La notification en temps réel des changements de statuts d'un SMS 
+ 
+ 
+ 
+ 
+1.2 DOCUMENTATION REFERENCE 
+ 
+L'api Frizbi est une api REST et le format de données JSON. Open API et Swagger sont utilisés pour la spécification et la description 
+des apis : La spécification technique des endpoints est accessible sur : https://apiv2.frizbi.evolnet.fr/api/doc/sms.
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+2. API 
+ 
+ 
+ 
+2.1 ENVIRONNEMENTS DE L'API 
+ 
+Deux environnements sont mis à disposition : 
+ 
+ 
+L’environnement de preproduction utilisé en phase de développement client 
+ 
+L’environnement de Production 
+ 
+Le serveur de test est accessible depuis : 
+ 
+https://apiv2.frizbi.evolnet.fr 
+ 
+L'accès à la production doit être demandé auprès de votre contact technique. 
+ 
+2.2 AUTHENTIFICATION API 
+ 
+ 
+Une authentification Oauth 2 JWT est nécessaire pour l’accès aux end points.  
+ 
+Ces clés apis doivent être générées depuis votre accès sur l’application  
+• https://front-v3.frizbi.evolnet.fr pour la préproduction  
+• puis https://www.lesmsagile.com pour la production. 
+. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+  
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+2.2.1 GENERATION DES CLES D'AUTHENTIFICATION API 
+ 
+ 
+Les clés API se génèrent depuis l'interface d'administration de l'application FRIZBI : 
+Pour la preprod : https://front-v3.frizbi.evolnet.fr 
+Pour la production : https://www.lesmsagile.com 
+ 
+Accéder aux paramètres API depuis Admin > Api. 
+ 
+ 
+ 
+ 
+Le bouton « générer les clés d'authentification » permet d'obtenir le client_id et le secret_id. 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+2.2.2 AUTHENTIFICATION VIA L’API 
+ 
+End Point : /api/auth/login 
+Paramètres : 
+- 
+login : key généré en 2.2.1 
+- 
+password : secret généré en 2.2.1 
+Méthode : POST 
+Format : JSON 
+Réponse : Token d’authentification 
+Exemple de requête : 
+curl -X POST "https://apiv2.frizbi.evolnet.fr/api/auth/login " -H "accept: application/json" -H "Content-Type: applica- 
+tion/json" -d "{ \"login\": \"6db82da91a569edc9a976bdf\", \"password\": \"0afa192341ac38a931c3e3e5\"}" 
+ 
+Exemple de réponse : 
+ 
+ 
+Le token est valide 5 minutes et sera à mettre en paramètre de header Authorization de tous les autres end point. Le 
+paramètre header se construit de cette manière : 
+Autorisation : Bearer <token> 
+{ 
+"token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJpYXQiOjE1ODk4Mzc5NzMsImV4cCI6MTU4OTg0MTU3 
+Mywicm9sZXMiOlsiUk9MRV9VU0VSX1NNU19BR0lMRSJdLCJ1c2VybmFtZSI6InVzZXJuYW1lIiwidXNlck 
+lkIjozMDg4LCJhY2NvdW50SWQiOjF9.bHnKv1RwztiS5ohJSJ3r6WrAka-B3SU73sXU- 
+WHs5kXkkBaFEreWR0D3vIk9xnbzIg2K0poVlLWQPkrmCWqiEz82-A2GMgt2t9qmIKSkV4XjzgMAmlFv9S0Qr1YjsRyoExDxwvFgp- 
+gxKAbl7NjczvciSLRdeAuHK2S0FCPAXXK4bX9XzSacvTfU- 
+l2yPyFgl77LqnwcIn8RwUByEguecDixicame5I_CuQisW6gEDbrlnWp6JjHOpYzeLDen769yOO_Zec 
+xwjTAyAr15OWnI1EeIJdYXct9jJkdY57JHBIjoS-Qp4BMUDqgePDnXIVtPa3dUq4BUQ-Wb7Zo7kyl8yWaLkyIn- 
+BgEhILfYqpKarGMsEn90rYS8PJ3AyoBju6k280fUsoiuRD3wy_KvFBOk6YWt1NEddrIeAtwhCibk6vChPEwTRZvbAX33u 
+bsjVXo6tzvdxFrLrr8ANkBjVi8cOGXYLITSFzeNLW800Zr5luCm0SKzmincqCTLI5CAU55XbUJ-nIkD_MQLY 
+_hgD5Z--_WKwjPavdVZFo0T_aQuaFl5v5EikndO573WA0gOqo_KSgyeAtxmHrxTPkbVBfRI6lTlgHTcUBfXRbpLBP 
+n6FeerWVz8oXJ5oWEfi7GZXoZ4Z7G8n9dMOJzMlBOlHbLLSpV7Ue0b5qJzdwekwdF0I" 
+} 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+3. DESCRIPTION DES SERVICES REST 
+ 
+ 
+3.1 ENVOI D'UN MESSAGE VERS UN OU PLUSIEURS CONTACTS 
+ 
+Url : /api/sms/send 
+Type : POST 
+Description : Envoi d'un message à un ou plusieurs contacts. 
+Note : L'envoi d'un message à plusieurs contacts passe automatiquement l'envoi en mode campagne. 
+Paramètres : 
+customerSmsId* 
+string 
+Identifiant unique de l’envoi sms généré par l’appelant du service. 
+ 
+ 
+message* 
+string 
+Contenu du message de type texte. Le message peut contenir des variables liées au contact. 
+Ces variables doivent être préfixées et suffixées par un $. Exemple : Bonjour  $lastname$ 
+$firstname$, merci de nous adresser. Chaque champ de l’objet contact peut être utilisé en 
+variable. De plus, des variables supplémentaires peuvent être renseignées dans le champ. 
+ 
+ smsContacts* 
+Liste de « contacts » 
+Un numéro de téléphone ne peut être utilisé plusieurs fois dans la liste des contacts Description 
+de l'objet « contact » 
+ 
+- customerSmsContactId* 
+ 
+Chaine de caractère obligatoire longueur max 50 caractères. Utile pour la récupération des 
+statuts, réponses etc. 
+ 
+- mobile* 
+ 
+Numéro de téléphone du destinataire.  
+ 
+- lastName 
+ 
+Nom du destinataire 
+ 
+- firstName  
+ 
+Prénom du destinataire 
+ 
+- Variables  
+ 
+       variableKey : clé de la variable  
+ 
+       variableValue : Valeur de la variable 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+ 
+ 
+Paramètres : 
+ 
+ 
+date 
+string($date-time) Exemple de format : 2018-01-26T19:17:00 
+Date d’envoi du sms. Si le champ est vide ou une daté passée renseignée, l'envoi est considéré 
+comme immédiat. 
+ 
+customerSenderId 
+string 
+Identifiant API de l’auteur du sms . Donne à l’application Frizbi la possibilité de télécharger les 
+consommations sms par utilisateur. 
+ 
+ 
+ 
+sendDoc 
+String 
+Boolean true / false. Cette option permet la génération d’un lien unique. Ce lien unique est 
+concaténé à la fin du message. Ce lien unique mène à un formulaire permettant l’envoi de 
+photos. 
+Exemple de message: 
+Bonjour, merci de nous envoyer votre carte d’identité. https://j2s.tel/a/jieef58ejf 
+ 
+ 
+  
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+ 
+Réponse 
+ 
+frizbi_send_id 
+string 
+Identifiant API de l’envoi. 
+customer_sms_id 
+Identifiant unique du client 
+status* Liste de status : 
+   
+ 
+ 
+ 
+status 
+string 
+success  ou 
+error Enum: 
+Array [ 2 ] 
+ 
+details 
+string 
+Détail de l’erreur si status = error 
+code 
+string 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+ 
+ 
+3.2 EXEMPLE D’ENVOI D’UN SMS UNITAIRE : 
+ 
+Appel :  
+curl -X POST "https://apiv2.frizbi.evolnet.fr/api/sms/send" -H  "accept: application/json" -H  "Authorization: Bearer  XXX" -H  
+"Content-Type: application/json" -d "{  \"customerSmsId\": \"test_preprod_sms_02\",  \"date\": \"2023-11-22T08:24:23.008Z\",  
+\"title\": \"Test Envoi\",  \"message\": \"Test envoi avec var $nom_variable$\",  \"customerSenderId\": \"test_preprod_sender_02\",  
+\"smsContacts\": [    {      \"customerSmsContactId\": \"test_preprod_02\",      \"mobile\": \"0660384718\",      \"firstName\": 
+\"test_preprod_02\",      \"lastName\": \"test_preprod_012\",      \"variables\": [        {          \"variableKey\": \"nom_variable\",          
+\"variableValue\": \"test_preprod_01\"        }      ]    }  ],  \"sendDoc\": true}" 
+Réponse :  
+{ 
+  "status": "success", 
+  "frizbi_send_id": 1149, 
+  "customer_sms_id": "test_preprod_sms_02" 
+} 
+                Exemple d’envoi d’un sms vers plusieurs destinataires 
+Appel :  
+curl -X POST "https://apiv2.frizbi.evolnet.fr/api/sms/send" -H  "accept: application/json" -H  "Authorization: Bearer  XXX" -H  
+"Content-Type: application/json" -d "{  \"customerSmsId\": \"test_preprod_sms_03\",  \"date\": \"2023-11-22T08:24:23.008Z\",  
+\"title\": \"Test Envoi\",  \"message\": \"Test envoi avec var $nom_variable$\",  \"customerSenderId\": \"test_preprod_sender_02\",  
+\"smsContacts\": [    {      \"customerSmsContactId\": \"test_preprod_02\",      \"mobile\": \"0660384718\",      \"firstName\": 
+\"test_preprod_02\",      \"lastName\": \"test_preprod_012\",      \"variables\": [        {          \"variableKey\": \"nom_variable\",          
+\"variableValue\": \"test_preprod_01\"        }      ]    }  , 
+,    {      \"customerSmsContactId\": \"test_preprod_03\",      \"mobile\": \"0625392403\",      \"firstName\": \"test_preprod_03\",      
+\"lastName\": \"test_preprod_3\",      \"variables\": [        {          \"variableKey\": \"nom_variable\",          \"variableValue\": 
+\"test_preprod_03\"        }      ]    }   
+],  \"sendDoc\": true}" 
+ 
+ 
+Réponse :  
+{ 
+  "status": "success", 
+  "frizbi_send_id": 1149, 
+  "customer_sms_id": "test_preprod_sms_03" 
+} 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+3.3 Sms : Spécificités techniques 
+  
+Longueur 
+1 sms = 160 caractères. 
+1 sms long = x unités de 153 caractères 
+ 
+ 
+Les caractères suivants comptent double 
+€ [ \ ] ^ { | } ~ 
+LES CARACTÈRES SUIVANTS SONT TRANSFORMÉS LORS DE L’ENVOI : 
+• 
+“a” circonflexe : Â => A ; â => a 
+• 
+“e” circonflexe : Ê => e ; ê => e 
+• 
+“i” circonflexe : Î => i ; î => i 
+• 
+“o” circonflexe : Ô => O ; ô => o 
+• 
+“u" circonflexe : Û => U ; û => u 
+• 
+"e" tréma : Ë => e ; ë => e 
+• 
+"i" tréma : Ï => I ; ï => i 
+• 
+symbole degré : ° => o 
+• 
+"OE" collé : oe = > oe 
+ 
+ 
+Nota : les caractères non-cités ci-dessus sont supprimés du message (exemple : À) 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+3.4 Statuts d’un envoi unitaire ou d’une  campagne 
+EndPoint : /api/sms/status/{customerSmsId} 
+Type : GET 
+Paramètres de de chemin : customerSmsId 
+Description : Historique des statuts d'un envoi (unitaire ou campagne) 
+Diférentes valeurs possible pour « status »: 
+ 
+status_pending_0 : En attente d'envoi 
+ 
+status_pending : En cours d'envoi 
+ 
+status_sent : Envoyé et délivré 
+ 
+status_error : Erreur d'envoi 
+ 
+status_sent_not_delivered : Envoyé en non délivré 
+ 
+status_canceled : Envoi supprimé 
+3.3.1 EXEMPLE D’APPEL : 
+ 
+curl -X GET "https://apiv2.frizbi.evolnet.fr/api/sms/send/api/sms/status/sms-01 " -H "accept: application/json" -H "Au- 
+thorization: Bearer Token" 
+3.3.2 EXEMPLE DE REPONSE AU FORMAT JSON : 
+[ 
+  { 
+    "customerSmsContactId": "test_preprod_02", 
+    "sms": { 
+      "customerSmsId": "test_preprod_sms_02" 
+    }, 
+    "mobile": "+33660384718", 
+    "responses": [], 
+    "smsContactStatuses": [ 
+      { 
+        "code": "waiting", 
+        "brokerDescription": "SMS programmé", 
+        "date": "2023-11-22T09:32:00+01:00" 
+      }, 
+      { 
+        "code": "pending", 
+        "brokerDescription": "SMS envoyé, en cours de traitement", 
+        "date": "2023-11-22T09:32:00+01:00" 
+      }, 
+      { 
+        "code": "sent", 
+        "brokerDescription": "SMS reçu", 
+        "date": "2023-11-22T09:32:00+01:00" 
+      } 
+    ], 
+    "status": { 
+      "code": "sent", 
+      "brokerDescription": "SMS reçu", 
+      "date": "2023-11-22T09:32:00+01:00" 
+    } 
+  } 
+]
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+ 
+3.5 Suppression d’un envoi 
+ 
+Url : /api/sms/delete/{customerSmsId} 
+Type : POST 
+Description : Suppression d'un envoi unitaire ou d'une campagne 
+ 
+CustomerSmsId identifiant unique de la campagne. 
+Note : Seuls les envois différés de plus de deux minutes peuvent être supprimés.
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+3.6 Notification des statuts en temps réel 
+ 
+Il est possible de renseigner une url permettant d'être notifié lors de la réception d'une réponse ou la mise à jour d'un statut. 
+Cette url peut être paramétrée depuis la plate-forme le sms agile (via admin > api) 
+ 
+ 
+Pour cet exemple l'appel se fera à cette url : 
+https://www.monapplication/?customerSmsContactId=[customer_sms_contact_id] 
+CustomerSmsContactId: Identifiant unique du sms contact généré par l’appelant. 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+ 
+3.7 Notification des documents en temps réel 
+ 
+Le champ « sendDoc » permet l’ajout à la fin du message d’un lien unique. Ce lien unique permet l’envoi d’une photo via 
+l’application https://www.lesmsagile.com ou https://preprod.smsagile.evolnet.fr . 
+ 
+A la réception du document la plateforme Frizbi notifie l’arrivée d’un document de la même manière que les statuts. 
+Cette notification se fait suivant le lien : 
+customerSmsContactId=[customer_sms_contact_id]&type=document&docReqId=[identitfiantdocumentfrizbi] 
+ 
+  
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+ 
+Le document est stocké 3 mois sur le serveur Frizbi, il est possible de le télécharger à partir du end point 
+/api/sms/document/get-doc/{id} 
+Id : Identifiant Frizbi unique 
+L’appel du endpoint retourne une réponse au format JSON avec un champ « file ». 
+ 
+Exemple de retour : 
+{ 
+"file": "da- 
+ta:image/JPG;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAg 
+GBgUGCQgKCgkICQkK- 
+DA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBA 
+QEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCABKBAADAREAAhEBAxEB/8QAHwAAAQ 
+UBAQEBAQEAAAAAAAAAAAECAw- 
+QFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM 
+2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJ 
+ip- 
+KTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+ 
+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEE 
+BSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvA- 
+VYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhY 
+aHiImKkpOUlZaXmJmao- 
+qOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIR 
+AxEAPwD9U6AGt3o6MT3R8xfG/wD5KLff9coP/QBX2WSf7sfnvEP++M5nwj/yNmi/9hG2/wDRq16GM/gT9Dz 
+cB/vMPU+ne9fEL4pH6WtohQUwoAKACgAoAKACgAoAKACgAoAKAAdaAGr1b6/0oAdQAUAFABQAUAFABQAUAF 
+ABQAUAFAB- 
+QAUAA60AInQ/U0ALQAUAFABQAUAFABQAUAFABQAUAFABQAUAFABQAUAFABQAUAFABQAUAFABQAUAFABQAUA 
+FABQAUAFABQAUAFABQAUAFABQAUAFABQAUAFABQAUAFABQAUAFABQAUAFAB- 
+QAUANf7jfQ0AO7D6UAFABQAUAFABQAUAF... 
+} 
+ 
+3.8 RÉCUPÉRATION DES DERNIERS IDENTIFIANTS DE DOCUMENTS 
+End point : /api/sms/document/last-documentIds 
+ 
+Cette api renvoi les identifiants des documents qui n’ont pas été encore consultés par l’utilisateur 
+API. 
+ 
+Exemple de réponse : 
+[ 
+{ 
+"id": 5, 
+
+Frizbi API V2 
+Spécifications techniques 
+ 
+ 
+[FRIZBI API / V2.0] 
+Dernière modification 10/11/2021 
+"integrationDate": "2020-11-17T21:26:50+01:00", 
+"image": "5fb2714205a5e_5fb4320a2fe61.png", 
+"customerSmsContactId": "456" 
+}, 
+{ 
+"id": 4, 
+"integrationDate": "2020-11-17T21:16:36+01:00", 
+"image": "5fb2714205a5e_5fb42fa47616c.png", 
+"customerSmsContactId": "testmdc004" 
+} 
+] 
+ 
+ 
+ 
+3.9 RECUPERATION DES DERNIERS DOCUMENTS EN BASE 64 
+End point : /api/sms/document/last-documentIds 
+ 
+Cette api renvoie les documents en base 64 qui n’ont pas été encore consultés par l’utilisateur API. 
+[ 
+{ 
+"id": 5, 
+"file": "da- 
+ta:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA6oAAAF7CAYAAADbgXa9AAAgAElEQVR4nOzdL5A 
+U5/b/8Y9AIBAIBCKid2ZD7a0gEBERES0iIiIQERERKyIiEIjcnYYbMVURERGIiAjEIyIiIhAREREtIhAIBA 
+KBaEEVM7sk2brFtwqB6J9o9ncXWNh/ffrT3fN+VR1xSS7p8zxnnp4z3f20BAAAAAAAAAAAAAAAAAAAAAAAA 
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA 
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA 
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA 
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA 
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEOOC- 
+pA8lfS7pG0nzfZHeErf2/TtfS9qUlEu62NVBAwAAAACG77KkryT9KOl3SQ8lPZdUtxy7ku6qaWgLSVfVNMM 
+AAMDvjKTsZ ... ", 
+"integrationDate": "2020-11-17T21:26:50+01:00", 
+"image": "5fb2714205a5e_5fb4320a2fe61.png", 
+"customerSmsContactId": "456" 
+} 
+] 

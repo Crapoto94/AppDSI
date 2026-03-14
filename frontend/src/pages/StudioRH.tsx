@@ -10,7 +10,8 @@ import Header from '../components/Header';
 import {
   LayoutDashboard,
   Settings as SettingsIcon, Activity,
-  Bell, Lock, Sliders, Eye, EyeOff
+  Bell, Lock, Sliders, Eye, EyeOff, Cloud, CloudOff,
+  Database, ShieldCheck, Monitor, MonitorOff
 } from 'lucide-react';
 
 interface ColumnSetting {
@@ -44,6 +45,16 @@ interface Agent {
   ad_username?: string | null;
   date_plusvu?: string | null;
   [key: string]: any; // Allow all other Oracle fields dynamically
+}
+
+interface SyncLog {
+  id: number;
+  sync_type: string;
+  status: 'success' | 'error';
+  message: string;
+  details: string; // JSON string
+  created_at: string;
+  username: string | null;
 }
 
 
@@ -156,19 +167,29 @@ const EncadrantsView: React.FC<EncadrantsViewProps> = ({ headers }) => {
                         <div style={{ width: '40px', height: '40px', background: level.color + '22', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: level.color, fontSize: '14px', flexShrink: 0 }}>
                           {(agent.PRENOM || agent.prenom)?.[0]}{(agent.NOM || agent.nom)?.[0]}
                         </div>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {agent.NOM || agent.nom} {agent.PRENOM || agent.prenom}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {agent.POSTE_L || agent.poste_l || '-'}
-                          </div>
-                          {(agent.DIRECTION_L || agent.SERVICE_L) && (
-                            <div style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {agent.DIRECTION_L || agent.SERVICE_L}
-                            </div>
-                          )}
-                        </div>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                             <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                               {agent.NOM || agent.nom} {agent.PRENOM || agent.prenom}
+                             </div>
+                             {['dir', 'service'].includes(level.id) && agent.subordinate_count !== undefined && (
+                               <div
+                                 title={`${agent.subordinate_count} agents actifs sous sa responsabilité`}
+                                 style={{ background: level.color + '18', color: level.color, borderRadius: '6px', padding: '1px 6px', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}
+                               >
+                                 {agent.subordinate_count}
+                               </div>
+                             )}
+                           </div>
+                           <div style={{ fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                             {agent.POSTE_L || agent.poste_l || '-'}
+                           </div>
+                           {(agent.DIRECTION_L || agent.SERVICE_L) && (
+                             <div style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                               {agent.DIRECTION_L || agent.SERVICE_L}
+                             </div>
+                           )}
+                         </div>
                       </div>
                     ))}
                   </div>
@@ -196,7 +217,7 @@ const StudioRH: React.FC = () => {
   const [totalAgents, setTotalAgents] = useState(0);
   const [page, setPage] = useState(1);
   const [syncingAD, setSyncingAD] = useState(false);
-  const [adSyncStatus, setAdSyncStatus] = useState({ current: 0, total: 0, status: 'idle' });
+  const [adSyncStatus, setAdSyncStatus] = useState({ current: 0, total: 0, status: 'idle', currentName: '', associations: 0 });
   const [proposals, setProposals] = useState<any[]>([]);
   const [showProposalsModal, setShowProposalsModal] = useState(false);
 
@@ -204,19 +225,44 @@ const StudioRH: React.FC = () => {
   const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
   const [currentView, setCurrentView] = useState<'dashboard' | 'users' | 'encadrants' | 'settings' | 'logs'>('users');
 
+  // Manual linking states
+  const [linkingAgent, setLinkingAgent] = useState<Agent | null>(null);
+  const [adSearchTerm, setAdSearchTerm] = useState('');
+  const [adSearchResults, setAdSearchResults] = useState<any[]>([]);
+  const [isSearchingAD, setIsSearchingAD] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  // Azure sync states
+  const [syncingAzure, setSyncingAzure] = useState(false);
+  const [azureSyncStatus, setAzureSyncStatus] = useState({ current: 0, total: 0, status: 'idle' });
+
+  // Details Modal states
+  const [viewingDetailsAgent, setViewingDetailsAgent] = useState<Agent | null>(null);
+  const [agentFullDetails, setAgentFullDetails] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'rh' | 'ad' | 'azure'>('rh');
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [activePositions, setActivePositions] = useState<string[]>([]);
+  const [availablePositions, setAvailablePositions] = useState<string[]>([]);
+  const [showActivePositionsModal, setShowActivePositionsModal] = useState(false);
+  const [isSavingPositions, setIsSavingPositions] = useState(false);
+
+  const [logs, setLogs] = useState<SyncLog[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
   const token = localStorage.getItem('token');
   const headers = React.useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
   const formatDateFr = (dateStr: string | null | undefined) => {
     if (!dateStr) return '-';
     try {
-      // Fix: Handle long date strings from Oracle more gracefully
-      const cleanDate = String(dateStr).split(' (')[0]; 
-      const d = new Date(cleanDate);
-      if (isNaN(d.getTime())) return dateStr;
+      const d = new Date(dateStr);
+      // Check if the date is valid and not a default invalid date (e.g., from "null" string)
+      if (isNaN(d.getTime()) || d.getFullYear() < 1900) { // Arbitrary lower bound for valid dates
+        return dateStr; // Return original string if parsing failed or date is clearly invalid
+      }
       return d.toLocaleDateString('fr-FR');
     } catch (e) {
-      return dateStr;
+      return dateStr; // Fallback to original string on error
     }
   };
 
@@ -273,13 +319,48 @@ const StudioRH: React.FC = () => {
     }
   };
 
+  const fetchActivePositions = async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get('/api/admin/rh/active-positions', { headers });
+      setActivePositions(res.data);
+    } catch (err) {
+      console.error('Erreur positions actives', err);
+    }
+  };
+
+  const fetchAvailablePositions = async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get('/api/admin/rh/positions', { headers });
+      setAvailablePositions(res.data);
+    } catch (err) {
+      console.error('Erreur positions disponibles', err);
+    }
+  };
+
+  const fetchLogs = useCallback(async () => {
+    if (!token) return;
+    setLoadingLogs(true);
+    try {
+      const res = await axios.get('/api/admin/rh/logs', { headers });
+      setLogs(res.data);
+    } catch (err) {
+      console.error('Erreur logs', err);
+    } finally {
+      setLoadingLogs(false);
+    }
+  }, [headers, token]);
+
   useEffect(() => {
     if (token) {
       fetchStats();
       fetchProposals();
       fetchColumnSettings();
+      fetchActivePositions();
+      if (currentView === 'logs') fetchLogs();
     }
-  }, [token]);
+  }, [token, currentView, fetchLogs]);
 
   // Debounced search / filter / page
   useEffect(() => {
@@ -314,18 +395,16 @@ const StudioRH: React.FC = () => {
     setSyncingAD(true);
     try {
       await axios.post('/api/admin/rh/sync-ad', {}, { headers });
-      // Start polling
       const interval = setInterval(async () => {
         try {
           const res = await axios.get('/api/admin/rh/sync-ad/progress', { headers });
           setAdSyncStatus(res.data);
-          if (res.data.status !== 'running') {
-            clearInterval(interval);
             setSyncingAD(false);
             fetchStats();
-            fetchProposals();
-            if (res.data.status === 'done') setShowProposalsModal(true);
-          }
+            // Retiré à la demande de l'utilisateur : ne pas afficher automatiquement 
+            if (res.data.status === 'done') {
+              setSyncMessage({ type: 'success', text: `Synchronisation AD terminée : ${res.data.associations || 0} associations confirmées.` });
+            }
         } catch (e) {
           clearInterval(interval);
           setSyncingAD(false);
@@ -334,6 +413,32 @@ const StudioRH: React.FC = () => {
     } catch (err) {
       setSyncingAD(false);
       alert('Erreur lors du lancement de la synchro AD');
+    }
+  };
+
+  const startAzureSync = async () => {
+    if (!token) return;
+    setSyncingAzure(true);
+    try {
+      await axios.post('/api/admin/rh/sync-azure', {}, { headers });
+      const interval = setInterval(async () => {
+        try {
+          const res = await axios.get('/api/admin/rh/sync-azure/progress', { headers });
+          setAzureSyncStatus(res.data);
+          if (res.data.status !== 'running') {
+            clearInterval(interval);
+            setSyncingAzure(false);
+            fetchStats();
+            if (hasSearched) fetchAgents(searchTerm || undefined, activeFilter, page, limit);
+          }
+        } catch (e) {
+          clearInterval(interval);
+          setSyncingAzure(false);
+        }
+      }, 1000);
+    } catch (err) {
+      setSyncingAzure(false);
+      alert('Erreur lors du lancement de la synchro Azure');
     }
   };
 
@@ -361,6 +466,72 @@ const StudioRH: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleManualSearchAD = async () => {
+    if (!adSearchTerm || adSearchTerm.length < 2) return;
+    setIsSearchingAD(true);
+    setLinkError(null);
+    try {
+      const res = await axios.get('/api/admin/rh/ad-search', {
+        headers,
+        params: { q: adSearchTerm }
+      });
+      setAdSearchResults(res.data);
+    } catch (err: any) {
+      setLinkError(err.response?.data?.message || 'Erreur lors de la recherche AD');
+    } finally {
+      setIsSearchingAD(false);
+    }
+  };
+
+  const handleConfirmLink = async (adUsername: string) => {
+    if (!linkingAgent) return;
+    try {
+      await axios.post('/api/admin/rh/associate', {
+        matricule: linkingAgent.matricule,
+        ad_username: adUsername
+      }, { headers });
+      
+      setLinkingAgent(null);
+      setAdSearchTerm('');
+      setAdSearchResults([]);
+      fetchStats();
+      fetchAgents(searchTerm || undefined, activeFilter, page, limit);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Erreur lors de l’association');
+    }
+  };
+
+  const loadAgentDetails = async (agent: Agent) => {
+    setViewingDetailsAgent(agent);
+    setIsLoadingDetails(true);
+    setAgentFullDetails(null);
+    setActiveTab('rh');
+    try {
+      const res = await axios.get(`/api/admin/rh/agent-details/${agent.matricule}`, { headers });
+      setAgentFullDetails(res.data);
+    } catch (err) {
+      console.error("Error loading agent details:", err);
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  };
+
+  const saveActivePositions = async (positions: string[]) => {
+    if (!token) return;
+    setIsSavingPositions(true);
+    try {
+      await axios.post('/api/admin/rh/active-positions', { positions }, { headers });
+      setActivePositions(positions);
+      fetchStats();
+      fetchAgents(searchTerm || undefined, activeFilter, page, limit);
+      setShowActivePositionsModal(false);
+    } catch (err) {
+      alert('Erreur lors de la sauvegarde des positions');
+    } finally {
+      setIsSavingPositions(false);
+    }
   };
 
   const menuItems = [
@@ -450,14 +621,17 @@ const StudioRH: React.FC = () => {
                   </div>
                 </div>
 
-                {syncingAD && adSyncStatus.total > 0 && (
-                  <div className="ad-sync-progress-container" style={{ background: 'white', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                    <div className="progress-info" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 700, color: '#3b82f6', marginBottom: '10px' }}>
-                      <span>Synchronisation AD en cours...</span>
-                      <span>{adSyncStatus.current} / {adSyncStatus.total}</span>
+                {(syncingAD || syncingAzure) && (
+                  <div className="sync-progress-container" style={{ background: 'white', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div className="progress-info" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 700, color: syncingAD ? '#3b82f6' : '#8b5cf6', marginBottom: '10px' }}>
+                      <span>{syncingAD ? (adSyncStatus.currentName || 'Synchronisation AD...') : 'Synchronisation Azure AD...'}</span>
+                      <div style={{ display: 'flex', gap: '15px' }}>
+                        {syncingAD && adSyncStatus.associations > 0 && <span style={{ color: '#059669' }}>{adSyncStatus.associations} associations</span>}
+                        <span>{syncingAD ? adSyncStatus.current : azureSyncStatus.current} / {syncingAD ? adSyncStatus.total : azureSyncStatus.total}</span>
+                      </div>
                     </div>
                     <div className="progress-bar-bg" style={{ height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div className="progress-bar-fill" style={{ height: '100%', background: '#3b82f6', width: `${(adSyncStatus.current / adSyncStatus.total) * 100}%` }}></div>
+                      <div className="progress-bar-fill" style={{ height: '100%', background: syncingAD ? '#3b82f6' : '#8b5cf6', width: syncingAD ? `${(adSyncStatus.current / adSyncStatus.total) * 100}%` : `${(azureSyncStatus.current / azureSyncStatus.total) * 100}%` }}></div>
                     </div>
                   </div>
                 )}
@@ -477,18 +651,34 @@ const StudioRH: React.FC = () => {
                     <select value={activeFilter || ''} onChange={(e) => { setActiveFilter(e.target.value || null); setPage(1); }} style={{ padding: '10px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#f1f5f9', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
                       <option value="">Tous les utilisateurs</option>
                       <option value="actif">Agents actifs</option>
+                      <option value="non_actif">Agents non-actifs</option>
                       <option value="parti">Agents partis</option>
                       <option value="future">Arrivées futures</option>
                       <option value="ad_linked">Compte AD lié</option>
                       <option value="ad_unlinked">Compte AD non lié</option>
                     </select>
                   </div>
-                  <div className="action-buttons" style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
-                    <button className="btn-icon" onClick={handleSync} title="Synchroniser Oracle"><RefreshCw size={18} className={syncing ? 'spin' : ''} /></button>
-                    <button className="btn-icon" onClick={startADSync} title="Synchroniser AD"><MonitorIcon size={18} className={syncingAD ? 'spin' : ''} /></button>
-                    <button className="btn-icon" onClick={handleDownload} title="Télécharger CSV"><Download size={18} /></button>
-                    <button className="btn-icon" onClick={() => setShowColumnSettings(true)} title="Gérer les colonnes"><Columns size={18} /></button>
-                    <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', backgroundColor: '#059669', color: 'white', borderRadius: '8px', fontWeight: 600, fontSize: '14px', border: 'none', cursor: 'pointer' }} title="Ajouter un agent">
+                  <div className="action-buttons" style={{ display: 'flex', gap: '10px', marginLeft: 'auto' }}>
+                    <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                      <button className="btn-toolbar" onClick={handleSync} title="Synchroniser Oracle">
+                        <RefreshCw size={18} className={syncing ? 'spin' : ''} style={{ color: '#059669' }} />
+                      </button>
+                      <button className="btn-toolbar" onClick={startADSync} title="Synchroniser Active Directory">
+                        <MonitorIcon size={18} className={syncingAD ? 'spin' : ''} style={{ color: '#3b82f6' }} />
+                      </button>
+                      <button className="btn-toolbar" onClick={startAzureSync} title="Synchroniser Azure AD (Entra)">
+                        <Cloud size={18} className={syncingAzure ? 'spin' : ''} style={{ color: '#8b5cf6' }} />
+                      </button>
+                      <div style={{ width: '1px', background: '#e2e8f0', margin: '4px 8px' }} />
+                      <button className="btn-toolbar" onClick={handleDownload} title="Exporter CSV">
+                        <Download size={18} style={{ color: '#64748b' }} />
+                      </button>
+                      <button className="btn-toolbar" onClick={() => setShowColumnSettings(true)} title="Gérer les colonnes">
+                        <Columns size={18} style={{ color: '#64748b' }} />
+                      </button>
+                    </div>
+                    
+                    <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', backgroundColor: '#059669', color: 'white', borderRadius: '10px', fontWeight: 600, fontSize: '14px', border: 'none', cursor: 'pointer', boxShadow: '0 4px 12px rgba(5, 150, 105, 0.2)', transition: 'transform 0.2s' }} className="btn-add">
                       <UserPlus size={18} />
                       <span>Ajouter</span>
                     </button>
@@ -514,8 +704,8 @@ const StudioRH: React.FC = () => {
                         <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Matricule</th>
                         <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Service</th>
                         <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Direction</th>
-                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Connexion AD</th>
-                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Départ</th>
+                        <th style={{ textAlign: 'center', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Connexion AD/Azure</th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Départ/Arrivée</th>
                         <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Statut</th>
                       </tr>
                     </thead>
@@ -528,29 +718,121 @@ const StudioRH: React.FC = () => {
                         agents.map((agent) => (
                           <tr key={agent.matricule} style={{ opacity: loadingAgents ? 0.6 : 1, transition: 'opacity 0.2s' }}>
                             <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}><input type="checkbox" /></td>
-                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ width: '40px', height: '40px', background: '#f1f5f9', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#64748b', fontSize: '14px' }}>
-                                  {agent.prenom?.[0]}{agent.nom?.[0]}
-                                </div>
-                                <div>
-                                  <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13.5px' }}>{agent.nom} {agent.prenom}</div>
-                                  <div style={{ fontSize: '12px', color: '#64748b' }}>{agent.POSTE_L || agent.FONCTION || '-'}</div>
-                                </div>
-                              </div>
-                            </td>
-                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', color: '#64748b', fontSize: '13px' }}>{agent.matricule}</td>
-                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{agent.SERVICE_L}</td>
-                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{agent.DIRECTION_L}</td>
-                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{formatDateFr(agent.last_logon_timestamp || agent.date_derniere_connexion_ad)}</td>
-                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{formatDateFr(agent.DATE_DEPART)}</td>
-                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                {!agent.ad_username && <Link2Off size={16} style={{ color: '#f97316' }} />}
-                                {agent.date_plusvu && <AlertCircle size={16} style={{ color: '#ef4444' }} />}
-                                {agent.ad_username && <CheckCircle2 size={16} style={{ color: '#22c55e' }} />}
-                              </div>
-                            </td>
+                             <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                 <div style={{ 
+                                   width: '40px', 
+                                   height: '40px', 
+                                   background: '#f1f5f9', 
+                                   borderRadius: '10px', 
+                                   display: 'flex', 
+                                   alignItems: 'center', 
+                                   justifyContent: 'center', 
+                                   fontWeight: 700, 
+                                   color: '#64748b', 
+                                   fontSize: '14px',
+                                   position: 'relative',
+                                   border: (agent.DATE_ARRIVEE && agent.DATE_ARRIVEE !== '' && new Date(agent.DATE_ARRIVEE) > new Date()) ? '2px dashed #3b82f6' : 'none',
+                                   textDecoration: (agent.DATE_DEPART && agent.DATE_DEPART !== '' && new Date(agent.DATE_DEPART) <= new Date()) ? 'line-through' : 'none'
+                                 }}>
+                                   {agent.prenom?.[0]}{agent.nom?.[0]}
+                                 </div>
+                                 <div 
+                                   onClick={() => loadAgentDetails(agent)}
+                                   style={{ cursor: 'pointer' }}
+                                 >
+                                   <div style={{ fontWeight: 700, color: '#3b82f6', fontSize: '13.5px' }} className="agent-name-link">{agent.nom} {agent.prenom}</div>
+                                   <div style={{ fontSize: '12px', color: '#64748b' }}>{agent.POSTE_L || agent.FONCTION || '-'}</div>
+                                 </div>
+                               </div>
+                             </td>
+                             <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', color: '#64748b', fontSize: '13px' }}>{agent.matricule}</td>
+                             <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{agent.SERVICE_L}</td>
+                             <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{agent.DIRECTION_L}</td>
+                             <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', textAlign: 'center' }}>
+                               <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', alignItems: 'center' }}>
+                                 {agent.ad_username ? (
+                                   <div title={agent.ad_account_enabled ? `Compte AD actif: ${agent.ad_username}` : `Compte AD désactivé: ${agent.ad_username}`}>
+                                     <MonitorIcon 
+                                       size={18} 
+                                       style={{ color: agent.ad_account_enabled ? '#3b82f6' : '#94a3b8' }} 
+                                     />
+                                   </div>
+                                 ) : (
+                                   <div title="Aucun lien AD">
+                                     <MonitorOff size={18} style={{ color: '#cbd5e1', opacity: 0.5 }} />
+                                   </div>
+                                 )}
+                                 {agent.azure_id ? (
+                                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title={`Lié à Entra ID: ${agent.azure_id}${agent.azure_license ? ` (${agent.azure_license})` : ''}`}>
+                                     <Cloud size={18} style={{ color: '#8b5cf6' }} />
+                                     {agent.azure_license && (
+                                       <span style={{ 
+                                         fontSize: '9px', 
+                                         fontWeight: 800, 
+                                         padding: '1px 5px', 
+                                         borderRadius: '4px',
+                                         backgroundColor: agent.azure_license.includes('E5') ? '#faf5ff' : 
+                                                          agent.azure_license.includes('E3') ? '#eff6ff' : 
+                                                          agent.azure_license.includes('PREMIUM') ? '#f0fdf4' : '#f8fafc',
+                                         color: agent.azure_license.includes('E5') ? '#7e22ce' : 
+                                                agent.azure_license.includes('E3') ? '#1d4ed8' : 
+                                                agent.azure_license.includes('PREMIUM') ? '#15803d' : '#64748b',
+                                         border: `1px solid ${
+                                           agent.azure_license.includes('E5') ? '#e9d5ff' : 
+                                           agent.azure_license.includes('E3') ? '#dbeafe' : 
+                                           agent.azure_license.includes('PREMIUM') ? '#bbf7d0' : '#e2e8f0'
+                                         }`
+                                       }}>
+                                         {agent.azure_license.includes('E5') ? 'E5' : 
+                                          agent.azure_license.includes('E3') ? 'E3' : 
+                                          agent.azure_license.includes('PREMIUM') ? 'BP' : 
+                                          agent.azure_license.includes('STANDARD') ? 'BS' : 
+                                          agent.azure_license.split('_').pop()}
+                                       </span>
+                                     )}
+                                   </div>
+                                 ) : (
+                                   <div title="Aucun lien Azure">
+                                     <CloudOff size={18} style={{ color: '#cbd5e1', opacity: 0.5 }} />
+                                   </div>
+                                 )}
+                               </div>
+                             </td>
+                             <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
+                               {agent.DATE_DEPART ? (
+                                 <div style={{ color: new Date(agent.DATE_DEPART) <= new Date() ? '#ef4444' : '#f59e0b', fontWeight: 600 }}>
+                                    Départ: {formatDateFr(agent.DATE_DEPART)}
+                                 </div>
+                               ) : (agent.DATE_ARRIVEE && agent.DATE_ARRIVEE !== '' && new Date(agent.DATE_ARRIVEE) > new Date()) ? (
+                                 <div style={{ color: '#3b82f6', fontWeight: 600 }}>
+                                    Arrivée: {formatDateFr(agent.DATE_ARRIVEE)}
+                                 </div>
+                               ) : '-'}
+                             </td>
+                             <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                 {!agent.ad_username && (
+                                   <button
+                                     onClick={() => {
+                                       setLinkingAgent(agent);
+                                       setAdSearchTerm(agent.nom);
+                                       setAdSearchResults([]);
+                                     }}
+                                     className="icon-link-btn"
+                                     title="Lier manuellement un compte AD"
+                                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex' }}
+                                   >
+                                     <Link2Off size={16} style={{ color: '#f97316' }} />
+                                   </button>
+                                 )}
+                                 {agent.date_plusvu && (
+                                   <div title="Agent non trouvé lors de la dernière synchro RH">
+                                     <AlertCircle size={16} style={{ color: '#ef4444' }} />
+                                   </div>
+                                 )}
+                               </div>
+                             </td>
                           </tr>
                         ))
                       )}
@@ -584,17 +866,144 @@ const StudioRH: React.FC = () => {
             {currentView === 'settings' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <h1 style={{ fontSize: '24px', fontWeight: 700 }}>Paramètres du Studio</h1>
-                <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                  <p style={{ color: '#64748b' }}>Configuration des synchronisations et des seuils de correspondance.</p>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                  <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '40px', height: '40px', background: '#ecfdf5', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#059669' }}>
+                        <CheckCircle2 size={20} />
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Définition des agents actifs</h3>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>Configurez les positions RH considérées comme activités réelles.</p>
+                      </div>
+                    </div>
+                    <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
+                      <div style={{ fontSize: '13px', color: '#0f172a', marginBottom: '12px' }}>
+                        {activePositions.length > 0 ? (
+                          <span><b>{activePositions.length}</b> positions sélectionnées comme "Actives".</span>
+                        ) : (
+                          <span style={{ color: '#ef4444' }}><b>Aucune position sélectionnée.</b> Tous les agents non-partis sont affichés par défaut.</span>
+                        )}
+                      </div>
+                      <button 
+                        onClick={() => {
+                          fetchAvailablePositions();
+                          setShowActivePositionsModal(true);
+                        }}
+                        style={{ width: '100%', padding: '10px', backgroundColor: '#059669', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                      >
+                        <SettingsIcon size={16} />
+                        Gérer les positions actives
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', opacity: 0.6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '40px', height: '40px', background: '#f1f5f9', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                        <Sliders size={20} />
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Paramètres avancés</h3>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>Seuils de correspondance et règles de synchronisation.</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
             {currentView === 'logs' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                <h1 style={{ fontSize: '24px', fontWeight: 700 }}>Logs du Studio</h1>
-                <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                  <p style={{ color: '#64748b' }}>Historique des synchronisations Oracle et AD.</p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Logs de synchronisation</h1>
+                  <button 
+                    onClick={fetchLogs}
+                    disabled={loadingLogs}
+                    style={{ padding: '8px 16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b' }}
+                  >
+                    <RefreshCw size={16} className={loadingLogs ? 'spin' : ''} />
+                    Actualiser
+                  </button>
+                </div>
+
+                <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: '16px 20px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', width: '180px' }}>Date</th>
+                        <th style={{ padding: '16px 20px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', width: '150px' }}>Type</th>
+                        <th style={{ padding: '16px 20px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', width: '100px' }}>Statut</th>
+                        <th style={{ padding: '16px 20px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase' }}>Message / Détails</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loadingLogs && logs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ padding: '40px', textAlign: 'center' }}>
+                            <Loader2 className="spin" size={24} style={{ margin: '0 auto', color: '#94a3b8' }} />
+                          </td>
+                        </tr>
+                      ) : logs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>Aucun log disponible</td>
+                        </tr>
+                      ) : (
+                        logs.map((log) => {
+                          const date = new Date(log.created_at);
+                          const details = log.details ? JSON.parse(log.details) : null;
+                          return (
+                            <tr key={log.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '16px 20px', fontSize: '13px', color: '#0f172a' }}>
+                                <div style={{ fontWeight: 600 }}>{date.toLocaleDateString('fr-FR')}</div>
+                                <div style={{ fontSize: '11px', color: '#64748b' }}>{date.toLocaleTimeString('fr-FR')}</div>
+                              </td>
+                              <td style={{ padding: '16px 20px' }}>
+                                <span style={{ 
+                                  padding: '4px 10px', 
+                                  borderRadius: '6px', 
+                                  fontSize: '12px', 
+                                  fontWeight: 700,
+                                  background: log.sync_type.includes('AD') ? '#eff6ff' : log.sync_type.includes('Azure') ? '#f5f3ff' : '#ecfdf5',
+                                  color: log.sync_type.includes('AD') ? '#2563eb' : log.sync_type.includes('Azure') ? '#7c3aed' : '#059669'
+                                }}>
+                                  {log.sync_type}
+                                </span>
+                              </td>
+                              <td style={{ padding: '16px 20px' }}>
+                                <div style={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  gap: '6px',
+                                  color: log.status === 'success' ? '#059669' : '#dc2626',
+                                  fontSize: '13px',
+                                  fontWeight: 700
+                                }}>
+                                  {log.status === 'success' ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                                  {log.status === 'success' ? 'Succès' : 'Erreur'}
+                                </div>
+                              </td>
+                              <td style={{ padding: '16px 20px' }}>
+                                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>{log.message}</div>
+                                {details && (
+                                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                    {Object.entries(details).map(([k, v]: [string, any]) => (
+                                      k !== 'status' && k !== 'currentName' && (
+                                        <div key={k} style={{ fontSize: '11px', color: '#64748b', background: '#f8fafc', padding: '2px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                          <b style={{ textTransform: 'capitalize' }}>{k === 'matched' ? 'AD Liés' : k === 'left' ? 'Départs' : k === 'new' ? 'Nouveaux' : k}:</b> {v}
+                                        </div>
+                                      )
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
@@ -635,6 +1044,12 @@ const StudioRH: React.FC = () => {
         .stats-table { width: 100%; border-collapse: collapse; }
         .stats-table th { text-align: left; padding: 12px; background: #f8fafc; font-size: 11px; font-weight: 700; color: #64748b; border-bottom: 2px solid #e2e8f0; text-transform: uppercase; }
         .stats-table td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+        .btn-toolbar { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: transparent; border: none; cursor: pointer; transition: all 0.2s; color: #64748b; }
+        .btn-toolbar:hover { background: white; box-shadow: 0 2px 6px rgba(0,0,0,0.05); transform: translateY(-1px); }
+        .btn-add:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(5, 150, 105, 0.3); }
+        .agent-name-link:hover { text-decoration: underline; }
+        .tab-btn:hover { background-color: rgba(0,0,0,0.02); }
+        .tab-btn.active { position: relative; }
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
       `}</style>
@@ -715,6 +1130,342 @@ const StudioRH: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewingDetailsAgent && (
+        <div className="modal-overlay" onClick={() => setViewingDetailsAgent(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', width: '90%' }}>
+            <div className="modal-header" style={{ borderBottom: 'none', padding: '24px 24px 0 24px' }}>
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>Détails de l'Agent</h2>
+                <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#64748b' }}>
+                  {viewingDetailsAgent.nom} {viewingDetailsAgent.prenom} • {viewingDetailsAgent.matricule}
+                </p>
+              </div>
+              <button className="close-btn" onClick={() => setViewingDetailsAgent(null)}><X size={24} /></button>
+            </div>
+
+            <div className="tab-navigation" style={{ display: 'flex', padding: '0 24px', marginTop: '20px', borderBottom: '1px solid #f1f5f9' }}>
+              <button 
+                onClick={() => setActiveTab('rh')}
+                className={`tab-btn ${activeTab === 'rh' ? 'active' : ''}`}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 600, color: activeTab === 'rh' ? '#059669' : '#64748b', borderBottom: activeTab === 'rh' ? '2px solid #059669' : '2px solid transparent' }}
+              >
+                <Database size={18} /> Référentiel RH
+              </button>
+              <button 
+                onClick={() => setActiveTab('ad')}
+                className={`tab-btn ${activeTab === 'ad' ? 'active' : ''}`}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 600, color: activeTab === 'ad' ? '#3b82f6' : '#64748b', borderBottom: activeTab === 'ad' ? '2px solid #3b82f6' : '2px solid transparent' }}
+              >
+                <Monitor size={18} /> Active Directory
+              </button>
+              <button 
+                onClick={() => setActiveTab('azure')}
+                className={`tab-btn ${activeTab === 'azure' ? 'active' : ''}`}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 20px', border: 'none', background: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 600, color: activeTab === 'azure' ? '#8b5cf6' : '#64748b', borderBottom: activeTab === 'azure' ? '2px solid #8b5cf6' : '2px solid transparent' }}
+              >
+                <Cloud size={18} /> Azure AD
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '24px', minHeight: '400px', backgroundColor: '#fcfcfd' }}>
+              {isLoadingDetails ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '16px', padding: '80px 0' }}>
+                  <Loader2 className="spin" size={40} style={{ color: '#64748b' }} />
+                  <span style={{ color: '#64748b', fontWeight: 500 }}>Chargement des données...</span>
+                </div>
+              ) : (
+                <>
+                  {activeTab === 'rh' && agentFullDetails?.rh && (
+                    <div className="details-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                      {Object.entries(agentFullDetails.rh).map(([key, value]: [string, any]) => (
+                        <div key={key} style={{ background: 'white', padding: '12px 16px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                          <label style={{ display: 'block', fontSize: '11px', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 700, marginBottom: '4px' }}>{key}</label>
+                          <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 600, wordBreak: 'break-all' }}>{value === null || value === '' ? '-' : String(value)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {activeTab === 'ad' && (
+                    <div style={{ height: '100%' }}>
+                      {!agentFullDetails?.ad ? (
+                        <div style={{ textAlign: 'center', padding: '80px 0', color: '#64748b' }}>
+                          <ShieldCheck size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
+                          <p>Aucun compte Active Directory lié ou trouvé pour cet agent.</p>
+                        </div>
+                      ) : (
+                        <div className="details-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                          {agentFullDetails.ad.lastLogonFormatted && (
+                            <div style={{ background: '#ecfdf5', padding: '12px 16px', borderRadius: '10px', border: '1px solid #10b981', gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <div style={{ color: '#059669' }}><Monitor size={20} /></div>
+                              <div>
+                                <label style={{ display: 'block', fontSize: '11px', textTransform: 'uppercase', color: '#059669', fontWeight: 700 }}>Dernière connexion au domaine (AD)</label>
+                                <div style={{ fontSize: '15px', color: '#065f46', fontWeight: 700 }}>{agentFullDetails.ad.lastLogonFormatted}</div>
+                              </div>
+                            </div>
+                          )}
+                          {Object.entries(agentFullDetails.ad)
+                            .filter(([k]) => k !== 'lastLogonFormatted')
+                            .map(([key, value]: [string, any]) => (
+                            <div key={key} style={{ background: 'white', padding: '12px 16px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                              <label style={{ display: 'block', fontSize: '11px', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 700, marginBottom: '4px' }}>{key}</label>
+                              <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 600, wordBreak: 'break-all' }}>{Array.isArray(value) ? value.join(', ') : (value === null || value === '' ? '-' : String(value))}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeTab === 'azure' && (
+                    <div style={{ height: '100%' }}>
+                      {!agentFullDetails?.azure ? (
+                        <div style={{ textAlign: 'center', padding: '80px 0', color: '#64748b' }}>
+                          <Cloud size={48} style={{ margin: '0 auto 16px', opacity: 0.2 }} />
+                          <p>Aucun compte Azure AD (Entra) trouvé par correspondance d'email.</p>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          {/* 1. Licences (Priorité DSI) */}
+                          {agentFullDetails.azure.licenses && (
+                            <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', textTransform: 'uppercase', color: '#64748b', fontWeight: 700, marginBottom: '12px' }}>
+                                <ShieldCheck size={16} style={{ color: '#8b5cf6' }} /> Licences Microsoft 365
+                              </label>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                {agentFullDetails.azure.licenses.length === 0 ? (
+                                  <span style={{ fontSize: '13px', color: '#94a3b8' }}>Aucune licence détectée</span>
+                                ) : (
+                                  agentFullDetails.azure.licenses.map((license: string) => (
+                                    <span key={license} style={{ padding: '6px 14px', background: '#f5f3ff', color: '#7c3aed', borderRadius: '20px', fontSize: '12px', fontWeight: 700, border: '1px solid #ddd6fe' }}>
+                                      {license}
+                                    </span>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 2. Statut & Infos DSI */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                            <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Statut Compte</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: agentFullDetails.azure.accountEnabled ? '#22c55e' : '#ef4444' }}></div>
+                                <span style={{ fontSize: '14px', fontWeight: 700, color: agentFullDetails.azure.accountEnabled ? '#16a34a' : '#dc2626' }}>
+                                  {agentFullDetails.azure.accountEnabled ? 'Actif / Activé' : 'Désactivé'}
+                                </span>
+                              </div>
+                            </div>
+                            <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Synchronisation</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                                <RefreshCw size={14} style={{ color: agentFullDetails.azure.onPremisesSyncEnabled ? '#3b82f6' : '#94a3b8' }} />
+                                {agentFullDetails.azure.onPremisesSyncEnabled ? 'Hybride (AD Sync)' : 'Cloud Only'}
+                              </div>
+                            </div>
+                            <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Type / Création</span>
+                              <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                                {agentFullDetails.azure.userType === 'Member' ? 'Interne' : 'Invité'} • {agentFullDetails.azure.createdDateTime ? new Date(agentFullDetails.azure.createdDateTime).toLocaleDateString('fr-FR') : '-'}
+                              </div>
+                            </div>
+                            {agentFullDetails.azure.usageLocation && (
+                              <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Localisation</span>
+                                <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b' }}>
+                                  Region: {agentFullDetails.azure.usageLocation}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 3. ProxyAddresses (Aliases) */}
+                          {agentFullDetails.azure.proxyAddresses && agentFullDetails.azure.proxyAddresses.length > 0 && (
+                            <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', textTransform: 'uppercase', color: '#64748b', fontWeight: 700, marginBottom: '12px' }}>
+                                <Activity size={16} style={{ color: '#3b82f6' }} /> Adresses Alias (ProxyAddresses)
+                              </label>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                {agentFullDetails.azure.proxyAddresses.map((proxy: string) => (
+                                  <span key={proxy} style={{ padding: '4px 10px', background: '#f0f9ff', color: '#0369a1', borderRadius: '6px', fontSize: '11px', fontWeight: 500, border: '1px solid #bae6fd' }}>
+                                    {proxy}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 4. Autres Données */}
+                          <div className="details-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
+                            {Object.entries(agentFullDetails.azure)
+                              .filter(([k]) => !['licenses', 'accountEnabled', 'onPremisesSyncEnabled', 'userType', 'createdDateTime', 'id', 'usageLocation', 'proxyAddresses'].includes(k))
+                              .map(([key, value]: [string, any]) => (
+                                <div key={key} style={{ background: 'white', padding: '12px 16px', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                                  <label style={{ display: 'block', fontSize: '11px', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 700, marginBottom: '4px' }}>{key}</label>
+                                  <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 600, wordBreak: 'break-all' }}>{value === null || value === '' ? '-' : String(value)}</div>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="modal-footer" style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', background: 'white' }}>
+              <button 
+                onClick={() => setViewingDetailsAgent(null)}
+                style={{ padding: '10px 24px', background: '#f1f5f9', border: 'none', borderRadius: '10px', fontWeight: 600, color: '#475569', cursor: 'pointer' }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {linkingAgent && (
+        <div className="modal-overlay" onClick={() => setLinkingAgent(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #f1f5f9', padding: '20px 24px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: 700, margin: 0 }}>Liaison Active Directory manuelle</h2>
+                <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                  Agent : <strong>{linkingAgent.nom} {linkingAgent.prenom}</strong> ({linkingAgent.matricule})
+                </p>
+              </div>
+              <button className="close-btn" onClick={() => setLinkingAgent(null)}><X size={20} /></button>
+            </div>
+            <div className="modal-body" style={{ padding: '24px' }}>
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input 
+                    type="text" 
+                    placeholder="Nom, identifiant ou email AD..." 
+                    value={adSearchTerm}
+                    onChange={(e) => setAdSearchTerm(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleManualSearchAD()}
+                    style={{ width: '100%', padding: '12px 12px 12px 40px', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '14px', outline: 'none', backgroundColor: '#f8fafc' }}
+                  />
+                </div>
+                <button 
+                  onClick={handleManualSearchAD}
+                  disabled={isSearchingAD || adSearchTerm.length < 2}
+                  style={{ padding: '0 24px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  {isSearchingAD ? <Loader2 size={18} className="spin" /> : <Search size={18} />}
+                  Rechercher
+                </button>
+              </div>
+
+              {linkError && (
+                <div style={{ padding: '12px', backgroundColor: '#fef2f2', color: '#dc2626', borderRadius: '8px', fontSize: '13px', marginBottom: '16px', border: '1px solid #fee2e2' }}>
+                  {linkError}
+                </div>
+              )}
+
+              <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: '10px' }}>
+                {adSearchResults.length === 0 ? (
+                  <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>
+                    {isSearchingAD ? 'Recherche en cours...' : 'Lancez une recherche pour voir les résultats'}
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ textAlign: 'left', background: '#f8fafc' }}>
+                        <th style={{ padding: '12px 16px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase' }}>Utilisateur AD</th>
+                        <th style={{ padding: '12px 16px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase' }}>Email</th>
+                        <th style={{ padding: '12px 16px', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', textAlign: 'right' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adSearchResults.map((user) => (
+                        <tr key={user.sAMAccountName} style={{ borderTop: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '12px 16px' }}>
+                            <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '13.5px' }}>{user.displayName || user.cn}</div>
+                            <div style={{ fontSize: '12px', color: '#3b82f6', fontWeight: 700 }}>{user.sAMAccountName}</div>
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>{user.mail || '-'}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                            <button 
+                              onClick={() => handleConfirmLink(user.sAMAccountName)}
+                              style={{ padding: '6px 16px', backgroundColor: '#059669', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, fontSize: '13px', cursor: 'pointer' }}
+                            >
+                              Associer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+      </div>
+      )}
+
+      {showActivePositionsModal && (
+        <div className="modal-overlay" onClick={() => setShowActivePositionsModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #f1f5f9', padding: '20px 24px' }}>
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: 700, margin: 0 }}>Sélection des positions actives</h2>
+                <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>Cochez les libellés de position qui définissent un agent comme étant en activité.</p>
+              </div>
+              <button className="close-btn" onClick={() => setShowActivePositionsModal(false)}><X size={20} /></button>
+            </div>
+            <div className="modal-body" style={{ padding: '24px' }}>
+              <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '20px', paddingRight: '10px' }}>
+                {availablePositions.length === 0 ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Chargement des positions...</div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
+                    {availablePositions.map(pos => (
+                      <label key={pos} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px', background: '#f8fafc', borderRadius: '8px', cursor: 'pointer', border: '1px solid #f1f5f9' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={activePositions.includes(pos)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setActivePositions([...activePositions, pos]);
+                            } else {
+                              setActivePositions(activePositions.filter(p => p !== pos));
+                            }
+                          }}
+                          style={{ width: '18px', height: '18px', accentColor: '#059669' }}
+                        />
+                        <span style={{ fontSize: '14px', fontWeight: 500, color: '#1e293b' }}>{pos}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button 
+                  onClick={() => setShowActivePositionsModal(false)}
+                  style={{ padding: '10px 20px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '10px', color: '#64748b', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Annuler
+                </button>
+                <button 
+                  onClick={() => saveActivePositions(activePositions)}
+                  disabled={isSavingPositions}
+                  style={{ padding: '10px 24px', background: '#059669', border: 'none', borderRadius: '10px', color: 'white', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  {isSavingPositions && <Loader2 size={18} className="spin" />}
+                  Enregistrer la configuration
+                </button>
+              </div>
             </div>
           </div>
         </div>

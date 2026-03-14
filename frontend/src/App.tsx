@@ -19,6 +19,7 @@ import AdminAccessRequests from './pages/AdminAccessRequests';
 import AccessRequestOverlay from './components/AccessRequestOverlay';
 import AdminLayout from './components/AdminLayout';
 import StudioRH from './pages/StudioRH';
+import FrizbiSettings from './pages/FrizbiSettings';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -73,6 +74,7 @@ function App() {
           <Route path="users" element={<Admin section="users" />} />
           <Route path="tiles" element={<Admin section="tiles" />} />
           <Route path="ad" element={<Admin section="ad" />} />
+          <Route path="azure-ad" element={<Admin section="azure-ad" />} />
           <Route path="glpi" element={<Admin section="glpi" />} />
           <Route path="oracle" element={<Admin section="oracle" />} />
           <Route path="messages" element={<AdminMessages />} />
@@ -82,6 +84,7 @@ function App() {
           <Route path="magapp" element={<MagappAdmin />} />
           <Route path="sql" element={<AdminSQL />} />
           <Route path="settings" element={<AdminSettings />} />
+          <Route path="frizbi" element={<FrizbiSettings />} />
         </Route>
 
         <Route path="/rh" element={<PrivateRoute path="/rh"><StudioRH /></PrivateRoute>} />

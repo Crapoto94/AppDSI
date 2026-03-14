@@ -8,6 +8,7 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isAutoLogging, setIsAutoLogging] = useState(true);
+  const [azureEnabled, setAzureEnabled] = useState(false);
   const navigate = useNavigate();
   const { setPendingApproval, login } = useAuth();
 
@@ -17,6 +18,43 @@ const Login: React.FC = () => {
       if (localStorage.getItem('token')) {
         navigate('/');
         return;
+      }
+
+      // Check Azure AD status
+      try {
+        const res = await fetch('/api/azure-ad-settings/status');
+        if (res.ok) {
+          const data = await res.json();
+          setAzureEnabled(!!data.is_enabled);
+        }
+      } catch (e) {
+        console.error('Error checking Azure AD:', e);
+      }
+
+      // Check for token in URL (callback from Azure)
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      const azureError = params.get('error');
+
+      if (token) {
+        // Authentifier proprement avec le token reçu
+        try {
+          const userRes = await fetch('/api/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (userRes.ok) {
+            const userData = await userRes.json();
+            login(token, userData);
+            navigate('/');
+            return;
+          }
+        } catch (e) {
+          console.error('Final auth error:', e);
+        }
+      }
+
+      if (azureError) {
+        setError("L'authentification Azure AD a échoué.");
       }
 
       // L'utilisateur ne veut plus de tentative de connexion automatique (SSO)
@@ -98,6 +136,27 @@ const Login: React.FC = () => {
                   Se connecter
                 </button>
               </form>
+
+              {azureEnabled && (
+                <>
+                  <div className="login-divider">
+                    <span>OU</span>
+                  </div>
+                  <button 
+                    onClick={() => window.location.href = '/api/auth/azure/login'} 
+                    className="btn btn-azure btn-full"
+                  >
+                    <svg className="microsoft-icon" viewBox="0 0 23 23" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z" fill="#f25022" />
+                      <rect x="0" y="0" width="10.8" height="10.8" fill="#f25022" />
+                      <rect x="12.2" y="0" width="10.8" height="10.8" fill="#7fba00" />
+                      <rect x="0" y="12.2" width="10.8" height="10.8" fill="#00a4ef" />
+                      <rect x="12.2" y="12.2" width="10.8" height="10.8" fill="#ffb900" />
+                    </svg>
+                    Se connecter avec Microsoft
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -182,6 +241,40 @@ const Login: React.FC = () => {
           border-radius: 4px;
           margin-bottom: 20px;
           font-size: 14px;
+        }
+        .login-divider {
+          display: flex;
+          align-items: center;
+          margin: 20px 0;
+          color: #999;
+          font-size: 12px;
+          font-weight: bold;
+        }
+        .login-divider::before, .login-divider::after {
+          content: "";
+          flex: 1;
+          height: 1px;
+          background: #eee;
+        }
+        .login-divider span {
+          margin: 0 10px;
+        }
+        .btn-azure {
+          background-color: #2f2f2f;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          border: none;
+          transition: background-color 0.2s;
+        }
+        .btn-azure:hover {
+          background-color: #000;
+        }
+        .microsoft-icon {
+          width: 18px;
+          height: 18px;
         }
       `}</style>
     </div>

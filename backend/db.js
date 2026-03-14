@@ -266,6 +266,54 @@ async function setupDb() {
             status TEXT DEFAULT 'pending',
             date_creation DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS ad_settings (
+            id INTEGER PRIMARY KEY,
+            is_enabled INTEGER DEFAULT 0,
+            host TEXT DEFAULT '',
+            port INTEGER DEFAULT 389,
+            base_dn TEXT DEFAULT '',
+            required_group TEXT DEFAULT '',
+            bind_dn TEXT DEFAULT '',
+            bind_password TEXT DEFAULT '',
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO ad_settings (id) VALUES (1);
+
+        CREATE TABLE IF NOT EXISTS azure_ad_settings (
+            id INTEGER PRIMARY KEY,
+            is_enabled INTEGER DEFAULT 0,
+            tenant_id TEXT DEFAULT '',
+            client_id TEXT DEFAULT '',
+            client_secret TEXT DEFAULT '',
+            redirect_uri TEXT DEFAULT '',
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO azure_ad_settings (id) VALUES (1);
+
+        CREATE TABLE IF NOT EXISTS frizbi_settings (
+            id INTEGER PRIMARY KEY,
+            is_enabled INTEGER DEFAULT 0,
+            api_url TEXT DEFAULT 'https://apiv2.frizbi.evolnet.fr',
+            client_id TEXT DEFAULT '',
+            client_secret TEXT DEFAULT '',
+            sender_id TEXT DEFAULT 'IVRY',
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO frizbi_settings (id, is_enabled) VALUES (1, 0);
+
+        CREATE TABLE IF NOT EXISTS rh_sync_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sync_type TEXT,
+            status TEXT,
+            message TEXT,
+            details TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            username TEXT
+        );
     `);
 
     // Note: Tables moved to external DBs (glpi, gf, rh) are not created here anymore.

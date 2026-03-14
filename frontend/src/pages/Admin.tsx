@@ -41,7 +41,7 @@ interface UserData {
 }
 
 interface AdminProps {
-  section?: 'main' | 'tiles' | 'users' | 'ad' | 'glpi' | 'oracle';
+  section?: 'main' | 'tiles' | 'users' | 'ad' | 'azure-ad' | 'glpi' | 'oracle';
 }
 
 const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
@@ -65,8 +65,17 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     bind_dn: 'CN=testo,OU=IRS,OU=IVRY,DC=ivry,DC=local',
     bind_password: ''
   });
+  const [azureConfig, setAzureConfig] = useState({
+    is_enabled: false,
+    tenant_id: '',
+    client_id: '',
+    client_secret: '',
+    redirect_uri: window.location.origin + '/api/auth/azure/callback'
+  });
   const [testUser, setTestUser] = useState({ username: '' });
+  const [azureTestUser, setAzureTestUser] = useState({ username: '' });
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
+  const [azureTestResult, setAzureTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -356,11 +365,33 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           base_dn: data.base_dn || '',
           required_group: data.required_group || '',
           bind_dn: data.bind_dn || '',
-          bind_password: '' 
+          // Si un mot de passe est déjà enregistré, on affiche un masque
+          // Le backend préserve le mdp existant si on renvoie '••••••••'
+          bind_password: data.bind_password ? '••••••••' : ''
         });
       }
     } catch (error) {
       console.error('Erreur chargement AD:', error);
+    }
+  };
+
+  const fetchAzureSettings = async () => {
+    try {
+      const response = await fetch('/api/azure-ad-settings', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAzureConfig({
+          is_enabled: !!data.is_enabled,
+          tenant_id: data.tenant_id || '',
+          client_id: data.client_id || '',
+          client_secret: data.client_secret ? '••••••••' : '',
+          redirect_uri: data.redirect_uri || (window.location.origin + '/api/auth/azure/callback')
+        });
+      }
+    } catch (error) {
+      console.error('Erreur chargement Azure AD:', error);
     }
   };
 
@@ -463,6 +494,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     if (section === 'tiles') fetchTiles();
     if (section === 'users') fetchUsers();
     if (section === 'ad') fetchADSettings();
+    if (section === 'azure-ad') fetchAzureSettings();
     if (section === 'glpi') fetchGLPISettings();
     if (section === 'oracle') fetchOracleSettings();
     if (section === 'main') { fetchTiles(); fetchUsers(); }
@@ -682,8 +714,27 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       } else {
         setTestResult({ success: false, message: 'Erreur lors de l\'enregistrement.' });
       }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveAzure = async () => {
+    setIsSaving(true);
+    setTestResult(null);
+    try {
+      const response = await fetch('/api/azure-ad-settings', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(azureConfig)
+      });
+      if (response.ok) {
+        setTestResult({ success: true, message: 'Configuration Azure AD enregistrée avec succès.' });
+      } else {
+        setTestResult({ success: false, message: 'Erreur lors de l\'enregistrement Azure AD.' });
+      }
     } catch (error) {
-      setTestResult({ success: false, message: 'Erreur de connexion.' });
+      setTestResult({ success: false, message: 'Erreur de connexion Azure AD.' });
     } finally {
       setIsSaving(false);
     }
@@ -722,6 +773,26 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       setTestResult({ success: response.ok, message: data.message, data: data.data });
     } catch (error) {
       setTestResult({ success: false, message: 'Erreur de recherche.' });
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleVerifyAzureUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!azureTestUser.username) return;
+    setIsTesting(true);
+    setAzureTestResult(null);
+    try {
+      const response = await fetch('/api/admin/azure/lookup', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: azureTestUser.username })
+      });
+      const data = await response.json();
+      setAzureTestResult({ success: data.success, message: data.message, data: data.data });
+    } catch (error) {
+      setAzureTestResult({ success: false, message: 'Erreur lors de la recherche Azure AD.' });
     } finally {
       setIsTesting(false);
     }
@@ -1365,6 +1436,117 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         <div className="detail-item"><strong>Email :</strong> {testResult.data.mail || 'N/A'}</div>
                                         <div className="detail-item"><strong>Dept :</strong> {testResult.data.department || 'N/A'}</div>
                                         <div className="detail-item"><strong>DN :</strong> <span className="font-mono text-[9px]">{testResult.data.dn}</span></div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+          </div>
+        )}
+
+        {section === 'azure-ad' && (
+          <div className="admin-ad-container">
+            <div className="ad-layout-grid">
+                <div className="ad-main-column">
+                    <div className="admin-card ad-config-card">
+                        <div className="card-banner" style={{ background: 'linear-gradient(135deg, #0078d4 0%, #28a8ea 100%)' }}>
+                            <div className="banner-info">
+                                <h3 className="banner-title">Paramètres Azure AD (Entra ID)</h3>
+                                <p className="banner-subtitle">Authentification OAuth2 / OpenID Connect avec Microsoft 365.</p>
+                            </div>
+                            <div className="banner-controls">
+                                <span className={`status-pill ${azureConfig.is_enabled ? 'active' : 'inactive'}`}>
+                                    {azureConfig.is_enabled ? 'Activé' : 'Désactivé'}
+                                </span>
+                                <label className="switch">
+                                    <input type="checkbox" checked={azureConfig.is_enabled} onChange={e => setAzureConfig({...azureConfig, is_enabled: e.target.checked})} />
+                                    <span className="slider round"></span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div className={`card-content ${!azureConfig.is_enabled ? 'is-disabled' : ''}`}>
+                            <div className="form-responsive-grid">
+                                <div className="form-field full-width">
+                                    <label className="field-label"><Fingerprint size={14} /> ID de l'annuaire (Tenant)</label>
+                                    <input 
+                                        className="admin-input font-mono text-xs"
+                                        value={azureConfig.tenant_id} 
+                                        onChange={e => setAzureConfig({...azureConfig, tenant_id: e.target.value})} 
+                                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" 
+                                    />
+                                </div>
+                                <div className="form-field full-width">
+                                    <label className="field-label"><Box size={14} /> ID d'application (Client)</label>
+                                    <input 
+                                        className="admin-input font-mono text-xs"
+                                        value={azureConfig.client_id} 
+                                        onChange={e => setAzureConfig({...azureConfig, client_id: e.target.value})} 
+                                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" 
+                                    />
+                                </div>
+                                <div className="form-field full-width">
+                                    <label className="field-label"><Lock size={14} /> Secret Client</label>
+                                    <input 
+                                        type="password"
+                                        className="admin-input font-mono text-xs"
+                                        value={azureConfig.client_secret} 
+                                        onChange={e => setAzureConfig({...azureConfig, client_secret: e.target.value})} 
+                                        placeholder="••••••••••••••••"
+                                    />
+                                </div>
+                                <div className="form-field full-width">
+                                    <label className="field-label"><Globe size={14} /> URI de redirection</label>
+                                    <input 
+                                        className="admin-input font-mono text-[10px]"
+                                        value={azureConfig.redirect_uri} 
+                                        onChange={e => setAzureConfig({...azureConfig, redirect_uri: e.target.value})} 
+                                        placeholder="https://votre-hub.fr/api/auth/azure/callback"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="card-footer-btns">
+                                <button className="btn-admin-primary" onClick={handleSaveAzure} disabled={isSaving} style={{ backgroundColor: '#0078d4' }}>
+                                    {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                                    Enregistrer la configuration Azure
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="ad-side-column">
+                    <div className="admin-side-card lookup-card">
+                        <h3 className="side-card-title"><Search size={18} /> Outil de Lookup Azure AD</h3>
+                        <p className="side-card-desc">Vérifiez si un utilisateur est correctement identifié par Entra ID (Graph API).</p>
+                        
+                        <form onSubmit={handleVerifyAzureUser} className="lookup-search-form">
+                            <input 
+                                placeholder="Email ou Nom d'affichage..." 
+                                className="admin-input" 
+                                value={azureTestUser.username} 
+                                onChange={e => setAzureTestUser({...azureTestUser, username: e.target.value})} 
+                            />
+                            <button type="submit" className="btn-admin-primary" disabled={isTesting || !azureTestUser.username} style={{ backgroundColor: '#0078d4' }}>
+                                {isTesting ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
+                            </button>
+                        </form>
+
+                        {azureTestResult && (
+                            <div className={`lookup-result-box ${azureTestResult.success ? 'is-success' : 'is-error'}`}>
+                                <div className="result-header">
+                                    {azureTestResult.success ? <Check size={16} /> : <AlertTriangle size={16} />}
+                                    <span>{azureTestResult.message}</span>
+                                </div>
+                                {azureTestResult.data && (
+                                    <div className="result-details">
+                                        <div className="detail-item"><strong>Nom :</strong> {azureTestResult.data.displayName}</div>
+                                        <div className="detail-item"><strong>Email :</strong> {azureTestResult.data.mail || 'N/A'}</div>
+                                        <div className="detail-item"><strong>Dept/Job :</strong> {azureTestResult.data.department || 'N/A'}</div>
+                                        <div className="detail-item"><strong>UPN :</strong> <span className="font-mono text-[9px]">{azureTestResult.data.dn}</span></div>
                                     </div>
                                 )}
                             </div>

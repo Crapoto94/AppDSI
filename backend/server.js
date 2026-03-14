@@ -32,7 +32,7 @@ function flattenLDAPEntry(entry) {
     if (!entry) return null;
     const pojo = entry.pojo;
     if (!pojo) return entry.object || entry;
-    
+
     const obj = { dn: pojo.objectName };
     if (pojo.attributes && Array.isArray(pojo.attributes)) {
         pojo.attributes.forEach(attr => {
@@ -60,7 +60,7 @@ async function authenticateAD(username, password, config) {
         });
 
         const log = (msg) => {
-            console.log(`[AD Auth Debug] ${msg}`);
+            console.log(`[AD Auth Debug] ${msg} (Host: ${config.host})`);
             fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Auth Debug: ${msg}\n`);
         };
 
@@ -83,7 +83,9 @@ async function authenticateAD(username, password, config) {
             const searchOptions = {
                 filter: `(sAMAccountName=${username})`,
                 scope: 'sub',
-                attributes: ['dn', 'cn', 'memberOf', 'mail', 'displayName']
+                attributes: ['dn', 'cn', 'memberOf', 'mail', 'displayName'],
+                referrals: false,
+                paged: false
             };
 
             client.search(config.base_dn, searchOptions, (err, res) => {
@@ -243,24 +245,24 @@ const storage = multer.diskStorage({
         else if (type === 'certif') folder = 'file_certif';
         else if (type === 'telecom_invoice') folder = 'file_telecom';
         const dest = path.join(__dirname, folder);
-        
+
         const logMsg = `Multer Destination: type=${type}, folder=${folder}, dest=${dest}`;
         console.log(logMsg);
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
-        
+
         cb(null, dest);
     },
     filename: (req, file, cb) => {
         const targetId = (req.body.target_id || 'unknown').replace(/[^a-z0-9]/gi, '_');
         const ext = path.extname(file.originalname);
         const fname = `${targetId}_${Date.now()}${ext}`;
-        
+
         const logMsg = `Multer Filename: target_id=${req.body.target_id}, final_name=${fname}`;
         console.log(logMsg);
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
-        
+
         cb(null, fname);
     }
 });
@@ -277,12 +279,12 @@ app.use((req, res, next) => {
     const originalSend = res.send;
     const originalJson = res.json;
 
-    res.status = function(code) {
+    res.status = function (code) {
         this.statusCode = code;
         return originalStatus.apply(this, arguments);
     };
 
-    res.send = function(body) {
+    res.send = function (body) {
         if (this.statusCode === 500) {
             fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] BODY 500 (${req.url}): ${body}
 `);
@@ -290,7 +292,7 @@ app.use((req, res, next) => {
         return originalSend.apply(this, arguments);
     };
 
-    res.json = function(body) {
+    res.json = function (body) {
         if (this.statusCode === 500) {
             fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] JSON 500 (${req.url}): ${JSON.stringify(body)}
 `);
@@ -341,7 +343,7 @@ const authenticateJWT = (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (authHeader) {
         const token = authHeader.split(' ')[1];
-        
+
         if (!token) {
             return res.status(401).json({ message: 'Token manquant dans le header' });
         }
@@ -351,7 +353,7 @@ const authenticateJWT = (req, res, next) => {
                 console.error(`[JWT ERROR] Verification failed for token: ${token.substring(0, 15)}... Error: ${err.message}`);
                 return res.status(403).json({ message: 'Session expirée ou invalide' });
             }
-            
+
             // Sécurité renforcée : Les admins sont TOUJOURS approuvés
             if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
                 user.is_approved = 1;
@@ -392,15 +394,15 @@ const authenticateAdminOrFinances = (req, res, next) => {
 const ntlmOptions = {
     domain: 'IVRY',
     domaincontroller: 'ldap://10.103.130.118',
-    internalservererror: function(req, res, next) {
+    internalservererror: function (req, res, next) {
         const msg = `NTLM Internal Error (${req.url}): Session cassée ou erreur proxy. Forcing retry.`;
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${msg}\n`);
         console.error(msg);
-        
+
         // On force la fermeture de la connexion et on demande au navigateur de recommencer (401)
         res.setHeader('Connection', 'close');
         res.setHeader('WWW-Authenticate', 'NTLM');
-        
+
         // Pour la route optionnelle, on peut aussi choisir de continuer sans auth 
         // mais pour sso-redirect il vaut mieux que le navigateur réessaie proprement.
         if (req.url.includes('/api/auth/ntlm')) {
@@ -409,7 +411,7 @@ const ntlmOptions = {
             req.ntlm = { UserName: null, Authenticated: false };
             return next();
         }
-        
+
         if (req.url.includes('/api/auth/sso-redirect')) {
             // Pour sso-redirect, on renvoie vers le frontend avec un flag de retry ou d'erreur
             const redirectUrl = req.query.redirect || 'http://localhost:5174';
@@ -423,30 +425,30 @@ const ntlmOptions = {
         }
         res.status(401).send(msg);
     },
-    debug: function() {
+    debug: function () {
         const msg = Array.prototype.slice.call(arguments).join(' ');
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] NTLM DEBUG: ${msg}\n`);
     }
 };
 
-const ntlmMiddleware = ntlm(ntlmOptions); 
+const ntlmMiddleware = ntlm(ntlmOptions);
 const ntlmMiddlewareForced = ntlm(ntlmOptions);
 
 // Route SSO avec redirection (pour éviter les problèmes de CORS avec NTLM)
 app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
     const login = req.ntlm ? req.ntlm.UserName : null;
-    
+
     // Détection dynamique du host pour la redirection
     const host = req.get('host'); // ex: 10.103.131.162:3001
     const protocol = req.protocol;
     const frontendHost = host.replace(':3001', ':5174');
     const defaultRedirect = `${protocol}://${frontendHost}/`;
-    
+
     const redirectUrl = req.query.redirect || defaultRedirect;
-    
+
     fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect triggered. Detected login: ${login}, Target: ${redirectUrl}
 `);
-    
+
     let displayName = login;
     let email = '';
 
@@ -479,7 +481,7 @@ app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
     } else {
         url.searchParams.set('error', 'no_login_detected');
     }
-    
+
     res.redirect(url.toString());
 });
 
@@ -537,7 +539,7 @@ app.get('/api/auth/auto-login', ntlmMiddleware, async (req, res) => {
     try {
         // On prend soit le login détecté par NTLM, soit celui passé en paramètre (retour de redirect)
         const winLogin = req.query.login || req.ntlm.UserName;
-        
+
         if (!winLogin) {
             return res.status(401).json({ message: 'Login Windows non détecté' });
         }
@@ -562,11 +564,11 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
     try {
         const user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE id = ?', [req.user.id]);
         if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
-        
+
         // Force l'approbation pour les admins
         if (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub') {
             user.is_approved = 1;
-            user.authorized_urls = ['*']; 
+            user.authorized_urls = ['*'];
         } else {
             // Get URLs from the tiles the user is authorized for
             const authorizedTiles = await db.all(`
@@ -576,14 +578,14 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
                 LEFT JOIN tile_links tl ON t.id = tl.tile_id
                 WHERE ut.user_id = ?
             `, [user.id]);
-            
+
             const urls = new Set(['/', '/request-access', '/profile']); // Default allowed routes
             authorizedTiles.forEach(row => {
                 if (row.link_url) urls.add(row.link_url);
             });
             user.authorized_urls = Array.from(urls);
         }
-        
+
         res.json(user);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la récupération du profil', error: error.message });
@@ -592,7 +594,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
 
 app.post('/api/auth/magapp-login', async (req, res) => {
     const { username, password } = req.body;
-    
+
     if (!username || !password) {
         return res.status(400).json({ message: 'Login et mot de passe requis' });
     }
@@ -605,7 +607,7 @@ app.post('/api/auth/magapp-login', async (req, res) => {
 
         // 1. Authentifier via AD
         const adUser = await authenticateAD(username, password, adSettings);
-        
+
         if (!adUser) {
             return res.status(401).json({ message: 'Identifiants Active Directory incorrects' });
         }
@@ -635,36 +637,36 @@ app.post('/api/auth/magapp-login', async (req, res) => {
         }
 
         if (user) {
-            const accessToken = jwt.sign({ 
-                id: user.id, 
-                username: user.username, 
-                role: user.role, 
-                service_code: user.service_code, 
-                service_complement: user.service_complement 
+            const accessToken = jwt.sign({
+                id: user.id,
+                username: user.username,
+                role: user.role,
+                service_code: user.service_code,
+                service_complement: user.service_complement
             }, SECRET_KEY);
-            
-            return res.json({ 
-                accessToken, 
-                user: { 
-                    id: user.id, 
-                    username: user.username, 
-                    role: user.role, 
-                    service_code: user.service_code, 
+
+            return res.json({
+                accessToken,
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    role: user.role,
+                    service_code: user.service_code,
                     service_complement: user.service_complement,
                     displayName: adUser.displayName,
                     email: adUser.email
-                } 
+                }
             });
         }
 
         // Cas de secours si l'utilisateur n'a pas pu être créé
-        res.json({ 
-            user: { 
-                username: adUser.username, 
-                displayName: adUser.displayName, 
+        res.json({
+            user: {
+                username: adUser.username,
+                displayName: adUser.displayName,
                 email: adUser.email,
                 role: 'user'
-            } 
+            }
         });
 
     } catch (error) {
@@ -689,8 +691,8 @@ app.get('/api/ad-settings', authenticateAdmin, async (req, res) => {
 app.post('/api/ad-settings', authenticateAdmin, async (req, res) => {
     const { is_enabled, host, port, base_dn, required_group, bind_dn, bind_password } = req.body;
     try {
-        if (!bind_password || bind_password === '********') {
-            // Le mot de passe n'a pas été changé (vide ou masqué dans l'UI)
+        if (!bind_password || bind_password === '********' || bind_password === '••••••••') {
+            // Le mot de passe n'a pas été changé - on conserve l'existant
             await db.run(
                 'UPDATE ad_settings SET is_enabled = ?, host = ?, port = ?, base_dn = ?, required_group = ?, bind_dn = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
                 [is_enabled ? 1 : 0, host, port, base_dn, required_group, bind_dn]
@@ -704,6 +706,206 @@ app.post('/api/ad-settings', authenticateAdmin, async (req, res) => {
         res.json({ message: 'Paramètres AD enregistrés' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur enregistrement paramètres AD' });
+    }
+});
+
+// Azure AD (Entra ID) Settings API
+// Route publique : retourne uniquement is_enabled (pour Login.tsx)
+app.get('/api/azure-ad-settings/status', async (req, res) => {
+    try {
+        const settings = await db.get('SELECT is_enabled FROM azure_ad_settings WHERE id = 1');
+        res.json({ is_enabled: !!(settings && settings.is_enabled) });
+    } catch (error) {
+        res.json({ is_enabled: false });
+    }
+});
+
+// Route admin : retourne la config complète (mot de passe masqué)
+app.get('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        if (settings && settings.client_secret) {
+            settings.client_secret = '••••••••';
+        }
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lecture paramètres Azure AD' });
+    }
+});
+
+app.post('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
+    const { is_enabled, tenant_id, client_id, client_secret, redirect_uri } = req.body;
+    try {
+        if (!client_secret || client_secret === '********' || client_secret === '••••••••') {
+            await db.run(
+                'UPDATE azure_ad_settings SET is_enabled = ?, tenant_id = ?, client_id = ?, redirect_uri = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+                [is_enabled ? 1 : 0, tenant_id, client_id, redirect_uri]
+            );
+        } else {
+            await db.run(
+                'UPDATE azure_ad_settings SET is_enabled = ?, tenant_id = ?, client_id = ?, client_secret = ?, redirect_uri = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+                [is_enabled ? 1 : 0, tenant_id, client_id, client_secret, redirect_uri]
+            );
+        }
+        res.json({ message: 'Paramètres Azure AD enregistrés' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur enregistrement paramètres Azure AD' });
+    }
+});
+
+// --- Azure AD (Entra ID) OAuth Routes ---
+
+app.get('/api/auth/azure/login', async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        if (!settings || !settings.is_enabled) {
+            console.warn('[AZURE] Tentative de connexion alors que Azure AD est désactivé');
+            return res.status(503).json({ message: 'L\'authentification Azure AD est désactivée' });
+        }
+
+        const params = new URLSearchParams({
+            client_id: settings.client_id,
+            response_type: 'code',
+            redirect_uri: settings.redirect_uri,
+            response_mode: 'query',
+            scope: 'openid profile email User.Read',
+            state: '12345'
+        });
+
+        const authUrl = `https://login.microsoftonline.com/${settings.tenant_id}/oauth2/v2.0/authorize?${params.toString()}`;
+        console.log(`[AZURE] Redirection vers Microsoft: ${authUrl}`);
+        res.redirect(authUrl);
+    } catch (error) {
+        console.error('[AZURE] Erreur initialisation login:', error);
+        res.status(500).json({ message: 'Erreur lors de l\'initialisation Azure AD' });
+    }
+});
+
+app.get('/api/auth/azure/callback', async (req, res) => {
+    const { code, error, error_description } = req.query;
+
+    if (error) {
+        console.error('[AZURE] Callback Error Query Params:', error, error_description);
+        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=${encodeURIComponent(error_description)}`);
+    }
+
+    try {
+        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        console.log('[AZURE] Échange du code contre un token...');
+
+        // 1. Échanger le code contre un token
+        const tokenResponse = await axios.post(
+            `https://login.microsoftonline.com/${settings.tenant_id}/oauth2/v2.0/token`,
+            new URLSearchParams({
+                client_id: settings.client_id,
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: settings.redirect_uri,
+                client_secret: settings.client_secret
+            }),
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        );
+
+        const { access_token } = tokenResponse.data;
+        console.log('[AZURE] Token obtenu. Récupération des infos utilisateur /me...');
+
+        // 2. Récupérer les infos utilisateur via Microsoft Graph
+        const userResponse = await axios.get('https://graph.microsoft.com/v1.0/me', {
+            headers: { Authorization: `Bearer ${access_token}` }
+        });
+
+        const azureUser = userResponse.data;
+        console.log(`[AZURE] Utilisateur identifié: ${azureUser.displayName} (${azureUser.mail || azureUser.userPrincipalName})`);
+        const email = azureUser.mail || azureUser.userPrincipalName;
+        const username = email.split('@')[0].toLowerCase();
+
+        // 3. Authentifier ou créer l'utilisateur localement
+        let user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+
+        if (!user) {
+            console.log(`[AZURE] Utilisateur ${username} non trouvé en base. Création automatique...`);
+            const isAdminAccount = username === 'admin' || username === 'adminhub';
+            const role = isAdminAccount ? 'admin' : 'magapp';
+            const isApproved = isAdminAccount ? 1 : 0;
+
+            const result = await db.run(
+                'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
+                [username, role, isApproved]
+            );
+            user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE id = ?', [result.lastID]);
+        }
+
+        const accessToken = jwt.sign({
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            service_code: user.service_code,
+            service_complement: user.service_complement
+        }, SECRET_KEY);
+
+        console.log(`[AZURE] Login réussi pour ${username}. Redirection vers frontend.`);
+        // 4. Rediriger vers le frontend avec le token
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        res.redirect(`${frontendUrl}/login?token=${accessToken}`);
+
+    } catch (error) {
+        console.error('[AZURE] Erreur critique lors du process callback:', error.response?.data || error.message);
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        res.redirect(`${frontendUrl}/login?error=azure_failed`);
+    }
+});
+
+// Route de Lookup Azure AD
+app.post('/api/admin/azure/lookup', authenticateAdmin, async (req, res) => {
+    const { username } = req.body;
+    try {
+        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        if (!settings || !settings.is_enabled) {
+            return res.status(400).json({ success: false, message: 'Azure AD non configuré ou désactivé' });
+        }
+
+        // 1. Get Token via Client Credentials
+        const tokenResponse = await axios.post(
+            `https://login.microsoftonline.com/${settings.tenant_id}/oauth2/v2.0/token`,
+            new URLSearchParams({
+                client_id: settings.client_id,
+                grant_type: 'client_credentials',
+                scope: 'https://graph.microsoft.com/.default',
+                client_secret: settings.client_secret
+            }),
+            { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        );
+
+        const { access_token } = tokenResponse.data;
+
+        // 2. Search User in Graph
+        const searchResponse = await axios.get('https://graph.microsoft.com/v1.0/users', {
+            headers: { Authorization: `Bearer ${access_token}` },
+            params: {
+                '$filter': `startsWith(userPrincipalName, '${username}') or startsWith(displayName, '${username}') or mail eq '${username}'`,
+                '$select': 'displayName,userPrincipalName,mail,jobTitle,department,id',
+                '$top': 1
+            }
+        });
+
+        if (searchResponse.data.value && searchResponse.data.value.length > 0) {
+            const user = searchResponse.data.value[0];
+            res.json({
+                success: true,
+                message: 'Utilisateur trouvé dans Azure AD',
+                data: {
+                    displayName: user.displayName,
+                    mail: user.mail || user.userPrincipalName,
+                    department: user.department || user.jobTitle || 'N/A',
+                    dn: user.userPrincipalName // Pour garder une structure proche de l'AD
+                }
+            });
+        } else {
+            res.json({ success: false, message: 'Aucun utilisateur trouvé dans Azure AD' });
+        }
+    } catch (error) {
+        console.error('Azure Lookup Error:', error.response?.data || error.message);
+        res.status(500).json({ success: false, message: `Erreur Microsoft Graph : ${error.response?.data?.error?.message || error.message}` });
     }
 });
 
@@ -733,18 +935,27 @@ async function getOracleConnection(settings) {
 app.get('/api/admin/rh/stats', authenticateAdmin, async (req, res) => {
     try {
         const today = new Date().toISOString().substring(0, 10);
-        
-        const total = (await db.get('SELECT count(*) as c FROM rh.referentiel_agents')).c;
-        
-        // Agent actif : date_plusvu IS NULL AND (pas de départ ou départ futur)
-        // Correction : Robustesse sur DATE_DEPART
-        const actifQuery = `
+
+        // Positions actives configurées
+        const activePosSetting = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'rh_active_positions'");
+        let activePosSql = "";
+        let activePosParams = [];
+        if (activePosSetting && activePosSetting.setting_value) {
+            const positions = JSON.parse(activePosSetting.setting_value);
+            if (positions.length > 0) {
+                activePosSql = ` AND POSITION_L IN (${positions.map(() => '?').join(',')})`;
+                activePosParams = positions;
+            }
+        }
+
+        const total = (await db.get("SELECT count(*) as c FROM rh.referentiel_agents")).c;
+        const actif = (await db.get(`
             SELECT count(*) as c FROM rh.referentiel_agents 
             WHERE date_plusvu IS NULL 
-            AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
-        `;
-        const actif = (await db.get(actifQuery, [today])).c;
-        
+            AND (DATE_DEPART IS NULL OR DATE_DEPART = "" OR DATE_DEPART > ?)
+            ${activePosSql}
+        `, [today, ...activePosParams])).c;
+
         const partiQuery = `
             SELECT count(*) as c FROM rh.referentiel_agents 
             WHERE date_plusvu IS NOT NULL 
@@ -756,16 +967,16 @@ app.get('/api/admin/rh/stats', authenticateAdmin, async (req, res) => {
             SELECT count(*) as c FROM rh.referentiel_agents 
             WHERE DATE_ARRIVEE > ?
         `, [today])).c;
-        
+
         const adLie = (await db.get(`
             SELECT count(*) as c FROM rh.referentiel_agents 
             WHERE ad_username IS NOT NULL AND ad_username != ''
             AND date_plusvu IS NULL 
             AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
         `, [today])).c;
-        
+
         const adNonLie = Math.max(0, actif - adLie);
-        
+
         res.json({ total, actif, parti, arriveeFuture, adLie, adNonLie });
     } catch (err) {
         console.error("Stats RH Error:", err);
@@ -790,8 +1001,34 @@ app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
         if (filter) {
             switch (filter) {
                 case 'actif':
+                    // Positions actives configurées
+                    const activePosSetting = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'rh_active_positions'");
+                    if (activePosSetting && activePosSetting.setting_value) {
+                        const positions = JSON.parse(activePosSetting.setting_value);
+                        if (positions.length > 0) {
+                            whereClauses.push(`POSITION_L IN (${positions.map(() => '?').join(',')})`);
+                            params.push(...positions);
+                        }
+                    }
                     whereClauses.push("date_plusvu IS NULL AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)");
                     params.push(today);
+                    break;
+                case 'non_actif':
+                    // Positions actives configurées -> on prend l'inverse
+                    const inactivePosSetting = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'rh_active_positions'");
+                    if (inactivePosSetting && inactivePosSetting.setting_value) {
+                        const positions = JSON.parse(inactivePosSetting.setting_value);
+                        if (positions.length > 0) {
+                            whereClauses.push(`POSITION_L NOT IN (${positions.map(() => '?').join(',')})`);
+                            params.push(...positions);
+                        } else {
+                            // Si vide, personne n'est "non actif" par ce critère
+                            whereClauses.push("1=0");
+                        }
+                    } else {
+                        // Pas de config -> personne n'est "non actif" (tous sont actifs par défaut si non partis)
+                        whereClauses.push("1=0");
+                    }
                     break;
                 case 'parti':
                     whereClauses.push("(date_plusvu IS NOT NULL OR (DATE_DEPART IS NOT NULL AND DATE_DEPART != '' AND DATE_DEPART <= ?))");
@@ -830,7 +1067,7 @@ app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
         }
 
         const whereSql = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
-        
+
         // Comptage total pour la pagination
         const countQuery = `SELECT count(*) as c FROM rh.referentiel_agents ${whereSql}`;
         const total = (await db.get(countQuery, params)).c;
@@ -845,15 +1082,75 @@ app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
             LIMIT ? OFFSET ?
         `;
         const agents = await db.all(agentsQuery, [...params, parseInt(limit), offset]);
-        
+
+        // Calculate subordinate counts for managers if management_level is requested
+        if (management_level) {
+            for (let agent of agents) {
+                let countQuery = '';
+                let countParams = [today];
+
+                if (management_level === 'service' || management_level === 'secteur') {
+                    if (agent.SERVICE_L) {
+                        countQuery = `SELECT count(*) as c FROM rh.referentiel_agents WHERE SERVICE_L = ? AND date_plusvu IS NULL AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)`;
+                        countParams.unshift(agent.SERVICE_L);
+                    }
+                } else if (management_level === 'dir' || management_level === 'dg') {
+                    if (agent.DIRECTION_L) {
+                        countQuery = `SELECT count(*) as c FROM rh.referentiel_agents WHERE DIRECTION_L = ? AND date_plusvu IS NULL AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)`;
+                        countParams.unshift(agent.DIRECTION_L);
+                    }
+                }
+
+                if (countQuery) {
+                    const resCount = await db.get(countQuery, countParams);
+                    agent.subordinate_count = resCount.c;
+                } else {
+                    agent.subordinate_count = 0;
+                }
+            }
+        }
+
         res.json({ agents, total, page: parseInt(page), limit: parseInt(limit) });
     } catch (err) {
         res.status(500).json({ message: 'Erreur lecture agents', error: err.message });
     }
 });
 
+// Récupérer toutes les positions distinctes
+app.get('/api/admin/rh/positions', authenticateAdmin, async (req, res) => {
+    try {
+        const positions = await db.all('SELECT DISTINCT POSITION_L FROM rh.referentiel_agents WHERE POSITION_L IS NOT NULL AND POSITION_L != "" ORDER BY POSITION_L ASC');
+        res.json(positions.map(p => p.POSITION_L));
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur lecture positions', error: err.message });
+    }
+});
+
+// Récupérer les positions actives paramétrées
+app.get('/api/admin/rh/active-positions', authenticateAdmin, async (req, res) => {
+    try {
+        const setting = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'rh_active_positions'");
+        res.json(setting ? JSON.parse(setting.setting_value) : []);
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur lecture positions actives', error: err.message });
+    }
+});
+
+// Sauvegarder les positions actives
+app.post('/api/admin/rh/active-positions', authenticateAdmin, async (req, res) => {
+    try {
+        const { positions } = req.body;
+        await db.run("INSERT OR REPLACE INTO app_settings (setting_key, setting_value, description) VALUES (?, ?, ?)",
+            ['rh_active_positions', JSON.stringify(positions || []), 'Liste des positions POSITION_L considérées comme actives']);
+        res.json({ message: 'Positions enregistrées' });
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur sauvegarde positions actives', error: err.message });
+    }
+});
+
 // Synchronisation RH : Import complet (Upsert) et recherche AD
 app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
+    const username = req.user?.username || 'system';
     console.log("[SYNC RH] Début de la synchronisation RH complète...");
     try {
         // 1. Découverte de la structure de V_EXTRACT_DSI
@@ -862,7 +1159,7 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
             return res.status(500).json({ message: "La table source V_EXTRACT_DSI est introuvable." });
         }
         const oracleCols = oracleColsInfo.map(c => c.name);
-        
+
         // 2. Création/Mise à jour de la table referentiel_agents
         const createCols = oracleCols.map(c => `"${c}" TEXT${c === 'MATRICULE' ? ' PRIMARY KEY' : ''}`).join(', ');
         await db.run(`
@@ -874,13 +1171,17 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
         `);
 
         // S'assurer que les colonnes ad_username et date_plusvu existent si la table existait déjà
-        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN ad_username TEXT"); } catch (e) {}
-        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN date_plusvu DATETIME"); } catch (e) {}
-        
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN ad_username TEXT"); } catch (e) { }
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN date_plusvu DATETIME"); } catch (e) { }
+
         // S'assurer que toutes les colonnes Oracle existent dans le referentiel
         for (const col of oracleCols) {
-            try { await db.run(`ALTER TABLE rh.referentiel_agents ADD COLUMN "${col}" TEXT`); } catch (e) {}
+            try { await db.run(`ALTER TABLE rh.referentiel_agents ADD COLUMN "${col}" TEXT`); } catch (e) { }
         }
+
+        // Colonnes techniques supplémentaires
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN date_fin_association_ad DATETIME"); } catch (e) { }
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN azure_id TEXT"); } catch (e) { }
 
         // 3. Récupérer les données Oracle
         const extractData = await db.all("SELECT * FROM rh.V_EXTRACT_DSI");
@@ -891,7 +1192,7 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
         try {
             const placeholders = oracleCols.map(() => '?').join(',');
             const setCols = oracleCols.map(c => `"${c}"=excluded."${c}"`).join(',');
-            
+
             const stmt = await db.prepare(`
                 INSERT INTO rh.referentiel_agents (${oracleCols.map(c => `"${c}"`).join(', ')}, date_plusvu) 
                 VALUES (${placeholders}, NULL)
@@ -905,7 +1206,7 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
                 const values = oracleCols.map(c => {
                     const actualKey = rowKeys.find(k => k.toUpperCase() === c.toUpperCase());
                     let val = actualKey ? row[actualKey] : null;
-                    
+
                     // Standardize if it's a date
                     if (c.toUpperCase().includes('DATE')) {
                         val = parseOracleDate(val);
@@ -918,7 +1219,7 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
 
             // 5. Marquer les agents disparus
             await db.run('UPDATE rh.referentiel_agents SET date_plusvu = CURRENT_TIMESTAMP WHERE date_plusvu IS NULL AND MATRICULE NOT IN (SELECT MATRICULE FROM rh.V_EXTRACT_DSI)');
-            
+
             // 6. Correction forcée des dates mal formatées (migration rétroactive)
             const agentsToFix = await db.all('SELECT MATRICULE, DATE_ARRIVEE, DATE_DEPART FROM rh.referentiel_agents');
             for (const a of agentsToFix) {
@@ -938,11 +1239,11 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
         // 6. Matching AD pour les actifs non liés
         const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
         let matchedCount = 0;
-        
+
         if (adSettings && adSettings.is_enabled) {
             console.log("[SYNC RH] Recherche de correspondances AD en cours...");
             const agentsADaLier = await db.all("SELECT MATRICULE, NOM, PRENOM FROM rh.referentiel_agents WHERE ad_username IS NULL AND DATE_DEPART IS NULL AND date_plusvu IS NULL");
-            
+
             for (const rhA of agentsADaLier) {
                 const matricule = String(rhA.MATRICULE || '').trim();
                 const nom = rhA.NOM;
@@ -965,13 +1266,26 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
         const totalCopied = extractData.length;
         const missing = (await db.get("SELECT count(*) as c FROM rh.referentiel_agents WHERE date_plusvu IS NOT NULL")).c;
 
+        const results = { new: totalCopied, matched: matchedCount, left: missing };
         console.log(`[SYNC RH] Fin. Copiés: ${totalCopied}, AD liés: ${matchedCount}, Disparus: ${missing}`);
-        res.json({ 
-            message: 'Synchronisation complète terminée', 
-            stats: { new: totalCopied, matched: matchedCount, left: missing }
+        
+        await db.run(
+            'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
+            ['RH Oracle', 'success', `Sync RH terminée: ${totalCopied} agents, ${matchedCount} AD liés`, JSON.stringify(results), username]
+        );
+        console.log(`[SYNC LOG] Succès pour RH Oracle`);
+
+        res.json({
+            message: 'Synchronisation complète terminée',
+            stats: results
         });
     } catch (err) {
         console.error('[SYNC RH] Erreur fatale:', err);
+        await db.run(
+            'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
+            ['RH Oracle', 'error', `Erreur: ${err.message}`, null, username]
+        );
+        console.log(`[SYNC LOG] Erreur pour RH Oracle: ${err.message}`);
         res.status(500).json({ message: 'Erreur synchronisation', error: err.message });
     }
 });
@@ -982,7 +1296,7 @@ async function searchADUserByName(nom, prenom, config) {
         const client = ldap.createClient({ url: `ldap://${config.host}:${config.port}` });
         client.bind(config.bind_dn, config.bind_password, (err) => {
             if (err) { client.destroy(); return reject(err); }
-            
+
             // Filtre : match sur nom ET prenom dans displayName ou cn
             const filter = `(&(objectClass=user)(|(displayName=*${nom}*${prenom}*)(displayName=*${prenom}*${nom}*)(cn=*${nom}*${prenom}*)(cn=*${prenom}*${nom}*)))`;
             client.search(config.base_dn, { filter, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'cn'] }, (err, searchRes) => {
@@ -998,7 +1312,7 @@ async function searchADUserByName(nom, prenom, config) {
 
 // --- Système de Correspondance AD Automatisée ---
 
-let adSyncProgress = { current: 0, total: 0, status: 'idle' };
+let adSyncProgress = { current: 0, total: 0, status: 'idle', currentName: '', associations: 0 };
 
 function getLevenshteinDistance(a, b) {
     if (a.length === 0) return b.length;
@@ -1028,13 +1342,24 @@ app.get('/api/admin/rh/sync-ad/progress', authenticateAdmin, (req, res) => {
 });
 
 app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
+    const username = req.user?.username || 'system';
     if (adSyncProgress.status === 'running') return res.status(400).json({ message: "Synchro déjà en cours" });
-    
-    adSyncProgress = { current: 0, total: 0, status: 'running' };
+
+    adSyncProgress = { current: 0, total: 0, status: 'running', associations: 0, currentName: '' };
     res.json({ message: "Synchronisation AD lancée" });
 
     (async () => {
         try {
+            const today = new Date().toISOString().substring(0, 10);
+
+            // On calcule le total tout de suite pour la barre de progression
+            const countRes = await db.get(`
+                SELECT COUNT(*) as total FROM rh.referentiel_agents 
+                WHERE date_plusvu IS NULL 
+                AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
+            `, [today]);
+            adSyncProgress.total = countRes.total;
+
             const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
             if (!adSettings || !adSettings.is_enabled) {
                 adSyncProgress.status = 'error';
@@ -1047,10 +1372,10 @@ app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
                 client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
                     if (err) { client.destroy(); return reject(err); }
                     const users = [];
-                    client.search(adSettings.base_dn, { 
-                        filter: '(objectClass=user)', 
-                        scope: 'sub', 
-                        attributes: ['sAMAccountName', 'displayName', 'cn', 'mail']
+                    client.search(adSettings.base_dn, {
+                        filter: '(objectClass=user)',
+                        scope: 'sub',
+                        attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'userAccountControl', 'employeeID', 'description', 'lastLogonTimestamp']
                     }, (err, searchRes) => {
                         if (err) { client.destroy(); return reject(err); }
                         searchRes.on('searchEntry', (entry) => { users.push(flattenLDAPEntry(entry)); });
@@ -1060,61 +1385,382 @@ app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
                 });
             });
 
-            // 2. Créer table de propositions si besoin
-            await db.run('CREATE TABLE IF NOT EXISTS rh.ad_proposals (id INTEGER PRIMARY KEY, matricule TEXT, ad_username TEXT, score INTEGER, date_creation DATETIME DEFAULT CURRENT_TIMESTAMP)');
-            await db.run('DELETE FROM rh.ad_proposals');
+            // 2. Indexer les utilisateurs AD pour une recherche rapide
+            const adMatriculeMap = new Map();
+            const adNameMap = new Map();
 
-            // 3. Charger les agents actifs sans AD
-            const today = new Date().toISOString().substring(0, 10);
-            const agents = await db.all(`
+            allADUsers.forEach(u => {
+                if (!u.sAMAccountName) return;
+
+                // Index par matricule (sAMAccountName ou employeeID ou description)
+                const sam = u.sAMAccountName.toString().toLowerCase();
+                adMatriculeMap.set(sam, u);
+
+                if (u.employeeID) {
+                    adMatriculeMap.set(u.employeeID.toString().toLowerCase(), u);
+                }
+
+                // Si le matricule est caché dans la description (cas fréquent)
+                if (u.description && typeof u.description === 'string') {
+                    const match = u.description.match(/\d{5,8}/); // Recherche un nombre de 5 à 8 chiffres
+                    if (match) adMatriculeMap.set(match[0], u);
+                }
+
+                // Index par nom normalisé
+                if (u.displayName) {
+                    const norm = u.displayName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
+                    if (norm.length > 5) adNameMap.set(norm, u);
+                } else if (u.cn) {
+                    const norm = u.cn.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
+                    if (norm.length > 5) adNameMap.set(norm, u);
+                }
+            });
+
+            // 3. Charger TOUS les agents actifs (pour pouvoir mettre à jour le statut des déjà liés aussi)
+            const agentsToSync = await db.all(`
                 SELECT MATRICULE, NOM, PRENOM, ad_username FROM rh.referentiel_agents 
                 WHERE date_plusvu IS NULL 
                 AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
             `, [today]);
+            // adSyncProgress.total = agentsToSync.length; // Déjà mis à jour à l'init
 
-            adSyncProgress.total = agents.length;
-            const adUserMap = new Set(allADUsers.map(u => u.sAMAccountName?.toLowerCase()));
-
-            for (let i = 0; i < agents.length; i++) {
-                const agent = agents[i];
+            for (let i = 0; i < agentsToSync.length; i++) {
+                const agent = agentsToSync[i];
                 adSyncProgress.current = i + 1;
+                const agentNom = agent.NOM || agent.nom || '';
+                const agentPrenom = agent.PRENOM || agent.prenom || '';
+                adSyncProgress.currentName = `${agentNom} ${agentPrenom}`;
 
-                // Si déjà lié, vérifier si le compte existe encore
-                if (agent.ad_username) {
-                    if (!adUserMap.has(agent.ad_username.toLowerCase())) {
-                        await db.run('UPDATE rh.referentiel_agents SET date_fin_association_ad = CURRENT_TIMESTAMP WHERE MATRICULE = ?', [agent.MATRICULE]);
-                    }
-                    continue;
+                // Petit délai pour la visibilité de la barre de progression si c'est trop rapide
+                if (i % 5 === 0) await new Promise(resolve => setTimeout(resolve, 30));
+
+                const agentMatricule = agent.MATRICULE || agent.matricule || '';
+                const matricule = String(agentMatricule).toLowerCase().trim();
+                const nom = (agentNom).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
+                const prenom = (agentPrenom).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
+                const fullNameNorm = nom + prenom;
+                const fullNameNormReverse = prenom + nom;
+
+                let match = null;
+
+                // 1. Recherche par matricule (Haute priorité)
+                if (matricule) {
+                    match = adMatriculeMap.get(matricule);
                 }
 
-                // Recherche de correspondance
-                let bestMatch = null;
-                let bestScore = 0;
-
-                for (const adU of allADUsers) {
-                    if (!adU.displayName) continue;
-                    const score = calculateMatchScore(agent.NOM, agent.PRENOM, adU.displayName);
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestMatch = adU;
-                    }
+                // 2. Si non trouvé, recherche par nom/prénom
+                if (!match && fullNameNorm.length > 3) {
+                    match = adNameMap.get(fullNameNorm) || adNameMap.get(fullNameNormReverse);
                 }
 
-                if (bestScore >= 95) {
-                    // Association auto si confiance très élevée
-                    await db.run('UPDATE rh.referentiel_agents SET ad_username = ?, date_fin_association_ad = NULL WHERE MATRICULE = ?', [bestMatch.sAMAccountName, agent.MATRICULE]);
-                } else if (bestScore >= 70) {
-                    // Proposition si confiance moyenne
-                    await db.run('INSERT INTO rh.ad_proposals (matricule, ad_username, score) VALUES (?, ?, ?)', [agent.MATRICULE, bestMatch.sAMAccountName, bestScore]);
+                // 3. Traitement du match
+                if (match) {
+                    const uac = parseInt(match.userAccountControl);
+                    const enabled = isNaN(uac) ? 1 : (!(uac & 2) ? 1 : 0);
+
+                    let lastLogonIso = null;
+                    if (match.lastLogonTimestamp) {
+                        try {
+                            const timestamp = parseInt(match.lastLogonTimestamp);
+                            if (timestamp > 0) {
+                                // Windows FileTime (100ns since 1601-01-01) to JS Date
+                                const date = new Date((timestamp / 10000) - 11644473600000);
+                                lastLogonIso = date.toISOString();
+                            }
+                        } catch (e) { }
+                    }
+
+                    const email = Array.isArray(match.mail) ? match.mail[0] : (match.mail || null);
+                    await db.run(
+                        `UPDATE rh.referentiel_agents 
+                         SET ad_username = ?, ad_account_enabled = ?, ad_last_logon = ?, mail = ?, date_fin_association_ad = NULL 
+                         WHERE MATRICULE = ?`,
+                        [match.sAMAccountName, enabled, lastLogonIso, email, agentMatricule]
+                    );
+                    adSyncProgress.associations++;
+                } else if (agent.ad_username) {
+                    // Si l'agent était lié mais n'est plus trouvé dans l'AD (ou plus matché)
+                    const existingAD = adMatriculeMap.get(agent.ad_username.toLowerCase());
+                    if (existingAD) {
+                        const uac = parseInt(existingAD.userAccountControl);
+                        const enabled = isNaN(uac) ? 1 : (!(uac & 2) ? 1 : 0);
+                        await db.run('UPDATE rh.referentiel_agents SET ad_account_enabled = ? WHERE MATRICULE = ?', [enabled, agentMatricule]);
+                    } else {
+                        // Le compte spécifié a disparu de l'AD
+                        await db.run('UPDATE rh.referentiel_agents SET ad_account_enabled = 0 WHERE MATRICULE = ?', [agentMatricule]);
+                    }
                 }
             }
 
             adSyncProgress.status = 'done';
+
+            await db.run(
+                'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
+                ['Active Directory', 'success', `Sync AD terminée: ${adSyncProgress.associations} associations`, JSON.stringify(adSyncProgress), username]
+            );
+            console.log(`[SYNC LOG] Succès pour Active Directory`);
         } catch (err) {
             console.error("Erreur Synchro AD:", err);
             adSyncProgress.status = 'error';
+            await db.run(
+                'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
+                ['Active Directory', 'error', `Erreur: ${err.message}`, JSON.stringify(adSyncProgress), username]
+            );
+            console.log(`[SYNC LOG] Erreur pour Active Directory: ${err.message}`);
         }
     })();
+});
+
+// --- Système de Correspondance Azure AD (Entra ID) ---
+
+let azureSyncProgress = { current: 0, total: 0, status: 'idle' };
+
+app.get('/api/admin/rh/sync-azure/progress', authenticateAdmin, (req, res) => {
+    res.json(azureSyncProgress);
+});
+
+app.post('/api/admin/rh/sync-azure', authenticateAdmin, async (req, res) => {
+    const username = req.user?.username || 'system';
+    if (azureSyncProgress.status === 'running') return res.status(400).json({ message: "Synchro Azure déjà en cours" });
+
+    azureSyncProgress = { current: 0, total: 0, status: 'running' };
+    res.json({ message: "Synchronisation Azure AD lancée" });
+
+    (async () => {
+        try {
+            const today = new Date().toISOString().substring(0, 10);
+            const countRes = await db.get(`
+                SELECT COUNT(*) as total FROM rh.referentiel_agents 
+                WHERE date_plusvu IS NULL 
+                AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
+            `, [today]);
+            azureSyncProgress.total = countRes.total;
+
+            const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+            if (!settings || !settings.is_enabled) {
+                azureSyncProgress.status = 'error';
+                return;
+            }
+
+            // 1. Obtenir Token Graph
+            const tokenRes = await axios.post(`https://login.microsoftonline.com/${settings.tenant_id}/oauth2/v2.0/token`,
+                new URLSearchParams({
+                    client_id: settings.client_id,
+                    client_secret: settings.client_secret,
+                    grant_type: 'client_credentials',
+                    scope: 'https://graph.microsoft.com/.default'
+                }).toString(),
+                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+            );
+            const accessToken = tokenRes.data.access_token;
+
+            // 2. Récupérer les correspondances SKU (ID -> Nom de licence)
+            const skuMap = new Map();
+            try {
+                const skuRes = await axios.get('https://graph.microsoft.com/v1.0/subscribedSkus', {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                });
+                skuRes.data.value.forEach(sku => {
+                    skuMap.set(sku.skuId, sku.skuPartNumber);
+                });
+            } catch (e) { console.error("Error fetching subscribedSkus:", e.message); }
+
+            // 3. Récupérer tous les utilisateurs Azure avec licences
+            let allAzureUsers = [];
+            let nextLink = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,assignedLicenses';
+            while (nextLink) {
+                const graphRes = await axios.get(nextLink, { headers: { Authorization: `Bearer ${accessToken}` } });
+                allAzureUsers = allAzureUsers.concat(graphRes.data.value);
+                nextLink = graphRes.data['@odata.nextLink'];
+            }
+            console.log(`[Azure Sync] ${allAzureUsers.length} utilisateurs récupérés dans Azure`);
+
+            // 3. Charger les agents actifs sans Azure ID
+            const agents = await db.all(`
+                SELECT MATRICULE, NOM, PRENOM, mail, azure_id FROM rh.referentiel_agents 
+                WHERE date_plusvu IS NULL 
+                AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
+            `, [today]);
+            console.log(`[Azure Sync] ${agents.length} agents RH actifs trouvés`);
+
+            azureSyncProgress.total = agents.length;
+
+            const azNameMap = new Map();
+            const azEmailMap = new Map();
+            allAzureUsers.forEach(u => {
+                if (u.displayName) {
+                    const normalized = u.displayName.toLowerCase().replace(/\s+/g, '');
+                    azNameMap.set(normalized, u);
+                }
+                if (u.mail) azEmailMap.set(u.mail.toLowerCase(), u);
+                if (u.userPrincipalName) azEmailMap.set(u.userPrincipalName.toLowerCase(), u);
+            });
+
+            for (let i = 0; i < agents.length; i++) {
+                const agent = agents[i];
+                azureSyncProgress.current = i + 1;
+
+                // Délai pour la visibilité de la barre
+                if (i % 5 === 0) await new Promise(resolve => setTimeout(resolve, 30));
+
+                const agentNom = agent.NOM || agent.nom || '';
+                const agentPrenom = agent.PRENOM || agent.prenom || '';
+                const agentMail = agent.MAIL || agent.mail || agent.EMAIL || agent.email || '';
+
+                const normalizedRH = (agentNom + agentPrenom).toLowerCase().replace(/\s+/g, '');
+                const normalizedRHReverse = (agentPrenom + agentNom).toLowerCase().replace(/\s+/g, '');
+
+                let match = null;
+                if (agentMail) match = azEmailMap.get(agentMail.toLowerCase());
+                if (!match) match = azNameMap.get(normalizedRH) || azNameMap.get(normalizedRHReverse);
+                if (match) {
+                    let mainLicense = null;
+                    if (match.assignedLicenses && match.assignedLicenses.length > 0) {
+                        // Priorités de licences (on prend la plus "haute")
+                        const priorities = ['SPE_E5', 'SPE_E3', 'O365_BUSINESS_PREMIUM', 'O365_BUSINESS_STANDARD', 'M365_BUSINESS_BASIC', 'DEVELOPER_PACK', 'ENTERPRISEPREMIUM', 'ENTERPRISEPACK'];
+                        const userSkus = match.assignedLicenses.map(l => skuMap.get(l.skuId)).filter(Boolean);
+
+                        for (const p of priorities) {
+                            if (userSkus.includes(p)) {
+                                mainLicense = p;
+                                break;
+                            }
+                        }
+                        // Si aucune des prioritaires, prendre la première trouvée
+                        if (!mainLicense && userSkus.length > 0) mainLicense = userSkus[0];
+                    }
+
+                    await db.run(
+                        'UPDATE rh.referentiel_agents SET azure_id = ?, azure_license = ? WHERE MATRICULE = ?',
+                        [match.id, mainLicense, agent.MATRICULE]
+                    );
+                    console.log(`[Azure Sync] MATCH trouvé pour ${agentNom}: ${match.userPrincipalName} (${mainLicense || 'Pas de licence'})`);
+                } else {
+                    // console.log(`[Azure Sync] Aucun match pour ${agentNom} (${agentMail || 'pas de mail'})`);
+                }
+            }
+            console.log(`[Azure Sync] Synchronisation terminée`);
+
+            azureSyncProgress.status = 'done';
+            await db.run(
+                'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
+                ['Azure AD', 'success', `Sync Azure terminée.`, JSON.stringify(azureSyncProgress), username]
+            );
+            console.log(`[SYNC LOG] Succès pour Azure AD`);
+        } catch (err) {
+            console.error("Erreur Synchro Azure:", err);
+            azureSyncProgress.status = 'error';
+            await db.run(
+                'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
+                ['Azure AD', 'error', `Erreur: ${err.message}`, JSON.stringify(azureSyncProgress), username]
+            );
+            console.log(`[SYNC LOG] Erreur pour Azure AD: ${err.message}`);
+        }
+    })();
+});
+
+console.log('[DEBUG] Registering Frizbi and RH Log routes...');
+
+app.get('/api/admin/rh/logs', authenticateAdmin, async (req, res) => {
+    try {
+        const logs = await db.all('SELECT * FROM rh_sync_logs ORDER BY created_at DESC LIMIT 100');
+        res.json(logs);
+    } catch (err) {
+        console.error("Erreur lecture logs:", err);
+        res.status(500).json({ message: 'Erreur lecture logs', error: err.message });
+    }
+});
+
+// --- Paramètres Frizbi SMS ---
+
+app.get('/api/frizbi-test-public', (req, res) => {
+    res.json({ message: 'Public Frizbi Route Reachable' });
+});
+
+app.get('/api/admin/frizbi-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM frizbi_settings WHERE id = 1');
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur récupération paramètres Frizbi', error: error.message });
+    }
+});
+
+console.log('[DEBUG] Registering POST /api/admin/frizbi-settings');
+app.post('/api/admin/frizbi-settings', authenticateAdmin, async (req, res) => {
+    const { is_enabled, api_url, client_id, client_secret, sender_id } = req.body;
+    try {
+        await db.run(`
+            UPDATE frizbi_settings 
+            SET is_enabled = ?, api_url = ?, client_id = ?, client_secret = ?, sender_id = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1
+        `, [is_enabled ? 1 : 0, api_url, client_id, client_secret, sender_id]);
+        res.json({ message: 'Paramètres Frizbi mis à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur mise à jour paramètres Frizbi', error: error.message });
+    }
+});
+
+app.post('/api/admin/frizbi/test-connection', authenticateAdmin, async (req, res) => {
+    const { api_url, client_id, client_secret } = req.body;
+    try {
+        const response = await axios.post(`${api_url}/api/auth/login`, {
+            login: client_id,
+            password: client_secret
+        });
+        if (response.data && response.data.token) {
+            res.json({ success: true, message: 'Connexion réussie !' });
+        } else {
+            res.status(400).json({ success: false, message: 'Réponse API inattendue' });
+        }
+    } catch (error) {
+        console.error('Test Frizbi Error:', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ 
+            success: false, 
+            message: error.response?.data?.message || error.message 
+        });
+    }
+});
+
+app.post('/api/admin/frizbi/send-test', authenticateAdmin, async (req, res) => {
+    const { mobile, message } = req.body;
+    const username = req.user?.username || 'admin';
+    try {
+        const settings = await db.get('SELECT * FROM frizbi_settings WHERE id = 1');
+        if (!settings) throw new Error('Paramètres Frizbi non configurés');
+
+        // 1. Login
+        const authRes = await axios.post(`${settings.api_url}/api/auth/login`, {
+            login: settings.client_id,
+            password: settings.client_secret
+        });
+        const token = authRes.data.token;
+
+        // 2. Envoi
+        const sendRes = await axios.post(`${settings.api_url}/api/sms/send`, {
+            customerSmsId: `test_${Date.now()}`,
+            message: message || "Ceci est un test de l'API HubDSI Ivry.",
+            customerSenderId: settings.sender_id,
+            smsContacts: [
+                {
+                    customerSmsContactId: `contact_${Date.now()}`,
+                    mobile: mobile,
+                    firstName: "Test",
+                    lastName: "HubDSI"
+                }
+            ]
+        }, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+
+        res.json({ success: true, data: sendRes.data });
+    } catch (error) {
+        console.error('Test SMS Error:', error.response?.data || error.message);
+        res.status(error.response?.status || 500).json({ 
+            success: false, 
+            message: error.response?.data?.message || error.message 
+        });
+    }
 });
 
 app.get('/api/admin/rh/ad-proposals', authenticateAdmin, async (req, res) => {
@@ -1161,10 +1807,10 @@ app.get('/api/admin/rh/unlinked-ad', authenticateAdmin, async (req, res) => {
             client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
                 if (err) { client.destroy(); return reject(err); }
                 const users = [];
-                client.search(adSettings.base_dn, { 
-                    filter: '(objectClass=user)', 
+                client.search(adSettings.base_dn, {
+                    filter: '(objectClass=user)',
                     paged: true,
-                    scope: 'sub', 
+                    scope: 'sub',
                     attributes: ['sAMAccountName', 'displayName', 'cn', 'mail']
                 }, (err, searchRes) => {
                     if (err) { client.destroy(); return reject(err); }
@@ -1181,7 +1827,7 @@ app.get('/api/admin/rh/unlinked-ad', authenticateAdmin, async (req, res) => {
 
         // 3. Filtrer
         const unlinked = allADUsers.filter(u => u.sAMAccountName && !associatedSet.has(u.sAMAccountName.toLowerCase()));
-        
+
         res.json(unlinked);
     } catch (err) {
         res.status(500).json({ message: 'Erreur recherche AD', error: err.message });
@@ -1193,6 +1839,10 @@ app.post('/api/admin/rh/associate', authenticateAdmin, async (req, res) => {
     const { matricule, ad_username } = req.body;
     if (!matricule) return res.status(400).json({ message: 'Matricule manquant' });
     try {
+        // Sécurité : S'assurer que les colonnes existent
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN date_fin_association_ad DATETIME"); } catch (e) { }
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN ad_username TEXT"); } catch (e) { }
+
         if (!ad_username) {
             // Désassocier
             await db.run('UPDATE rh.referentiel_agents SET ad_username = NULL, date_fin_association_ad = NULL WHERE MATRICULE = ?', [matricule]);
@@ -1203,6 +1853,147 @@ app.post('/api/admin/rh/associate', authenticateAdmin, async (req, res) => {
         res.json({ message: 'Association mise à jour' });
     } catch (err) {
         res.status(500).json({ message: 'Erreur association', error: err.message });
+    }
+});
+
+// Recherche manuelle dans l'AD pour association
+app.get('/api/admin/rh/ad-search', authenticateAdmin, async (req, res) => {
+    const { q } = req.query;
+    if (!q || q.length < 2) return res.json([]);
+
+    try {
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) {
+            return res.status(503).json({ message: "AD non configuré" });
+        }
+
+        const results = await new Promise((resolve, reject) => {
+            const client = ldap.createClient({
+                url: `ldap://${adSettings.host}:${adSettings.port}`,
+                connectTimeout: 5000,
+                timeout: 5000
+            });
+            client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                if (err) { client.destroy(); return reject(err); }
+
+                const users = [];
+                const searchOptions = {
+                    filter: `(&(objectClass=user)(|(sAMAccountName=*${q}*)(cn=*${q}*)(displayName=*${q}*)(mail=*${q}*)))`,
+                    scope: 'sub',
+                    attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'title', 'department'],
+                    sizeLimit: 20
+                };
+
+                client.search(adSettings.base_dn, searchOptions, (err, searchRes) => {
+                    if (err) { client.destroy(); return reject(err); }
+                    searchRes.on('searchEntry', (entry) => { users.push(flattenLDAPEntry(entry)); });
+                    searchRes.on('end', () => { client.destroy(); resolve(users); });
+                    searchRes.on('error', (err) => { client.destroy(); reject(err); });
+                });
+            });
+        });
+
+        res.json(results);
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur recherche AD', error: err.message });
+    }
+});
+
+// Détails complets d'un agent (RH + AD + Azure)
+app.get('/api/admin/rh/agent-details/:matricule', authenticateAdmin, async (req, res) => {
+    const { matricule } = req.params;
+    try {
+        // 1. Infos RH
+        const agent = await db.get('SELECT * FROM rh.referentiel_agents WHERE MATRICULE = ?', [matricule]);
+        if (!agent) return res.status(404).json({ message: 'Agent introuvable' });
+
+        const details = {
+            rh: agent,
+            ad: null,
+            azure: null
+        };
+
+        // 2. Infos AD
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (agent.ad_username && adSettings && adSettings.is_enabled) {
+            try {
+                details.ad = await new Promise((resolve, reject) => {
+                    const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
+                    client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                        if (err) { client.destroy(); return resolve(null); }
+                        client.search(adSettings.base_dn, {
+                            filter: `(sAMAccountName=${agent.ad_username})`,
+                            scope: 'sub',
+                            attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'userAccountControl', 'employeeID', 'description', 'lastLogonTimestamp']
+                        }, (err, searchRes) => {
+                            if (err) { client.destroy(); return resolve(null); }
+                            let found = null;
+                            searchRes.on('searchEntry', (entry) => {
+                                found = flattenLDAPEntry(entry);
+                                if (found.lastLogonTimestamp) {
+                                    try {
+                                        const ts = parseInt(found.lastLogonTimestamp);
+                                        if (ts > 0) {
+                                            found.lastLogonFormatted = new Date((ts / 10000) - 11644473600000).toLocaleString();
+                                        }
+                                    } catch (e) { }
+                                }
+                            });
+                            searchRes.on('end', () => { client.destroy(); resolve(found); });
+                            searchRes.on('error', () => { client.destroy(); resolve(null); });
+                        });
+                    });
+                });
+            } catch (e) { console.error("Error fetching AD details:", e); }
+        }
+
+        // 3. Infos Azure
+        const azureSettings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        if (azureSettings && azureSettings.is_enabled) {
+            try {
+                // Liaison par mail (priorité AD mail, sinon RH mail)
+                const email = details.ad?.mail || agent.MAIL || agent.EMAIL;
+
+                if (email) {
+                    const tokenRes = await axios.post(`https://login.microsoftonline.com/${azureSettings.tenant_id}/oauth2/v2.0/token`,
+                        new URLSearchParams({
+                            client_id: azureSettings.client_id,
+                            client_secret: azureSettings.client_secret,
+                            grant_type: 'client_credentials',
+                            scope: 'https://graph.microsoft.com/.default'
+                        }).toString(),
+                        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+                    );
+                    const accessToken = tokenRes.data.access_token;
+
+                    const azureRes = await axios.get(
+                        `https://graph.microsoft.com/v1.0/users?$filter=mail eq '${email}' or userPrincipalName eq '${email}'&$select=id,displayName,mail,userPrincipalName,jobTitle,department,officeLocation,accountEnabled,userType,createdDateTime,onPremisesSyncEnabled,usageLocation,proxyAddresses`,
+                        { headers: { Authorization: `Bearer ${accessToken}` } }
+                    );
+
+                    if (azureRes.data.value && azureRes.data.value.length > 0) {
+                        details.azure = azureRes.data.value[0];
+
+                        // 4. Récupérer les licences (Azure ID requis)
+                        try {
+                            const licenseRes = await axios.get(`https://graph.microsoft.com/v1.0/users/${details.azure.id}/licenseDetails`, {
+                                headers: { Authorization: `Bearer ${accessToken}` }
+                            });
+                            details.azure.licenses = licenseRes.data.value.map(l => l.skuPartNumber);
+                        } catch (le) {
+                            console.error("Error fetching Azure licenses:", le.response?.data || le.message);
+                            details.azure.licenses = ["Erreur ou Permissions insuffisantes"];
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Error fetching Azure details:", e.response?.data || e.message);
+            }
+        }
+
+        res.json(details);
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur détails agent', error: err.message });
     }
 });
 
@@ -1248,12 +2039,12 @@ app.post('/api/oracle/test-connection', authenticateAdmin, async (req, res) => {
         if (!settings) return res.status(404).json({ success: false, message: "Paramètres non trouvés" });
 
         connection = await getOracleConnection(settings);
-        
+
         // Test query
         const result = await connection.execute('SELECT 1 FROM DUAL');
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: `Connexion à Oracle ${type} (${settings.host}) réussie !`,
             data: result.rows
         });
@@ -1261,7 +2052,7 @@ app.post('/api/oracle/test-connection', authenticateAdmin, async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     } finally {
         if (connection) {
-            try { await connection.close(); } catch (e) {}
+            try { await connection.close(); } catch (e) { }
         }
     }
 });
@@ -1274,15 +2065,15 @@ app.post('/api/oracle/check-tables', authenticateAdmin, async (req, res) => {
         if (!settings) return res.status(404).json({ success: false, message: "Paramètres non trouvés" });
 
         connection = await getOracleConnection(settings);
-        
+
         // List active tables and views using SELECT TNAME FROM TAB
         const result = await connection.execute('SELECT TNAME FROM TAB WHERE TABTYPE IN (\'TABLE\', \'VIEW\')');
-        
+
         // Extract names as simple strings for the frontend
         const tableNames = result.rows.map(row => row[0]);
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: `Vérification des tables et vues Oracle ${type} terminée.`,
             details: tableNames
         });
@@ -1290,7 +2081,7 @@ app.post('/api/oracle/check-tables', authenticateAdmin, async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     } finally {
         if (connection) {
-            try { await connection.close(); } catch (e) {}
+            try { await connection.close(); } catch (e) { }
         }
     }
 });
@@ -1303,21 +2094,21 @@ app.post('/api/oracle/table-columns', authenticateAdmin, async (req, res) => {
         if (!settings) return res.status(404).json({ success: false, message: "Paramètres non trouvés" });
 
         connection = await getOracleConnection(settings);
-        
+
         // Describe table to get column names
         const result = await connection.execute(`SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = :t ORDER BY COLUMN_ID`, [tableName.toUpperCase()]);
-        
+
         const columns = result.rows.map(row => row[0]);
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             columns
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     } finally {
         if (connection) {
-            try { await connection.close(); } catch (e) {}
+            try { await connection.close(); } catch (e) { }
         }
     }
 });
@@ -1328,23 +2119,23 @@ app.post('/api/oracle/table-preview', authenticateAdmin, async (req, res) => {
     try {
         const settings = await db.get('SELECT * FROM oracle_settings WHERE type = ?', [type]);
         connection = await getOracleConnection(settings);
-        
+
         // On récupère juste la première ligne pour l'aperçu
         const result = await connection.execute(
-            `SELECT * FROM ${tableName.toUpperCase()} WHERE ROWNUM <= 1`, 
-            [], 
+            `SELECT * FROM ${tableName.toUpperCase()} WHERE ROWNUM <= 1`,
+            [],
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
         );
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             preview: result.rows.length > 0 ? result.rows[0] : {}
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     } finally {
         if (connection) {
-            try { await connection.close(); } catch (e) {}
+            try { await connection.close(); } catch (e) { }
         }
     }
 });
@@ -1409,7 +2200,7 @@ function parseOracleDate(val) {
             const day = String(d.getDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
         }
-    } catch (e) {}
+    } catch (e) { }
 
     return s;
 }
@@ -1420,20 +2211,20 @@ app.post('/api/oracle/test-join', authenticateAdmin, async (req, res) => {
     try {
         const settings = await db.get('SELECT * FROM oracle_settings WHERE type = ?', [type]);
         connection = await getOracleConnection(settings);
-        
+
         // On concatène les champs demandés pour le test
         const concatLabel = labelFields.map(f => `"${f}"`).join(" || ' ' || ");
         const query = `SELECT ${concatLabel} as RESULT FROM ${secondaryTable} WHERE ${joinField} = :val AND ROWNUM <= 1`;
         const result = await connection.execute(query, [searchValue], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        
-        res.json({ 
-            success: true, 
-            result: result.rows.length > 0 ? result.rows[0].RESULT : null 
+
+        res.json({
+            success: true,
+            result: result.rows.length > 0 ? result.rows[0].RESULT : null
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     } finally {
-        if (connection) { try { await connection.close(); } catch (e) {} }
+        if (connection) { try { await connection.close(); } catch (e) { } }
     }
 });
 
@@ -1441,7 +2232,7 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
     const { type, tables: providedTables, filters: providedFilters, substitutions, tableConfig, primaryKeys } = req.body;
     // Défense contre dateFields manquant ou non défini
     const dateFields = req.body.dateFields || {};
-    
+
     let tablesToSync = [];
     let connection;
 
@@ -1468,7 +2259,7 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
         for (const config of tablesToSync) {
             const tableName = config.table_name;
             const mainPrefix = type.toUpperCase() === 'RH' ? '' : tableName.toUpperCase() + "_";
-            
+
             try {
                 // Use stored config if available, otherwise fallback to request body
                 const tableSettings = config.config_json || {};
@@ -1484,7 +2275,7 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                 let selectParts = [];
                 let joinParts = [];
                 let aliasIdx = 1;
-                
+
                 // Mappage des colonnes finales vers leur origine pour le parsing de date
                 // key: localColName, value: originalMainFieldName
                 const colSourceMap = {};
@@ -1494,7 +2285,7 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                         const { secondaryTable, joinField, labelFields } = tableSubst[col];
                         const alias = `S${aliasIdx++}`;
                         const secPrefix = secondaryTable.toUpperCase() + "_";
-                        
+
                         if (labelFields && labelFields.length > 0) {
                             labelFields.forEach(f => {
                                 const localJoinCol = `${secPrefix}${f}`;
@@ -1536,8 +2327,8 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                 if (whereClause) {
                     const hasWhere = /^where\s/i.test(whereClause);
                     let formattedWhere = hasWhere ? whereClause : `WHERE ${whereClause}`;
-                    const reserved = ['WHERE','AND','OR','LIKE','IN','NULL','IS','NOT','BETWEEN','ORDER','BY','DESC','ASC','DATE','TO_DATE','TO_CHAR','NVL','COALESCE','TRIM','UPPER','LOWER','SUBSTR','INSTR','COUNT','SUM','ROWNUM'];
-                    
+                    const reserved = ['WHERE', 'AND', 'OR', 'LIKE', 'IN', 'NULL', 'IS', 'NOT', 'BETWEEN', 'ORDER', 'BY', 'DESC', 'ASC', 'DATE', 'TO_DATE', 'TO_CHAR', 'NVL', 'COALESCE', 'TRIM', 'UPPER', 'LOWER', 'SUBSTR', 'INSTR', 'COUNT', 'SUM', 'ROWNUM'];
+
                     formattedWhere = formattedWhere.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match) => {
                         if (reserved.includes(match.toUpperCase())) return match;
                         return `T1."${match}"`;
@@ -1585,19 +2376,19 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
 
                 await db.run(`DROP TABLE IF EXISTS ${fullLocalTableName}`);
                 const pkLocalField = pkField ? `${mainPrefix}${pkField}` : null;
-                
+
                 const createCols = columnsForSchema.map(col => `"${col}" TEXT${col === pkLocalField ? ' PRIMARY KEY' : ''}`).join(', ');
                 await db.run(`CREATE TABLE ${fullLocalTableName} (${createCols})`);
 
                 if (result.rows.length > 0) {
                     const placeholders = columnsForSchema.map(() => '?').join(',');
                     const insertSql = `INSERT INTO ${fullLocalTableName} (${columnsForSchema.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`;
-                    
+
                     await db.run('BEGIN TRANSACTION');
                     try {
                         for (const rowObj of result.rows) {
                             const fullValues = [];
-                            
+
                             // 1. Base columns values (with date parsing)
                             for (const col of finalColumns) {
                                 let val = rowObj[col];
@@ -1635,7 +2426,7 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     } finally {
         if (connection) {
-            try { await connection.close(); } catch (e) {}
+            try { await connection.close(); } catch (e) { }
         }
     }
 });
@@ -1781,7 +2572,7 @@ app.get('/api/glpi/tickets-count', authenticateAdmin, async (req, res) => {
         // Recherche élargie (sans filtres)
         // On passe tout dans l'URL pour être certain que GLPI 9.4 intercepte bien le token.
         const searchUrl = `${url}/search/Ticket?session_token=${sessionToken}&range=0-1&get_all_entities=1`;
-        
+
         console.log(`[GLPI] Appel recherche : ${searchUrl}`);
 
         const ticketsRes = await axios.get(searchUrl, {
@@ -1837,7 +2628,7 @@ app.get('/api/glpi/recent-tickets', authenticateAdmin, async (req, res) => {
             'Accept': 'application/json'
         };
 
-        let authHeader = login && password 
+        let authHeader = login && password
             ? `Basic ${Buffer.from(`${login}:${password}`).toString('base64')}`
             : `user_token ${user_token}`;
 
@@ -1893,7 +2684,7 @@ app.post('/api/glpi/sync-tickets', authenticateAdmin, async (req, res) => {
         }
 
         const commonHeaders = { 'App-Token': app_token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
-        let authHeader = login && password 
+        let authHeader = login && password
             ? `Basic ${Buffer.from(`${login}:${password}`).toString('base64')}`
             : `user_token ${user_token}`;
 
@@ -1910,7 +2701,7 @@ app.post('/api/glpi/sync-tickets', authenticateAdmin, async (req, res) => {
         const forcedStr = forcedFields.map((id, idx) => `forcedisplay[${idx}]=${id}`).join('&');
         const searchUrl = `${url}/search/Ticket?session_token=${sessionToken}&range=0-100&sort=15&order=DESC&get_all_entities=1&${forcedStr}`;
         const ticketsRes = await axios.get(searchUrl, { headers: commonHeaders });
-        
+
         if (ticketsRes.data && Array.isArray(ticketsRes.data.data)) {
             const tickets = ticketsRes.data.data;
             let processedCount = 0;
@@ -1923,7 +2714,7 @@ app.post('/api/glpi/sync-tickets', authenticateAdmin, async (req, res) => {
                 startTime: new Date().toISOString(),
                 lastUpdate: new Date().toISOString()
             };
-            
+
             // 3. Insertion par lots (ou individuel avec INSERT OR REPLACE)
             // Helper function to safely extract values from GLPI response, handling objects and nulls
             const val = (t, id) => {
@@ -1965,7 +2756,7 @@ app.post('/api/glpi/sync-tickets', authenticateAdmin, async (req, res) => {
                 glpiSyncProgress.processed = processedCount;
                 glpiSyncProgress.lastUpdate = new Date().toISOString();
             }
-            
+
             await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders });
             res.json({ success: true, count: tickets.length });
         } else {
@@ -2007,14 +2798,14 @@ app.post('/api/glpi/sync-all-tickets', authenticateAdmin, async (req, res) => {
         if (!url.includes('apirest.php')) {
             url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
         }
-        
+
         const app_token = (settings.app_token || '').trim();
         const user_token = (settings.user_token || '').trim();
         const login = (settings.login || '').trim();
         const password = (settings.password || '').trim();
 
         commonHeaders = { 'App-Token': app_token, 'Content-Type': 'application/json', 'Accept': 'application/json' };
-        let authHeader = login && password 
+        let authHeader = login && password
             ? `Basic ${Buffer.from(`${login}:${password}`).toString('base64')}`
             : `user_token ${user_token}`;
 
@@ -2072,13 +2863,13 @@ app.post('/api/glpi/sync-all-tickets', authenticateAdmin, async (req, res) => {
             for (let start = 0; start < totalCount; start += batchSize) {
                 const end = Math.min(start + batchSize, totalCount);
                 console.log(`[GLPI Sync] Récupération tickets ${start}-${end}...`);
-                
+
                 // forcedisplay pour tous les champs requis. Ajout du 22 (Email) car le 34 est parfois vide.
                 const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22];
                 const forcedStr = forcedFields.map((id, idx) => `forcedisplay[${id}]=${id}`).join('&');
                 // GLPI Range est inclusif (0-499 = 500 items). On utilise donc start-${end-1}
-                const batchRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${start}-${end-1}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
-                
+                const batchRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${start}-${end - 1}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
+
                 if (batchRes.data && Array.isArray(batchRes.data.data)) {
                     for (const t of batchRes.data.data) {
                         // Email : priorité au champ 34, sinon 22
@@ -2126,7 +2917,7 @@ app.post('/api/glpi/sync-all-tickets', authenticateAdmin, async (req, res) => {
     } catch (error) {
         console.error('[GLPI] Erreur Sync Totale:', error.message);
         if (sessionToken && url && commonHeaders) {
-            try { await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders }); } catch (e) {}
+            try { await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders }); } catch (e) { }
         }
         glpiSyncProgress.active = false;
         res.status(500).json({ message: `Erreur Synchronisation Totale: ${error.message}` });
@@ -2138,7 +2929,7 @@ app.get('/api/glpi/my-profile', authenticateAdmin, async (req, res) => {
     try {
         const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
         if (!settings || !settings.url) return res.status(400).json({ message: 'Non configuré' });
-        
+
         let url = settings.url.trim();
         let app_token = (settings.app_token || '').trim();
         let user_token = (settings.user_token || '').trim();
@@ -2146,7 +2937,7 @@ app.get('/api/glpi/my-profile', authenticateAdmin, async (req, res) => {
         if (!url.includes('apirest.php')) {
             url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
         }
-        
+
         const commonHeaders = {
             'App-Token': app_token,
             'Content-Type': 'application/json',
@@ -2182,12 +2973,18 @@ app.get('/api/glpi/my-profile', authenticateAdmin, async (req, res) => {
 
 // Route de test de liaison Active Directory (Compte technique uniquement)
 app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
-    const { host, port, base_dn, bind_dn, bind_password } = req.body;
-    
-    const logMsg = `Ping AD: Tentative de liaison pour ${host}:${port} avec ${bind_dn}`;
+    let { host, port, base_dn, bind_dn, bind_password } = req.body;
+
+    // Résolution du mot de passe si sentinel
+    if (bind_password === '••••••••' || bind_password === '********') {
+        const settings = await db.get('SELECT bind_password FROM ad_settings WHERE id = 1');
+        bind_password = settings?.bind_password || '';
+    }
+
+    const logMsg = `Ping AD (Route): Tentative pour ${host}:${port} avec ${bind_dn}`;
     console.log(logMsg);
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
-`);
+    console.log(`[DEBUG AD PING] Full Params: host=${host}, port=${port}, base=${base_dn}, bind=${bind_dn}`);
+    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
 
     const client = ldap.createClient({
         url: `ldap://${host}:${port}`,
@@ -2212,12 +3009,19 @@ app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
         client.destroy();
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Succès\n`);
         res.json({ success: true, message: 'La liaison avec l\'Active Directory a réussi !' });
-    });});
+    });
+});
 
 // Route de test Active Directory (Outil de recherche / Lookup)
 app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
-    const { host, port, base_dn, bind_dn, bind_password, username } = req.body;
-    
+    let { host, port, base_dn, bind_dn, bind_password, username } = req.body;
+
+    // Résolution du mot de passe si sentinel
+    if (bind_password === '••••••••' || bind_password === '********') {
+        const settings = await db.get('SELECT bind_password FROM ad_settings WHERE id = 1');
+        bind_password = settings?.bind_password || '';
+    }
+
     const logMsg = `Lookup AD: Recherche d'infos pour ${username} via le compte technique ${bind_dn}`;
     console.log(logMsg);
     fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
@@ -2248,7 +3052,8 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
             scope: 'sub',
             attributes: ['dn', 'cn', 'mail', 'displayName', 'memberOf', 'title', 'department', 'sAMAccountName'],
             referrals: false,
-            paged: true
+            paged: false,
+            sizeLimit: 20
         };
 
         client.search(base_dn, searchOptions, (err, searchRes) => {
@@ -2258,7 +3063,7 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
             }
 
             let entries = [];
-            searchRes.on('searchEntry', (entry) => { 
+            searchRes.on('searchEntry', (entry) => {
                 const obj = flattenLDAPEntry(entry);
                 if (obj) {
                     entries.push({
@@ -2273,9 +3078,9 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
                     });
                 }
             });
-            searchRes.on('error', (err) => { 
-                client.destroy(); 
-                res.status(500).json({ success: false, message: err.message }); 
+            searchRes.on('error', (err) => {
+                client.destroy();
+                res.status(500).json({ success: false, message: err.message });
             });
             searchRes.on('end', (result) => {
                 client.destroy();
@@ -2289,10 +3094,10 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
                 const userEntry = exactMatch || entries[0];
 
                 fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Succès pour ${username} (Match: ${userEntry.sAMAccountName})\n`);
-                res.json({ 
-                    success: true, 
+                res.json({
+                    success: true,
                     message: `Informations récupérées pour ${userEntry.displayName || userEntry.cn || username}`,
-                    data: userEntry 
+                    data: userEntry
                 });
             });
         });
@@ -2304,7 +3109,7 @@ app.get('/mouchard', (req, res) => {
     try {
         const logPath = path.join(__dirname, 'mouchard.log');
         if (!fs.existsSync(logPath)) return res.send("Aucun log disponible.");
-        
+
         // Sécurité : Vérifier que c'est bien un fichier (évite EISDIR si volume Docker mal monté)
         const stats = fs.statSync(logPath);
         if (stats.isDirectory()) {
@@ -2313,7 +3118,7 @@ app.get('/mouchard', (req, res) => {
 
         const logs = fs.readFileSync(logPath, 'utf8');
         const lines = logs.split('\n').filter(l => l.trim().length > 0).reverse().slice(0, 100);
-        
+
         const formatLine = (l) => {
             let color = '#d4d4d4';
             if (l.includes('DELETE')) color = '#f44336';
@@ -2445,16 +3250,16 @@ app.post('/api/release', authenticateAdmin, async (req, res) => {
         exec(`git add . && git commit -m "Release v${newVersion}"`, (error, stdout, stderr) => {
             if (error) {
                 console.error(`Git Error: ${error.message}`);
-                return res.json({ 
-                    message: `Version ${newVersion} créée localement, mais échec du commit git.`, 
+                return res.json({
+                    message: `Version ${newVersion} créée localement, mais échec du commit git.`,
                     version: newVersion,
-                    gitError: error.message 
+                    gitError: error.message
                 });
             }
-            res.json({ 
-                message: `Version ${newVersion} créée et commitée avec succès !`, 
+            res.json({
+                message: `Version ${newVersion} créée et commitée avec succès !`,
                 version: newVersion,
-                gitOutput: stdout 
+                gitOutput: stdout
             });
         });
 
@@ -2468,7 +3273,7 @@ let db;
 // Initialize Database
 setupDb().then(async database => {
     db = database;
-    
+
     // Vérification structure table users
     const userCols = await db.all("PRAGMA table_info(users)");
     console.log('Colonnes table users:', userCols.map(c => c.name).join(', '));
@@ -2477,7 +3282,7 @@ setupDb().then(async database => {
     try {
         await db.run('ALTER TABLE operations ADD COLUMN used_amount REAL DEFAULT 0');
         console.log('Colonne used_amount OK');
-    } catch (e) {}
+    } catch (e) { }
 
     // Initialisation table ad_settings
     try {
@@ -2570,7 +3375,7 @@ app.post('/api/magapp/health-check', async (req, res) => {
             }
             try {
                 // Config axios pour accepter plus de codes et ignorer les erreurs SSL
-                const config = { 
+                const config = {
                     timeout: 5000,
                     validateStatus: (status) => (status >= 200 && status < 400) || status === 401 || status === 403
                 };
@@ -2811,22 +3616,22 @@ app.post('/api/magapp/icons/upload', authenticateJWT, (err, req, res, next) => {
 `);
         return res.status(400).send('No file uploaded.');
     }
-    
+
     try {
         const fileName = req.file.filename;
         const sourcePath = req.file.path;
-        
+
         // Destination unique dans le dossier statique du backend
         const destPath = path.join(__dirname, 'magapp_img', fileName);
-        
+
         // S'assurer que le dossier existe
         if (!fs.existsSync(path.dirname(destPath))) fs.mkdirSync(path.dirname(destPath), { recursive: true });
-        
+
         fs.copyFileSync(sourcePath, destPath);
-        
+
         // Supprimer le fichier temporaire dans uploads
         fs.unlinkSync(sourcePath);
-        
+
         res.json({ message: 'Icône uploadée avec succès', path: `/img/${fileName}` });
     } catch (error) {
         res.status(500).json({ message: "Erreur lors de l'upload de l'icône", error: error.message });
@@ -2910,9 +3715,9 @@ app.put('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
     const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end } = req.body;
     try {
         const oldApp = await db.get('SELECT is_maintenance FROM magapp_apps WHERE id = ?', [req.params.id]);
-        
+
         await db.run('UPDATE magapp_apps SET category_id = ?, name = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ? WHERE id = ?', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, req.params.id]);
-        
+
         // Si on vient d'activer la maintenance, on prévient les abonnés
         if (is_maintenance && (!oldApp || !oldApp.is_maintenance)) {
             sendMaintenanceEmail(req.params.id).catch(err => console.error("Error in sendMaintenanceEmail:", err));
@@ -2953,8 +3758,8 @@ app.post('/api/mail-settings', authenticateAdmin, async (req, res) => {
                 sender_email = ?, sender_name = ?, api_key = ?, template_html = ?
             WHERE id = 1
         `, [
-            s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_pass, 
-            s.smtp_secure, s.proxy_host, s.proxy_port, 
+            s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_pass,
+            s.smtp_secure, s.proxy_host, s.proxy_port,
             s.sender_email, s.sender_name, s.api_key, s.template_html
         ]);
         res.json({ message: 'Paramètres mis à jour' });
@@ -3007,11 +3812,11 @@ app.delete('/api/certificates/:id', authenticateAdmin, async (req, res) => {
         }
 
         await db.run('DELETE FROM certificates WHERE id = ?', [req.params.id]);
-        
+
         const logMsg = `Certificat supprimé: ID ${req.params.id} (${cert.order_number})`;
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
-        
+
         res.json({ message: 'Certificat supprimé avec succès' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la suppression', error: error.message });
@@ -3052,7 +3857,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
         const filePath = req.file.path;
         const fileName = req.file.originalname;
         let content = '';
-        
+
         const logMsg = `Processing file: ${filePath}`;
         console.log(logMsg);
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
@@ -3080,7 +3885,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
             emailMatch[0] = emailMatch[0].replace(/^[A-Z]{2,}(?=[a-z])/, '');
         }
         const productCodeMatch = content.match(/(OE2|OP2)-[A-Z0-9-]+/);
-        
+
         // Helper to format DD/MM/YYYY to YYYY-MM-DD
         const formatDateToISO = (dateStr) => {
             if (!dateStr) return null;
@@ -3188,7 +3993,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
 
         // Vérifier si le certificat existe déjà (par numéro de commande)
         const existing = await db.get('SELECT id, file_path, is_provisional FROM certificates WHERE order_number = ?', [data.order_number]);
-        
+
         let result;
         if (existing && data.order_number !== 'Inconnu') {
             // Mise à jour (on garde is_provisional existant s'il était déjà à 0, sinon on met à jour)
@@ -3211,7 +4016,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
                 try {
                     const oldPath = path.join(__dirname, existing.file_path);
                     if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-                } catch (e) {}
+                } catch (e) { }
             }
             result = { lastID: existing.id };
         } else {
@@ -3242,12 +4047,12 @@ Stack: ${err.stack}
 `;
     fs.appendFileSync(path.join(__dirname, 'mouchard.log'), errMsg);
     console.error(errMsg);
-    
+
     if (res.headersSent) {
         return next(err);
     }
-    res.status(500).json({ 
-        message: 'Erreur interne du serveur', 
+    res.status(500).json({
+        message: 'Erreur interne du serveur',
         error: err.message,
         stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
@@ -3360,13 +4165,13 @@ app.get('/api/settings/public', authenticateJWT, async (req, res) => {
         const safeKeys = ['url_sedit_fi'];
         const placeholders = safeKeys.map(() => '?').join(',');
         const settings = await db.all(`SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN (${placeholders})`, safeKeys);
-        
+
         // Convert array to object { url_sedit_fi: '...' }
         const settingsObj = settings.reduce((acc, curr) => {
             acc[curr.setting_key] = curr.setting_value;
             return acc;
         }, {});
-        
+
         res.json(settingsObj);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lecture paramètres publics', error: error.message });
@@ -3395,14 +4200,14 @@ app.get('/api/admin/sql/tables', authenticateAdmin, async (req, res) => {
 app.get('/api/admin/sql/table-info/:tableName', authenticateAdmin, async (req, res) => {
     const { tableName } = req.params;
     const dbName = typeof req.query.db === 'string' && req.query.db ? req.query.db.replace(/[^a-zA-Z0-9_]/g, '') : 'main';
-    
+
     try {
         const columns = await db.all(`PRAGMA "${dbName}".table_info("${tableName}")`);
         const pks = columns.filter(c => c.pk > 0).map(c => c.name);
-        
+
         const indices = await db.all(`PRAGMA "${dbName}".index_list("${tableName}")`);
         const indexNames = indices.map(idx => idx.name);
-        
+
         let rowCount = 0;
         try {
             const countRes = await db.get(`SELECT COUNT(*) as c FROM "${dbName}"."${tableName}"`);
@@ -3422,17 +4227,17 @@ app.get('/api/admin/sql/table/:tableName', authenticateAdmin, async (req, res) =
     const dbName = typeof req.query.db === 'string' && req.query.db ? req.query.db.replace(/[^a-zA-Z0-9_]/g, '') : 'main';
     const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
-    
+
     try {
         // Get columns info
         const columns = await db.all(`PRAGMA "${dbName}".table_info("${tableName}")`);
-        
+
         // Get total count
         const countRes = await db.get(`SELECT COUNT(*) as total FROM "${dbName}"."${tableName}"`);
-        
+
         // Get records
         const records = await db.all(`SELECT * FROM "${dbName}"."${tableName}" LIMIT ? OFFSET ?`, [limit, offset]);
-        
+
         res.json({
             records,
             columns,
@@ -3448,19 +4253,19 @@ app.get('/api/admin/sql/table/:tableName', authenticateAdmin, async (req, res) =
 app.post('/api/admin/sql/query', authenticateAdmin, async (req, res) => {
     const { sql } = req.body;
     if (!sql) return res.status(400).json({ message: 'Requête SQL requise' });
-    
+
     const startTime = Date.now();
     try {
         let records;
         const isSelect = sql.trim().toUpperCase().startsWith('SELECT') || sql.trim().toUpperCase().startsWith('PRAGMA');
-        
+
         if (isSelect) {
             records = await db.all(sql);
         } else {
             const result = await db.run(sql);
             records = [{ changes: result.changes, lastID: result.lastID }];
         }
-        
+
         const executionTime = Date.now() - startTime;
         res.json({
             records,
@@ -3475,7 +4280,7 @@ app.post('/api/admin/sql/query', authenticateAdmin, async (req, res) => {
 // Auth Routes
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
-    
+
     // 1. Tentative via Active Directory si activé
     try {
         const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
@@ -3484,7 +4289,7 @@ app.post('/api/login', async (req, res) => {
             if (adUser) {
                 // L'utilisateur est authentifié AD. On cherche son profil localement.
                 let user = await db.get('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [username]);
-                
+
                 if (!user) {
                     // Création automatique de l'utilisateur s'il est OK AD mais absent de la base locale
                     try {
@@ -3527,7 +4332,8 @@ app.post('/api/login', async (req, res) => {
                             service_complement: user.service_complement
                         }
                     });
-                }            }
+                }
+            }
         }
     } catch (error) {
         console.error('AD Auth error during login:', error.message);
@@ -3540,25 +4346,25 @@ app.post('/api/login', async (req, res) => {
         // Règle de sécurité : Les admins sont TOUJOURS approuvés
         const isApproved = (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub') ? 1 : user.is_approved;
 
-        const accessToken = jwt.sign({ 
-            id: user.id, 
-            username: user.username, 
-            role: user.role, 
+        const accessToken = jwt.sign({
+            id: user.id,
+            username: user.username,
+            role: user.role,
             is_approved: isApproved,
-            service_code: user.service_code, 
-            service_complement: user.service_complement 
+            service_code: user.service_code,
+            service_complement: user.service_complement
         }, SECRET_KEY);
 
-        res.json({ 
-            accessToken, 
-            user: { 
-                id: user.id, 
-                username: user.username, 
-                role: user.role, 
+        res.json({
+            accessToken,
+            user: {
+                id: user.id,
+                username: user.username,
+                role: user.role,
                 is_approved: isApproved,
-                service_code: user.service_code, 
-                service_complement: user.service_complement 
-            } 
+                service_code: user.service_code,
+                service_complement: user.service_complement
+            }
         });
     } else {
         res.status(401).json({ message: 'Identifiants invalides' });
@@ -3621,7 +4427,7 @@ app.post('/api/change-password', authenticateJWT, async (req, res) => {
 app.get('/api/tiles', authenticateJWT, async (req, res) => {
     try {
         const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
-        
+
         let authorizedTileIds = new Set();
         if (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub') {
             tiles.forEach(t => authorizedTileIds.add(t.id));
@@ -3677,7 +4483,7 @@ app.delete('/api/links/:id', authenticateAdmin, async (req, res) => {
 app.get('/api/tiers', authenticateJWT, async (req, res) => {
     try {
         const showAll = req.query.all === 'true';
-        
+
         let query = `
             SELECT t.*, 
                    COALESCE(ts.order_count, 0) as order_count, 
@@ -3685,16 +4491,16 @@ app.get('/api/tiers', authenticateJWT, async (req, res) => {
                    (SELECT COUNT(*) FROM contacts c WHERE c.tier_id = t.id AND c.is_order_recipient = 1) as has_order_recipient
             FROM tiers t
             LEFT JOIN tier_stats ts ON t.id = ts.tier_id
-        `;        
+        `;
         if (!showAll) {
             query += `
                 WHERE LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM v_orders)
                    OR LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM invoices)
             `;
         }
-        
+
         query += ` ORDER BY t.nom`;
-        
+
         const tiers = await db.all(query);
 
         // Global stats for the view
@@ -3728,7 +4534,7 @@ app.post('/api/tiers/import', authenticateAdminOrFinances, uploadMemory.single('
             if (!code) continue;
 
             const existing = await db.get('SELECT id FROM tiers WHERE code = ?', [code]);
-            
+
             if (existing) {
                 // Mise à jour sans changer l'ID pour préserver les relations (contacts)
                 await db.run(`
@@ -3790,7 +4596,7 @@ app.post('/api/tiers/import', authenticateAdminOrFinances, uploadMemory.single('
         const time = new Date().toISOString();
         fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${time}] POST /api/tiers/import - 200 - par ${req.user.username}: ${msg}
 `);
-        
+
         res.json({ message: 'Import réussi', created, updated });
     } catch (error) {
         console.error('Import error:', error);
@@ -3819,11 +4625,11 @@ app.get('/api/tiers/:id/history', authenticateJWT, async (req, res) => {
         if (!tier) return res.status(404).json({ message: 'Tiers non trouvé' });
 
         const tierNom = tier.nom.trim();
-        
+
         // Recherche robuste
         const oracle_commande = await db.all('SELECT * FROM v_orders WHERE TRIM(UPPER("Fournisseur")) = TRIM(UPPER(?)) OR "Fournisseur" LIKE ?', [tierNom, `%${tierNom}%`]);
         const invoices = await db.all('SELECT * FROM invoices WHERE TRIM(UPPER("Fournisseur")) = TRIM(UPPER(?)) OR "Fournisseur" LIKE ?', [tierNom, `%${tierNom}%`]);
-        
+
         console.log(`Found ${oracle_commande.length} oracle_commande and ${invoices.length} invoices for ${tierNom}`);
 
         // Version ultra-simplifiée pour test
@@ -3904,7 +4710,7 @@ app.get('/api/budget/lines', authenticateJWT, async (req, res) => {
 
     const logMsg = `[${new Date().toISOString()}] Query Lines: ${query}, Params: ${JSON.stringify(params)}\n`;
     fs.appendFileSync(path.join(__dirname, 'mouchard.log'), logMsg);
-    
+
     const lines = await db.all(query, params);
     res.json(lines);
 });
@@ -3921,11 +4727,11 @@ app.get('/api/budget/invoices', authenticateJWT, async (req, res) => {
     if (budgetScope === 'Ville' && fiscalYear) {
         // Use the mapped BUDGET_CODE from our view
         where.push('TRIM(BUDGET_CODE) = ?');
-        
+
         const principalBudgetSetting = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = "budget_principal"');
         const principalBudgetRef = principalBudgetSetting ? principalBudgetSetting.setting_value.trim() : '00001000000000001901000';
         params.push(principalBudgetRef);
-        
+
         if (fiscalYear) {
             where.push('("Exercice" = ? OR substr("Arrivée", 1, 4) = ?)');
             params.push(String(fiscalYear), String(fiscalYear));
@@ -3972,7 +4778,7 @@ app.post('/api/budget/operations', authenticateAdminOrFinances, async (req, res)
         const tableCols = (await db.all('PRAGMA table_info(operations)')).map(c => c.name).filter(c => c !== 'id');
         const placeholders = tableCols.map(() => '?').join(',');
         const values = tableCols.map(c => data[c]);
-        
+
         const result = await db.run(`INSERT INTO operations (${tableCols.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`, values);
         console.log('Created op with ID:', result.lastID);
         res.json({ id: result.lastID, message: 'Opération créée' });
@@ -3990,7 +4796,7 @@ app.put('/api/budget/operations/:id', authenticateAdminOrFinances, async (req, r
         const tableCols = (await db.all('PRAGMA table_info(operations)')).map(c => c.name).filter(c => c !== 'id');
         const sets = tableCols.map(c => `"${c}" = ?`).join(',');
         const values = [...tableCols.map(c => data[c]), id];
-        
+
         await db.run(`UPDATE operations SET ${sets} WHERE id = ?`, values);
         console.log(`Updated op ${id}`);
         res.json({ message: 'Opération mise à jour' });
@@ -4037,13 +4843,13 @@ app.post('/api/budget/scan-exercice', authenticateAdminOrFinances, upload.single
         const workbook = xlsx.readFile(req.file.path);
         const sheetName = workbook.SheetNames[0];
         const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-        
+
         if (data.length === 0) return res.json({ year: null });
 
         // Find the first non-empty "Exercice" value
         const firstRow = data.find(row => row.Exercice || row.exercice || row.Annee || row.year);
         const year = firstRow ? (firstRow.Exercice || firstRow.exercice || firstRow.Annee || firstRow.year) : null;
-        
+
         res.json({ year: year ? parseInt(year) : null });
     } catch (error) {
         res.status(500).json({ message: "Erreur lors du scan du fichier", error: error.message });
@@ -4068,10 +4874,10 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
         for (const col of excelCols) {
             try {
                 await db.run(`ALTER TABLE budget_lines ADD COLUMN "${col}" TEXT`);
-            } catch (e) {}
+            } catch (e) { }
             try {
                 await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['lines', col, col, 1]);
-            } catch (e) {}
+            } catch (e) { }
         }
 
         // Get actual table columns after potential alterations
@@ -4084,14 +4890,14 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
         for (const row of data) {
             // Identify identifying fields
             const code = row.Code || row.code || row['Code'];
-            if (!code) continue; 
-            
+            if (!code) continue;
+
             const bodyYear = req.body.year ? parseInt(req.body.year) : 2026;
             const year = row.Annee || row.year || row.Exercice || bodyYear;
 
             // Prepare mapped row using only columns that exist in DB
             const mappedRow = { budgetId };
-            
+
             // 1. Copy original Excel columns
             Object.keys(row).forEach(excelKey => {
                 const dbKey = tableCols.find(c => c.toLowerCase() === excelKey.toLowerCase());
@@ -4102,7 +4908,7 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
 
             // 2. Add/Override special normalized fields if they exist in DB
             if (tableCols.includes('year')) mappedRow['year'] = year;
-            
+
             if (tableCols.includes('allocated_amount')) {
                 let amount = row['Budget voté'] || row['Mt. prévision'] || row.Montant || row.allocated_amount || 0;
                 if (typeof amount === 'string') amount = parseFloat(amount.replace(/[^0-9,-]+/g, '').replace(',', '.'));
@@ -4111,7 +4917,7 @@ app.post('/api/budget/import-lines', authenticateAdminOrFinances, upload.single(
 
             // Check if exists for this budget AND code AND year
             const exists = await db.get('SELECT id FROM budget_lines WHERE ("Code" = ? OR code = ?) AND year = ? AND budgetId = ?', [code, code, year, budgetId]);
-            
+
             const keys = Object.keys(mappedRow);
             const vals = Object.values(mappedRow);
             const placeholders = keys.map(() => '?').join(',');
@@ -4156,12 +4962,12 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
         currentStep = 'Clearing existing data';
         // Clear existing data for this budget instead of dropping table
         await db.run('DELETE FROM gf.invoices WHERE budgetId = ?', [budgetId]);
-        
+
         currentStep = 'Preparing columns';
         const excelCols = Object.keys(data[0]);
         const tableColsInfo = await db.all("PRAGMA gf.table_info(invoices)");
         const tableCols = tableColsInfo.map(c => c.name);
-        
+
         // Ensure column settings exist for these columns
         for (const col of excelCols) {
             await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['invoices', col, col, 1]);
@@ -4169,7 +4975,7 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
 
         currentStep = 'Inserting rows';
         let imported = 0;
-        
+
         // Map excel keys to DB columns (case-insensitive and trimmed)
         const getDbKey = (excelKey) => {
             const trimmed = excelKey.trim();
@@ -4184,7 +4990,7 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
                 const dbKey = getDbKey(excelKey);
                 if (dbKey) {
                     let val = row[excelKey];
-                    
+
                     const dateFields = ['Emission', 'Arrivée', 'Début DGP', 'Fin DGP', 'Date Réception Pièce', 'Date Suspension'];
                     if (dateFields.includes(dbKey)) {
                         if (val === undefined || val === null || val === '') {
@@ -4219,7 +5025,7 @@ app.post('/api/budget/import-invoices', authenticateAdminOrFinances, upload.sing
             const values = Object.values(mappedRow);
             const placeholders = keys.map(() => '?').join(',');
             const sql = `INSERT INTO gf.invoices (${keys.map(k => `"${k}"`).join(',')}) VALUES (${placeholders})`;
-            
+
             try {
                 await db.run(sql, values);
                 imported++;
@@ -4265,7 +5071,7 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
             if (!tableCols.includes(col)) {
                 try {
                     await db.run(`ALTER TABLE gf.oracle_commande ADD COLUMN "${col}" TEXT`);
-                } catch (e) {}
+                } catch (e) { }
             }
             await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, ?)', ['oracle_commande', col, col, 1]);
         }
@@ -4276,11 +5082,11 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
         for (const row of data) {
             const keys = Object.keys(row);
             const values = Object.values(row);
-            
+
             // Add budgetId to insertion
             const finalKeys = [...keys, 'budgetId'];
             const finalValues = [...values, budgetId];
-            
+
             const placeholders = finalKeys.map(() => '?').join(',');
             const sql = `INSERT INTO gf.oracle_commande (${finalKeys.map(k => `"${k}"`).join(',')}) VALUES (${placeholders})`;
 
@@ -4301,7 +5107,7 @@ app.post('/api/orders/import', authenticateAdminOrFinances, upload.single('file'
 
         currentStep = 'Logging import';
         await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['oracle_commande', req.user.username]);
-        
+
         res.json({ message: `${imported} commandes importées avec succès pour ce budget` });
     } catch (error) {
         console.error(`Import error during ${currentStep}:`, error);
@@ -4323,11 +5129,11 @@ app.get('/api/orders/years', authenticateJWT, async (req, res) => {
 // Orders API
 app.get('/api/orders', authenticateJWT, async (req, res) => {
     const { fiscalYear, budgetScope } = req.query;
-    
+
     // Découverte dynamique des colonnes de v_orders
     const viewColsInfo = await db.all("PRAGMA table_info(v_orders)");
     const excludedInternal = ['id', 'operation_id', 'budgetId', 'order_number', 'description', 'provider', 'amount_ht', 'date'];
-    
+
     for (const col of viewColsInfo) {
         if (!excludedInternal.includes(col.name)) {
             await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, 1)', ['orders', col.name, col.name]);
@@ -4337,7 +5143,7 @@ app.get('/api/orders', authenticateJWT, async (req, res) => {
     // Get visible columns from settings first
     const settings = await db.all("SELECT column_key FROM column_settings WHERE page = 'orders' AND is_visible = 1");
     const validKeys = settings.map(s => s.column_key);
-    
+
     let query = `
         SELECT o.*, op.LIBELLE as operation_label 
         FROM v_orders o 
@@ -4353,10 +5159,10 @@ app.get('/api/orders', authenticateJWT, async (req, res) => {
     if (budgetScope === 'Ville' && fiscalYear) {
         const principalBudgetSetting = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = "budget_principal"');
         const principalBudgetRef = principalBudgetSetting ? principalBudgetSetting.setting_value.trim() : '00001000000000001901000';
-        
+
         whereClauses.push('TRIM(o.BUDGET_ROO_IMA_REF) = ?');
         params.push(principalBudgetRef);
-        
+
         if (fiscalYear) {
             whereClauses.push('o.date LIKE ?');
             params.push(`${fiscalYear}%`);
@@ -4373,12 +5179,12 @@ app.get('/api/orders', authenticateJWT, async (req, res) => {
     query += ' ORDER BY o.id';
 
     const results = await db.all(query, params);
-    
+
     // Clean each order object
     const cleanedOrders = results.map(order => {
-        const cleaned = { 
-            id: order.id, 
-            operation_id: order.operation_id, 
+        const cleaned = {
+            id: order.id,
+            operation_id: order.operation_id,
             operation_label: order.operation_label,
             section: order.section || order.Section || ''
         };
@@ -4394,7 +5200,7 @@ app.get('/api/orders', authenticateJWT, async (req, res) => {
         });
         return cleaned;
     });
-    
+
     res.json(cleanedOrders);
 });
 
@@ -4405,9 +5211,9 @@ app.post('/api/orders/:id/assign-operation', authenticateJWT, async (req, res) =
     try {
         const order = await db.get('SELECT "N° Commande" FROM v_orders WHERE id = ?', [order_id]);
         if (!order) return res.status(404).json({ message: 'Commande non trouvée' });
-        
+
         const nr = order['N° Commande'];
-        
+
         if (operation_id) {
             await db.run(`
                 INSERT INTO oracle_links (target_table, target_id, operation_id) 
@@ -4417,7 +5223,7 @@ app.post('/api/orders/:id/assign-operation', authenticateJWT, async (req, res) =
         } else {
             await db.run('UPDATE oracle_links SET operation_id = NULL WHERE target_table = "orders" AND target_id = ?', [nr]);
         }
-        
+
         await recalculateAllOperations();
         res.json({ message: 'Affectation réussie' });
     } catch (error) {
@@ -4471,7 +5277,7 @@ app.get('/api/users', authenticateAdmin, async (req, res) => {
     try {
         const users = await db.all('SELECT id, username, role, is_approved, last_activity, service_code, service_complement FROM users');
         const userTiles = await db.all('SELECT user_id, tile_id FROM user_tiles');
-        
+
         const tileMap = {};
         userTiles.forEach(ut => {
             const uid = ut.user_id.toString();
@@ -4507,7 +5313,7 @@ app.put('/api/users/:id/tiles', authenticateAdmin, async (req, res) => {
     const { tiles } = req.body;
     try {
         await db.run('DELETE FROM user_tiles WHERE user_id = ?', [req.params.id]);
-        
+
         if (Array.isArray(tiles) && tiles.length > 0) {
             for (const tileId of tiles) {
                 await db.run('INSERT INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [req.params.id, tileId]);
@@ -4671,7 +5477,7 @@ app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req
         await db.run('BEGIN TRANSACTION');
         await db.run('UPDATE access_requests SET status = "approved" WHERE id = ?', [req.params.id]);
         await db.run('UPDATE users SET is_approved = 1 WHERE id = ?', [request.user_id]);
-        
+
         // Grant access to the specifically requested tiles
         if (request.requested_tiles) {
             const tileIds = request.requested_tiles.split(',').map(id => id.trim()).filter(Boolean);
@@ -4682,7 +5488,7 @@ app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req
                 );
             }
         }
-        
+
         await db.run('COMMIT');
 
         res.json({ message: 'Demande approuvée et accès accordés' });
@@ -4795,7 +5601,7 @@ app.get('/api/telecom/billing-accounts', authenticateJWT, async (req, res) => {
         }
 
         query += " ORDER BY o.name, a.account_number";
-        
+
         const accounts = await db.all(query, params);
         res.json(accounts);
     } catch (error) {
@@ -4822,9 +5628,9 @@ app.get('/api/telecom/operators/:operatorId/accounts', authenticateJWT, async (r
 });
 
 app.post('/api/telecom/billing-accounts', authenticateAdmin, async (req, res) => {
-    const { 
-        operator_id, account_number, type, designation, 
-        customer_number, market_number, function_code, commitment_number 
+    const {
+        operator_id, account_number, type, designation,
+        customer_number, market_number, function_code, commitment_number
     } = req.body;
     try {
         const result = await db.run(`
@@ -4839,9 +5645,9 @@ app.post('/api/telecom/billing-accounts', authenticateAdmin, async (req, res) =>
 });
 
 app.put('/api/telecom/billing-accounts/:id', authenticateAdmin, async (req, res) => {
-    const { 
-        operator_id, account_number, type, designation, 
-        customer_number, market_number, function_code, commitment_number 
+    const {
+        operator_id, account_number, type, designation,
+        customer_number, market_number, function_code, commitment_number
     } = req.body;
     try {
         await db.run(`
@@ -4977,8 +5783,8 @@ app.post('/api/telecom/invoices/upload', authenticateJWT, upload.single('file'),
 
         // Extraction Date
         const dateMatch = content.match(/Date\s*:\s*(\d{2}\/\d{2}\/\d{4})/i) ||
-                         flatContent.match(/Date:(\d{2}\/\d{2}\/\d{4})/i) ||
-                         content.match(/(\d{2}\/\d{2}\/\d{4})/);
+            flatContent.match(/Date:(\d{2}\/\d{2}\/\d{4})/i) ||
+            content.match(/(\d{2}\/\d{2}\/\d{4})/);
 
         let invoice_date = null;
         if (dateMatch) {
@@ -5000,7 +5806,7 @@ app.post('/api/telecom/invoices/upload', authenticateJWT, upload.single('file'),
         let billing_account_id = null;
 
         const allAccounts = await db.all('SELECT id, operator_id, account_number FROM telecom_billing_accounts');
-        
+
         // 1. Essayer le numéro de compte extrait explicitement
         if (account_number) {
             const acc = allAccounts.find(a => a.account_number === account_number);
@@ -5113,13 +5919,14 @@ app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
         if (page === 'services') pragmaSql = `PRAGMA gf.table_info(oracle_servicefi)`;
         if (page === 'factures') pragmaSql = `PRAGMA gf.table_info(oracle_facture)`;
         if (page === 'rh_extract') pragmaSql = `PRAGMA rh.table_info(oracle_v_extract_dsi)`;
+        if (page === 'rh') pragmaSql = `PRAGMA rh.table_info(referentiel_agents)`;
 
         // 1. Récupérer les colonnes réelles de la source
         let realCols = [];
         try {
             const info = await db.all(pragmaSql);
             realCols = info.map(c => c.name);
-        } catch (e) {}
+        } catch (e) { }
 
         // 2. NETTOYAGE STRICT : Supprimer tout ce qui n'est plus en base
         if (realCols.length > 0) {
@@ -5161,7 +5968,7 @@ app.post('/api/column-settings/:page/bulk', authenticateJWT, async (req, res) =>
         await db.run('ROLLBACK');
         res.status(500).json({ message: 'Error updating settings' });
     }
-});app.post('/api/column-settings/:page', authenticateAdminOrFinances, async (req, res) => {
+}); app.post('/api/column-settings/:page', authenticateAdminOrFinances, async (req, res) => {
     const { column_key, label, is_visible, display_order, color, is_bold, is_italic } = req.body;
     try {
         await db.run(
@@ -5259,7 +6066,7 @@ app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => 
         }
 
         const tierNom = order.Fournisseur.trim();
-        
+
         // Trouver le tiers par son nom
         const tier = await db.get('SELECT id FROM tiers WHERE TRIM(UPPER(nom)) = TRIM(UPPER(?))', [tierNom]);
         if (!tier) {
@@ -5364,7 +6171,7 @@ async function sendMail(to, subject, content) {
     if (!s) throw new Error("Paramètres mail non configurés");
 
     let transporter;
-    
+
     // Si un hôte SMTP est défini, on utilise le transport SMTP classique
     if (s.smtp_host) {
         transporter = nodemailer.createTransport({
@@ -5412,7 +6219,7 @@ async function sendMail(to, subject, content) {
     await transporter.sendMail(mailOptions);
 }
 
-    async function sendMaintenanceEmail(appId) {
+async function sendMaintenanceEmail(appId) {
     try {
         const app = await db.get('SELECT * FROM magapp_apps WHERE id = ?', [appId]);
         if (!app) return;
@@ -5436,4 +6243,4 @@ async function sendMail(to, subject, content) {
     } catch (error) {
         console.error('Error sending maintenance emails:', error);
     }
-    }
+}
