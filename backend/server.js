@@ -55,8 +55,8 @@ async function authenticateAD(username, password, config) {
 
         const client = ldap.createClient({
             url: `ldap://${config.host}:${config.port}`,
-            connectTimeout: 5000,
-            timeout: 5000
+            connectTimeout: 10000,
+            timeout: 10000
         });
 
         const log = (msg) => {
@@ -119,8 +119,8 @@ async function authenticateAD(username, password, config) {
                     log(`Attempting user bind for DN: ${userEntry.dn}`);
                     const userClient = ldap.createClient({
                         url: `ldap://${config.host}:${config.port}`,
-                        connectTimeout: 5000,
-                        timeout: 5000
+                        connectTimeout: 10000,
+                        timeout: 10000
                     });
 
                     userClient.bind(userEntry.dn, password, (err) => {
@@ -165,8 +165,8 @@ async function getADUserInfo(username, config) {
 
         const client = ldap.createClient({
             url: `ldap://${config.host}:${config.port}`,
-            connectTimeout: 5000,
-            timeout: 5000
+            connectTimeout: 10000,
+            timeout: 10000
         });
 
         client.on('error', (err) => {
@@ -2191,8 +2191,8 @@ app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
 
     const client = ldap.createClient({
         url: `ldap://${host}:${port}`,
-        connectTimeout: 5000,
-        timeout: 5000
+        connectTimeout: 10000,
+        timeout: 10000
     });
 
     client.on('error', (err) => {
@@ -2225,8 +2225,8 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
 
     const client = ldap.createClient({
         url: `ldap://${host}:${port}`,
-        connectTimeout: 5000,
-        timeout: 5000
+        connectTimeout: 10000,
+        timeout: 10000
     });
 
     client.on('error', (err) => {
