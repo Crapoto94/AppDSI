@@ -4468,12 +4468,14 @@ app.get('/api/users', authenticateAdmin, async (req, res) => {
         
         const tileMap = {};
         userTiles.forEach(ut => {
-            if (!tileMap[ut.user_id]) tileMap[ut.user_id] = [];
-            tileMap[ut.user_id].push(ut.tile_id);
+            const uid = ut.user_id.toString();
+            if (!tileMap[uid]) tileMap[uid] = [];
+            tileMap[uid].push(Number(ut.tile_id));
         });
 
         users.forEach(u => {
-            u.authorized_tiles = tileMap[u.id] || [];
+            const uid = u.id.toString();
+            u.authorized_tiles = tileMap[uid] || [];
         });
 
         res.json(users);

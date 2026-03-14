@@ -320,7 +320,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   const fetchTiles = async () => {
     try {
-      const response = await fetch('/api/tiles', { headers: { 'Authorization': `Bearer ${token}` } });
+      const response = await fetch('/api/tiles-all', { headers: { 'Authorization': `Bearer ${token}` } });
       if (response.ok) {
         const data = await response.json();
         setTiles(Array.isArray(data) ? data.sort((a: any, b: any) => a.sort_order - b.sort_order) : []);

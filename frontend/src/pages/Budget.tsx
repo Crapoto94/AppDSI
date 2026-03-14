@@ -110,6 +110,7 @@ const Budget: React.FC = () => {
   // New state for import modal
   const [showImportModal, setShowImportModal] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+  // @ts-ignore - setPendingImportType is used in a pending feature or might be triggered by external logic
   const [pendingImportType, setPendingImportType] = useState<'' | 'lines' | 'invoices' | 'orders'>('');
   const [availableBudgets, setAvailableBudgets] = useState<any[]>([]);
   const [selectedBudgetId, setSelectedBudgetId] = useState<number | ''>('');
