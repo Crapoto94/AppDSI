@@ -110,6 +110,7 @@ const Budget: React.FC = () => {
   // New state for import modal
   const [showImportModal, setShowImportModal] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+  const [pendingImportType, setPendingImportType] = useState<'' | 'lines' | 'invoices' | 'orders'>('');
   const [availableBudgets, setAvailableBudgets] = useState<any[]>([]);
   const [selectedBudgetId, setSelectedBudgetId] = useState<number | ''>('');
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -489,13 +490,12 @@ const Budget: React.FC = () => {
       budgetScope: budgetScope
     }).toString();
 
-    const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, logsRes, settingsRes] = await Promise.all([
+    const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, settingsRes] = await Promise.all([
       fetch(`/api/budget/lines?${queryParams}`, { headers }),
       fetch(`/api/budget/invoices?${queryParams}`, { headers }),
       fetch(`/api/orders?${queryParams}`, { headers }),
       fetch(`/api/budget/operations?${queryParams}`, { headers }),
       fetch('/api/m57-plan', { headers }), // M57 plan is not year/scope specific
-      fetch('/api/import-logs', { headers }), // Import logs are not year/scope specific
       fetch('/api/settings/public', { headers }) // Settings
     ]);
     

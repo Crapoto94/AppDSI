@@ -570,7 +570,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         } else {
             // Get URLs from the tiles the user is authorized for
             const authorizedTiles = await db.all(`
-                SELECT t.url as tile_url, tl.url as link_url
+                SELECT tl.url as link_url
                 FROM user_tiles ut
                 JOIN tiles t ON ut.tile_id = t.id
                 LEFT JOIN tile_links tl ON t.id = tl.tile_id
@@ -579,7 +579,6 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             
             const urls = new Set(['/', '/request-access', '/profile']); // Default allowed routes
             authorizedTiles.forEach(row => {
-                if (row.tile_url) urls.add(row.tile_url);
                 if (row.link_url) urls.add(row.link_url);
             });
             user.authorized_urls = Array.from(urls);
@@ -4463,8 +4462,24 @@ const updateLastActivity = async (req, res, next) => {
 app.use(updateLastActivity);
 
 app.get('/api/users', authenticateAdmin, async (req, res) => {
-    const users = await db.all('SELECT id, username, role, is_approved, last_activity, service_code, service_complement FROM users');
-    res.json(users);
+    try {
+        const users = await db.all('SELECT id, username, role, is_approved, last_activity, service_code, service_complement FROM users');
+        const userTiles = await db.all('SELECT user_id, tile_id FROM user_tiles');
+        
+        const tileMap = {};
+        userTiles.forEach(ut => {
+            if (!tileMap[ut.user_id]) tileMap[ut.user_id] = [];
+            tileMap[ut.user_id].push(ut.tile_id);
+        });
+
+        users.forEach(u => {
+            u.authorized_tiles = tileMap[u.id] || [];
+        });
+
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des utilisateurs', error: error.message });
+    }
 });
 
 app.put('/api/users/:id', authenticateAdmin, async (req, res) => {
@@ -4477,6 +4492,23 @@ app.put('/api/users/:id', authenticateAdmin, async (req, res) => {
         res.json({ message: 'Utilisateur mis à jour avec succès' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la mise à jour', error: error.message });
+    }
+});
+
+app.put('/api/users/:id/tiles', authenticateAdmin, async (req, res) => {
+    const { tiles } = req.body;
+    try {
+        await db.run('DELETE FROM user_tiles WHERE user_id = ?', [req.params.id]);
+        
+        if (Array.isArray(tiles) && tiles.length > 0) {
+            for (const tileId of tiles) {
+                await db.run('INSERT INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [req.params.id, tileId]);
+            }
+        }
+        res.json({ message: 'Tuiles autorisées mises à jour avec succès' });
+    } catch (error) {
+        console.error('Erreur save tiles:', error);
+        res.status(500).json({ message: 'Erreur lors de la mise à jour des tuiles', error: error.message });
     }
 });
 

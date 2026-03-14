@@ -1,6 +1,7 @@
 import React from 'react';
 import * as Icons from 'lucide-react';
 import { ExternalLink, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 interface TileLink {
   id?: number;
@@ -29,7 +30,7 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
   const isLocked = status === 'maintenance' || status === 'soon';
 
   return (
-    <div className={`tile ${status}`}>
+    <div className={`tile ${status} ${!is_authorized ? 'locked' : ''}`}>
       {status === 'maintenance' && (
         <div className="status-overlay">
           <Icons.Wrench size={24} />
@@ -42,13 +43,6 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
           <span>BIENTÔT DISPONIBLE</span>
         </div>
       )}
-      {!is_authorized && status === 'active' && (
-        <div className="status-overlay locked-overlay">
-          <Icons.Lock size={24} />
-          <span>ACCÈS RESTREINT</span>
-        </div>
-      )}
-
       <div className="tile-icon">
         <IconComponent size={32} />
         {status === 'active' && (orphan_orders || orphan_invoices) ? (
@@ -76,13 +70,13 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
             </a>
           ))
         ) : (
-          <a
-            href={`/request-access?preselect=${id}`}
+          <Link
+            to={`/request-access?preselect=${id}`}
             className="tile-btn btn-primary locked-btn"
           >
             <Icons.UserCheck size={16} />
             Demander l'accès
-          </a>
+          </Link>
         )}
       </div>
 
@@ -119,10 +113,13 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
           gap: 10px;
         }
         .status-overlay.soon { color: #475569; }
-        .status-overlay.locked-overlay { 
-          color: #94a3b8; 
-          background: rgba(248, 250, 252, 0.85);
-          backdrop-filter: grayscale(100%);
+        .tile.locked {
+          background: #f8fafc;
+          border-top-color: #cbd5e1;
+        }
+        .tile.locked .tile-icon, .tile.locked .tile-title, .tile.locked .tile-description {
+          opacity: 0.6;
+          filter: grayscale(100%);
         }
 
         .tile:not(.maintenance):not(.soon):hover {

@@ -37,6 +37,7 @@ interface UserData {
   last_activity: string | null;
   service_code: string | null;
   service_complement: string | null;
+  authorized_tiles?: number[];
 }
 
 interface AdminProps {
@@ -769,6 +770,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       await axios.put(`/api/users/${editingUser.id}`, editingUser, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (editingUser.authorized_tiles) {
+        await axios.put(`/api/users/${editingUser.id}/tiles`, { tiles: editingUser.authorized_tiles }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
       setEditingUser(null);
       fetchUsers();
     } catch (error) {
@@ -1085,20 +1091,27 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <Search size={18} className="search-icon" />
                 <input 
                   type="text" 
-                  placeholder="Rechercher un utilisateur..."
+                  placeholder="Rechercher un utilisateur, un service..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <button className="btn btn-primary" onClick={() => { setIsAddingUser(!isAddingUser); setEditingUser(null); }}>
+              <button 
+                className="btn btn-primary" 
+                style={{ borderRadius: '14px', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '800', boxShadow: '0 4px 12px rgba(227, 6, 19, 0.2)' }}
+                onClick={() => { setIsAddingUser(!isAddingUser); setEditingUser(null); }}
+              >
                 <UserPlus size={18} /> Nouvel Utilisateur
               </button>
             </div>
 
             {(isAddingUser || editingUser) && (
-              <div className="edit-form-card animate-in zoom-in-95 duration-200 p-8 bg-gray-50 border-b border-gray-100">
-                <div className="form-header flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-black">{editingUser ? `Modifier : ${editingUser.username}` : 'Nouvel utilisateur'}</h3>
+              <div className="edit-form-card animate-in zoom-in-95 duration-200">
+                <div className="form-header flex justify-between items-center">
+                  <h3 className="flex items-center gap-3">
+                    <span className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Edit2 size={20} /></span>
+                    {editingUser ? `Modifier le profil de ${editingUser.username}` : 'Nouvel utilisateur'}
+                  </h3>
                   <button onClick={() => { setIsAddingUser(false); setEditingUser(null); }} className="icon-btn"><X size={20} /></button>
                 </div>
                 <form onSubmit={editingUser ? handleUpdateUser : handleAddUser} className="admin-form">
@@ -1125,11 +1138,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     )}
                     <div className="form-group">
                       <label>Statut Approbation</label>
-                      <div className="approval-toggle flex gap-2">
-                        <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 1})} className={`toggle-btn approved flex-1 p-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${editingUser?.is_approved === 1 ? 'bg-emerald-600 text-white' : 'bg-white text-gray-400 border border-gray-200'}`}>
+                      <div className="approval-toggle flex gap-3">
+                        <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 1})} className={`toggle-btn approved ${editingUser?.is_approved === 1 ? 'active' : ''}`}>
                           <CheckCircle2 size={16} /> Approuvé
                         </button>
-                        <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 0})} className={`toggle-btn pending flex-1 p-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${editingUser?.is_approved === 0 ? 'bg-amber-500 text-white' : 'bg-white text-gray-400 border border-gray-200'}`}>
+                        <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 0})} className={`toggle-btn pending ${editingUser?.is_approved === 0 ? 'active' : ''}`}>
                           <ShieldAlert size={16} /> En attente
                         </button>
                       </div>
@@ -1142,9 +1155,39 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       <label>Complément Service</label>
                       <input placeholder="Description longue..." value={editingUser ? editingUser.service_complement || '' : newUser.service_complement} onChange={e => editingUser ? setEditingUser({...editingUser, service_complement: e.target.value}) : setNewUser({...newUser, service_complement: e.target.value})} />
                     </div>
+                    {editingUser && (
+                      <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                        <label>Tuiles Autorisées & Permissions</label>
+                        <div className="tiles-grid-compact grid grid-cols-2 lg:grid-cols-4 gap-3 mt-2">
+                          {tiles.map(tile => {
+                            const isAuth = editingUser?.authorized_tiles?.includes(tile.id);
+                            return (
+                              <label key={tile.id} className={isAuth ? 'selected' : ''}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={!!isAuth}
+                                  onChange={(e) => {
+                                    if (!editingUser) return;
+                                    const currentTiles = editingUser.authorized_tiles || [];
+                                    if (e.target.checked) {
+                                      setEditingUser({...editingUser, authorized_tiles: [...currentTiles, tile.id]});
+                                    } else {
+                                      setEditingUser({...editingUser, authorized_tiles: currentTiles.filter(id => id !== tile.id)});
+                                    }
+                                  }}
+                                />
+                                <span>{tile.title}</span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="form-footer mt-6 pt-6 border-t border-gray-200 flex justify-end">
-                    <button type="submit" className="btn btn-primary"><Save size={18} /> {editingUser ? 'Sauvegarder' : 'Créer'}</button>
+                  <div className="form-footer mt-8 pt-6 border-t border-gray-100 flex justify-end">
+                    <button type="submit" className="btn btn-primary" style={{ borderRadius: '14px', padding: '12px 30px', fontWeight: '800',  boxShadow: '0 4px 12px rgba(227, 6, 19, 0.2)' }}>
+                      <Save size={18} className="mr-2 inline-block" /> {editingUser ? 'Sauvegarder le profil' : 'Créer le compte'}
+                    </button>
                   </div>
                 </form>
               </div>
@@ -1173,11 +1216,24 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <span className={`role-badge ${user.role}`}>{user.role}</span>
                       </td>
                       <td>
-                        {user.is_approved === 1 ? (
-                          <span className="status-badge approved"><ShieldCheck size={12} /> OK</span>
-                        ) : (
-                          <span className="status-badge pending"><ShieldAlert size={12} /> ATTENTE</span>
-                        )}
+                        <div className="flex flex-col gap-2">
+                          {user.is_approved === 1 ? (
+                            <span className="status-badge approved self-start"><ShieldCheck size={12} /> OK</span>
+                          ) : (
+                            <span className="status-badge pending self-start"><ShieldAlert size={12} /> ATTENTE</span>
+                          )}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1 max-w-[250px]">
+                            {user.role === 'admin' ? (
+                              <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-md text-[10px] font-black tracking-wide border border-purple-200">ACCÈS TOTAL</span>
+                            ) : (
+                              tiles.filter(t => user.authorized_tiles?.includes(t.id)).map(t => (
+                                <span key={t.id} className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold shadow-sm whitespace-nowrap" title={t.title}>
+                                  {t.title}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="service-cell">
                         <div className="service-code font-bold text-gray-700">{user.service_code || '-'}</div>
@@ -1936,30 +1992,66 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         .stat-value { font-size: 1.5rem; font-weight: 800; display: block; color: #0f172a; }
         .stat-label { font-size: 0.75rem; color: #64748b; font-weight: 600; text-transform: uppercase; }
 
-        .section-container { background: white; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; }
-        .section-header { padding: 25px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f1f5f9; }
-        .search-bar { position: relative; width: 300px; }
-        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
-        .search-bar input { width: 100%; padding: 10px 15px 10px 40px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; outline: none; }
+        .section-container { background: white; border-radius: 24px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 10px 40px -10px rgba(0,0,0,0.05); }
+        .section-header { padding: 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f8fafc; background: #ffffff; }
+        .search-bar { position: relative; width: 350px; }
+        .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
+        .search-bar input { width: 100%; padding: 12px 20px 12px 48px; background: #f8fafc; border: 2px solid transparent; border-radius: 16px; font-size: 0.95rem; font-weight: 500; outline: none; transition: all 0.2s ease; }
+        .search-bar input:focus { border-color: #3b82f6; background: white; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
 
-        .admin-table { width: 100%; border-collapse: collapse; text-align: left; }
-        .admin-table th { padding: 15px 25px; background: #f8fafc; color: #64748b; font-weight: 700; font-size: 0.75rem; text-transform: uppercase; }
-        .admin-table td { padding: 15px 25px; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+        .data-table-container { overflow-x: auto; }
+        .admin-table { width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; background: white; }
+        .admin-table th { padding: 18px 25px; background: #f8fafc; color: #64748b; font-weight: 800; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e2e8f0; }
+        .admin-table td { padding: 20px 25px; border-bottom: 1px solid #f1f5f9; font-size: 0.95rem; transition: background 0.2s ease; vertical-align: middle; }
+        .admin-table tr { transition: all 0.2s ease; }
+        .admin-table tbody tr:hover td { background: #f8fafc; }
+        .admin-table tbody tr:last-child td { border-bottom: none; }
 
-        .user-cell { display: flex; align-items: center; gap: 12px; }
-        .avatar { width: 36px; height: 36px; background: #eff6ff; color: #3b82f6; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.8rem; }
-        .role-badge { padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; font-weight: 800; text-transform: uppercase; }
-        .role-badge.admin { background: #fef2f2; color: #dc2626; }
-        .role-badge.magapp { background: #eff6ff; color: #2563eb; }
-        .role-badge.user { background: #f8fafc; color: #64748b; }
-        .status-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.7rem; font-weight: 800; }
-        .status-badge.approved { color: #16a34a; }
-        .status-badge.pending { color: #ea580c; }
+        .user-cell { display: flex; align-items: center; gap: 16px; }
+        .avatar { width: 42px; height: 42px; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); color: #2563eb; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9rem; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.1); border: 1px solid rgba(255,255,255,0.5); }
+        .role-badge { padding: 6px 14px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-flex; align-items: center; justify-content: center; }
+        .role-badge.admin { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .role-badge.magapp { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+        .role-badge.finances { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+        .role-badge.compta { background: #fefce8; color: #ca8a04; border: 1px solid #fef08a; }
+        .role-badge.user { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
+        
+        .status-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; font-weight: 800; padding: 4px 10px; border-radius: 8px; }
+        .status-badge.approved { color: #15803d; background: #dcfce7; }
+        .status-badge.pending { color: #c2410c; background: #ffedd5; }
 
-        .status-tag { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
-        .status-tag.active { background: #dcfce7; color: #166534; }
-        .status-tag.maintenance { background: #fef2f2; color: #991b1b; }
+        .status-tag { padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; }
+        .status-tag.active { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;}
+        .status-tag.maintenance { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca;}
 
+        .icon-btn { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; border: none; background: transparent; cursor: pointer; transition: all 0.2s ease; color: #94a3b8; }
+        .icon-btn:hover { background: #f1f5f9; transform: scale(1.05); }
+        .icon-btn.edit:hover { color: #2563eb; background: #eff6ff; }
+        .icon-btn.delete:hover { color: #ef4444; background: #fef2f2; }
+        .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+        .edit-form-card { margin: 25px; border-radius: 24px; background: white; border: 1px solid #e2e8f0; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.08); overflow: hidden; }
+        .form-header { padding: 25px 30px; border-bottom: 1px solid #f1f5f9; background: #f8fafc; }
+        .form-header h3 { margin: 0; color: #0f172a; font-weight: 900; font-size: 1.25rem; }
+        .admin-form { padding: 30px; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 25px; }
+        .form-group label { font-size: 0.75rem; font-weight: 800; color: #475569; text-transform: uppercase; margin-bottom: 8px; display: block; letter-spacing: 0.05em; }
+        .form-group input, .form-group select { width: 100%; padding: 14px 18px; border: 2px solid transparent; border-radius: 16px; background: #f1f5f9; font-size: 0.95rem; font-weight: 600; color: #1e293b; transition: all 0.2s ease; outline: none; }
+        .form-group input:focus, .form-group select:focus { border-color: #3b82f6; background: white; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
+        .form-group input:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .toggle-btn { flex: 1; padding: 12px; border-radius: 12px; font-weight: 800; font-size: 0.85rem; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s ease; border: 2px solid transparent; }
+        .toggle-btn.approved.active { background: #16a34a; color: white; box-shadow: 0 4px 12px rgba(22, 163, 74, 0.2); }
+        .toggle-btn.pending.active { background: #ea580c; color: white; box-shadow: 0 4px 12px rgba(234, 88, 12, 0.2); }
+        .toggle-btn:not(.active) { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
+        .toggle-btn:not(.active):hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+        .tiles-grid-compact label { padding: 12px; border-radius: 16px; border: 2px solid transparent; transition: all 0.2s ease; background: #f8fafc; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+        .tiles-grid-compact label:hover { background: #f1f5f9; transform: translateY(-2px); }
+        .tiles-grid-compact label.selected { background: #eff6ff; border-color: #bfdbfe; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.1); }
+        .tiles-grid-compact label.selected span { color: #1d4ed8; }
+        .tiles-grid-compact label input[type="checkbox"] { width: 18px; height: 18px; border-radius: 6px; cursor: pointer; accent-color: #2563eb; }
+        
         .admin-glpi-container { padding: 20px; color: #333; }
         .glpi-layout-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 30px; }
         @media (max-width: 1024px) { .glpi-layout-grid { grid-template-columns: 1fr; } }

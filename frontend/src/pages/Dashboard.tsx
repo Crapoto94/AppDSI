@@ -4,6 +4,7 @@ import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import { LogOut, ShieldAlert, Clock, UserCheck } from 'lucide-react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 interface TileData {
   id: number;
@@ -21,6 +22,7 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [restrictedMessage, setRestrictedMessage] = useState('');
   const { user, logout, token, refreshUser } = useAuth();
+  const navigate = useNavigate();
 
   const isApproved = user?.is_approved === 1 || user?.role === 'admin' || user?.username?.toLowerCase() === 'admin';
 
@@ -115,18 +117,18 @@ const Dashboard: React.FC = () => {
               </p>
             </div>
             
-            <div className="flex flex-col gap-3 w-full">
+            <div className="flex flex-col gap-4 w-full mt-2">
               <button 
-                onClick={() => window.location.href = '/request-access'}
-                className="bg-blue-600 text-white px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                onClick={() => navigate('/request-access')}
+                className="bg-blue-600 text-white px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
               >
-                <UserCheck size={20} /> Demander un accès
+                <UserCheck size={22} /> Demander un accès
               </button>
               <button 
                 onClick={logout}
-                className="text-gray-500 hover:text-gray-700 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-gray-100 transition-all"
+                className="text-gray-500 hover:text-gray-700 px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-gray-100 transition-all border border-transparent hover:border-gray-200"
               >
-                <LogOut size={20} /> Se déconnecter
+                <LogOut size={22} /> Se déconnecter
               </button>
             </div>
           </div>
@@ -195,7 +197,7 @@ const Dashboard: React.FC = () => {
           text-align: center;
           border: 1px solid rgba(255, 255, 255, 0.8);
           display: flex;
-          flex-col;
+          flex-direction: column;
           align-items: center;
         }
         .restricted-icon-wrapper {
