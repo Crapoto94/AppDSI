@@ -2305,6 +2305,12 @@ app.get('/mouchard', (req, res) => {
         const logPath = path.join(__dirname, 'mouchard.log');
         if (!fs.existsSync(logPath)) return res.send("Aucun log disponible.");
         
+        // Sécurité : Vérifier que c'est bien un fichier (évite EISDIR si volume Docker mal monté)
+        const stats = fs.statSync(logPath);
+        if (stats.isDirectory()) {
+            return res.send("Erreur : 'mouchard.log' est un dossier sur le serveur. Veuillez supprimer le dossier et relancer pour qu'un fichier soit créé.");
+        }
+
         const logs = fs.readFileSync(logPath, 'utf8');
         const lines = logs.split('\n').filter(l => l.trim().length > 0).reverse().slice(0, 100);
         
