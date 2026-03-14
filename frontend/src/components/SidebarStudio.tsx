@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   LayoutDashboard, Users, Layers, Zap, Link2, 
-  Puzzle, Settings, FileText, ChevronRight 
+  Puzzle, Settings, FileText 
 } from 'lucide-react';
 
 interface SidebarItemProps {

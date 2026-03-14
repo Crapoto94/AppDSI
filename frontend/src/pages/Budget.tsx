@@ -60,10 +60,6 @@ const Budget: React.FC = () => {
   const [urlSedit, setUrlSedit] = useState<string>('https://seditgfprod.ivry.local/SeditGfSMProd');
   const [budgetPrincipal, setBudgetPrincipal] = useState<string>('Ville');
   
-  const [sqlQuery, setSqlQuery] = useState('');
-  const [queryResult, setQueryResult] = useState<any[] | null>(null);
-  const [queryError, setQueryError] = useState<string | null>(null);
-
   const [showM57, setShowM57] = useState(false);
   const [showZeroBudget, setShowZeroBudget] = useState(false);
   const [showColumnConfig, setShowColumnConfig] = useState(false);
@@ -73,10 +69,6 @@ const Budget: React.FC = () => {
   const currentYear = new Date().getFullYear();
   const [currentFiscalYear, setCurrentFiscalYear] = useState(currentYear);
   const [budgetScope, setBudgetScope] = useState<'Ville' | 'All'>('Ville'); // Default to 'Ville'
-
-  // New state for import
-  const [selectedImportYear, setSelectedImportYear] = useState(currentYear);
-  const [selectedImportExercise, setSelectedImportExercise] = useState<'F' | 'I'>('F'); // Default to Fonctionnement (F)
   
   const [searchTerm, setSearchTerm] = useState('');
   const [sectionFilter, setSectionFilter] = useState('all');
@@ -418,59 +410,7 @@ const Budget: React.FC = () => {
   }, [invoices]);
 
   const [m57View, setM57View] = useState<'nature' | 'fonction'>('nature');
-
   const [rawSql, setRawSql] = useState('');
-
-  const executeQuery = async () => {
-    if (!sqlQuery.trim()) return;
-    setQueryError(null);
-    setQueryResult(null);
-    try {
-      const response = await fetch('/api/sql-query', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ query: sqlQuery })
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setQueryResult(data.data);
-      } else {
-        setQueryError(data.error ? `${data.message} : ${data.error}` : data.message || 'Erreur lors de l\'exécution');
-      }
-    } catch (error: any) {
-      setQueryError(error.message || 'Erreur réseau');
-    }
-  };
-
-  const handleComptaUpload = async (endpoint: string, file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const response = await fetch(`${endpoint}`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-      // Handle HTML error responses explicitly (e.g. from Express error handler)
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.indexOf("application/json") !== -1) {
-        const data = await response.json();
-        if (response.ok) {
-          fetchData(); // Refresh data after successful import
-        } else {
-          console.error('Import error:', data.error ? `${data.message} : ${data.error}` : data.message || 'Erreur lors de l\'importation');
-        }
-      } else {
-         const text = await response.text();
-         console.error('Non-JSON response:', text);
-      }
-    } catch (error: any) {
-      console.error('Import error:', error.message || 'Erreur réseau');
-    }
-  };
 
   const [editingCell, setEditingCell] = useState<{ id: number, key: string } | null>(null);
   const [cellValue, setCellValue] = useState<any>('');
@@ -577,13 +517,6 @@ const Budget: React.FC = () => {
     }
   };
 
-  const getLastImport = (type: string) => {
-    const log = importLogs.find(l => l.type === type);
-    if (!log) return null;
-    const date = new Date(log.imported_at);
-    return `Le ${date.toLocaleDateString('fr-FR')} à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} par ${log.username}`;
-  };
-
   useEffect(() => {
     fetchData();
   }, [currentFiscalYear, budgetScope]);
@@ -616,27 +549,6 @@ const Budget: React.FC = () => {
       if (tableMap[view]) fetchRawData(tableMap[view]);
     }
   }, [isRaw, view]);
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'lines' | 'invoices' | 'orders') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setPendingImportFile(file);
-    setPendingImportType(type);
-    
-    // Default pre-selection
-    setSelectedYear(currentFiscalYear);
-    const principalBudget = availableBudgets.find(b => b.Libelle === budgetPrincipal && b.Annee === currentFiscalYear);
-    if (principalBudget) {
-      setSelectedBudgetId(principalBudget.id);
-    } else {
-      setSelectedBudgetId('');
-    }
-    
-    setShowImportModal(true);
-    // Important: clear the input value so the same file can be selected again if needed
-    e.target.value = '';
-  };
 
   const confirmImport = async () => {
     if (!pendingImportFile || !pendingImportType || !selectedBudgetId) {

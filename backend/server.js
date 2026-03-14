@@ -760,7 +760,7 @@ app.get('/api/admin/rh/stats', authenticateAdmin, async (req, res) => {
 // Récupérer les agents avec filtrage et pagination
 app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
     try {
-        const { q, filter, page = 1, limit = 50 } = req.query;
+        const { q, filter, management_level, page = 1, limit = 50 } = req.query;
         let whereClauses = [];
         let params = [];
         const today = new Date().toISOString().substring(0, 10);
@@ -792,6 +792,23 @@ app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
                 case 'ad_unlinked':
                     whereClauses.push("ad_username IS NULL AND date_plusvu IS NULL AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)");
                     params.push(today);
+                    break;
+            }
+        }
+
+        if (management_level) {
+            switch (management_level) {
+                case 'dg':
+                    whereClauses.push("POSTE_L LIKE 'DIRECTEUR·TRICE GENERAL·E%'");
+                    break;
+                case 'dir':
+                    whereClauses.push("POSTE_L LIKE 'DIRECTEUR·TRICE D%'");
+                    break;
+                case 'service':
+                    whereClauses.push("POSTE_L LIKE 'RESPONSABLE DU SERVICE%'");
+                    break;
+                case 'secteur':
+                    whereClauses.push("POSTE_L LIKE 'RESPONSABLE DU SECTEUR%'");
                     break;
             }
         }

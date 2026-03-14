@@ -105,7 +105,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [activeSelectionModal, setActiveSelectionModal] = useState<{type: string, table: string} | null>(null);
   const [activeFieldConfig, setActiveFieldConfig] = useState<string | null>(null);
   const [allOracleTables, setAllOracleTables] = useState<Record<string, string[]>>({});
-  const [loadingCols, setLoadingCols] = useState(false);
+  // loadingCols intentionally unused; kept for future use
   const [searchTableRef, setSearchTableRef] = useState('');
   const [tablePreviews, setTablePreviews] = useState<Record<string, any>>({});
   const [selectedFields, setSelectedFields] = useState<Record<string, string[]>>({});
@@ -117,7 +117,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     const key = `${type}:${table}`;
     const current = dateFields[key] || [];
     const updated = current.includes(field) 
-      ? current.filter(f => f !== field)
+      ? (current as string[]).filter(f => f !== field)
       : [...current, field];
     setDateFields({ ...dateFields, [key]: updated });
   };
@@ -157,7 +157,6 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   };
 
   const fetchTableColumns = async (type: string, tableName: string) => {
-    setLoadingCols(true);
     try {
       const res = await axios.post('/api/oracle/table-columns', { type, tableName }, {
         headers: { Authorization: `Bearer ${token}` }
@@ -165,8 +164,6 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       setTableColumns(prev => ({ ...prev, [`${type}:${tableName}`]: res.data.columns }));
     } catch (error) {
       console.error('Erreur colonnes:', error);
-    } finally {
-      setLoadingCols(false);
     }
   };
 
@@ -207,6 +204,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const cols = tableColumns[`${type}:${tableName}`] || [];
       setSelectedFields(prev => ({ ...prev, [`${type}:${tableName}`]: [...cols] }));
     }
+  };
+
+  const handleOpenSubstModal = (type: string, table: string) => {
+    setActiveSubstModal({ type, table });
   };
 
   const toggleFieldSelection = (type: string, table: string, field: string) => {
@@ -267,7 +268,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     
     let labels = subst.labelFields || [];
     if (labels.includes(labelField)) {
-      labels = labels.filter(f => f !== labelField);
+      labels = labels.filter((f: string) => f !== labelField);
     } else {
       labels = [...labels, labelField];
     }
@@ -283,7 +284,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     if (!window.confirm(`Confirmer l'importation de ${tables.length} objet(s) (tables/vues) depuis Oracle ${type} vers la base locale ?\nLes tables locales seront préfixées par 'oracle_'.`)) return;
 
     setImporting(prev => ({ ...prev, [type]: true }));
-    setImportReports(prev => ({ ...prev, [type]: null }));
+    setImportReports(prev => ({ ...prev, [type]: [] }));
 
     // Préparer le mapping pour le backend
     const tableConfig: Record<string, string[]> = {};
@@ -2121,6 +2122,20 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
+      {activeSubstModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-height-90vh overflow-auto">
+            <div className="p-6 border-b flex justify-between items-center">
+              <h3 className="text-xl font-bold">Configurations des Substitution ({activeSubstModal.table})</h3>
+              <button onClick={() => setActiveSubstModal(null)} className="p-2 hover:bg-gray-100 rounded-full"><X /></button>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-gray-500 mb-4">Fonctionnalité de jointure en cours de développement.</p>
+              <button onClick={() => setActiveSubstModal(null)} className="btn-primary w-full">Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

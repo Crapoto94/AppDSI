@@ -3,16 +3,26 @@ import axios from 'axios';
 import {
   Users, RefreshCw, Search,
   Link2Off, Monitor as MonitorIcon, CheckCircle2,
-  AlertCircle, X, Loader2, UserPlus, Download, 
-  MoreVertical, Filter, ChevronLeft, ChevronRight, Settings, Columns
+  AlertCircle, X, Loader2, UserPlus, Download,
+  ChevronLeft, ChevronRight, Columns
 } from 'lucide-react';
 import Header from '../components/Header';
-import { NavLink } from 'react-router-dom';
-import { 
-  LayoutDashboard, MessageSquare, 
-  Settings as SettingsIcon, LayoutGrid, Activity, Smartphone,
-  Database, Shield, Bell, Lock, Sliders
+import {
+  LayoutDashboard,
+  Settings as SettingsIcon, Activity,
+  Bell, Lock, Sliders, Eye, EyeOff
 } from 'lucide-react';
+
+interface ColumnSetting {
+  id: number;
+  column_key: string;
+  label: string;
+  is_visible: number;
+  display_order: number;
+  color: string | null;
+  is_bold: number;
+  is_italic: number;
+}
 
 interface Stats {
   total: number;
@@ -36,11 +46,6 @@ interface Agent {
   [key: string]: any; // Allow all other Oracle fields dynamically
 }
 
-interface ADUser {
-  sAMAccountName: string;
-  displayName: string;
-  mail?: string;
-}
 
 const StatCard: React.FC<{
   label: string;
@@ -69,18 +74,122 @@ const StatCard: React.FC<{
     {clickable && <div className="stat-click-hint">Cliquer pour filtrer →</div>}
   </div>
 );
+
+interface EncadrantsViewProps {
+  headers: { Authorization: string };
+}
+
+interface EncadrantLevel {
+  id: string;
+  title: string;
+  management_level: string;
+  color: string;
+  border: string;
+}
+
+const MANAGEMENT_LEVELS: EncadrantLevel[] = [
+  { id: 'dg', title: 'Directeurs Généraux', management_level: 'dg', color: '#7c3aed', border: '#7c3aed' },
+  { id: 'dir', title: 'Directeurs', management_level: 'dir', color: '#1d4ed8', border: '#1d4ed8' },
+  { id: 'service', title: 'Responsables de service', management_level: 'service', color: '#0369a1', border: '#0369a1' },
+  { id: 'secteur', title: 'Responsables de secteur', management_level: 'secteur', color: '#0f766e', border: '#0f766e' },
+];
+
+const EncadrantsView: React.FC<EncadrantsViewProps> = ({ headers }) => {
+  const [data, setData] = React.useState<Record<string, any[]>>({});
+  const [loading, setLoading] = React.useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({ dg: true });
+
+  React.useEffect(() => {
+    MANAGEMENT_LEVELS.forEach(async (level) => {
+      setLoading(prev => ({ ...prev, [level.id]: true }));
+      try {
+        const res = await axios.get('/api/admin/rh/agents', {
+          headers,
+          params: { management_level: level.management_level, limit: 200 }
+        });
+        const agents = Array.isArray(res.data?.agents) ? res.data.agents : (Array.isArray(res.data) ? res.data : []);
+        setData(prev => ({ ...prev, [level.id]: agents }));
+      } catch (e) {
+        setData(prev => ({ ...prev, [level.id]: [] }));
+      } finally {
+        setLoading(prev => ({ ...prev, [level.id]: false }));
+      }
+    });
+  }, []);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Encadrants</h1>
+      <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Vue hiérarchique des postes d'encadrement basée sur les fonctions POSTE_L.</p>
+      {MANAGEMENT_LEVELS.map(level => {
+        const agents = data[level.id] || [];
+        const isExpanded = expanded[level.id];
+        const isLoading = loading[level.id];
+        return (
+          <div key={level.id} style={{ background: 'white', borderRadius: '12px', border: `1px solid #e2e8f0`, overflow: 'hidden', borderLeft: `4px solid ${level.border}` }}>
+            <div
+              onClick={() => setExpanded(prev => ({ ...prev, [level.id]: !isExpanded }))}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', cursor: 'pointer', userSelect: 'none' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontWeight: 700, fontSize: '16px', color: level.color }}>{level.title}</span>
+                {!isLoading && (
+                  <span style={{ background: level.color + '18', color: level.color, borderRadius: '99px', padding: '2px 10px', fontSize: '12px', fontWeight: 700 }}>
+                    {agents.length}
+                  </span>
+                )}
+              </div>
+              <ChevronRight size={18} style={{ color: '#94a3b8', transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+            </div>
+            {isExpanded && (
+              <div style={{ borderTop: '1px solid #f1f5f9' }}>
+                {isLoading ? (
+                  <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>
+                    <Loader2 className="spin" size={24} style={{ margin: '0 auto' }} />
+                  </div>
+                ) : agents.length === 0 ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>Aucun agent trouvé pour ce niveau</div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px', padding: '16px' }}>
+                    {agents.map((agent: any) => (
+                      <div key={agent.MATRICULE || agent.matricule} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                        <div style={{ width: '40px', height: '40px', background: level.color + '22', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: level.color, fontSize: '14px', flexShrink: 0 }}>
+                          {(agent.PRENOM || agent.prenom)?.[0]}{(agent.NOM || agent.nom)?.[0]}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {agent.NOM || agent.nom} {agent.PRENOM || agent.prenom}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {agent.POSTE_L || agent.poste_l || '-'}
+                          </div>
+                          {(agent.DIRECTION_L || agent.SERVICE_L) && (
+                            <div style={{ fontSize: '11px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {agent.DIRECTION_L || agent.SERVICE_L}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const StudioRH: React.FC = () => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [unlinkedAD, setUnlinkedAD] = useState<ADUser[]>([]);
-  const [loadingStats, setLoadingStats] = useState(true);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [showUnlinkedModal, setShowUnlinkedModal] = useState(false);
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [adSearchTerm, setAdSearchTerm] = useState('');
-  const [associatingAgent, setAssociatingAgent] = useState<Agent | null>(null);
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
@@ -92,8 +201,8 @@ const StudioRH: React.FC = () => {
   const [showProposalsModal, setShowProposalsModal] = useState(false);
 
   const [limit, setLimit] = useState(50);
-  const [showColumnSettings, setShowColumnSettings] = useState(false);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'users' | 'settings' | 'logs'>('users');
+  const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
+  const [currentView, setCurrentView] = useState<'dashboard' | 'users' | 'encadrants' | 'settings' | 'logs'>('users');
 
   const token = localStorage.getItem('token');
   const headers = React.useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
@@ -113,14 +222,11 @@ const StudioRH: React.FC = () => {
 
   const fetchStats = async () => {
     if (!token) return;
-    setLoadingStats(true);
     try {
       const res = await axios.get('/api/admin/rh/stats', { headers });
       setStats(res.data);
     } catch (err) {
       console.error('Erreur stats', err);
-    } finally {
-      setLoadingStats(false);
     }
   };
 
@@ -147,16 +253,6 @@ const StudioRH: React.FC = () => {
     }
   }, [token, headers]);
 
-  const fetchUnlinkedAD = async () => {
-    if (!token) return;
-    try {
-      const res = await axios.get('/api/admin/rh/unlinked-ad', { headers });
-      setUnlinkedAD(res.data);
-    } catch (err) {
-      console.error('Erreur AD', err);
-    }
-  };
-
   const fetchProposals = async () => {
     if (!token) return;
     try {
@@ -167,10 +263,21 @@ const StudioRH: React.FC = () => {
     }
   };
 
+  const fetchColumnSettings = async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get('/api/column-settings/rh', { headers });
+      setColumnSettings(res.data);
+    } catch (err) {
+      console.error('Erreur column settings', err);
+    }
+  };
+
   useEffect(() => {
     if (token) {
       fetchStats();
       fetchProposals();
+      fetchColumnSettings();
     }
   }, [token]);
 
@@ -201,24 +308,6 @@ const StudioRH: React.FC = () => {
       setSyncing(false);
     }
   };
-
-  const handleAssociate = async (matricule: string, adUsername: string | null) => {
-    try {
-      await axios.post('/api/admin/rh/associate', { matricule, ad_username: adUsername }, { headers });
-      setShowUnlinkedModal(false);
-      setAssociatingAgent(null);
-      fetchStats();
-      if (hasSearched) fetchAgents(searchTerm || undefined, activeFilter, page);
-    } catch (err: any) {
-      alert("Erreur lors de l'association: " + (err.response?.data?.message || err.message));
-    }
-  };
-
-  const filteredAD = (unlinkedAD || []).filter(
-    (u) =>
-      u.displayName?.toLowerCase().includes(adSearchTerm.toLowerCase()) ||
-      u.sAMAccountName?.toLowerCase().includes(adSearchTerm.toLowerCase())
-  );
 
   const startADSync = async () => {
     if (!token) return;
@@ -277,6 +366,7 @@ const StudioRH: React.FC = () => {
   const menuItems = [
     { id: 'dashboard', title: "Dashboard", icon: LayoutDashboard },
     { id: 'users', title: "Utilisateurs", icon: Users },
+    { id: 'encadrants', title: "Encadrants", icon: Sliders },
     { id: 'settings', title: "Paramètres", icon: SettingsIcon },
     { id: 'logs', title: "Logs", icon: Activity },
   ];
@@ -323,6 +413,7 @@ const StudioRH: React.FC = () => {
               <span className="crumb-active">
                 {currentView === 'users' ? 'Liste des utilisateurs' : 
                  currentView === 'dashboard' ? 'Tableau de bord' :
+                 currentView === 'encadrants' ? 'Encadrants' :
                  currentView === 'settings' ? 'Paramètres' : 'Logs de synchronisation'}
               </span>
             </div>
@@ -397,7 +488,7 @@ const StudioRH: React.FC = () => {
                     <button className="btn-icon" onClick={startADSync} title="Synchroniser AD"><MonitorIcon size={18} className={syncingAD ? 'spin' : ''} /></button>
                     <button className="btn-icon" onClick={handleDownload} title="Télécharger CSV"><Download size={18} /></button>
                     <button className="btn-icon" onClick={() => setShowColumnSettings(true)} title="Gérer les colonnes"><Columns size={18} /></button>
-                    <button onClick={() => setAssociatingAgent(null)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', backgroundColor: '#059669', color: 'white', borderRadius: '8px', fontWeight: 600, fontSize: '14px', border: 'none', cursor: 'pointer' }}>
+                    <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', backgroundColor: '#059669', color: 'white', borderRadius: '8px', fontWeight: 600, fontSize: '14px', border: 'none', cursor: 'pointer' }} title="Ajouter un agent">
                       <UserPlus size={18} />
                       <span>Ajouter</span>
                     </button>
@@ -486,6 +577,10 @@ const StudioRH: React.FC = () => {
               </div>
             )}
 
+            {currentView === 'encadrants' && (
+              <EncadrantsView headers={headers} />
+            )}
+
             {currentView === 'settings' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <h1 style={{ fontSize: '24px', fontWeight: 700 }}>Paramètres du Studio</h1>
@@ -543,6 +638,48 @@ const StudioRH: React.FC = () => {
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
       `}</style>
+
+      {showColumnSettings && (
+        <div className="modal-overlay" onClick={() => setShowColumnSettings(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h2 style={{ fontSize: '18px', fontWeight: 700 }}>Gérer les colonnes</h2>
+              <button className="close-btn" onClick={() => setShowColumnSettings(false)}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              {columnSettings.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: 13 }}>Aucune configuration de colonne disponible pour cette page.<br/>Effectuez une première synchronisation pour initialiser les colonnes.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {columnSettings.map((col) => (
+                    <div key={col.column_key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <span style={{ fontWeight: 500, fontSize: '14px' }}>{col.label || col.column_key}</span>
+                      <button
+                        onClick={() => {
+                          const updated = columnSettings.map(c =>
+                            c.column_key === col.column_key ? { ...c, is_visible: col.is_visible ? 0 : 1 } : c
+                          );
+                          setColumnSettings(updated);
+                          const token = localStorage.getItem('token');
+                          fetch('/api/column-settings/rh/bulk', {
+                            method: 'POST',
+                            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify(updated)
+                          });
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer', background: col.is_visible ? '#dcfce7' : '#fee2e2', color: col.is_visible ? '#16a34a' : '#dc2626', fontWeight: 600, fontSize: '13px' }}
+                      >
+                        {col.is_visible ? <Eye size={14} /> : <EyeOff size={14} />}
+                        {col.is_visible ? 'Visible' : 'Masqué'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showProposalsModal && (
         <div className="modal-overlay" onClick={() => setShowProposalsModal(false)}>
