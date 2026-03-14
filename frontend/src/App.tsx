@@ -11,12 +11,14 @@ import EmailTemplates from './pages/EmailTemplates';
 import Tiers from './pages/Tiers';
 import MagappAdmin from './pages/MagappAdmin';
 import AdminSQL from './pages/AdminSQL';
+import AdminSettings from './pages/AdminSettings';
 import TelecomManagement from './pages/TelecomManagement';
 import AdminMessages from './pages/AdminMessages';
 import AccessRequestPage from './pages/AccessRequestPage';
 import AdminAccessRequests from './pages/AdminAccessRequests';
 import AccessRequestOverlay from './components/AccessRequestOverlay';
 import AdminLayout from './components/AdminLayout';
+import StudioRH from './pages/StudioRH';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
@@ -69,8 +71,10 @@ function App() {
           <Route path="access-requests" element={<AdminAccessRequests />} />
           <Route path="mail" element={<MailSettings />} />
           <Route path="email-templates" element={<EmailTemplates />} />
+          <Route path="rh" element={<StudioRH />} />
           <Route path="magapp" element={<MagappAdmin />} />
           <Route path="sql" element={<AdminSQL />} />
+          <Route path="settings" element={<AdminSettings />} />
         </Route>
       </Routes>
     </BrowserRouter>

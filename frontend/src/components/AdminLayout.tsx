@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { 
   LayoutDashboard, Users, MessageSquare, ShieldCheck, 
   Mail, Settings, LayoutGrid, Activity, Smartphone,
-  Monitor, Database, Shield, ChevronRight, Bell, Lock
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -39,9 +39,11 @@ const AdminLayout: React.FC = () => {
     { title: "Modèles d'Emails", icon: Mail, path: "/admin/email-templates" },
     { title: "Serveur Mail", icon: Settings, path: "/admin/mail" },
     { title: "Configuration Hub", icon: LayoutGrid, path: "/admin/tiles" },
+    { title: "Paramètres", icon: Sliders, path: "/admin/settings" },
     { title: "Liaison AD", icon: Monitor, path: "/admin/ad" },
     { title: "Liaison GLPI", icon: Database, path: "/admin/glpi" },
     { title: "Liaison Oracle", icon: Database, path: "/admin/oracle" },
+    { title: "Studio RH", icon: Users, path: "/admin/rh" },
     { title: "Magasin d'Apps", icon: Smartphone, path: "/admin/magapp" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
     { title: "Logs Système", icon: Activity, path: "http://localhost:3001/mouchard", external: true },
