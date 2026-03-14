@@ -1,8 +1,7 @@
-const sqlite3 = require('sqlite3');
-const path = require('path');
-const db = new sqlite3.Database(path.join(__dirname, 'database.sqlite'));
-db.all("SELECT * FROM column_settings WHERE page='orders'", (err, rows) => {
+const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database('./oracle_rh.sqlite');
+db.all("PRAGMA table_info(referentiel_agents)", (err, rows) => {
     if (err) console.error(err);
-    console.log(JSON.stringify(rows, null, 2));
+    else console.log(rows.map(r => r.name));
     db.close();
 });

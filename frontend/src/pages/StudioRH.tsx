@@ -1,15 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
-  Users, RefreshCw, UserCheck, UserMinus, Search,
-  Link as LinkIcon, Link2Off, Monitor, CheckCircle2,
-  AlertCircle, X, Loader2, UserPlus, ChevronDown, ChevronUp
+  Users, RefreshCw, Search,
+  Link2Off, Monitor as MonitorIcon, CheckCircle2,
+  AlertCircle, X, Loader2, UserPlus, Download, 
+  MoreVertical, Filter, ChevronLeft, ChevronRight, Settings, Columns
+} from 'lucide-react';
+import Header from '../components/Header';
+import { NavLink } from 'react-router-dom';
+import { 
+  LayoutDashboard, MessageSquare, 
+  Settings as SettingsIcon, LayoutGrid, Activity, Smartphone,
+  Database, Shield, Bell, Lock, Sliders
 } from 'lucide-react';
 
 interface Stats {
   total: number;
   actif: number;
   parti: number;
+  arriveeFuture: number;
   adLie: number;
   adNonLie: number;
 }
@@ -18,11 +27,13 @@ interface Agent {
   matricule: string;
   nom: string;
   prenom: string;
-  civilite: string;
-  service: string;
-  ad_username: string | null;
-  last_sync_date: string;
-  date_plusvu: string | null;
+  SERVICE_L?: string;
+  DIRECTION_L?: string;
+  DATE_ARRIVEE?: string;
+  DATE_DEPART: string | null;
+  ad_username?: string | null;
+  date_plusvu?: string | null;
+  [key: string]: any; // Allow all other Oracle fields dynamically
 }
 
 interface ADUser {
@@ -33,22 +44,24 @@ interface ADUser {
 
 const StatCard: React.FC<{
   label: string;
-  value: number;
+  value: number | undefined;
   color: string;
   bg: string;
   border: string;
   icon: React.ReactNode;
   onClick?: () => void;
   clickable?: boolean;
-}> = ({ label, value, color, bg, border, icon, onClick, clickable }) => (
+  tooltip?: string;
+}> = ({ label, value, color, bg, border, icon, onClick, clickable, tooltip }) => (
   <div
     className={`stat-card ${clickable ? 'clickable' : ''}`}
     style={{ background: bg, borderTop: `4px solid ${border}` }}
     onClick={onClick}
+    title={tooltip}
   >
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
       <div>
-        <div className="stat-value" style={{ color }}>{value.toLocaleString()}</div>
+        <div className="stat-value" style={{ color }}>{(value ?? 0).toLocaleString()}</div>
         <div className="stat-label">{label}</div>
       </div>
       <div className="stat-icon" style={{ background: border + '22', color: border }}>{icon}</div>
@@ -56,7 +69,6 @@ const StatCard: React.FC<{
     {clickable && <div className="stat-click-hint">Cliquer pour filtrer →</div>}
   </div>
 );
-
 const StudioRH: React.FC = () => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -64,17 +76,43 @@ const StudioRH: React.FC = () => {
   const [loadingStats, setLoadingStats] = useState(true);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [showTable, setShowTable] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
   const [showUnlinkedModal, setShowUnlinkedModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [adSearchTerm, setAdSearchTerm] = useState('');
   const [associatingAgent, setAssociatingAgent] = useState<Agent | null>(null);
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [totalAgents, setTotalAgents] = useState(0);
+  const [page, setPage] = useState(1);
+  const [syncingAD, setSyncingAD] = useState(false);
+  const [adSyncStatus, setAdSyncStatus] = useState({ current: 0, total: 0, status: 'idle' });
+  const [proposals, setProposals] = useState<any[]>([]);
+  const [showProposalsModal, setShowProposalsModal] = useState(false);
+
+  const [limit, setLimit] = useState(50);
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [currentView, setCurrentView] = useState<'dashboard' | 'users' | 'settings' | 'logs'>('users');
 
   const token = localStorage.getItem('token');
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = React.useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  const formatDateFr = (dateStr: string | null | undefined) => {
+    if (!dateStr) return '-';
+    try {
+      // Fix: Handle long date strings from Oracle more gracefully
+      const cleanDate = String(dateStr).split(' (')[0]; 
+      const d = new Date(cleanDate);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleDateString('fr-FR');
+    } catch (e) {
+      return dateStr;
+    }
+  };
 
   const fetchStats = async () => {
+    if (!token) return;
     setLoadingStats(true);
     try {
       const res = await axios.get('/api/admin/rh/stats', { headers });
@@ -86,19 +124,31 @@ const StudioRH: React.FC = () => {
     }
   };
 
-  const fetchAgents = useCallback(async (q?: string) => {
+  const fetchAgents = useCallback(async (q?: string, filter?: string | null, p = 1, l = 50) => {
+    if (!token) return;
     setLoadingAgents(true);
+    setHasSearched(true);
     try {
-      const res = await axios.get('/api/admin/rh/agents', { headers, params: q ? { q } : {} });
-      setAgents(res.data);
+      const res = await axios.get('/api/admin/rh/agents', { 
+        headers, 
+        params: { q, filter, page: p, limit: l } 
+      });
+      const data = res.data || {};
+      const agentsList = Array.isArray(data.agents) ? data.agents : (Array.isArray(data) ? data : []);
+      const agentsTotal = typeof data.total === 'number' ? data.total : agentsList.length;
+      
+      setAgents(agentsList);
+      setTotalAgents(agentsTotal);
     } catch (err) {
       console.error('Erreur agents', err);
+      setAgents([]);
     } finally {
       setLoadingAgents(false);
     }
-  }, []);
+  }, [token, headers]);
 
   const fetchUnlinkedAD = async () => {
+    if (!token) return;
     try {
       const res = await axios.get('/api/admin/rh/unlinked-ad', { headers });
       setUnlinkedAD(res.data);
@@ -107,21 +157,29 @@ const StudioRH: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    fetchStats();
-  }, []);
-
-  // Debounced search
-  useEffect(() => {
-    if (!showTable) return;
-    const t = setTimeout(() => fetchAgents(searchTerm || undefined), 300);
-    return () => clearTimeout(t);
-  }, [searchTerm, showTable, fetchAgents]);
-
-  const handleShowAll = () => {
-    setShowTable(true);
-    fetchAgents();
+  const fetchProposals = async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get('/api/admin/rh/ad-proposals', { headers });
+      setProposals(res.data);
+    } catch (err) {
+      console.error('Erreur propositions', err);
+    }
   };
+
+  useEffect(() => {
+    if (token) {
+      fetchStats();
+      fetchProposals();
+    }
+  }, [token]);
+
+  // Debounced search / filter / page
+  useEffect(() => {
+    if (!token) return;
+    const t = setTimeout(() => fetchAgents(searchTerm || undefined, activeFilter, page, limit), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm, activeFilter, page, limit, fetchAgents, token]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -133,7 +191,7 @@ const StudioRH: React.FC = () => {
         text: `Synchro terminée : ${res.data.stats.new} nouveaux, ${res.data.stats.matched} AD associés, ${res.data.stats.left} départs.`,
       });
       fetchStats();
-      if (showTable) fetchAgents(searchTerm || undefined);
+      if (hasSearched) fetchAgents(searchTerm || undefined, activeFilter, page);
     } catch (err: any) {
       setSyncMessage({
         type: 'error',
@@ -144,348 +202,389 @@ const StudioRH: React.FC = () => {
     }
   };
 
-  const handleAssociate = async (matricule: string, adUsername: string) => {
+  const handleAssociate = async (matricule: string, adUsername: string | null) => {
     try {
       await axios.post('/api/admin/rh/associate', { matricule, ad_username: adUsername }, { headers });
       setShowUnlinkedModal(false);
       setAssociatingAgent(null);
       fetchStats();
-      if (showTable) fetchAgents(searchTerm || undefined);
-    } catch {
-      alert("Erreur lors de l'association");
+      if (hasSearched) fetchAgents(searchTerm || undefined, activeFilter, page);
+    } catch (err: any) {
+      alert("Erreur lors de l'association: " + (err.response?.data?.message || err.message));
     }
   };
 
-  const filteredAD = unlinkedAD.filter(
+  const filteredAD = (unlinkedAD || []).filter(
     (u) =>
-      u.displayName.toLowerCase().includes(adSearchTerm.toLowerCase()) ||
-      u.sAMAccountName.toLowerCase().includes(adSearchTerm.toLowerCase())
+      u.displayName?.toLowerCase().includes(adSearchTerm.toLowerCase()) ||
+      u.sAMAccountName?.toLowerCase().includes(adSearchTerm.toLowerCase())
   );
 
+  const startADSync = async () => {
+    if (!token) return;
+    setSyncingAD(true);
+    try {
+      await axios.post('/api/admin/rh/sync-ad', {}, { headers });
+      // Start polling
+      const interval = setInterval(async () => {
+        try {
+          const res = await axios.get('/api/admin/rh/sync-ad/progress', { headers });
+          setAdSyncStatus(res.data);
+          if (res.data.status !== 'running') {
+            clearInterval(interval);
+            setSyncingAD(false);
+            fetchStats();
+            fetchProposals();
+            if (res.data.status === 'done') setShowProposalsModal(true);
+          }
+        } catch (e) {
+          clearInterval(interval);
+          setSyncingAD(false);
+        }
+      }, 1000);
+    } catch (err) {
+      setSyncingAD(false);
+      alert('Erreur lors du lancement de la synchro AD');
+    }
+  };
+
+  const handleProposal = async (id: number, action: 'accept' | 'refuse') => {
+    try {
+      await axios.post('/api/admin/rh/ad-proposals/action', { id, action }, { headers });
+      fetchProposals();
+      fetchStats();
+      if (hasSearched) fetchAgents(searchTerm || undefined, activeFilter, page, limit);
+    } catch (err) {
+      alert('Erreur lors du traitement de la proposition');
+    }
+  };
+
+  const handleDownload = () => {
+    // Basic CSV export
+    if (agents.length === 0) return;
+    const headers = ["Matricule", "Nom", "Prénom", "Fonction", "Service", "Direction"];
+    const rows = agents.map(a => [a.matricule, a.nom, a.prenom, a.POSTE_L || a.FONCTION || '', a.SERVICE_L || '', a.DIRECTION_L || '']);
+    const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].map(e => e.join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "liste_rh.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const menuItems = [
+    { id: 'dashboard', title: "Dashboard", icon: LayoutDashboard },
+    { id: 'users', title: "Utilisateurs", icon: Users },
+    { id: 'settings', title: "Paramètres", icon: SettingsIcon },
+    { id: 'logs', title: "Logs", icon: Activity },
+  ];
+
   return (
-    <div className="studio-rh">
-      {/* Header */}
-      <div className="rh-header">
-        <div>
-          <h2 className="rh-title">
-            <span className="rh-title-icon"><Users size={26} /></span>
-            Studio RH
-          </h2>
-          <p className="rh-subtitle">Référentiel consolidé des agents — Oracle RH × Active Directory</p>
-        </div>
-        <div className="rh-header-actions">
-          <button
-            className="rh-btn rh-btn-ghost"
-            onClick={() => { setShowUnlinkedModal(true); fetchUnlinkedAD(); }}
-          >
-            <Monitor size={16} /> Comptes AD orphelins
-          </button>
-          <button
-            className={`rh-btn rh-btn-primary ${syncing ? 'loading' : ''}`}
-            onClick={handleSync}
-            disabled={syncing}
-          >
-            <RefreshCw size={16} className={syncing ? 'spin' : ''} />
-            {syncing ? 'Synchronisation…' : 'Synchroniser RH'}
-          </button>
-        </div>
-      </div>
-
-      {/* Sync Banner */}
-      {syncMessage && (
-        <div className={`rh-banner ${syncMessage.type}`}>
-          {syncMessage.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-          <span>{syncMessage.text}</span>
-          <button onClick={() => setSyncMessage(null)}><X size={14} /></button>
-        </div>
-      )}
-
-      {/* Stats Dashboard */}
-      <div className="rh-stats-grid">
-        {loadingStats ? (
-          <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: 40 }}>
-            <Loader2 className="spin" size={32} color="#64748b" style={{ margin: '0 auto' }} />
+    <div className="admin-root">
+      <Header />
+      
+      <div className="admin-container">
+        <aside className="admin-sidebar" style={{ backgroundColor: '#0f172a' }}>
+          <div className="sidebar-brand" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+            <Users size={24} className="brand-icon" style={{ color: '#059669' }} />
+            <span>Studio RH</span>
           </div>
-        ) : stats ? (
-          <>
-            <StatCard label="Total dans le référentiel" value={stats.total} color="#1e40af" bg="linear-gradient(135deg,#eff6ff,#dbeafe)" border="#3b82f6" icon={<Users size={22} />} onClick={handleShowAll} clickable={!showTable} />
-            <StatCard label="Agents actifs" value={stats.actif} color="#065f46" bg="linear-gradient(135deg,#f0fdf4,#dcfce7)" border="#22c55e" icon={<UserCheck size={22} />} onClick={handleShowAll} clickable={!showTable} />
-            <StatCard label="Agents partis" value={stats.parti} color="#713f12" bg="linear-gradient(135deg,#fefce8,#fef9c3)" border="#eab308" icon={<UserMinus size={22} />} />
-            <StatCard label="Liés à l'AD" value={stats.adLie} color="#1e3a5f" bg="linear-gradient(135deg,#f0f9ff,#e0f2fe)" border="#0ea5e9" icon={<Monitor size={22} />} />
-            <StatCard label="Non liés à l'AD" value={stats.adNonLie} color="#7c2d12" bg="linear-gradient(135deg,#fff7ed,#ffedd5)" border="#f97316" icon={<Link2Off size={22} />}
-              onClick={() => { setShowUnlinkedModal(true); fetchUnlinkedAD(); }} clickable />
-          </>
-        ) : null}
+          
+          <nav className="sidebar-nav">
+            {menuItems.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => setCurrentView(item.id as any)}
+                className={`nav-link ${currentView === item.id ? 'active' : ''}`}
+                style={{ cursor: 'pointer', backgroundColor: currentView === item.id ? '#059669' : 'transparent' }}
+              >
+                <item.icon size={18} />
+                <span>{item.title}</span>
+                {currentView === item.id && <div className="active-marker" style={{ backgroundColor: 'white' }} />}
+              </div>
+            ))}
+          </nav>
+
+          <div className="sidebar-footer">
+            <div className="system-status">
+              <div className="status-dot online"></div>
+              <span>Studio Opérationnel</span>
+            </div>
+          </div>
+        </aside>
+
+        <main className="admin-main">
+          <header className="admin-content-header">
+            <div className="breadcrumb">
+              <span className="crumb-root">Studio RH</span>
+              <ChevronRight size={14} />
+              <span className="crumb-active">
+                {currentView === 'users' ? 'Liste des utilisateurs' : 
+                 currentView === 'dashboard' ? 'Tableau de bord' :
+                 currentView === 'settings' ? 'Paramètres' : 'Logs de synchronisation'}
+              </span>
+            </div>
+            <div className="header-actions">
+              <button className="icon-btn" title="Notifications"><Bell size={18} /></button>
+              <button className="icon-btn" title="Sécurité"><Lock size={18} /></button>
+            </div>
+          </header>
+
+          <div className="admin-content-body" style={{ padding: '24px' }}>
+            {currentView === 'dashboard' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <h1 style={{ fontSize: '24px', fontWeight: 700 }}>Tableau de bord RH</h1>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
+                  <StatCard label="Total Agents" value={stats?.total} color="#1e293b" bg="white" border="#1e293b" icon={<Users size={20} />} />
+                  <StatCard label="Agents Actifs" value={stats?.actif} color="#059669" bg="white" border="#059669" icon={<CheckCircle2 size={20} />} />
+                  <StatCard label="Départs" value={stats?.parti} color="#dc2626" bg="white" border="#dc2626" icon={<Link2Off size={20} />} />
+                  <StatCard label="AD Liés" value={stats?.adLie} color="#3b82f6" bg="white" border="#3b82f6" icon={<MonitorIcon size={20} />} />
+                </div>
+              </div>
+            )}
+
+            {currentView === 'users' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div className="content-top-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                    <h1 className="content-title" style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Liste des utilisateurs</h1>
+                    {proposals.length > 0 && (
+                      <div className="header-badge warning" onClick={() => setShowProposalsModal(true)} style={{ backgroundColor: '#fff7ed', color: '#ea580c', border: '1px solid #ffedd5', padding: '6px 14px', borderRadius: '99px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <AlertCircle size={14} />
+                        <span>{proposals.length} suggestions AD</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {syncingAD && adSyncStatus.total > 0 && (
+                  <div className="ad-sync-progress-container" style={{ background: 'white', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div className="progress-info" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 700, color: '#3b82f6', marginBottom: '10px' }}>
+                      <span>Synchronisation AD en cours...</span>
+                      <span>{adSyncStatus.current} / {adSyncStatus.total}</span>
+                    </div>
+                    <div className="progress-bar-bg" style={{ height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div className="progress-bar-fill" style={{ height: '100%', background: '#3b82f6', width: `${(adSyncStatus.current / adSyncStatus.total) * 100}%` }}></div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="filter-bar" style={{ display: 'flex', alignItems: 'center', gap: '16px', background: 'white', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <div className="search-box" style={{ position: 'relative', flex: 1, maxWidth: '400px', display: 'flex', alignItems: 'center' }}>
+                    <Search size={18} style={{ position: 'absolute', left: '12px', color: '#94a3b8' }} />
+                    <input 
+                      type="text" 
+                      placeholder="Recherche par nom, prénom, matricule..." 
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      style={{ width: '100%', padding: '10px 12px 10px 40px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#f1f5f9', fontSize: '14px', outline: 'none' }}
+                    />
+                  </div>
+                  <div className="status-select">
+                    <select value={activeFilter || ''} onChange={(e) => { setActiveFilter(e.target.value || null); setPage(1); }} style={{ padding: '10px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#f1f5f9', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
+                      <option value="">Tous les utilisateurs</option>
+                      <option value="actif">Agents actifs</option>
+                      <option value="parti">Agents partis</option>
+                      <option value="future">Arrivées futures</option>
+                      <option value="ad_linked">Compte AD lié</option>
+                      <option value="ad_unlinked">Compte AD non lié</option>
+                    </select>
+                  </div>
+                  <div className="action-buttons" style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+                    <button className="btn-icon" onClick={handleSync} title="Synchroniser Oracle"><RefreshCw size={18} className={syncing ? 'spin' : ''} /></button>
+                    <button className="btn-icon" onClick={startADSync} title="Synchroniser AD"><MonitorIcon size={18} className={syncingAD ? 'spin' : ''} /></button>
+                    <button className="btn-icon" onClick={handleDownload} title="Télécharger CSV"><Download size={18} /></button>
+                    <button className="btn-icon" onClick={() => setShowColumnSettings(true)} title="Gérer les colonnes"><Columns size={18} /></button>
+                    <button onClick={() => setAssociatingAgent(null)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', backgroundColor: '#059669', color: 'white', borderRadius: '8px', fontWeight: 600, fontSize: '14px', border: 'none', cursor: 'pointer' }}>
+                      <UserPlus size={18} />
+                      <span>Ajouter</span>
+                    </button>
+                  </div>
+                </div>
+
+                {syncMessage && (
+                  <div className={`message-banner ${syncMessage.type}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderRadius: '8px', fontSize: '14px', fontWeight: 500, backgroundColor: syncMessage.type === 'success' ? '#f0fdf4' : '#fef2f2', color: syncMessage.type === 'success' ? '#16a34a' : '#dc2626', border: `1px solid ${syncMessage.type === 'success' ? '#dcfce7' : '#fee2e2'}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {syncMessage.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                      <span>{syncMessage.text}</span>
+                    </div>
+                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setSyncMessage(null)}><X size={16} /></button>
+                  </div>
+                )}
+
+                <div className="user-table-container" style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'auto' }}>
+                  <table className="user-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}><input type="checkbox" /></th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Utilisateur</th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Matricule</th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Service</th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Direction</th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Connexion AD</th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Départ</th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loadingAgents && agents.length === 0 ? (
+                        <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center' }}><Loader2 className="spin" size={32} style={{ margin: '0 auto' }} /></td></tr>
+                      ) : agents.length === 0 ? (
+                        <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Aucun utilisateur trouvé</td></tr>
+                      ) : (
+                        agents.map((agent) => (
+                          <tr key={agent.matricule} style={{ opacity: loadingAgents ? 0.6 : 1, transition: 'opacity 0.2s' }}>
+                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}><input type="checkbox" /></td>
+                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ width: '40px', height: '40px', background: '#f1f5f9', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#64748b', fontSize: '14px' }}>
+                                  {agent.prenom?.[0]}{agent.nom?.[0]}
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13.5px' }}>{agent.nom} {agent.prenom}</div>
+                                  <div style={{ fontSize: '12px', color: '#64748b' }}>{agent.POSTE_L || agent.FONCTION || '-'}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', color: '#64748b', fontSize: '13px' }}>{agent.matricule}</td>
+                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{agent.SERVICE_L}</td>
+                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{agent.DIRECTION_L}</td>
+                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{formatDateFr(agent.last_logon_timestamp || agent.date_derniere_connexion_ad)}</td>
+                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>{formatDateFr(agent.DATE_DEPART)}</td>
+                            <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                {!agent.ad_username && <Link2Off size={16} style={{ color: '#f97316' }} />}
+                                {agent.date_plusvu && <AlertCircle size={16} style={{ color: '#ef4444' }} />}
+                                {agent.ad_username && <CheckCircle2 size={16} style={{ color: '#22c55e' }} />}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px' }}>
+                  <div style={{ fontSize: '13px', color: '#64748b' }}>Affiche <b>{agents.length}</b> sur <b>{totalAgents}</b></div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                      <span>Par page</span>
+                      <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                        <option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option>
+                      </select>
+                    </div>
+                    <div className="pagination" style={{ display: 'flex', gap: '4px' }}>
+                      <button className="page-btn" disabled={page === 1} onClick={() => setPage(page - 1)} style={{ padding: '6px', minWidth: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '6px', border: '1px solid #e2e8f0', background: 'white' }}><ChevronLeft size={16} /></button>
+                      <button className="page-btn active" style={{ minWidth: '32px', height: '32px', borderRadius: '6px', border: '1px solid #059669', background: '#059669', color: 'white', fontWeight: 600 }}>{page}</button>
+                      <button className="page-btn" disabled={page >= Math.ceil(totalAgents / limit)} onClick={() => setPage(page + 1)} style={{ padding: '6px', minWidth: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '6px', border: '1px solid #e2e8f0', background: 'white' }}><ChevronRight size={16} /></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentView === 'settings' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <h1 style={{ fontSize: '24px', fontWeight: 700 }}>Paramètres du Studio</h1>
+                <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <p style={{ color: '#64748b' }}>Configuration des synchronisations et des seuils de correspondance.</p>
+                </div>
+              </div>
+            )}
+
+            {currentView === 'logs' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <h1 style={{ fontSize: '24px', fontWeight: 700 }}>Logs du Studio</h1>
+                <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <p style={{ color: '#64748b' }}>Historique des synchronisations Oracle et AD.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
       </div>
 
-      {/* Search + Toggle */}
-      <div className="rh-search-row">
-        <div className="rh-search">
-          <Search size={17} className="rh-search-icon" />
-          <input
-            type="text"
-            placeholder="Rechercher un agent par nom, prénom, matricule…"
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              if (!showTable && e.target.value) {
-                setShowTable(true);
-              }
-            }}
-          />
-          {searchTerm && <button className="rh-clear" onClick={() => setSearchTerm('')}><X size={14} /></button>}
-        </div>
-        <button className="rh-btn rh-btn-ghost" onClick={() => {
-          if (!showTable) { handleShowAll(); } else { setShowTable(false); }
-        }}>
-          {showTable ? <><ChevronUp size={15} /> Masquer la liste</> : <><ChevronDown size={15} /> Voir tous les agents</>}
-        </button>
-      </div>
+      <style>{`
+        .admin-root { height: 100vh; display: flex; flex-direction: column; background-color: #f0f2f5; overflow: hidden; font-family: 'Inter', sans-serif; }
+        .admin-container { display: flex; flex: 1; overflow: hidden; }
+        .admin-sidebar { width: 260px; background-color: #1a2234; color: #a3b1cc; display: flex; flex-direction: column; border-right: 1px solid #0f172a; }
+        .sidebar-brand { padding: 25px; display: flex; align-items: center; gap: 12px; color: white; font-weight: 800; font-size: 1.1rem; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .brand-icon { color: #3b82f6; }
+        .sidebar-nav { padding: 20px 12px; flex: 1; overflow-y: auto; }
+        .nav-link { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: #94a3b8; text-decoration: none; font-size: 0.9rem; font-weight: 600; border-radius: 8px; margin-bottom: 4px; transition: all 0.2s; position: relative; }
+        .nav-link:hover { background-color: rgba(255,255,255,0.05); color: white; }
+        .nav-link.active { background-color: #3b82f6; color: white; }
+        .active-marker { position: absolute; right: 0; width: 4px; height: 20px; background-color: white; border-radius: 4px 0 0 4px; }
+        .sidebar-footer { padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); }
+        .system-status { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: #64748b; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.online { background-color: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.5); }
+        .admin-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .admin-content-header { height: 64px; background-color: white; border-bottom: 1px solid #e2e8f0; padding: 0 30px; display: flex; align-items: center; justify-content: space-between; }
+        .breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; font-weight: 600; }
+        .crumb-root { color: #94a3b8; }
+        .crumb-active { color: #1e293b; }
+        .header-actions { display: flex; gap: 10px; }
+        .icon-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; color: #64748b; cursor: pointer; transition: all 0.2s; }
+        .icon-btn:hover { background: #f1f5f9; color: #1e293b; border-color: #cbd5e1; }
+        .admin-content-body { flex: 1; overflow-y: auto; background-color: #f8fafc; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background: white; border-radius: 16px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; }
+        .modal-header { padding: 20px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
+        .close-btn { background: none; border: none; color: #94a3b8; cursor: pointer; }
+        .modal-body { padding: 20px; }
+        .associate-btn { background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        .stats-table { width: 100%; border-collapse: collapse; }
+        .stats-table th { text-align: left; padding: 12px; background: #f8fafc; font-size: 11px; font-weight: 700; color: #64748b; border-bottom: 2px solid #e2e8f0; text-transform: uppercase; }
+        .stats-table td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+      `}</style>
 
-      {/* Agents Table */}
-      {showTable && (
-        <div className="admin-card" style={{ marginTop: 0 }}>
-          {loadingAgents ? (
-            <div style={{ textAlign: 'center', padding: 40 }}><Loader2 className="spin" style={{ margin: '0 auto' }} /></div>
-          ) : (
-            <div className="stats-table-wrapper">
+      {showProposalsModal && (
+        <div className="modal-overlay" onClick={() => setShowProposalsModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 style={{ fontSize: '18px', fontWeight: 700 }}>Propositions de correspondance AD</h2>
+              <button className="close-btn" onClick={() => setShowProposalsModal(false)}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>
+                Le système a trouvé des comptes AD dont le nom est proche de l'agent RH.
+              </p>
               <table className="stats-table">
                 <thead>
-                  <tr>
-                    <th>Statut</th>
-                    <th>Matricule</th>
-                    <th>Nom Prénom</th>
-                    <th>Service</th>
-                    <th>Compte AD</th>
-                    <th>Dernière synchro</th>
-                    <th style={{ textAlign: 'center' }}>Actions</th>
-                  </tr>
+                  <tr><th>Agent RH</th><th>Compte AD</th><th>Score</th><th>Action</th></tr>
                 </thead>
                 <tbody>
-                  {agents.map((agent) => (
-                    <tr key={agent.matricule} className={agent.date_plusvu ? 'agent-left' : ''}>
+                  {proposals.map((p: any) => (
+                    <tr key={p.id}>
+                      <td>{p.NOM} {p.PRENOM}</td>
+                      <td style={{ color: '#3b82f6', fontWeight: 700 }}>{p.ad_username}</td>
+                      <td>{p.score}%</td>
                       <td>
-                        {agent.date_plusvu ? (
-                          <span className="rh-badge rh-badge-parti" title={`Dernière fois vu le ${new Date(agent.date_plusvu).toLocaleString()}`}>
-                            <UserMinus size={11} />
-                            Parti le {new Date(agent.date_plusvu).toLocaleDateString()}
-                          </span>
-                        ) : (
-                          <span className="rh-badge rh-badge-actif"><UserCheck size={11} />Actif</span>
-                        )}
-                      </td>
-                      <td className="font-mono text-xs">{agent.matricule}</td>
-                      <td><strong>{agent.nom}</strong> {agent.prenom}</td>
-                      <td><span className="service-tag">{agent.service}</span></td>
-                      <td>
-                        {agent.ad_username
-                          ? <div className="ad-linked"><Monitor size={14} color="#22c55e" />{agent.ad_username}</div>
-                          : <div className="ad-unlinked"><Monitor size={14} color="#cbd5e1" /><span>Non lié</span></div>}
-                      </td>
-                      <td className="text-xs text-gray-400">{new Date(agent.last_sync_date).toLocaleDateString()}</td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button
-                          className="action-icon-btn"
-                          title="Associer manuellement AD"
-                          onClick={() => { setAssociatingAgent(agent); setShowUnlinkedModal(true); fetchUnlinkedAD(); }}
-                        >
-                          <LinkIcon size={15} />
-                        </button>
-                        {agent.ad_username && (
-                          <button
-                            className="action-icon-btn delete"
-                            title="Délier compte AD"
-                            onClick={async () => {
-                              if (window.confirm('Délier ce compte AD ?')) {
-                                await axios.post('/api/admin/rh/associate', { matricule: agent.matricule, ad_username: null }, { headers });
-                                fetchStats();
-                                fetchAgents(searchTerm || undefined);
-                              }
-                            }}
-                          >
-                            <Link2Off size={15} />
-                          </button>
-                        )}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="associate-btn" onClick={() => {
+                              handleProposal(p.id, 'accept');
+                              if (proposals.length === 1) setShowProposalsModal(false);
+                          }}>Valider</button>
+                          <button className="icon-btn" style={{ width: 28, height: 28 }} onClick={() => handleProposal(p.id, 'refuse')}><X size={14} /></button>
+                        </div>
                       </td>
                     </tr>
                   ))}
-                  {agents.length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Aucun agent trouvé</td></tr>
-                  )}
                 </tbody>
               </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* AD Modal */}
-      {showUnlinkedModal && (
-        <div className="modal-overlay" onClick={() => { setShowUnlinkedModal(false); setAssociatingAgent(null); }}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760 }}>
-            <div className="modal-header">
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Monitor size={20} />
-                {associatingAgent
-                  ? `Associer un compte AD à ${associatingAgent.nom} ${associatingAgent.prenom}`
-                  : 'Comptes AD non associés'}
-              </h2>
-              <button className="close-btn" onClick={() => { setShowUnlinkedModal(false); setAssociatingAgent(null); }}><X size={20} /></button>
-            </div>
-            <div className="modal-body">
-              <div style={{ position: 'relative', marginBottom: 14 }}>
-                <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                <input
-                  type="text"
-                  placeholder="Filtrer les comptes AD…"
-                  value={adSearchTerm}
-                  onChange={(e) => setAdSearchTerm(e.target.value)}
-                  style={{ width: '100%', padding: '8px 8px 8px 34px', borderRadius: 8, border: '1px solid #e2e8f0', boxSizing: 'border-box' }}
-                />
-              </div>
-              <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                <table className="stats-table">
-                  <thead><tr><th>Nom</th><th>Compte (sAMAccount)</th><th>Email</th><th style={{ textAlign: 'center' }}>Action</th></tr></thead>
-                  <tbody>
-                    {filteredAD.map((u) => (
-                      <tr key={u.sAMAccountName}>
-                        <td className="font-bold">{u.displayName}</td>
-                        <td className="font-mono text-xs">{u.sAMAccountName}</td>
-                        <td className="text-xs">{u.mail || '-'}</td>
-                        <td style={{ textAlign: 'center' }}>
-                          {associatingAgent ? (
-                            <button className="associate-btn" onClick={() => handleAssociate(associatingAgent.matricule, u.sAMAccountName)}>
-                              <UserPlus size={13} /> Associer
-                            </button>
-                          ) : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                    {filteredAD.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>Aucun compte orphelin trouvé</td></tr>}
-                  </tbody>
-                </table>
-              </div>
             </div>
           </div>
         </div>
       )}
-
-      <style>{`
-        .studio-rh { animation: fadeIn .3s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
-        .rh-header {
-          display: flex; justify-content: space-between; align-items: flex-start;
-          flex-wrap: wrap; gap: 16px; margin-bottom: 28px;
-        }
-        .rh-title {
-          font-size: 26px; font-weight: 900; color: #0f172a;
-          display: flex; align-items: center; gap: 12px; margin: 0 0 4px;
-        }
-        .rh-title-icon {
-          width: 44px; height: 44px; background: linear-gradient(135deg,#3b82f6,#6366f1);
-          border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white;
-        }
-        .rh-subtitle { color: #64748b; font-size: 14px; margin: 0; }
-        .rh-header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-
-        .rh-btn {
-          display: inline-flex; align-items: center; gap: 7px;
-          padding: 9px 18px; border-radius: 10px; font-size: 13px;
-          font-weight: 700; border: none; cursor: pointer; transition: all .2s;
-          white-space: nowrap;
-        }
-        .rh-btn-ghost {
-          background: #f1f5f9; color: #475569;
-        }
-        .rh-btn-ghost:hover { background: #e2e8f0; color: #1e293b; }
-        .rh-btn-primary {
-          background: linear-gradient(135deg,#3b82f6,#6366f1); color: white;
-          box-shadow: 0 4px 12px #3b82f640;
-        }
-        .rh-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px #3b82f650; }
-        .rh-btn-primary:disabled { opacity: .7; cursor: not-allowed; transform: none; }
-        .spin { animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        .rh-banner {
-          display: flex; align-items: center; gap: 12px;
-          padding: 12px 18px; border-radius: 12px; margin-bottom: 20px; font-weight: 600; font-size: 13px;
-        }
-        .rh-banner.success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
-        .rh-banner.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-        .rh-banner button { margin-left: auto; background: none; border: none; cursor: pointer; color: inherit; opacity: .6; }
-
-        .rh-stats-grid {
-          display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-          gap: 16px; margin-bottom: 24px;
-        }
-        .stat-card {
-          background: white; border-radius: 14px; padding: 20px;
-          box-shadow: 0 2px 8px rgba(0,0,0,.06);
-          transition: all .2s; position: relative; overflow: hidden;
-        }
-        .stat-card.clickable { cursor: pointer; }
-        .stat-card.clickable:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,.12); }
-        .stat-value { font-size: 34px; font-weight: 900; line-height: 1; margin-bottom: 6px; }
-        .stat-label { font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .05em; }
-        .stat-icon {
-          width: 42px; height: 42px; border-radius: 10px;
-          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-        }
-        .stat-click-hint { margin-top: 10px; font-size: 11px; opacity: .6; font-weight: 600; }
-
-        .rh-search-row {
-          display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap;
-        }
-        .rh-search {
-          flex: 1; min-width: 260px; position: relative;
-        }
-        .rh-search-icon {
-          position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; pointer-events: none;
-        }
-        .rh-search input {
-          width: 100%; padding: 10px 36px 10px 38px; border-radius: 10px;
-          border: 1.5px solid #e2e8f0; outline: none; font-size: 13px;
-          background: white; box-sizing: border-box;
-          transition: border-color .2s;
-        }
-        .rh-search input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px #3b82f620; }
-        .rh-clear {
-          position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-          background: #e2e8f0; border: none; border-radius: 50%; width: 20px; height: 20px;
-          display: flex; align-items: center; justify-content: center; cursor: pointer; color: #64748b;
-        }
-
-        .rh-badge {
-          display: inline-flex; align-items: center; gap: 5px;
-          padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 800;
-        }
-        .rh-badge-actif { background: #f0fdf4; color: #16a34a; }
-        .rh-badge-parti { background: #fefce8; color: #854d0e; }
-
-        .agent-left { opacity: .65; }
-        .ad-linked { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }
-        .ad-unlinked { display: flex; align-items: center; gap: 6px; color: #94a3b8; font-size: 12px; font-style: italic; }
-        .service-tag { background: #f1f5f9; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: #475569; }
-
-        .action-icon-btn {
-          background: #f1f5f9; border: none; color: #64748b;
-          padding: 6px; border-radius: 6px; cursor: pointer; transition: all .2s; margin: 0 2px;
-        }
-        .action-icon-btn:hover { background: #e2e8f0; color: #0f172a; }
-        .action-icon-btn.delete:hover { background: #fee2e2; color: #ef4444; }
-
-        .associate-btn {
-          background: #3b82f6; color: white; border: none;
-          padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 700;
-          cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
-          transition: background .2s;
-        }
-        .associate-btn:hover { background: #2563eb; }
-      `}</style>
     </div>
   );
 };
 
 export default StudioRH;
+

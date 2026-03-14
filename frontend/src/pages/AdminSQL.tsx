@@ -35,6 +35,7 @@ const AdminSQL: React.FC = () => {
   const [databases, setDatabases] = useState<{seq: number, name: string, file: string}[]>([]);
   const [selectedDb, setSelectedDb] = useState<string>('main');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [tableMetadata, setTableMetadata] = useState<{pk: string[], indices: string[], count: number} | null>(null);
   
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -87,8 +88,19 @@ const AdminSQL: React.FC = () => {
     }
   };
 
-  const handleTableClick = (tableName: string) => {
+  const handleTableClick = async (tableName: string) => {
     setSelectedTable(tableName);
+    setTableMetadata(null); // Reset pending load
+    
+    try {
+      const metaRes = await axios.get(`/api/admin/sql/table-info/${tableName}?db=${selectedDb}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTableMetadata(metaRes.data);
+    } catch (err) {
+      console.warn("Could not fetch table info", err);
+    }
+
     const q = `SELECT * FROM "${selectedDb}"."${tableName}" LIMIT 25`;
     runQuery(q);
   };
@@ -226,6 +238,29 @@ const AdminSQL: React.FC = () => {
                   <div className="error-text">
                     <strong>Erreur d'exécution</strong>
                     <p>{queryError}</p>
+                  </div>
+                </div>
+              )}
+
+              {tableMetadata && selectedTable && (
+                <div className="table-metadata-panel">
+                  <div className="metadata-header">
+                    <Database size={16} className="text-blue" />
+                    <strong>{selectedTable}</strong>
+                  </div>
+                  <div className="metadata-details">
+                    <div className="metadata-item">
+                      <span className="metadata-label">Lignes :</span>
+                      <span className="metadata-value">{tableMetadata.count.toLocaleString('fr-FR')}</span>
+                    </div>
+                    <div className="metadata-item">
+                      <span className="metadata-label">Clé Primaire :</span>
+                      <span className="metadata-value">{tableMetadata.pk && tableMetadata.pk.length > 0 ? tableMetadata.pk.join(', ') : <em>Aucune</em>}</span>
+                    </div>
+                    <div className="metadata-item block-item">
+                      <span className="metadata-label">Index :</span>
+                      <span className="metadata-value">{tableMetadata.indices && tableMetadata.indices.length > 0 ? tableMetadata.indices.join(', ') : <em>Aucun</em>}</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -477,6 +512,53 @@ const AdminSQL: React.FC = () => {
           display: flex;
           gap: 12px;
           color: #dc2626;
+          margin-bottom: 16px;
+        }
+        .table-metadata-panel {
+          background: #f8fafc;
+          border: 1px solid #cbd5e1;
+          border-left: 4px solid #3b82f6;
+          border-radius: 8px;
+          padding: 16px;
+          margin-bottom: 20px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .metadata-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 1rem;
+          color: #0f172a;
+        }
+        .metadata-details {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 20px;
+          font-size: 0.85rem;
+          background: white;
+          padding: 12px;
+          border-radius: 6px;
+          border: 1px solid #e2e8f0;
+        }
+        .metadata-item {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+        }
+        .metadata-item.block-item {
+          width: 100%;
+        }
+        .metadata-label {
+          font-weight: 700;
+          color: #64748b;
+          text-transform: uppercase;
+          font-size: 0.75rem;
+        }
+        .metadata-value {
+          color: #1e293b;
+          font-weight: 600;
         }
         .animate-spin { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

@@ -716,126 +716,226 @@ async function getOracleConnection(settings) {
 // Statistiques du référentiel agents
 app.get('/api/admin/rh/stats', authenticateAdmin, async (req, res) => {
     try {
-        const total = (await db.get('SELECT count(*) as c FROM referentiel_agents')).c;
-        const actif = (await db.get("SELECT count(*) as c FROM referentiel_agents WHERE date_plusvu IS NULL")).c;
-        const parti = (await db.get("SELECT count(*) as c FROM referentiel_agents WHERE date_plusvu IS NOT NULL")).c;
-        const adLie = (await db.get("SELECT count(*) as c FROM referentiel_agents WHERE ad_username IS NOT NULL AND date_plusvu IS NULL")).c;
-        const adNonLie = actif - adLie;
-        res.json({ total, actif, parti, adLie, adNonLie });
+        const today = new Date().toISOString().substring(0, 10);
+        
+        const total = (await db.get('SELECT count(*) as c FROM rh.referentiel_agents')).c;
+        
+        // Agent actif : date_plusvu IS NULL AND (pas de départ ou départ futur)
+        // Correction : Robustesse sur DATE_DEPART
+        const actifQuery = `
+            SELECT count(*) as c FROM rh.referentiel_agents 
+            WHERE date_plusvu IS NULL 
+            AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
+        `;
+        const actif = (await db.get(actifQuery, [today])).c;
+        
+        const partiQuery = `
+            SELECT count(*) as c FROM rh.referentiel_agents 
+            WHERE date_plusvu IS NOT NULL 
+            OR (DATE_DEPART IS NOT NULL AND DATE_DEPART != '' AND DATE_DEPART <= ?)
+        `;
+        const parti = (await db.get(partiQuery, [today])).c;
+
+        const arriveeFuture = (await db.get(`
+            SELECT count(*) as c FROM rh.referentiel_agents 
+            WHERE DATE_ARRIVEE > ?
+        `, [today])).c;
+        
+        const adLie = (await db.get(`
+            SELECT count(*) as c FROM rh.referentiel_agents 
+            WHERE ad_username IS NOT NULL AND ad_username != ''
+            AND date_plusvu IS NULL 
+            AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
+        `, [today])).c;
+        
+        const adNonLie = Math.max(0, actif - adLie);
+        
+        res.json({ total, actif, parti, arriveeFuture, adLie, adNonLie });
     } catch (err) {
+        console.error("Stats RH Error:", err);
         res.status(500).json({ message: 'Erreur stats', error: err.message });
     }
 });
 
-// Récupérer la liste des agents consolidés (avec recherche optionnelle)
+// Récupérer les agents avec filtrage et pagination
 app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
     try {
-        const { q } = req.query;
-        let agents;
+        const { q, filter, page = 1, limit = 50 } = req.query;
+        let whereClauses = [];
+        let params = [];
+        const today = new Date().toISOString().substring(0, 10);
+
         if (q && q.trim()) {
             const term = `%${q.trim()}%`;
-            agents = await db.all(
-                `SELECT * FROM referentiel_agents
-                 WHERE nom LIKE ? OR prenom LIKE ? OR matricule LIKE ? OR ad_username LIKE ?
-                 ORDER BY nom ASC, prenom ASC LIMIT 200`,
-                [term, term, term, term]
-            );
-        } else {
-            agents = await db.all('SELECT * FROM referentiel_agents ORDER BY nom ASC, prenom ASC');
+            whereClauses.push("(NOM LIKE ? OR PRENOM LIKE ? OR MATRICULE LIKE ? OR ad_username LIKE ?)");
+            params.push(term, term, term, term);
         }
-        res.json(agents);
+
+        if (filter) {
+            switch (filter) {
+                case 'actif':
+                    whereClauses.push("date_plusvu IS NULL AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)");
+                    params.push(today);
+                    break;
+                case 'parti':
+                    whereClauses.push("(date_plusvu IS NOT NULL OR (DATE_DEPART IS NOT NULL AND DATE_DEPART != '' AND DATE_DEPART <= ?))");
+                    params.push(today);
+                    break;
+                case 'future':
+                    whereClauses.push("DATE_ARRIVEE IS NOT NULL AND DATE_ARRIVEE != '' AND DATE_ARRIVEE > ?");
+                    params.push(today);
+                    break;
+                case 'ad_linked':
+                    whereClauses.push("ad_username IS NOT NULL AND date_plusvu IS NULL AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)");
+                    params.push(today);
+                    break;
+                case 'ad_unlinked':
+                    whereClauses.push("ad_username IS NULL AND date_plusvu IS NULL AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)");
+                    params.push(today);
+                    break;
+            }
+        }
+
+        const whereSql = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
+        
+        // Comptage total pour la pagination
+        const countQuery = `SELECT count(*) as c FROM rh.referentiel_agents ${whereSql}`;
+        const total = (await db.get(countQuery, params)).c;
+
+        // Récupération des agents
+        const offset = (Math.max(1, parseInt(page)) - 1) * parseInt(limit);
+        const agentsQuery = `
+            SELECT *
+            FROM rh.referentiel_agents
+            ${whereSql}
+            ORDER BY NOM ASC, PRENOM ASC 
+            LIMIT ? OFFSET ?
+        `;
+        const agents = await db.all(agentsQuery, [...params, parseInt(limit), offset]);
+        
+        res.json({ agents, total, page: parseInt(page), limit: parseInt(limit) });
     } catch (err) {
         res.status(500).json({ message: 'Erreur lecture agents', error: err.message });
     }
 });
 
-// Synchronisation RH Oracle -> Référentiel Agents
+// Synchronisation RH : Import complet (Upsert) et recherche AD
 app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
-    console.log("[SYNC RH] Début de la synchronisation...");
+    console.log("[SYNC RH] Début de la synchronisation RH complète...");
     try {
-        // 1. Attacher la base RH si nécessaire
-        try {
-            const rhDbPath = path.join(__dirname, 'oracle_rh.sqlite');
-            console.log("[SYNC RH] Attachement de la base:", rhDbPath);
-            await db.run(`ATTACH DATABASE '${rhDbPath}' AS rh`);
-        } catch (attachErr) {
-            if (!attachErr.message.includes('already being used')) {
-                console.error("[SYNC RH] Erreur ATTACH rh:", attachErr.message);
-            }
+        // 1. Découverte de la structure de V_EXTRACT_DSI
+        const oracleColsInfo = await db.all("PRAGMA rh.table_info('V_EXTRACT_DSI')");
+        if (!oracleColsInfo || oracleColsInfo.length === 0) {
+            return res.status(500).json({ message: "La table source V_EXTRACT_DSI est introuvable." });
+        }
+        const oracleCols = oracleColsInfo.map(c => c.name);
+        
+        // 2. Création/Mise à jour de la table referentiel_agents
+        const createCols = oracleCols.map(c => `"${c}" TEXT${c === 'MATRICULE' ? ' PRIMARY KEY' : ''}`).join(', ');
+        await db.run(`
+            CREATE TABLE IF NOT EXISTS rh.referentiel_agents (
+                ${createCols}, 
+                ad_username TEXT, 
+                date_plusvu DATETIME
+            )
+        `);
+
+        // S'assurer que les colonnes ad_username et date_plusvu existent si la table existait déjà
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN ad_username TEXT"); } catch (e) {}
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN date_plusvu DATETIME"); } catch (e) {}
+        
+        // S'assurer que toutes les colonnes Oracle existent dans le referentiel
+        for (const col of oracleCols) {
+            try { await db.run(`ALTER TABLE rh.referentiel_agents ADD COLUMN "${col}" TEXT`); } catch (e) {}
         }
 
-        // 2. Lire les agents depuis l'import Oracle RH
-        console.log("[SYNC RH] Lecture de rh.oracle_v_extract_dsi...");
-        let rhAgents = [];
+        // 3. Récupérer les données Oracle
+        const extractData = await db.all("SELECT * FROM rh.V_EXTRACT_DSI");
+        const extractMatricules = new Set(extractData.map(r => String(r.MATRICULE)));
+
+        // 4. UPSERT des données
+        await db.run('BEGIN TRANSACTION');
         try {
-            rhAgents = await db.all('SELECT * FROM rh.oracle_v_extract_dsi');
-            console.log(`[SYNC RH] ${rhAgents.length} agents trouvés dans l'import.`);
-        } catch (e) {
-            console.error("[SYNC RH] Erreur lecture rh.oracle_v_extract_dsi:", e.message);
-            return res.status(404).json({ message: "La table rh.oracle_v_extract_dsi n'existe pas ou la base RH n'est pas accessible." });
-        }
+            const placeholders = oracleCols.map(() => '?').join(',');
+            const setCols = oracleCols.map(c => `"${c}"=excluded."${c}"`).join(',');
+            
+            const stmt = await db.prepare(`
+                INSERT INTO rh.referentiel_agents (${oracleCols.map(c => `"${c}"`).join(', ')}, date_plusvu) 
+                VALUES (${placeholders}, NULL)
+                ON CONFLICT(MATRICULE) DO UPDATE SET 
+                ${setCols}, date_plusvu=NULL
+            `);
 
-        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
-        const now = new Date().toISOString();
-        let matchedCount = 0;
-        let newCount = 0;
-        let leftCount = 0;
-
-        const currentMatricules = new Set(rhAgents.map(a => String(a.V_EXTRACT_DSI_MATRICULE || '').trim()));
-
-        // 3. Traiter chaque agent RH
-        for (const rhA of rhAgents) {
-            const matricule = String(rhA.V_EXTRACT_DSI_MATRICULE || '').trim();
-            if (!matricule) continue;
-
-            const nom = rhA.V_EXTRACT_DSI_NOM;
-            const prenom = rhA.V_EXTRACT_DSI_PRENOM;
-            const civilite = rhA.V_EXTRACT_DSI_CIVILITE || ''; // Optionnel car peut être manquant
-            const service = rhA.V_EXTRACT_DSI_SERVICE_L;
-
-            const existing = await db.get('SELECT * FROM referentiel_agents WHERE matricule = ?', [matricule]);
-
-            if (existing) {
-                await db.run(
-                    'UPDATE referentiel_agents SET nom = ?, prenom = ?, civilite = ?, service = ?, last_sync_date = ?, date_plusvu = NULL WHERE matricule = ?',
-                    [nom, prenom, civilite, service, now, matricule]
-                );
-            } else {
-                await db.run(
-                    'INSERT INTO referentiel_agents (matricule, nom, prenom, civilite, service, last_sync_date) VALUES (?, ?, ?, ?, ?, ?)',
-                    [matricule, nom, prenom, civilite, service, now]
-                );
-                newCount++;
-
-                if (adSettings && adSettings.is_enabled) {
-                    try {
-                        const adMatch = await searchADUserByName(nom, prenom, adSettings);
-                        if (adMatch) {
-                            await db.run('UPDATE referentiel_agents SET ad_username = ? WHERE matricule = ?', [adMatch.sAMAccountName, matricule]);
-                            matchedCount++;
-                        }
-                    } catch (adErr) {
-                        console.error(`[SYNC RH] Erreur matching AD pour ${nom} ${prenom}:`, adErr.message);
+            for (const row of extractData) {
+                // Determine the correct key casing from the row (SQLite can be inconsistent)
+                const rowKeys = Object.keys(row);
+                const values = oracleCols.map(c => {
+                    const actualKey = rowKeys.find(k => k.toUpperCase() === c.toUpperCase());
+                    let val = actualKey ? row[actualKey] : null;
+                    
+                    // Standardize if it's a date
+                    if (c.toUpperCase().includes('DATE')) {
+                        val = parseOracleDate(val);
                     }
+                    return val !== null ? String(val) : null;
+                });
+                await stmt.run(values);
+            }
+            await stmt.finalize();
+
+            // 5. Marquer les agents disparus
+            await db.run('UPDATE rh.referentiel_agents SET date_plusvu = CURRENT_TIMESTAMP WHERE date_plusvu IS NULL AND MATRICULE NOT IN (SELECT MATRICULE FROM rh.V_EXTRACT_DSI)');
+            
+            // 6. Correction forcée des dates mal formatées (migration rétroactive)
+            const agentsToFix = await db.all('SELECT MATRICULE, DATE_ARRIVEE, DATE_DEPART FROM rh.referentiel_agents');
+            for (const a of agentsToFix) {
+                const newArrival = parseOracleDate(a.DATE_ARRIVEE);
+                const newDepart = parseOracleDate(a.DATE_DEPART);
+                if (newArrival !== a.DATE_ARRIVEE || newDepart !== a.DATE_DEPART) {
+                    await db.run('UPDATE rh.referentiel_agents SET DATE_ARRIVEE = ?, DATE_DEPART = ? WHERE MATRICULE = ?', [newArrival, newDepart, a.MATRICULE]);
+                }
+            }
+
+            await db.run('COMMIT');
+        } catch (err) {
+            await db.run('ROLLBACK');
+            throw err;
+        }
+
+        // 6. Matching AD pour les actifs non liés
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        let matchedCount = 0;
+        
+        if (adSettings && adSettings.is_enabled) {
+            console.log("[SYNC RH] Recherche de correspondances AD en cours...");
+            const agentsADaLier = await db.all("SELECT MATRICULE, NOM, PRENOM FROM rh.referentiel_agents WHERE ad_username IS NULL AND DATE_DEPART IS NULL AND date_plusvu IS NULL");
+            
+            for (const rhA of agentsADaLier) {
+                const matricule = String(rhA.MATRICULE || '').trim();
+                const nom = rhA.NOM;
+                const prenom = rhA.PRENOM;
+
+                if (!matricule || !nom || !prenom) continue;
+
+                try {
+                    const adMatch = await searchADUserByName(nom, prenom, adSettings);
+                    if (adMatch) {
+                        await db.run('UPDATE rh.referentiel_agents SET ad_username = ? WHERE MATRICULE = ?', [adMatch.sAMAccountName, matricule]);
+                        matchedCount++;
+                    }
+                } catch (adErr) {
+                    console.error(`[SYNC RH] Erreur matching AD pour ${nom} ${prenom}:`, adErr.message);
                 }
             }
         }
 
-        // 4. Identifier ceux qui ne sont plus dans l'import (Partis)
-        const dbAgents = await db.all("SELECT matricule FROM referentiel_agents WHERE date_plusvu IS NULL");
-        for (const dbA of dbAgents) {
-            const m = String(dbA.matricule || '').trim();
-            if (!currentMatricules.has(m)) {
-                console.log(`[SYNC RH] Agent parti: ${m}`);
-                await db.run("UPDATE referentiel_agents SET date_plusvu = ?, last_sync_date = ? WHERE matricule = ?", [now, now, m]);
-                leftCount++;
-            }
-        }
+        const totalCopied = extractData.length;
+        const missing = (await db.get("SELECT count(*) as c FROM rh.referentiel_agents WHERE date_plusvu IS NOT NULL")).c;
 
-        console.log(`[SYNC RH] Synchronisation terminée: +${newCount}, AD=${matchedCount}, -${leftCount}`);
+        console.log(`[SYNC RH] Fin. Copiés: ${totalCopied}, AD liés: ${matchedCount}, Disparus: ${missing}`);
         res.json({ 
-            message: 'Synchronisation terminée', 
-            stats: { new: newCount, matched: matchedCount, left: leftCount }
+            message: 'Synchronisation complète terminée', 
+            stats: { new: totalCopied, matched: matchedCount, left: missing }
         });
     } catch (err) {
         console.error('[SYNC RH] Erreur fatale:', err);
@@ -862,6 +962,158 @@ async function searchADUserByName(nom, prenom, config) {
         });
     });
 }
+
+// --- Système de Correspondance AD Automatisée ---
+
+let adSyncProgress = { current: 0, total: 0, status: 'idle' };
+
+function getLevenshteinDistance(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
+            else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+function calculateMatchScore(rhNom, rhPrenom, adDisplay) {
+    const s1 = `${rhNom} ${rhPrenom}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const s2 = adDisplay.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const dist = getLevenshteinDistance(s1, s2);
+    const maxLen = Math.max(s1.length, s2.length);
+    return maxLen === 0 ? 100 : Math.round((1 - dist / maxLen) * 100);
+}
+
+app.get('/api/admin/rh/sync-ad/progress', authenticateAdmin, (req, res) => {
+    res.json(adSyncProgress);
+});
+
+app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
+    if (adSyncProgress.status === 'running') return res.status(400).json({ message: "Synchro déjà en cours" });
+    
+    adSyncProgress = { current: 0, total: 0, status: 'running' };
+    res.json({ message: "Synchronisation AD lancée" });
+
+    (async () => {
+        try {
+            const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+            if (!adSettings || !adSettings.is_enabled) {
+                adSyncProgress.status = 'error';
+                return;
+            }
+
+            // 1. Charger tous les utilisateurs AD
+            const allADUsers = await new Promise((resolve, reject) => {
+                const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
+                client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                    if (err) { client.destroy(); return reject(err); }
+                    const users = [];
+                    client.search(adSettings.base_dn, { 
+                        filter: '(objectClass=user)', 
+                        scope: 'sub', 
+                        attributes: ['sAMAccountName', 'displayName', 'cn', 'mail']
+                    }, (err, searchRes) => {
+                        if (err) { client.destroy(); return reject(err); }
+                        searchRes.on('searchEntry', (entry) => { users.push(flattenLDAPEntry(entry)); });
+                        searchRes.on('end', () => { client.destroy(); resolve(users); });
+                        searchRes.on('error', (err) => { client.destroy(); reject(err); });
+                    });
+                });
+            });
+
+            // 2. Créer table de propositions si besoin
+            await db.run('CREATE TABLE IF NOT EXISTS rh.ad_proposals (id INTEGER PRIMARY KEY, matricule TEXT, ad_username TEXT, score INTEGER, date_creation DATETIME DEFAULT CURRENT_TIMESTAMP)');
+            await db.run('DELETE FROM rh.ad_proposals');
+
+            // 3. Charger les agents actifs sans AD
+            const today = new Date().toISOString().substring(0, 10);
+            const agents = await db.all(`
+                SELECT MATRICULE, NOM, PRENOM, ad_username FROM rh.referentiel_agents 
+                WHERE date_plusvu IS NULL 
+                AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
+            `, [today]);
+
+            adSyncProgress.total = agents.length;
+            const adUserMap = new Set(allADUsers.map(u => u.sAMAccountName?.toLowerCase()));
+
+            for (let i = 0; i < agents.length; i++) {
+                const agent = agents[i];
+                adSyncProgress.current = i + 1;
+
+                // Si déjà lié, vérifier si le compte existe encore
+                if (agent.ad_username) {
+                    if (!adUserMap.has(agent.ad_username.toLowerCase())) {
+                        await db.run('UPDATE rh.referentiel_agents SET date_fin_association_ad = CURRENT_TIMESTAMP WHERE MATRICULE = ?', [agent.MATRICULE]);
+                    }
+                    continue;
+                }
+
+                // Recherche de correspondance
+                let bestMatch = null;
+                let bestScore = 0;
+
+                for (const adU of allADUsers) {
+                    if (!adU.displayName) continue;
+                    const score = calculateMatchScore(agent.NOM, agent.PRENOM, adU.displayName);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMatch = adU;
+                    }
+                }
+
+                if (bestScore >= 95) {
+                    // Association auto si confiance très élevée
+                    await db.run('UPDATE rh.referentiel_agents SET ad_username = ?, date_fin_association_ad = NULL WHERE MATRICULE = ?', [bestMatch.sAMAccountName, agent.MATRICULE]);
+                } else if (bestScore >= 70) {
+                    // Proposition si confiance moyenne
+                    await db.run('INSERT INTO rh.ad_proposals (matricule, ad_username, score) VALUES (?, ?, ?)', [agent.MATRICULE, bestMatch.sAMAccountName, bestScore]);
+                }
+            }
+
+            adSyncProgress.status = 'done';
+        } catch (err) {
+            console.error("Erreur Synchro AD:", err);
+            adSyncProgress.status = 'error';
+        }
+    })();
+});
+
+app.get('/api/admin/rh/ad-proposals', authenticateAdmin, async (req, res) => {
+    try {
+        await db.run('CREATE TABLE IF NOT EXISTS rh.ad_proposals (id INTEGER PRIMARY KEY AUTOINCREMENT, matricule TEXT, ad_username TEXT, score INTEGER, status TEXT DEFAULT "pending", date_creation DATETIME DEFAULT CURRENT_TIMESTAMP)');
+        const proposals = await db.all(`
+            SELECT p.*, a.NOM, a.PRENOM 
+            FROM rh.ad_proposals p 
+            JOIN rh.referentiel_agents a ON p.matricule = a.MATRICULE
+        `);
+        res.json(proposals);
+    } catch (err) {
+        console.error("Erreur lecture propositions:", err);
+        res.status(500).json({ message: 'Erreur lecture propositions', error: err.message });
+    }
+});
+
+app.post('/api/admin/rh/ad-proposals/action', authenticateAdmin, async (req, res) => {
+    const { id, action } = req.body;
+    try {
+        const prop = await db.get('SELECT * FROM rh.ad_proposals WHERE id = ?', [id]);
+        if (!prop) return res.status(404).json({ message: 'Proposition introuvable' });
+
+        if (action === 'accept') {
+            await db.run('UPDATE rh.referentiel_agents SET ad_username = ?, date_fin_association_ad = NULL WHERE MATRICULE = ?', [prop.ad_username, prop.matricule]);
+        }
+        await db.run('DELETE FROM rh.ad_proposals WHERE id = ?', [id]);
+        res.json({ message: 'Action effectuée' });
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur action', error: err.message });
+    }
+});
 
 // Lister les comptes AD qui n'ont pas d'association RH
 app.get('/api/admin/rh/unlinked-ad', authenticateAdmin, async (req, res) => {
@@ -891,8 +1143,8 @@ app.get('/api/admin/rh/unlinked-ad', authenticateAdmin, async (req, res) => {
         });
 
         // 2. Récupérer les usernames déjà associés
-        const associated = await db.all('SELECT ad_username FROM referentiel_agents WHERE ad_username IS NOT NULL');
-        const associatedSet = new Set(associated.map(a => a.ad_username.toLowerCase()));
+        const associated = await db.all('SELECT ad_username FROM rh.referentiel_agents WHERE ad_username IS NOT NULL');
+        const associatedSet = new Set(associated.map(a => a.ad_username ? a.ad_username.toLowerCase() : ''));
 
         // 3. Filtrer
         const unlinked = allADUsers.filter(u => u.sAMAccountName && !associatedSet.has(u.sAMAccountName.toLowerCase()));
@@ -908,8 +1160,14 @@ app.post('/api/admin/rh/associate', authenticateAdmin, async (req, res) => {
     const { matricule, ad_username } = req.body;
     if (!matricule) return res.status(400).json({ message: 'Matricule manquant' });
     try {
-        await db.run('UPDATE referentiel_agents SET ad_username = ? WHERE matricule = ?', [ad_username, matricule]);
-        res.json({ message: 'Association réussie' });
+        if (!ad_username) {
+            // Désassocier
+            await db.run('UPDATE rh.referentiel_agents SET ad_username = NULL, date_fin_association_ad = NULL WHERE MATRICULE = ?', [matricule]);
+        } else {
+            // Associer
+            await db.run('UPDATE rh.referentiel_agents SET ad_username = ?, date_fin_association_ad = NULL WHERE MATRICULE = ?', [ad_username, matricule]);
+        }
+        res.json({ message: 'Association mise à jour' });
     } catch (err) {
         res.status(500).json({ message: 'Erreur association', error: err.message });
     }
@@ -1176,7 +1434,7 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
 
         for (const config of tablesToSync) {
             const tableName = config.table_name;
-            const mainPrefix = tableName.toUpperCase() + "_";
+            const mainPrefix = type.toUpperCase() === 'RH' ? '' : tableName.toUpperCase() + "_";
             
             try {
                 // Use stored config if available, otherwise fallback to request body
@@ -1211,13 +1469,27 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                             });
                         } else {
                             // Fallback
-                            const localColName = `${mainPrefix}${col}`;
+                            let localColName = `${mainPrefix}${col}`;
+                            if (type.toUpperCase() === 'RH') {
+                                if (localColName.toUpperCase().startsWith('V_EXTRACT_DSI_')) {
+                                    localColName = localColName.substring(14);
+                                } else if (localColName.toUpperCase().startsWith(tableName.toUpperCase() + '_')) {
+                                    localColName = localColName.substring(tableName.length + 1);
+                                }
+                            }
                             selectParts.push(`T1."${col}" AS "${localColName}"`);
                             colSourceMap[localColName] = col;
                         }
                         joinParts.push(`LEFT JOIN ${secondaryTable} ${alias} ON T1."${col}" = ${alias}."${joinField}"`);
                     } else {
-                        const localColName = `${mainPrefix}${col}`;
+                        let localColName = `${mainPrefix}${col}`;
+                        if (type.toUpperCase() === 'RH') {
+                            if (localColName.toUpperCase().startsWith('V_EXTRACT_DSI_')) {
+                                localColName = localColName.substring(14);
+                            } else if (localColName.toUpperCase().startsWith(tableName.toUpperCase() + '_')) {
+                                localColName = localColName.substring(tableName.length + 1);
+                            }
+                        }
                         selectParts.push(`T1."${col}" AS "${localColName}"`);
                         colSourceMap[localColName] = col;
                     }
@@ -1241,7 +1513,7 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                 }
 
                 const result = await connection.execute(query, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-                const localTableName = `oracle_${tableName.toLowerCase()}`;
+                const localTableName = type.toUpperCase() === 'RH' ? tableName : `oracle_${tableName.toLowerCase()}`;
                 const finalColumns = result.metaData.map(m => m.name);
 
                 // Identify EXTRACT columns and determine max sub-components
@@ -1297,7 +1569,8 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                             for (const col of finalColumns) {
                                 let val = rowObj[col];
                                 const originalFieldName = colSourceMap[col];
-                                if (originalFieldName && tableDateFields.includes(originalFieldName)) {
+                                // Auto-detect date fields by name or config
+                                if (originalFieldName && (tableDateFields.includes(originalFieldName) || originalFieldName.toUpperCase().includes('DATE'))) {
                                     val = parseOracleDate(val);
                                 }
                                 fullValues.push(val !== null ? String(val) : null);
@@ -3078,6 +3351,30 @@ app.get('/api/admin/sql/tables', authenticateAdmin, async (req, res) => {
         res.json(tables);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lecture tables', error: error.message });
+    }
+});
+app.get('/api/admin/sql/table-info/:tableName', authenticateAdmin, async (req, res) => {
+    const { tableName } = req.params;
+    const dbName = typeof req.query.db === 'string' && req.query.db ? req.query.db.replace(/[^a-zA-Z0-9_]/g, '') : 'main';
+    
+    try {
+        const columns = await db.all(`PRAGMA "${dbName}".table_info("${tableName}")`);
+        const pks = columns.filter(c => c.pk > 0).map(c => c.name);
+        
+        const indices = await db.all(`PRAGMA "${dbName}".index_list("${tableName}")`);
+        const indexNames = indices.map(idx => idx.name);
+        
+        let rowCount = 0;
+        try {
+            const countRes = await db.get(`SELECT COUNT(*) as c FROM "${dbName}"."${tableName}"`);
+            rowCount = countRes ? countRes.c : 0;
+        } catch (e) {
+            // Vue ou autre table inaccessible
+        }
+
+        res.json({ pk: pks, indices: indexNames, count: rowCount });
+    } catch (error) {
+        res.status(500).json({ message: `Erreur info table ${tableName}`, error: error.message });
     }
 });
 

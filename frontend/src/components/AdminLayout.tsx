@@ -43,7 +43,7 @@ const AdminLayout: React.FC = () => {
     { title: "Liaison AD", icon: Monitor, path: "/admin/ad" },
     { title: "Liaison GLPI", icon: Database, path: "/admin/glpi" },
     { title: "Liaison Oracle", icon: Database, path: "/admin/oracle" },
-    { title: "Studio RH", icon: Users, path: "/admin/rh" },
+    { title: "Studio RH", icon: Users, path: "/rh" },
     { title: "Magasin d'Apps", icon: Smartphone, path: "/admin/magapp" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
     { title: "Logs Système", icon: Activity, path: "http://localhost:3001/mouchard", external: true },

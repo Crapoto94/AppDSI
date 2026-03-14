@@ -230,6 +230,15 @@ async function setupDb() {
         VALUES 
         ('budget_principal', '00001000000000001901000', 'Code du budget principal'),
         ('url_sedit_fi', 'https://seditgfprod.ivry.local/SeditGfSMProd', 'URL de base Sedit Finances');
+
+        CREATE TABLE IF NOT EXISTS rh.ad_proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            matricule TEXT,
+            ad_username TEXT,
+            score INTEGER,
+            status TEXT DEFAULT 'pending',
+            date_creation DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     `);
 
     // Note: Tables moved to external DBs (glpi, gf, rh) are not created here anymore.
