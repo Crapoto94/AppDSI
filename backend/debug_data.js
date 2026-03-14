@@ -1,21 +1,36 @@
-const sqlite3 = require('sqlite3');
-const { open } = require('sqlite');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+const dbPath = path.join(__dirname, 'database.sqlite');
+const gfDbPath = path.join(__dirname, 'oracle_gf.sqlite');
+const db = new sqlite3.Database(dbPath);
 
-async function debugDb() {
-    const db = await open({
-        filename: './database.sqlite',
-        driver: sqlite3.Database
+db.serialize(() => {
+    db.run(`ATTACH DATABASE '${gfDbPath}' AS gf`);
+    
+    console.log("--- V_ORDERS CHECK ---");
+    db.all("SELECT DISTINCT substr(COMMANDE_CMD_DATECOMMANDE, 1, 4) as y FROM gf.oracle_commande", (err, rows) => {
+        console.log("Years in oracle_commande:", rows);
     });
 
-    console.log('--- BUDGET LINES ---');
-    const lines = await db.all('SELECT * FROM budget_lines LIMIT 5');
-    console.log(JSON.stringify(lines, null, 2));
+    db.all("SELECT id, date, COMMANDE_ROO_IMA_REF FROM v_orders LIMIT 5", (err, rows) => {
+        // This will only work if we recreate the view here
+        db.run(`
+            CREATE TEMP VIEW IF NOT EXISTS v_orders_debug AS
+            SELECT oc.*, 
+            oc.COMMANDE_COMMANDE as id,
+            oc.COMMANDE_CMD_DATECOMMANDE as date,
+            TRIM(oc.COMMANDE_ROO_IMA_REF) as COMMANDE_ROO_IMA_REF
+            FROM gf.oracle_commande oc
+        `, () => {
+            db.all("SELECT DISTINCT substr(date, 1, 4) as year FROM v_orders_debug", (err, rows) => {
+                console.log("Years in v_orders_debug:", rows);
+            });
+        });
+    });
 
-    console.log('--- INVOICES ---');
-    const invoices = await db.all('SELECT * FROM invoices LIMIT 5');
-    console.log(JSON.stringify(invoices, null, 2));
-
-    await db.close();
-}
-
-debugDb().catch(console.error);
+    console.log("--- INVOICES CHECK ---");
+    db.all("SELECT DISTINCT Budget, Exercice FROM invoices", (err, rows) => {
+        console.log("Distinct Budget/Exercice in invoices:", rows);
+        db.close();
+    });
+});

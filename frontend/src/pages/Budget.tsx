@@ -1,8 +1,13 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
-import { Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, Euro, FileText, ShoppingCart, Database, AlertCircle, CheckCircle2, Plus, Trash2, Send } from 'lucide-react';
+import { 
+  Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, 
+  Euro, FileText, ShoppingCart, AlertCircle, 
+  Plus, Trash2, Send, ExternalLink
+} from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import BudgetManagementTab from '../components/BudgetManagementTab';
+import { useAuth } from '../contexts/AuthContext';
 
 interface ColumnSetting {
   id: number;
@@ -16,9 +21,8 @@ interface ColumnSetting {
 }
 
 const Budget: React.FC = () => {
-  const token = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('token') ? (localStorage.getItem('user') || '{}') : '{}');
-  const currentUser = user;
+  const { token, user } = useAuth();
+  const currentUser = user || { role: 'user', username: '', service_code: undefined, service_complement: undefined, id: 0 };
 
   const SockIcon = ({ size = 24, color = 'currentColor' }) => (
     <svg 
@@ -53,6 +57,8 @@ const Budget: React.FC = () => {
   const [m57Plan, setM57Plan] = useState<any[]>([]);
   const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
   const [importLogs, setImportLogs] = useState<any[]>([]);
+  const [urlSedit, setUrlSedit] = useState<string>('https://seditgfprod.ivry.local/SeditGfSMProd');
+  const [budgetPrincipal, setBudgetPrincipal] = useState<string>('Ville');
   
   const [sqlQuery, setSqlQuery] = useState('');
   const [queryResult, setQueryResult] = useState<any[] | null>(null);
@@ -88,13 +94,14 @@ const Budget: React.FC = () => {
     const filters: Record<string, string> = {};
     if (!['admin', 'finances'].includes(currentUser.role)) {
       if (view === 'orders' || view === 'operations') {
-        if (currentUser.service_code) {
+        const u = currentUser as any;
+        if (u.service_code) {
           const serviceKey = view === 'orders' ? 'Service émetteur' : 'Service';
-          filters[serviceKey] = currentUser.service_code;
+          filters[serviceKey] = u.service_code;
         }
-        if (currentUser.service_complement) {
+        if (u.service_complement) {
           const complementKey = view === 'orders' ? 'Service complément' : 'Service Complément';
-          filters[complementKey] = currentUser.service_complement;
+          filters[complementKey] = u.service_complement;
         }
       }
     }
@@ -107,6 +114,8 @@ const Budget: React.FC = () => {
   const [currentAttachments, setCurrentAttachments] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   
+  const [availableFiscalYears, setAvailableFiscalYears] = useState<number[]>([]);
+
   // New state for import modal
   const [showImportModal, setShowImportModal] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
@@ -129,7 +138,26 @@ const Budget: React.FC = () => {
         console.error('Error fetching budgets:', e);
       }
     };
+
+    const fetchFiscalYears = async () => {
+      try {
+        const res = await fetch('/api/orders/years', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setAvailableFiscalYears(data);
+          if (data.length > 0 && !data.includes(currentFiscalYear)) {
+            setCurrentFiscalYear(data[0]);
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching fiscal years:', e);
+      }
+    };
+
     fetchBudgets();
+    fetchFiscalYears();
   }, [token]);
   
   // Gestion state
@@ -361,11 +389,13 @@ const Budget: React.FC = () => {
       const amt = parseFloat(inv['Montant TTC'] || 0);
       stats.totalTtc += amt;
 
-      const etat = inv['Etat'] || '';
-      if (etat === 'Suspendue') {
+      const etat = (inv['Etat'] || '').toUpperCase();
+      // Factures à traiter : tout ce qui n'est pas "MANDATEE" et qui est dans un état de saisie/attente
+      // On considère que par défaut si ce n'est pas mandaté, c'est à traiter
+      if (etat.includes('SUSPENDUE')) {
         stats.suspended++;
-      } else if (etat === 'Saisie') {
-        const arrivalDate = parseExcelDate(inv['Arrivée        '] || inv['Arrivée']);
+      } else if (!etat.includes('MANDATEE') && etat !== '') {
+        const arrivalDate = parseExcelDate(inv['Arrivée']);
         if (arrivalDate) {
           const diffDays = Math.floor((now.getTime() - arrivalDate.getTime()) / (1000 * 60 * 60 * 24));
           const invInfo = `${inv['Fournisseur'] || 'Inconnu'} (${amt.toLocaleString()}€) - ${inv['Libellé'] || ''}`;
@@ -445,7 +475,7 @@ const Budget: React.FC = () => {
   const [editingCell, setEditingCell] = useState<{ id: number, key: string } | null>(null);
   const [cellValue, setCellValue] = useState<any>('');
 
-  const isAuthorizedToEdit = ['admin', 'finances', 'compta'].includes(user.role);
+  const isAuthorizedToEdit = ['admin', 'finances', 'compta'].includes(currentUser.role);
 
   const handleCellUpdate = async (row: any, key: string, newValue: any) => {
     if (row[key] === newValue) {
@@ -521,13 +551,14 @@ const Budget: React.FC = () => {
       budgetScope: budgetScope
     }).toString();
 
-    const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, logsRes] = await Promise.all([
+    const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, logsRes, settingsRes] = await Promise.all([
       fetch(`/api/budget/lines?${queryParams}`, { headers }),
       fetch(`/api/budget/invoices?${queryParams}`, { headers }),
       fetch(`/api/orders?${queryParams}`, { headers }),
       fetch(`/api/budget/operations?${queryParams}`, { headers }),
       fetch('/api/m57-plan', { headers }), // M57 plan is not year/scope specific
-      fetch('/api/import-logs', { headers }) // Import logs are not year/scope specific
+      fetch('/api/import-logs', { headers }), // Import logs are not year/scope specific
+      fetch('/api/settings/public', { headers }) // Settings
     ]);
     
     if (linesRes.ok) setBudgetLines(await linesRes.json());
@@ -536,6 +567,14 @@ const Budget: React.FC = () => {
     if (operationsRes.ok) setOperations(await operationsRes.json());
     if (m57Res.ok) setM57Plan(await m57Res.json());
     if (logsRes.ok) setImportLogs(await logsRes.json());
+    if (settingsRes.ok) {
+      const settings = await settingsRes.json();
+      const seditSetting = settings.find((s: any) => s.setting_key === 'url_sedit_fi');
+      if (seditSetting) setUrlSedit(seditSetting.setting_value);
+
+      const budgetSetting = settings.find((s: any) => s.setting_key === 'budget_principal');
+      if (budgetSetting) setBudgetPrincipal(budgetSetting.setting_value);
+    }
   };
 
   const getLastImport = (type: string) => {
@@ -587,9 +626,9 @@ const Budget: React.FC = () => {
     
     // Default pre-selection
     setSelectedYear(currentFiscalYear);
-    const villeBudget = availableBudgets.find(b => b.Libelle === 'Ville' && b.Annee === currentFiscalYear);
-    if (villeBudget) {
-      setSelectedBudgetId(villeBudget.id);
+    const principalBudget = availableBudgets.find(b => b.Libelle === budgetPrincipal && b.Annee === currentFiscalYear);
+    if (principalBudget) {
+      setSelectedBudgetId(principalBudget.id);
     } else {
       setSelectedBudgetId('');
     }
@@ -902,9 +941,8 @@ const Budget: React.FC = () => {
       }
     }
 
-    if (view === 'invoices') {
-      data = data.filter((inv: any) => (inv['N° Facture fournisseur'] || inv['NÂ° Facture fournisseur'] || inv['NÂ° Facture fournisseur'] || inv['N?? Facture fournisseur'] || inv.invoice_number || '').toString().trim() !== '');
-    }
+    // Suppression du filtre restrictif sur le numéro de facture fournisseur
+    // car beaucoup de factures Oracle n'en ont pas et cela les masquait.
 
     if (view !== 'orders') {
       const sTerm = searchTerm.toLowerCase();
@@ -953,9 +991,13 @@ const Budget: React.FC = () => {
                 value={currentFiscalYear}
                 onChange={(e) => setCurrentFiscalYear(parseInt(e.target.value))}
               >
-                {Array.from({ length: 4 }, (_, i) => currentYear - 2 + i).map(year => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
+                {availableFiscalYears.length > 0 ? (
+                  availableFiscalYears.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))
+                ) : (
+                  <option value={currentYear}>{currentYear}</option>
+                )}
               </select>
             </div>
             <div className="budget-scope-toggle">
@@ -963,7 +1005,7 @@ const Budget: React.FC = () => {
                 className={`toggle-btn ${budgetScope === 'Ville' ? 'active' : ''}`}
                 onClick={() => setBudgetScope('Ville')}
               >
-                Budget Ville
+                Budget {budgetPrincipal || 'Ville'}
               </button>
               <button
                 className={`toggle-btn ${budgetScope === 'All' ? 'active' : ''}`}
@@ -976,44 +1018,46 @@ const Budget: React.FC = () => {
           <div className="view-tabs">
             {['summary', 'lines', 'invoices', 'orders', 'operations', 'gestion'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
-              if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(user.role)) return null;
+              if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(currentUser.role)) return null;
               return (
-              <button 
-                key={tab}
-                className={`tab-btn ${view === tab ? 'active' : ''}`} 
-                onClick={() => {
-                  setView(tab as any); 
-                  setIsRaw(false);
-                  setSortConfig(null);
-                  
-                  // Gérer le filtre de service auto si applicable (seulement sur Commandes et Opérations)
-                  if (user.service_code && !['admin', 'finances'].includes(user.role) && (tab === 'orders' || tab === 'operations')) {
-                    const filters: Record<string, string> = {};
-                    const serviceKey = tab === 'orders' ? 'Service émetteur' : 'Service';
-                    filters[serviceKey] = user.service_code;
+                <button 
+                  key={tab}
+                  className={`tab-btn ${view === tab ? 'active' : ''}`} 
+                  onClick={() => {
+                    setView(tab as any); 
+                    setIsRaw(false);
+                    setSortConfig(null);
                     
-                    if (user.service_complement) {
-                      const complementKey = tab === 'orders' ? 'Service complément' : 'Service Complément';
-                      filters[complementKey] = user.service_complement;
+                    // Gérer le filtre de service auto si applicable (seulement sur Commandes et Opérations)
+                    const u = currentUser as any;
+                    if (u.service_code && !['admin', 'finances'].includes(u.role) && (tab === 'orders' || tab === 'operations')) {
+                      const filters: Record<string, string> = {};
+                      const serviceKey = tab === 'orders' ? 'Service émetteur' : 'Service';
+                      filters[serviceKey] = u.service_code;
+                      
+                      if (u.service_complement) {
+                        const complementKey = tab === 'orders' ? 'Service complément' : 'Service Complément';
+                        filters[complementKey] = u.service_complement;
+                      }
+                      setColumnFilters(filters);
+                    } else {
+                      setColumnFilters({});
                     }
-                    setColumnFilters(filters);
-                  } else {
-                    setColumnFilters({});
-                  }
-                  
-                  if (tab !== 'summary') {
-                    setSearchTerm('');
-                  }
-                }}
-              >
-                {tab === 'summary' && 'Résumé'}
-                {tab === 'lines' && 'Lignes'}
-                {tab === 'invoices' && 'Factures'}
-                {tab === 'orders' && 'Commandes'}
-                {tab === 'operations' && 'Opérations'}
-                {tab === 'gestion' && 'Gestion'}
-              </button>
-            )})}
+                    
+                    if (tab !== 'summary') {
+                      setSearchTerm('');
+                    }
+                  }}
+                >
+                  {tab === 'summary' && 'Résumé'}
+                  {tab === 'lines' && 'Lignes'}
+                  {tab === 'invoices' && 'Factures'}
+                  {tab === 'orders' && 'Commandes'}
+                  {tab === 'operations' && 'Opérations'}
+                  {tab === 'gestion' && 'Gestion'}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -1299,16 +1343,13 @@ const Budget: React.FC = () => {
                         <tr>
                           {(() => {
                             let cols = columnSettings.filter(c => c.is_visible);
-                            if (view === 'operations' && !cols.some(c => c.column_key === 'Section' || c.column_key === 'section')) {
-                              const sectionCol = { id: -1, column_key: 'section', label: 'Section', is_visible: 1, display_order: 1, color: null, is_bold: 1, is_italic: 0 };
-                              cols = [cols[0], sectionCol, ...cols.slice(1)];
-                            }
+                                if (view === 'operations' && !cols.some(c => c.column_key === 'Section' || c.column_key === 'section')) {
+                                  const sectionCol = { id: -1, column_key: 'section', label: 'Section', is_visible: 1, display_order: 1, color: null, is_bold: 1, is_italic: 0 };
+                                  cols = [cols[0], sectionCol, ...cols.slice(1)];
+                                }
                             if (view === 'orders') {
-                              // Pour l'onglet commandes, on affiche toutes les colonnes Oracle découvertes
-                              // mais on s'assure d'inclure l'opération liée
-                              if (!cols.some(c => c.column_key === 'operation_label')) {
-                                cols.push({ id: -2, column_key: 'operation_label', label: 'Opération', is_visible: 1, display_order: 2, color: null, is_bold: 0, is_italic: 0 });
-                              }
+                              // operation_label is rendered as a dedicated hard-coded column
+                              cols = cols.filter(c => c.column_key !== 'operation_label');
                             }
                             return cols.map(col => (
                               <th 
@@ -1338,6 +1379,7 @@ const Budget: React.FC = () => {
                               </th>
                             ));
                           })()}
+                          {view === 'orders' && <th style={{ whiteSpace: 'nowrap', minWidth: '110px' }}>Opération</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -1383,6 +1425,21 @@ const Budget: React.FC = () => {
                                     const sectionCol = { id: -1, column_key: 'section', label: 'Section', is_visible: 1, display_order: 1, color: null, is_bold: 1, is_italic: 0 };
                                     cols = [cols[0], sectionCol, ...cols.slice(1)];
                                   }
+                                  if (view === 'orders') {
+                                    // operation_label is rendered as a dedicated hard-coded column
+                                    cols = cols.filter(c => c.column_key !== 'operation_label');
+                                  }
+                                  const isOrderSection = view === 'orders';
+                                  const isInvoiceSection = view === 'invoices';
+                                  
+                                  const idKeys = ['N° Commande', 'order_number', 'N°', 'num', 'id', 'COMMANDE_COMMANDE'];
+                                  const labelKeys = ['COMMANDE_LIBELLE', 'Libellé', 'description', 'label'];
+                                  
+                                  let specialBtnCol = cols.find(c => idKeys.includes(c.column_key.trim()))?.column_key;
+                                  if (!specialBtnCol) {
+                                    specialBtnCol = cols.find(c => labelKeys.includes(c.column_key.trim()))?.column_key;
+                                  }
+
                                   return cols.map(col => {
                                   let content: React.ReactNode = row[col.column_key];
                                   let tooltip = '';
@@ -1584,11 +1641,12 @@ const Budget: React.FC = () => {
                                       }
                                     }
                                     else if (
-                                      (view === 'orders' && ['N° Commande', 'order_number', 'N°', 'num'].includes(col.column_key.trim())) ||
-                                      (view === 'invoices' && col.column_key.trim() === 'N° Facture fournisseur')
+                                      (isOrderSection || isInvoiceSection) && 
+                                      col.column_key === specialBtnCol
                                     ) {
-                                      const isOrder = view === 'orders';
+                                      const isOrder = isOrderSection;
                                       const targetId = row[col.column_key]?.toString();
+                                      const seditId = row['COMMANDE_ROO_IMA_REF'];
                                       content = (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                           <button 
@@ -1602,6 +1660,20 @@ const Budget: React.FC = () => {
                                           >
                                             <FileText size={16} />
                                           </button>
+                                          {isOrder && seditId && (
+                                            <button 
+                                              className="icon-btn" 
+                                              style={{ padding: '2px', color: '#3b82f6' }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const url = `${urlSedit}/FicheCommande.html?commandeId=${seditId}`;
+                                                window.open(url, '_blank');
+                                              }}
+                                              title="Ouvrir dans Sedit"
+                                            >
+                                              <ExternalLink size={16} />
+                                            </button>
+                                          )}
                                           <span>{row[col.column_key]}</span>
                                         </div>
                                       );
@@ -1633,6 +1705,34 @@ const Budget: React.FC = () => {
                                   );
                                 });
                                 })()}
+
+                                {view === 'orders' && (
+                                  <td style={{ whiteSpace: 'nowrap' }}>
+                                    {row.operation_label ? (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontWeight: 600, color: 'var(--color-navy)', fontSize: '0.85rem' }}>{row.operation_label}</span>
+                                        {isAuthorizedToEdit && (
+                                          <button
+                                            className="icon-btn"
+                                            style={{ padding: '2px', color: 'var(--color-ivry)' }}
+                                            onClick={(e) => { e.stopPropagation(); setSelectedOrderForOp(row); handleAssignOperation(null); }}
+                                            title="Désaffecter l'opération"
+                                          >
+                                            <X size={14} />
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <button
+                                        className="toolbar-btn"
+                                        style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--color-navy)', color: 'white' }}
+                                        onClick={(e) => { e.stopPropagation(); setSelectedOrderForOp(row); setShowOpSelector(true); }}
+                                      >
+                                        <Plus size={12} /> Affecter
+                                      </button>
+                                    )}
+                                  </td>
+                                )}
 
                                 {view === 'operations' && isAuthorizedToEdit && (
                                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -1794,14 +1894,14 @@ const Budget: React.FC = () => {
                     <div 
                       key={col.id} 
                       className="toggle-item"
-                      draggable={['admin', 'finances'].includes(user.role)}
+                      draggable={['admin', 'finances'].includes(currentUser.role)}
                       onDragStart={(e) => handleDragStart(e, index)}
                       onDragOver={handleDragOver}
                       onDrop={(e) => handleDrop(e, index)}
-                      style={{ cursor: ['admin', 'finances'].includes(user.role) ? 'grab' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                      style={{ cursor: ['admin', 'finances'].includes(currentUser.role) ? 'grab' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                     >
                       <div className="toggle-info" style={{ display: 'flex', alignItems: 'center', flex: 1, gap: '10px' }}>
-                        {['admin', 'finances'].includes(user.role) && <span className="drag-handle" style={{ color: '#94a3b8', cursor: 'grab' }}>â˜°</span>}
+                        {['admin', 'finances'].includes(currentUser.role) && <span className="drag-handle" style={{ color: '#94a3b8', cursor: 'grab' }}>â˜°</span>}
                         <input 
                           type="text"
                           className="col-label-input"
@@ -1811,7 +1911,7 @@ const Budget: React.FC = () => {
                             setColumnSettings(updated);
                           }}
                           onBlur={() => updateColumnSettingsBulk(columnSettings)}
-                          disabled={!['admin', 'finances'].includes(user.role)}
+                          disabled={!['admin', 'finances'].includes(currentUser.role)}
                           style={{ 
                             flex: 1, 
                             padding: '4px 8px', 
@@ -1824,7 +1924,7 @@ const Budget: React.FC = () => {
                       </div>
                       
                       <div className="toggle-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        {user.role === 'admin' && (
+                        {currentUser.role === 'admin' && (
                           <>
                             <input 
                               type="color" 
@@ -1860,7 +1960,7 @@ const Budget: React.FC = () => {
                         <button 
                           className={`toggle-btn ${col.is_visible ? 'on' : 'off'}`}
                           onClick={() => toggleColumnVisibility(col.column_key, col.is_visible)}
-                          disabled={!['admin', 'finances'].includes(user.role)}
+                          disabled={!['admin', 'finances'].includes(currentUser.role)}
                           style={{ minWidth: '90px', justifyContent: 'center' }}
                         >
                           {col.is_visible ? <Eye size={16} /> : <EyeOff size={16} />}
@@ -1988,7 +2088,7 @@ const Budget: React.FC = () => {
                           <div>le {new Date(att.uploaded_at).toLocaleString()}</div>
                         </div>
                         
-                        {activeAttachmentTarget.type === 'order' && (
+                        {activeAttachmentTarget?.type === 'order' && (
                           <button 
                             onClick={() => handleSendOrder(att.id)}
                             className="toolbar-btn"
@@ -2076,7 +2176,20 @@ const Budget: React.FC = () => {
                       onChange={(e) => setSelectedYear(parseInt(e.target.value))}
                     />
                   </div>
-
+                  <div className="toggle-group" style={{ display: 'inline-flex', background: 'var(--color-slate-100)', padding: '0.25rem', borderRadius: '0.75rem' }}>
+                <button 
+                  className={`toggle-btn ${budgetScope === 'Ville' ? 'active' : ''}`}
+                  onClick={() => setBudgetScope('Ville')}
+                >
+                  Budget {budgetPrincipal}
+                </button>
+                <button 
+                  className={`toggle-btn ${budgetScope === 'All' ? 'active' : ''}`}
+                  onClick={() => setBudgetScope('All')}
+                >
+                  Tous budgets
+                </button>
+              </div>
                   <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
                     <button 
                       className="toolbar-btn" 

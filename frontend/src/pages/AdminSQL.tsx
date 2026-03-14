@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { 
   Play, RefreshCw, Terminal, AlertCircle, CheckCircle2,
   Trash2, Maximize2, Minimize2,
-  Download
+  Download, Database
 } from 'lucide-react';
 
 interface ColumnInfo {
@@ -32,22 +32,32 @@ const AdminSQL: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
   const [tables, setTables] = useState<{name: string, type: string}[]>([]);
+  const [databases, setDatabases] = useState<{seq: number, name: string, file: string}[]>([]);
+  const [selectedDb, setSelectedDb] = useState<string>('main');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   
   const resultsRef = useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
-    fetchTables();
-  }, []);
+    fetchTables(selectedDb);
+  }, [selectedDb]);
 
-  const fetchTables = async () => {
+  const fetchTables = async (dbName: string = 'main') => {
     try {
-      const res = await axios.get('/api/admin/sql/tables', {
+      setLoading(true);
+      const dbRes = await axios.get('/api/admin/sql/databases', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setDatabases(dbRes.data);
+
+      const res = await axios.get(`/api/admin/sql/tables?db=${dbName}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setTables(res.data);
     } catch (err) {
-      console.error('Erreur lecture tables:', err);
+      console.error('Erreur lecture données:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -79,7 +89,7 @@ const AdminSQL: React.FC = () => {
 
   const handleTableClick = (tableName: string) => {
     setSelectedTable(tableName);
-    const q = `SELECT * FROM "${tableName}" LIMIT 25`;
+    const q = `SELECT * FROM "${selectedDb}"."${tableName}" LIMIT 25`;
     runQuery(q);
   };
 
@@ -148,10 +158,24 @@ const AdminSQL: React.FC = () => {
       <div className="sql-layout">
         <aside className="sql-sidebar">
           <div className="sidebar-header">
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} onClick={fetchTables} />
-            <span>Tables & Vues</span>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} onClick={() => fetchTables(selectedDb)} />
+            <span>Explorateur SQL</span>
           </div>
           <div className="sidebar-content">
+            <div className="section-title">Bases de données</div>
+            {databases.map(d => (
+              <div 
+                key={d.name} 
+                className={`table-item db-item ${selectedDb === d.name ? 'active' : ''}`}
+                title={d.file}
+                onClick={() => { setSelectedDb(d.name); setSelectedTable(null); setQuery(''); setQueryResult(null); }}
+              >
+                <Database size={12} className="text-gray" />
+                <span className="table-name">{d.name} <span className="text-muted" style={{fontSize: '0.7rem', opacity: 0.7}}>({d.file ? 'Attachée' : 'Mémoire'})</span></span>
+              </div>
+            ))}
+            
+            <div className="section-title mt-4">Tables & Vues ({selectedDb})</div>
             {tables.map(t => (
               <div 
                 key={t.name} 
@@ -301,9 +325,15 @@ const AdminSQL: React.FC = () => {
         }
         .table-item:hover { background-color: #eff6ff; color: #1d4ed8; }
         .table-item.active { background-color: #dbeafe; color: #1d4ed8; font-weight: 700; }
+        .table-item.db-item { background-color: #f1f5f9; cursor: pointer; }
+        .table-item.db-item:hover { background-color: #e2e8f0; color: #1e293b; }
+        .table-item.db-item.active { background-color: #cbd5e1; color: #0f172a; border-left: 3px solid #3b82f6; }
         .table-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .section-title { font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 8px; padding-left: 4px; }
+        .mt-4 { margin-top: 16px; }
         .text-purple { color: #8b5cf6; }
         .text-blue { color: #3b82f6; }
+        .text-gray { color: #64748b; }
         
         .sql-main {
           flex: 1;

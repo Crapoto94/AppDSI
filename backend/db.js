@@ -9,7 +9,16 @@ async function setupDb() {
         driver: sqlite3.Database
     });
 
-    // Tables de base
+    // Attach external databases
+    const glpiDbPath = path.join(__dirname, 'glpi.sqlite');
+    const gfDbPath = path.join(__dirname, 'oracle_gf.sqlite');
+    const rhDbPath = path.join(__dirname, 'oracle_rh.sqlite');
+
+    await db.exec(`ATTACH DATABASE '${glpiDbPath}' AS glpi`);
+    await db.exec(`ATTACH DATABASE '${gfDbPath}' AS gf`);
+    await db.exec(`ATTACH DATABASE '${rhDbPath}' AS rh`);
+
+    // Tables de base (kept in main DB)
     await db.exec(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,15 +81,6 @@ async function setupDb() {
             year INTEGER, allocated_amount REAL
         );
 
-        CREATE TABLE IF NOT EXISTS oracle_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            target_table TEXT, 
-            target_id TEXT,    
-            operation_id INTEGER,
-            budgetId INTEGER,
-            UNIQUE(target_table, target_id)
-        );
-
         CREATE TABLE IF NOT EXISTS oracle_settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT UNIQUE,
@@ -117,32 +117,6 @@ async function setupDb() {
             used_amount REAL DEFAULT 0,
             Section TEXT,
             FOREIGN KEY (budget_id) REFERENCES budgets (id)
-        );
-
-        CREATE TABLE IF NOT EXISTS tickets (
-            glpi_id INTEGER PRIMARY KEY,
-            title TEXT,
-            status INTEGER,
-            priority INTEGER,
-            urgency INTEGER,
-            impact INTEGER,
-            category TEXT,
-            type INTEGER,
-            date_creation DATETIME,
-            date_mod DATETIME,
-            date_closed DATETIME,
-            date_solved DATETIME,
-            location TEXT,
-            solution TEXT,
-            source TEXT,
-            entity TEXT,
-            requester_name TEXT,
-            requester_email TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS ticket_statuses (
-            id INTEGER PRIMARY KEY,
-            label TEXT
         );
 
         CREATE TABLE IF NOT EXISTS column_settings (
@@ -242,32 +216,52 @@ async function setupDb() {
             "Montant HT" REAL, "Montant TVA" REAL, "Montant TTC" REAL,
             "Date Paiement" DATE, "N° Mandat" TEXT, "N° Bordereau" TEXT,
             "Statut" TEXT, "Article par nature" TEXT, "Article par fonction" TEXT,
-            operation_id INTEGER, budgetId INTEGER,
+            operation_id INTEGER, budgetId INTEGER, COMMANDE_ROO_IMA_REF TEXT,
             FOREIGN KEY (operation_id) REFERENCES operations (id)
         );
+        CREATE TABLE IF NOT EXISTS app_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            setting_key TEXT UNIQUE,
+            setting_value TEXT,
+            description TEXT
+        );
+
+        INSERT OR IGNORE INTO app_settings (setting_key, setting_value, description)
+        VALUES 
+        ('budget_principal', '00001000000000001901000', 'Code du budget principal'),
+        ('url_sedit_fi', 'https://seditgfprod.ivry.local/SeditGfSMProd', 'URL de base Sedit Finances');
     `);
 
+    // Note: Tables moved to external DBs (glpi, gf, rh) are not created here anymore.
+    // They are accessed via their attached aliases (e.g. glpi.tickets, gf.oracle_commande).
+    // However, views that were migrated (v_tickets, v_orders) need to be recreated in the main DB
+    // so that code querying them directly doesn't break. These views will query the attached DBs.
+
     // --- VUES ---
-    await db.exec(`DROP VIEW IF EXISTS v_tickets`);
+    // Recreate v_tickets in the main DB as TEMP view, querying from glpi.tickets and glpi.ticket_statuses
+    try { await db.exec(`DROP VIEW IF EXISTS main.v_tickets`); } catch(e) {}
+    await db.exec(`DROP VIEW IF EXISTS temp.v_tickets`);
     await db.exec(`
-        CREATE VIEW v_tickets AS
+        CREATE TEMP VIEW v_tickets AS
         SELECT t.*, s.label as status_label,
         LOWER(COALESCE(t.requester_email, '')) as search_email,
         LOWER(COALESCE(REPLACE(t.requester_email, '@ivry94.fr', ''), '')) as search_username
-        FROM tickets t
-        LEFT JOIN ticket_statuses s ON t.status = s.id
+        FROM glpi.tickets t
+        LEFT JOIN glpi.ticket_statuses s ON t.status = s.id
     `);
 
+    // Recreate v_orders in the main DB as TEMP view, querying from gf.oracle_commande and gf.oracle_links
     try {
-        await db.exec(`DROP VIEW IF EXISTS v_orders`);
+        try { await db.exec(`DROP VIEW IF EXISTS main.v_orders`); } catch(e) {}
+        await db.exec(`DROP VIEW IF EXISTS temp.v_orders`);
         await db.exec(`
-            CREATE VIEW v_orders AS
+            CREATE TEMP VIEW v_orders AS
             SELECT oc.*, l.operation_id, l.budgetId,
             oc.COMMANDE_COMMANDE as id,
             oc.COMMANDE_COMMANDE as "N° Commande",
             TRIM(COALESCE(oc.COMMANDE_LIBELLE, '') || ' ' || COALESCE(oc.COMMANDE_CMD_LIBELLE2, '')) as "Libellé",
             oc.COMMANDE_CMD_DATECOMMANDE as "Date de la commande",
-            oc.BUDGET_LIBELLE as "Budget",
+            ob.BUDGET_LIBELLE as "Budget",
             oc.SERVICEFI_LIBELLE as "Service émetteur",
             oc.SERVICEFI_LIBELLE as "Fournisseur",
             oc.COMMANDE_MONTANT_HT as "Montant HT",
@@ -276,12 +270,58 @@ async function setupDb() {
             oc.COMMANDE_LIBELLE as description,
             oc.SERVICEFI_LIBELLE as provider,
             oc.COMMANDE_MONTANT_HT as amount_ht,
-            oc.COMMANDE_CMD_DATECOMMANDE as date
-            FROM oracle_commande oc
-            LEFT JOIN oracle_links l ON l.target_id = oc.COMMANDE_COMMANDE AND l.target_table = 'orders'
+            oc.COMMANDE_CMD_DATECOMMANDE as date,
+            TRIM(ob.BUDGET_ROO_IMA_REF) as BUDGET_ROO_IMA_REF
+            FROM gf.oracle_commande oc
+            -- Déduplication du join budget pour éviter de doubler les montants
+            LEFT JOIN (
+                SELECT BUDGET_BUDGET, MIN(BUDGET_ROO_IMA_REF) as BUDGET_ROO_IMA_REF, MIN(BUDGET_LIBELLE) as BUDGET_LIBELLE 
+                FROM gf.oracle_budget 
+                GROUP BY BUDGET_BUDGET
+            ) ob ON oc.BUDGET_BUDGET = ob.BUDGET_BUDGET
+            LEFT JOIN gf.oracle_links l ON l.target_id = oc.COMMANDE_COMMANDE AND l.target_table = 'orders'
         `);
     } catch (e) {
-        console.log("[DB] Note: v_orders non créée (oracle_commande absente).");
+        console.log("[DB] Note: v_orders non créée (gf.oracle_commande ou gf.oracle_links absente). Erreur: ", e.message);
+    }
+    
+    // Create v_invoices to query the raw oracle_facture table from gf
+    try {
+        try { await db.exec(`DROP VIEW IF EXISTS main.v_invoices`); } catch(e) {}
+        await db.exec(`DROP VIEW IF EXISTS temp.v_invoices`);
+        await db.exec(`
+            CREATE TEMP VIEW v_invoices AS
+            SELECT f.*, l.operation_id, l.budgetId,
+            f.FACTURE_FACTURE as id,
+            f.FACTURE_FACTURE as "N° Facture interne",
+            f.FACTURE_REFERENCE as "N° Facture fournisseur",
+            f.FACTURE_LIBELLE2 as "Fournisseur",
+            f.FACTURE_LIBELLE1 as "Libellé",
+            f.FACTURE_MONTANTTC_E as "Montant TTC",
+            'Non spécifié' as "Service",
+            ob.BUDGET_LIBELLE as "Budget",
+            f.FACETAT_LIBELLE as "Etat",
+            -- Utilisation directe de FACTURE_DATENTREE pour l'arrivée
+            f.FACTURE_DATENTREE as "Arrivée",
+            substr(f.FACTURE_DATENTREE, 1, 4) as "Exercice",
+            f.FACTURE_DATPAIPREV as FACTURE_DATPAIPREV_RAW,
+            CASE 
+                WHEN f.FACTURE_DATPAIPREV LIKE '____-__-__%' 
+                THEN substr(f.FACTURE_DATPAIPREV, 9, 2) || '/' || substr(f.FACTURE_DATPAIPREV, 6, 2) || '/' || substr(f.FACTURE_DATPAIPREV, 1, 4)
+                ELSE f.FACTURE_DATPAIPREV 
+            END as "Échéance",
+            TRIM(ob.BUDGET_ROO_IMA_REF) as BUDGET_CODE
+            FROM gf.oracle_facture f
+            -- Déduplication du join budget pour éviter de doubler les montants
+            LEFT JOIN (
+                SELECT BUDGET_BUDGET, MIN(BUDGET_ROO_IMA_REF) as BUDGET_ROO_IMA_REF, MIN(BUDGET_LIBELLE) as BUDGET_LIBELLE 
+                FROM gf.oracle_budget 
+                GROUP BY BUDGET_BUDGET
+            ) ob ON f.FACTURE_POBJ_EXTRACT_1 = ob.BUDGET_BUDGET
+            LEFT JOIN gf.oracle_links l ON l.target_id = f.FACTURE_FACTURE AND l.target_table = 'invoices'
+        `);
+    } catch (e) {
+        console.log("[DB] Note: v_invoices non créée. Erreur: ", e.message);
     }
 
     // --- AUTO-RÉPARATION ---

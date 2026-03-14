@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Header from '../components/Header';
-import { Users, Search, X, Columns, Eye, EyeOff, Info, Phone, Mail, MapPin, Plus, Edit2, Trash2, FileText, CheckCircle, ChevronRight, ArrowUp, ArrowDown, Upload, ShoppingCart } from 'lucide-react';
+import { Users, Search, X, Columns, Eye, EyeOff, Info, Phone, Mail, MapPin, Plus, Edit2, Trash2, FileText, CheckCircle, ChevronRight, ArrowUp, ArrowDown, Upload, ShoppingCart, ExternalLink } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Tier {
   id: number;
@@ -35,6 +36,7 @@ interface Order {
   "Montant TTC": string;
   "Date de la commande": string;
   matchedInvoices: any[];
+  COMMANDE_ROO_IMA_REF?: string;
 }
 
 interface GroupedInvoice {
@@ -93,17 +95,31 @@ const Tiers: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const token = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const { token, user } = useAuth();
+  const currentUser = user || { role: 'user', username: '', service_code: undefined, service_complement: undefined, id: 0 };
+  const [urlSedit, setUrlSedit] = useState<string>('https://seditgfprod.ivry.local/SeditGfSMProd');
 
   useEffect(() => {
     const init = async () => {
       setIsLoading(true);
-      await Promise.all([fetchTiers(), fetchColumnSettings()]);
+      await Promise.all([fetchTiers(), fetchColumnSettings(), fetchSettings()]);
       setIsLoading(false);
     };
     init();
   }, [showAll]);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings/public');
+      if (res.ok) {
+        const data = await res.json();
+        const seditSetting = data.find((s: any) => s.setting_key === 'url_sedit_fi');
+        if (seditSetting) setUrlSedit(seditSetting.setting_value);
+      }
+    } catch (e) {
+      console.error('Error fetching settings:', e);
+    }
+  };
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -405,7 +421,7 @@ const Tiers: React.FC = () => {
                 <button className="toolbar-btn" onClick={() => setShowColumnConfig(true)}>
                   <Columns size={16} /> Colonnes
                 </button>
-                {(user.role === 'admin' || user.role === 'finances' || user.role === 'compta') && (
+                {(currentUser?.role === 'admin' || currentUser?.role === 'finances' || currentUser?.role === 'compta') && (
                   <>
                     <button className="toolbar-btn" onClick={handleImportClick}>
                       <Upload size={16} /> Import Excel
@@ -773,12 +789,38 @@ const Tiers: React.FC = () => {
                         {orders.map(order => (
                           <div key={order.id} className="order-history-card" style={{ border: '1px solid var(--color-slate-200)', borderRadius: '1rem', overflow: 'hidden' }}>
                             <div style={{ background: 'var(--color-slate-50)', padding: '1rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-slate-200)' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                                <span style={{ fontWeight: 800, color: 'var(--color-navy)' }}>{order["N° Commande"]}</span>
-                                <span style={{ color: 'var(--color-slate-600)', fontSize: '0.9rem' }}>{order["Libellé"]}</span>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--color-slate-400)' }}>{order["Date de la commande"]}</span>
-                              </div>
-                              <div style={{ fontWeight: 800, color: 'var(--color-ivry)', fontSize: '1.1rem' }}>{order["Montant TTC"]} €</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                                  <span style={{ fontWeight: 800, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {order["N° Commande"]}
+                                    {order.COMMANDE_ROO_IMA_REF && (
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          window.open(`${urlSedit}/FicheCommande.html?commandeId=${order.COMMANDE_ROO_IMA_REF}`, '_blank');
+                                        }}
+                                        className="sedit-btn-mini"
+                                        title="Ouvrir dans Sedit"
+                                        style={{ 
+                                          padding: '2px 6px', 
+                                          fontSize: '0.65rem', 
+                                          background: 'var(--color-ivry)', 
+                                          color: 'white', 
+                                          border: 'none', 
+                                          borderRadius: '4px',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        <ExternalLink size={10} /> Sedit
+                                      </button>
+                                    )}
+                                  </span>
+                                  <span style={{ color: 'var(--color-slate-600)', fontSize: '0.9rem' }}>{order["Libellé"]}</span>
+                                  <span style={{ fontSize: '0.8rem', color: 'var(--color-slate-400)' }}>{order["Date de la commande"]}</span>
+                                </div>
+                                <div style={{ fontWeight: 800, color: 'var(--color-ivry)', fontSize: '1.1rem' }}>{order["Montant TTC"]} €</div>
                             </div>
                             <div style={{ padding: '1.5rem' }}>
                               <div style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-slate-400)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -806,7 +848,7 @@ const Tiers: React.FC = () => {
                             </div>
                           </div>
                         ))}
-                        {orders.length === 0 && <div className="empty-state">Aucune commande enregistrée.</div>}
+                        {orders.length === 0 && <div className="empty-state" style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-slate-400)', fontStyle: 'italic' }}>Aucune commande enregistrée.</div>}
                       </div>
                     </div>
 
@@ -849,26 +891,28 @@ const Tiers: React.FC = () => {
                                 )}
                               </div>
                             </div>
-                            <div style={{ padding: '1rem 1.5rem' }}>
-                              <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                            <div style={{ padding: '1.25rem 1.5rem', overflowX: 'auto' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
                                 <thead>
-                                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--color-slate-100)' }}>
-                                    <th style={{ padding: '0.5rem', color: 'var(--color-slate-400)', fontWeight: 800, textTransform: 'uppercase', fontSize: '0.65rem' }}>Libellé</th>
-                                    <th style={{ padding: '0.5rem', color: 'var(--color-slate-400)', fontWeight: 800, textTransform: 'uppercase', fontSize: '0.65rem' }}>Date</th>
-                                    <th style={{ padding: '0.5rem', color: 'var(--color-slate-400)', fontWeight: 800, textTransform: 'uppercase', fontSize: '0.65rem' }}>HT</th>
-                                    <th style={{ padding: '0.5rem', color: 'var(--color-slate-400)', fontWeight: 800, textTransform: 'uppercase', fontSize: '0.65rem' }}>TTC</th>
-                                    <th style={{ padding: '0.5rem', color: 'var(--color-slate-400)', fontWeight: 800, textTransform: 'uppercase', fontSize: '0.65rem' }}>État</th>
+                                  <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--color-slate-100)' }}>
+                                    <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-slate-400)', fontSize: '0.65rem', textTransform: 'uppercase', fontWeight: 800 }}>Libellé</th>
+                                    <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-slate-400)', fontSize: '0.65rem', textTransform: 'uppercase', fontWeight: 800 }}>Date</th>
+                                    <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-slate-400)', fontSize: '0.65rem', textTransform: 'uppercase', fontWeight: 800 }}>HT</th>
+                                    <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-slate-400)', fontSize: '0.65rem', textTransform: 'uppercase', fontWeight: 800 }}>TTC</th>
+                                    <th style={{ padding: '0.75rem 0.5rem', color: 'var(--color-slate-400)', fontSize: '0.65rem', textTransform: 'uppercase', fontWeight: 800 }}>État</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {group.lines.map((line, lidx) => (
-                                    <tr key={lidx} style={{ borderBottom: '1px solid var(--color-slate-50)' }}>
-                                      <td style={{ padding: '0.75rem 0.5rem', color: 'var(--color-slate-700)', fontWeight: 500 }}>{line["Libellé"]}</td>
-                                      <td style={{ padding: '0.75rem 0.5rem', color: 'var(--color-slate-500)' }}>{line["Emission"]}</td>
-                                      <td style={{ padding: '0.75rem 0.5rem', color: 'var(--color-slate-600)' }}>{line["Montant HT"]} €</td>
-                                      <td style={{ padding: '0.75rem 0.5rem', color: 'var(--color-navy)', fontWeight: 700 }}>{line["Montant TTC"]} €</td>
-                                      <td style={{ padding: '0.75rem 0.5rem' }}>
-                                        <span className="badge success" style={{ fontSize: '0.6rem' }}>{line["Etat"]}</span>
+                                    <tr key={lidx} style={{ borderBottom: lidx === group.lines.length - 1 ? 'none' : '1px solid var(--color-slate-50)' }}>
+                                      <td style={{ padding: '1rem 0.5rem', color: 'var(--color-navy)', fontWeight: 600 }}>{line["Libellé"]}</td>
+                                      <td style={{ padding: '1rem 0.5rem', color: 'var(--color-slate-500)', fontSize: '0.85rem' }}>{line["Emission"]}</td>
+                                      <td style={{ padding: '1rem 0.5rem', color: 'var(--color-slate-600)', fontWeight: 600 }}>{line["Montant HT"]} €</td>
+                                      <td style={{ padding: '1rem 0.5rem', color: 'var(--color-ivry)', fontWeight: 800 }}>{line["Montant TTC"]} €</td>
+                                      <td style={{ padding: '1rem 0.5rem' }}>
+                                        <span className={`badge ${line["Etat"] === 'Vise' || line["Etat"] === 'Payer' ? 'success' : 'warning'}`}>
+                                          {line["Etat"]}
+                                        </span>
                                       </td>
                                     </tr>
                                   ))}
@@ -877,7 +921,7 @@ const Tiers: React.FC = () => {
                             </div>
                           </div>
                         ))}
-                        {groupedInvoices.length === 0 && <div className="empty-state">Aucune facture enregistrée.</div>}
+                        {groupedInvoices.length === 0 && <div className="empty-state" style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-slate-400)', fontStyle: 'italic' }}>Aucune facture enregistrée.</div>}
                       </div>
                     </div>
                   </div>
@@ -920,7 +964,7 @@ const Tiers: React.FC = () => {
                   {columnSettings.map((col, index) => (
                     <div key={col.id} className="toggle-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        {user.role === 'admin' && (
+                        {currentUser?.role === 'admin' && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                             <button 
                               className="icon-btn" 
@@ -944,7 +988,7 @@ const Tiers: React.FC = () => {
                       </div>
                       
                       <div className="toggle-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        {user.role === 'admin' && (
+                        {currentUser?.role === 'admin' && (
                           <>
                             <input 
                               type="color" 
@@ -957,23 +1001,23 @@ const Tiers: React.FC = () => {
                               onClick={() => updateColumnStyle(col.column_key, 'is_bold', !col.is_bold)}
                               title="Gras"
                               style={{ 
-                                fontWeight: 'bold', width: '28px', height: '28px', borderRadius: '4px', 
-                                border: '1px solid var(--color-slate-200)', cursor: 'pointer',
-                                background: col.is_bold ? 'var(--color-slate-200)' : 'white'
+                                background: col.is_bold ? 'var(--color-navy)' : 'transparent', 
+                                color: col.is_bold ? 'white' : 'inherit'
                               }}
+                              className="icon-btn"
                             >
-                              B
+                              <span style={{ fontWeight: 800 }}>B</span>
                             </button>
                             <button 
                               onClick={() => updateColumnStyle(col.column_key, 'is_italic', !col.is_italic)}
                               title="Italique"
                               style={{ 
-                                fontStyle: 'italic', width: '28px', height: '28px', borderRadius: '4px', 
-                                border: '1px solid var(--color-slate-200)', cursor: 'pointer',
-                                background: col.is_italic ? 'var(--color-slate-200)' : 'white'
+                                background: col.is_italic ? 'var(--color-navy)' : 'transparent', 
+                                color: col.is_italic ? 'white' : 'inherit'
                               }}
+                              className="icon-btn"
                             >
-                              I
+                              <span style={{ fontStyle: 'italic', fontWeight: 800 }}>I</span>
                             </button>
                           </>
                         )}

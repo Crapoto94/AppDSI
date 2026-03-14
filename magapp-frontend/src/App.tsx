@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -30,6 +30,8 @@ interface Ticket {
   title: string;
   status_label: string | null;
   date_creation: string | null;
+  type: string;
+  status: number;
 }
 
 function App() {
@@ -48,7 +50,12 @@ function App() {
   const [userEmail, setUserEmail] = useState<string>('');
   const [showSubs, setShowSubs] = useState(false);
   const [showTickets, setShowTickets] = useState(false);
+  const [showClosedIncidents, setShowClosedIncidents] = useState(false);
+  const [showClosedDemandes, setShowClosedDemandes] = useState(false);
+  const [showClosedOthers, setShowClosedOthers] = useState(false);
   const [showEmail, setShowEmail] = useState(false);
+  const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
+  const [isTesting, setIsTesting] = useState(false);
 
   const apiBase = `/api`; // Utiliser le proxy Vite pour les données
 
@@ -183,6 +190,19 @@ function App() {
     }
   };
 
+  const handleHealthCheck = async () => {
+    setIsTesting(true);
+    try {
+      const res = await axios.post(`${apiBase}/magapp/health-check`);
+      setHealthResults(res.data.results || {});
+    } catch (error) {
+      console.error("Erreur lors du test des applications", error);
+      alert("Erreur lors du test de connectivité.");
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '';
     return new Date(dateStr).toLocaleDateString('fr-FR');
@@ -234,6 +254,117 @@ function App() {
       }
     }
   };
+
+  const renderTicketsList = (tickets: Ticket[], title: string, icon: React.ReactNode, accentColor: string, showClosed: boolean, setShowClosed: (v: boolean) => void) => {
+    const openTickets = tickets.filter(t => String(t.status) !== '6');
+    const closedTickets = tickets.filter(t => String(t.status) === '6');
+
+    if (tickets.length === 0) return null;
+
+    return (
+      <div style={{ marginBottom: '25px' }}>
+        <h3 style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '10px', 
+          fontSize: '1.1rem', 
+          fontWeight: 800, 
+          color: accentColor,
+          marginBottom: '15px',
+          borderBottom: `2px solid ${accentColor}20`,
+          paddingBottom: '8px'
+        }}>
+          {icon}
+          {title} ({openTickets.length})
+        </h3>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {openTickets.map(ticket => (
+            <TicketItem key={ticket.glpi_id} ticket={ticket} />
+          ))}
+          
+          {closedTickets.length > 0 && (
+            <>
+              <button 
+                onClick={() => setShowClosed(!showClosed)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748b',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '5px 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  marginTop: '5px',
+                  alignSelf: 'flex-start'
+                }}
+              >
+                {showClosed ? <X size={14} /> : <Clock size={14} />}
+                {showClosed ? "Masquer les tickets clos" : `Afficher les tickets clos (${closedTickets.length})`}
+              </button>
+              
+              {showClosed && closedTickets.map(ticket => (
+                <TicketItem key={ticket.glpi_id} ticket={ticket} isClosed={true} />
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const TicketItem = ({ ticket, isClosed = false }: { ticket: Ticket, isClosed?: boolean }) => (
+    <div style={{ 
+      padding: '10px 14px', 
+      background: isClosed ? '#f8fafc80' : '#f8fafc', 
+      borderRadius: '8px', 
+      border: '1px solid #e2e8f0', 
+      display: 'flex', 
+      justifyContent: 'space-between', 
+      alignItems: 'center',
+      gap: '15px',
+      opacity: isClosed ? 0.7 : 1
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexGrow: 1, minWidth: 0 }}>
+        <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, fontFamily: 'monospace', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
+          #{ticket.glpi_id}
+        </span>
+        <div style={{ 
+          fontSize: '0.9rem', 
+          fontWeight: 600, 
+          color: '#1e293b', 
+          whiteSpace: 'nowrap', 
+          overflow: 'hidden', 
+          textOverflow: 'ellipsis',
+          textDecoration: isClosed ? 'line-through' : 'none'
+        }} title={ticket.title}>
+          {ticket.title}
+        </div>
+      </div>
+      
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+          {ticket.date_creation ? formatDate(ticket.date_creation) : ''}
+        </div>
+        {ticket.status_label && (
+          <div style={{ 
+            padding: '2px 10px', 
+            borderRadius: '12px', 
+            fontSize: '0.7rem', 
+            fontWeight: 700, 
+            background: isClosed ? '#f1f5f9' : '#e2e8f0', 
+            color: isClosed ? '#94a3b8' : '#475569',
+            whiteSpace: 'nowrap'
+          }}>
+            {ticket.status_label}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="magapp-container" style={{ paddingTop: '100px' }}>
@@ -421,48 +552,32 @@ function App() {
                   Aucun ticket trouvé.
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {userTickets.map(ticket => (
-                    <div key={ticket.glpi_id} style={{ 
-                      padding: '8px 14px', 
-                      background: '#f8fafc', 
-                      borderRadius: '8px', 
-                      border: '1px solid #e2e8f0', 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      gap: '15px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexGrow: 1, minWidth: 0 }}>
-                        <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, fontFamily: 'monospace', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
-                          #{ticket.glpi_id}
-                        </span>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={ticket.title}>
-                          {ticket.title}
-                        </div>
-                      </div>
-                      
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                          {ticket.date_creation ? formatDate(ticket.date_creation) : ''}
-                        </div>
-                        {ticket.status_label && (
-                          <div style={{ 
-                            padding: '2px 10px', 
-                            borderRadius: '12px', 
-                            fontSize: '0.7rem', 
-                            fontWeight: 700, 
-                            background: '#e2e8f0', 
-                            color: '#475569',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {ticket.status_label}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <>
+                  {renderTicketsList(
+                    userTickets.filter(t => String(t.type) === '1'), 
+                    "Incidents", 
+                    <AlertTriangle size={20} />, 
+                    "#e11d48",
+                    showClosedIncidents,
+                    setShowClosedIncidents
+                  )}
+                  {renderTicketsList(
+                    userTickets.filter(t => String(t.type) === '2'), 
+                    "Demandes", 
+                    <Clock size={20} />, 
+                    "#0078a4",
+                    showClosedDemandes,
+                    setShowClosedDemandes
+                  )}
+                  {userTickets.filter(t => String(t.type) !== '1' && String(t.type) !== '2').length > 0 && renderTicketsList(
+                    userTickets.filter(t => String(t.type) !== '1' && String(t.type) !== '2'), 
+                    "Autres", 
+                    <LifeBuoy size={20} />, 
+                    "#64748b",
+                    showClosedOthers,
+                    setShowClosedOthers
+                  )}
+                </>
               )}
             </div>
 
@@ -485,6 +600,31 @@ function App() {
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
+        
+        <button 
+          onClick={handleHealthCheck}
+          disabled={isTesting}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: isTesting ? '#f1f5f9' : '#0078a4',
+            color: isTesting ? '#94a3b8' : 'white',
+            border: 'none',
+            padding: '12px 24px',
+            borderRadius: '12px',
+            fontSize: '0.95rem',
+            fontWeight: 700,
+            cursor: isTesting ? 'wait' : 'pointer',
+            transition: 'all 0.2s',
+            boxShadow: isTesting ? 'none' : '0 4px 6px -1px rgba(0,120,164,0.2)',
+            marginLeft: '15px',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {isTesting ? <Loader2 className="loading-spinner" size={18} /> : <Activity size={18} />}
+          {isTesting ? "Test en cours..." : "Tester les applis"}
+        </button>
       </div>
 
       {/* Mes Favoris Section Dynamique */}
@@ -505,6 +645,7 @@ function App() {
                 handleSubscribe={handleSubscribe}
                 handleAppClick={handleAppClick}
                 formatDate={formatDate}
+                healthStatus={healthResults[app.id]}
               />
             ))}
           </div>
@@ -532,6 +673,7 @@ function App() {
                   handleSubscribe={handleSubscribe}
                   handleAppClick={handleAppClick}
                   formatDate={formatDate}
+                  healthStatus={healthResults[app.id]}
                 />
               ))}
             </div>
@@ -550,17 +692,20 @@ interface AppCardProps {
   handleSubscribe: (e: React.MouseEvent, app: AppItem) => void;
   handleAppClick: (app: AppItem) => void;
   formatDate: (dateStr: string | null) => string;
+  healthStatus?: 'ok' | 'fail';
 }
 
-const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, toggleFavorite, handleSubscribe, handleAppClick, formatDate }) => {
+const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, toggleFavorite, handleSubscribe, handleAppClick, formatDate, healthStatus }) => {
   const isMaint = app.is_maintenance === 1;
+  const healthClass = healthStatus === 'ok' ? 'health-ok' : (healthStatus === 'fail' ? 'health-fail' : '');
+  
   return (
     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
       <a 
         href={isMaint ? undefined : app.url} 
         target={isMaint ? undefined : "_blank"} 
         rel="noopener noreferrer" 
-        className={`app-card ${isMaint ? 'maintenance' : ''}`}
+        className={`app-card ${isMaint ? 'maintenance' : ''} ${healthClass}`}
         title={isMaint ? `En maintenance du ${formatDate(app.maintenance_start)} au ${formatDate(app.maintenance_end)}` : app.description}
         onClick={(e) => { 
           if (isMaint) {
@@ -571,6 +716,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, toggle
         }}
         style={{ cursor: isMaint ? 'not-allowed' : 'pointer', flexGrow: 1 }}
       >
+        <div className="health-bar"></div>
         <div className="app-icon-container">
           <img 
             src={app.icon} 
@@ -579,7 +725,14 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, toggle
             onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} 
           />
         </div>
-        <span className="app-name" style={{ color: isMaint ? '#94a3b8' : 'var(--text-blue)', paddingRight: '80px' }}>{app.name}</span>
+        <span className="app-name" style={{ 
+          color: isMaint ? '#94a3b8' : 'var(--text-blue)', 
+          paddingRight: '80px'
+        }}>
+          {app.name}
+          {healthStatus === 'ok' && <CheckCircle2 size={14} color="#22c55e" />}
+          {healthStatus === 'fail' && <XCircle size={14} color="#ef4444" />}
+        </span>
         
         {isMaint && (
           <div className="maintenance-overlay" style={{ right: '85px' }}>

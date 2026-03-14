@@ -5,11 +5,21 @@ module.exports = function(app, db, authenticateAdmin) {
     });
 
     // SQL Explorer API (Admin only)
+    app.get('/api/admin/sql/databases', authenticateAdmin, async (req, res) => {
+        try {
+            const databases = await db.all("PRAGMA database_list");
+            res.json(databases);
+        } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    });
+
     app.get('/api/admin/sql/tables', authenticateAdmin, async (req, res) => {
         try {
+            const dbName = typeof req.query.db === 'string' && req.query.db ? req.query.db.replace(/[^a-zA-Z0-9_]/g, '') : 'main';
             const tables = await db.all(`
                 SELECT name, type 
-                FROM sqlite_master 
+                FROM "${dbName}".sqlite_master 
                 WHERE type IN ('table', 'view') 
                 AND name NOT LIKE 'sqlite_%'
                 ORDER BY type, name
@@ -22,13 +32,14 @@ module.exports = function(app, db, authenticateAdmin) {
 
     app.get('/api/admin/sql/table/:name', authenticateAdmin, async (req, res) => {
         try {
+            const dbName = typeof req.query.db === 'string' && req.query.db ? req.query.db.replace(/[^a-zA-Z0-9_]/g, '') : 'main';
             const tableName = req.params.name.replace(/[^a-zA-Z0-9_]/g, '');
             const limit = parseInt(req.query.limit) || 100;
             const offset = parseInt(req.query.offset) || 0;
             
-            const tableInfo = await db.all(`PRAGMA table_info("${tableName}")`);
-            const records = await db.all(`SELECT * FROM "${tableName}" LIMIT ? OFFSET ?`, [limit, offset]);
-            const countResult = await db.get(`SELECT COUNT(*) as total FROM "${tableName}"`);
+            const tableInfo = await db.all(`PRAGMA "${dbName}".table_info("${tableName}")`);
+            const records = await db.all(`SELECT * FROM "${dbName}"."${tableName}" LIMIT ? OFFSET ?`, [limit, offset]);
+            const countResult = await db.get(`SELECT COUNT(*) as total FROM "${dbName}"."${tableName}"`);
             
             res.json({
                 columns: tableInfo,
