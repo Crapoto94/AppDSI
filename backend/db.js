@@ -63,6 +63,33 @@ async function setupDb() {
             type TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS access_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            requested_tiles TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_tiles (
+            user_id INTEGER,
+            tile_id INTEGER,
+            PRIMARY KEY (user_id, tile_id),
+            FOREIGN KEY (user_id) REFERENCES users (id),
+            FOREIGN KEY (tile_id) REFERENCES tiles (id)
+        );
+
+        CREATE TABLE IF NOT EXISTS tile_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            icon TEXT,
+            description TEXT,
+            url TEXT,
+            tile_id INTEGER,
+            FOREIGN KEY (tile_id) REFERENCES tiles (id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS tiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT,

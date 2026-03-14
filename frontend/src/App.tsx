@@ -21,7 +21,7 @@ import AdminLayout from './components/AdminLayout';
 import StudioRH from './pages/StudioRH';
 
 // Protected Route Component
-const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
+const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
   const token = localStorage.getItem('token');
   let user: any = {};
   try {
@@ -34,6 +34,14 @@ const PrivateRoute = ({ children, allowedRoles }: { children: React.ReactNode, a
   if (!token) return <Navigate to="/login" />;
   if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/" />;
   
+  if (path && user.authorized_urls && !user.authorized_urls.includes('*')) {
+    // Basic prefix matching or exact matching
+    const isAuthorized = user.authorized_urls.some((url: string) => path === url || path.startsWith(url + '/'));
+    if (!isAuthorized && path !== '/' && path !== '/profile' && path !== '/request-access') {
+       return <Navigate to="/" />;
+    }
+  }
+
   return <>{children}</>;
 };
 
@@ -45,12 +53,12 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/request-access" element={<AccessRequestPage />} />
         
-        <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-        <Route path="/budget" element={<PrivateRoute><Budget /></PrivateRoute>} />
-        <Route path="/tiers" element={<PrivateRoute><Tiers /></PrivateRoute>} />
-        <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
-        <Route path="/certif" element={<PrivateRoute><Certif /></PrivateRoute>} />
-        <Route path="/telecom" element={<PrivateRoute><TelecomManagement /></PrivateRoute>} />
+        <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
+        <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
+        <Route path="/tiers" element={<PrivateRoute path="/tiers"><Tiers /></PrivateRoute>} />
+        <Route path="/profile" element={<PrivateRoute path="/profile"><Profile /></PrivateRoute>} />
+        <Route path="/certif" element={<PrivateRoute path="/certif"><Certif /></PrivateRoute>} />
+        <Route path="/telecom" element={<PrivateRoute path="/telecom"><TelecomManagement /></PrivateRoute>} />
 
         {/* Admin Routes with Sidebar Layout */}
         <Route 
@@ -76,7 +84,7 @@ function App() {
           <Route path="settings" element={<AdminSettings />} />
         </Route>
 
-        <Route path="/rh" element={<PrivateRoute><StudioRH /></PrivateRoute>} />
+        <Route path="/rh" element={<PrivateRoute path="/rh"><StudioRH /></PrivateRoute>} />
         <Route path="/studio-rh" element={<Navigate to="/rh" replace />} />
       </Routes>
     </BrowserRouter>

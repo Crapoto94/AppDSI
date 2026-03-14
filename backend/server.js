@@ -566,6 +566,23 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         // Force l'approbation pour les admins
         if (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub') {
             user.is_approved = 1;
+            user.authorized_urls = ['*']; 
+        } else {
+            // Get URLs from the tiles the user is authorized for
+            const authorizedTiles = await db.all(`
+                SELECT t.url as tile_url, tl.url as link_url
+                FROM user_tiles ut
+                JOIN tiles t ON ut.tile_id = t.id
+                LEFT JOIN tile_links tl ON t.id = tl.tile_id
+                WHERE ut.user_id = ?
+            `, [user.id]);
+            
+            const urls = new Set(['/', '/request-access', '/profile']); // Default allowed routes
+            authorizedTiles.forEach(row => {
+                if (row.tile_url) urls.add(row.tile_url);
+                if (row.link_url) urls.add(row.link_url);
+            });
+            user.authorized_urls = Array.from(urls);
         }
         
         res.json(user);
@@ -3600,8 +3617,21 @@ app.get('/api/tiles', authenticateJWT, async (req, res) => {
     try {
         const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
         
+        let authorizedTileIds = new Set();
+        if (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub') {
+            tiles.forEach(t => authorizedTileIds.add(t.id));
+        } else {
+            const userTiles = await db.all('SELECT tile_id FROM user_tiles WHERE user_id = ?', [req.user.id]);
+            userTiles.forEach(ut => authorizedTileIds.add(ut.tile_id));
+        }
+
         for (const tile of tiles) {
-            tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
+            tile.is_authorized = authorizedTileIds.has(tile.id);
+            if (tile.is_authorized) {
+                tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
+            } else {
+                tile.links = []; // Hide links if not authorized
+            }
         }
         res.json(tiles);
     } catch (error) {
@@ -4601,9 +4631,21 @@ app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req
         await db.run('BEGIN TRANSACTION');
         await db.run('UPDATE access_requests SET status = "approved" WHERE id = ?', [req.params.id]);
         await db.run('UPDATE users SET is_approved = 1 WHERE id = ?', [request.user_id]);
+        
+        // Grant access to the specifically requested tiles
+        if (request.requested_tiles) {
+            const tileIds = request.requested_tiles.split(',').map(id => id.trim()).filter(Boolean);
+            for (const tileId of tileIds) {
+                await db.run(
+                    'INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)',
+                    [request.user_id, tileId]
+                );
+            }
+        }
+        
         await db.run('COMMIT');
 
-        res.json({ message: 'Demande approuvée' });
+        res.json({ message: 'Demande approuvée et accès accordés' });
     } catch (error) {
         await db.run('ROLLBACK');
         res.status(500).json({ message: 'Erreur lors de l\'approbation', error: error.message });

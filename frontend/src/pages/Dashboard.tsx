@@ -11,7 +11,8 @@ interface TileData {
   icon: string;
   description: string;
   sort_order: number;
-  status: string;
+  status: 'active' | 'maintenance' | 'soon';
+  is_authorized?: boolean;
   links: { label: string; url: string; is_internal: boolean }[];
 }
 
@@ -81,10 +82,13 @@ const Dashboard: React.FC = () => {
               .map((tile) => (
                 <Tile
                   key={tile.id}
+                  id={tile.id}
                   title={tile.title}
                   icon={tile.icon}
                   description={tile.description}
                   links={tile.links}
+                  status={tile.status}
+                  is_authorized={tile.is_authorized}
                 />
               ))}
           </div>

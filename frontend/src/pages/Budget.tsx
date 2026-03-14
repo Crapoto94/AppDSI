@@ -56,7 +56,6 @@ const Budget: React.FC = () => {
   const [operations, setOperations] = useState<any[]>([]);
   const [m57Plan, setM57Plan] = useState<any[]>([]);
   const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
-  const [importLogs, setImportLogs] = useState<any[]>([]);
   const [urlSedit, setUrlSedit] = useState<string>('https://seditgfprod.ivry.local/SeditGfSMProd');
   const [budgetPrincipal, setBudgetPrincipal] = useState<string>('Ville');
   
@@ -111,7 +110,6 @@ const Budget: React.FC = () => {
   // New state for import modal
   const [showImportModal, setShowImportModal] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
-  const [pendingImportType, setPendingImportType] = useState<'lines' | 'invoices' | 'orders' | null>(null);
   const [availableBudgets, setAvailableBudgets] = useState<any[]>([]);
   const [selectedBudgetId, setSelectedBudgetId] = useState<number | ''>('');
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -506,7 +504,6 @@ const Budget: React.FC = () => {
     if (ordersRes.ok) setOrders(await ordersRes.json());
     if (operationsRes.ok) setOperations(await operationsRes.json());
     if (m57Res.ok) setM57Plan(await m57Res.json());
-    if (logsRes.ok) setImportLogs(await logsRes.json());
     if (settingsRes.ok) {
       const settings = await settingsRes.json();
       const seditSetting = settings.find((s: any) => s.setting_key === 'url_sedit_fi');

@@ -7,6 +7,7 @@ interface User {
     is_approved?: number;
     service_code?: string;
     service_complement?: string;
+    authorized_urls?: string[];
 }
 
 interface AuthContextType {

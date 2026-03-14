@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
@@ -98,10 +98,6 @@ const Login: React.FC = () => {
                   Se connecter
                 </button>
               </form>
-              
-              <div className="login-help">
-                <p>Identifiants par défaut : admin / admin123</p>
-              </div>
             </>
           )}
         </div>
@@ -186,13 +182,6 @@ const Login: React.FC = () => {
           border-radius: 4px;
           margin-bottom: 20px;
           font-size: 14px;
-        }
-        .login-help {
-          margin-top: 30px;
-          font-size: 12px;
-          color: #999;
-          border-top: 1px solid #eee;
-          padding-top: 20px;
         }
       `}</style>
     </div>

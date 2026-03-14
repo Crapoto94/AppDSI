@@ -15,8 +15,11 @@ const AccessRequestPage: React.FC = () => {
     const [searchParams] = useSearchParams();
     const { user } = useAuth();
     const username = searchParams.get('username') || user?.username || '';
+    const preselectId = searchParams.get('preselect');
+    const initialSelected = preselectId ? [Number(preselectId)] : [];
+    
     const [tiles, setTiles] = useState<Tile[]>([]);
-    const [selected, setSelected] = useState<number[]>([]);
+    const [selected, setSelected] = useState<number[]>(initialSelected);
     const [message, setMessage] = useState('');
     const [submitted, setSubmitted] = useState(false);
     const [loading, setLoading] = useState(true);

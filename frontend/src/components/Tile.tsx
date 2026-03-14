@@ -10,16 +10,18 @@ interface TileLink {
 }
 
 interface TileProps {
+  id: number;
   title: string;
   icon: string;
   description: string;
   links: TileLink[];
   status?: 'active' | 'maintenance' | 'soon';
+  is_authorized?: boolean;
   orphan_orders?: number;
   orphan_invoices?: number;
 }
 
-const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = 'active', orphan_orders, orphan_invoices }) => {
+const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status = 'active', is_authorized = true, orphan_orders, orphan_invoices }) => {
   // Dynamically get icon from lucide-react
   // @ts-expect-error Lucide icons dynamically loaded
   const IconComponent = Icons[icon.charAt(0).toUpperCase() + icon.slice(1)] || Icons.Box;
@@ -40,6 +42,12 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
           <span>BIENTÔT DISPONIBLE</span>
         </div>
       )}
+      {!is_authorized && status === 'active' && (
+        <div className="status-overlay locked-overlay">
+          <Icons.Lock size={24} />
+          <span>ACCÈS RESTREINT</span>
+        </div>
+      )}
 
       <div className="tile-icon">
         <IconComponent size={32} />
@@ -53,19 +61,29 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
       <p className="tile-description">{description}</p>
 
       <div className="tile-links">
-        {links.map((link) => (
+        {is_authorized ? (
+          links.map((link) => (
+            <a
+              key={link.id}
+              href={isLocked ? '#' : link.url}
+              target={link.is_internal || isLocked ? '_self' : '_blank'}
+              rel="noopener noreferrer"
+              className={`tile-btn btn-secondary ${isLocked ? 'disabled' : ''}`}
+              onClick={(e) => isLocked && e.preventDefault()}
+            >
+              {link.label}
+              {link.is_internal ? <ArrowRight size={14} /> : <ExternalLink size={14} />}
+            </a>
+          ))
+        ) : (
           <a
-            key={link.id}
-            href={isLocked ? '#' : link.url}
-            target={link.is_internal || isLocked ? '_self' : '_blank'}
-            rel="noopener noreferrer"
-            className={`tile-btn btn-secondary ${isLocked ? 'disabled' : ''}`}
-            onClick={(e) => isLocked && e.preventDefault()}
+            href={`/request-access?preselect=${id}`}
+            className="tile-btn btn-primary locked-btn"
           >
-            {link.label}
-            {link.is_internal ? <ArrowRight size={14} /> : <ExternalLink size={14} />}
+            <Icons.UserCheck size={16} />
+            Demander l'accès
           </a>
-        ))}
+        )}
       </div>
 
       <style>{`
@@ -101,6 +119,11 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
           gap: 10px;
         }
         .status-overlay.soon { color: #475569; }
+        .status-overlay.locked-overlay { 
+          color: #94a3b8; 
+          background: rgba(248, 250, 252, 0.85);
+          backdrop-filter: grayscale(100%);
+        }
 
         .tile:not(.maintenance):not(.soon):hover {
           transform: translateY(-5px);
@@ -113,6 +136,7 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
           padding: 15px;
           border-radius: 50%;
           position: relative;
+          z-index: 20;
         }
         .orphan-badge {
           position: absolute;
@@ -139,18 +163,24 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
           font-weight: 700;
           margin-bottom: 12px;
           color: var(--secondary-color);
+          position: relative;
+          z-index: 20;
         }
         .tile-description {
           font-size: 14px;
           color: #666;
           margin-bottom: 25px;
           flex-grow: 1;
+          position: relative;
+          z-index: 20;
         }
         .tile-links {
           display: flex;
           flex-direction: column;
           gap: 10px;
           width: 100%;
+          position: relative;
+          z-index: 20;
         }
         .tile-btn {
           display: flex;
@@ -170,6 +200,15 @@ const Tile: React.FC<TileProps> = ({ title, icon, description, links, status = '
         }
         .tile-btn:not(.disabled):hover {
           opacity: 0.9;
+        }
+        .tile-btn.btn-primary.locked-btn {
+          background: var(--primary-color);
+          color: white;
+          border: none;
+        }
+        .tile-btn.btn-primary.locked-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(227, 6, 19, 0.2);
         }
       `}</style>
     </div>
