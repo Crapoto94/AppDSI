@@ -9,7 +9,8 @@ const MailSettings: React.FC = () => {
     const [settings, setSettings] = useState<any>({
         smtp_host: '', smtp_port: 587, smtp_user: '', smtp_pass: '',
         smtp_secure: 'tls', sender_email: '', sender_name: 'DSI Hub',
-        template_html: '<html><body>{{content}}</body></html>'
+        template_html: '<html><body>{{content}}</body></html>',
+        global_enable: true, use_api: true
     });
     const [testEmail, setTestEmail] = useState('');
     const [loading, setLoading] = useState(true);
@@ -27,7 +28,15 @@ const MailSettings: React.FC = () => {
             const res = await axios.get('http://localhost:3001/api/mail-settings', {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            if (res.data) setSettings(res.data);
+            if (res.data) {
+                // Fusionner avec les valeurs par défaut pour éviter de perdre des clés
+                setSettings((prev: any) => ({
+                    ...prev,
+                    ...res.data,
+                    // S'assurer que les noms de champs sont cohérents si renommés
+                    api_key: res.data.api_key || res.data.smtp_pass || prev.api_key
+                }));
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -43,8 +52,9 @@ const MailSettings: React.FC = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setStatus({ type: 'success', msg: 'Configuration enregistrée avec succès' });
-        } catch (err) {
-            setStatus({ type: 'error', msg: 'Erreur lors de l\'enregistrement' });
+        } catch (err: any) {
+            const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message;
+            setStatus({ type: 'error', msg: `Erreur : ${errorMsg}` });
         } finally {
             setSaving(false);
         }
@@ -84,19 +94,99 @@ const MailSettings: React.FC = () => {
                             </div>
                         </div>
                         <div className="card-body">
-                            <div className="form-grid">
-                                <div className="form-group lg:col-span-2">
-                                    <label>Hôte SMTP (Laissez vide pour utiliser Brevo via Clé API)</label>
-                                    <div className="input-with-icon">
-                                        <Globe size={16} />
-                                        <input 
-                                            value={settings.smtp_host} 
-                                            onChange={e => setSettings({...settings, smtp_host: e.target.value})}
-                                            placeholder="ex: smtp.office365.com ou 10.10.x.x"
-                                        />
+                            <div className="form-group">
+                                <label>État du service d'envoi</label>
+                                <div className="toggle-wrapper" onClick={() => setSettings({...settings, global_enable: !settings.global_enable})}>
+                                    <div className={`toggle-track ${settings.global_enable ? 'active' : ''}`}>
+                                        <div className="toggle-thumb" />
+                                    </div>
+                                    <span className="toggle-label">{settings.global_enable ? 'Envoi d\'emails ACTIVÉ' : 'Envoi d\'emails DÉSACTIVÉ'}</span>
+                                </div>
+                            </div>
+
+                            <div className="form-group mb-6">
+                                <label>Méthode d'envoi</label>
+                                <div className="method-switcher">
+                                    <button 
+                                        type="button"
+                                        className={`method-btn ${settings.use_api ? 'active' : ''}`}
+                                        onClick={() => setSettings({...settings, use_api: true})}
+                                    >
+                                        API Brevo (Recommandé)
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        className={`method-btn ${!settings.use_api ? 'active' : ''}`}
+                                        onClick={() => setSettings({...settings, use_api: false})}
+                                    >
+                                        Serveur SMTP Classique
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Bouton d'auto-configuration */}
+                            <div className="flex justify-end mb-4">
+                                <button 
+                                    type="button"
+                                    className="btn btn-outline btn-sm text-blue-600 border-blue-200 hover:bg-blue-50 py-1"
+                                    onClick={() => {
+                                        setSettings({
+                                            ...settings,
+                                            use_api: false,
+                                            smtp_host: 'smtp-relay.brevo.com',
+                                            smtp_port: 587,
+                                            smtp_secure: 'tls',
+                                            smtp_pass: settings.api_key || settings.smtp_pass
+                                        });
+                                    }}
+                                >
+                                    <Globe size={14} className="mr-1" />
+                                    Configuration automatique Brevo (SMTP)
+                                </button>
+                            </div>
+
+                            {settings.use_api ? (
+                                <div className="form-grid animate-in slide-in-from-top-2">
+                                    <div className="form-group lg:col-span-2">
+                                        <label>Clé API Brevo (v3)</label>
+                                        <div className="input-with-icon">
+                                            <Lock size={16} />
+                                            <input 
+                                                type="password"
+                                                value={settings.api_key || settings.smtp_pass} 
+                                                onChange={e => setSettings({...settings, api_key: e.target.value, smtp_pass: e.target.value})}
+                                                placeholder="xkeysib-..."
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-group lg:col-span-2">
+                                        <label>URL de l'API (Optionnel - Par défaut: https://api.brevo.com/v3/smtp/email)</label>
+                                        <div className="input-with-icon">
+                                            <Globe size={16} />
+                                            <input 
+                                                type="text"
+                                                value={settings.api_url || ''} 
+                                                onChange={e => setSettings({...settings, api_url: e.target.value})}
+                                                placeholder="https://api.brevo.com/v3/smtp/email"
+                                            />
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-2">La clé d'API est utilisée pour s'authentifier auprès de Brevo sans passer par le protocole SMTP (qui peut être bloqué par le pare-feu). Vous pouvez préciser une URL personnalisée si nécessaire.</p>
                                     </div>
                                 </div>
-                                <div className="form-group">
+                            ) : (
+                                <div className="form-grid animate-in slide-in-from-top-2">
+                                    <div className="form-group lg:col-span-2">
+                                        <label>Hôte SMTP</label>
+                                        <div className="input-with-icon">
+                                            <Globe size={16} />
+                                            <input 
+                                                value={settings.smtp_host} 
+                                                onChange={e => setSettings({...settings, smtp_host: e.target.value})}
+                                                placeholder="ex: smtp.office365.com ou 10.10.x.x"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-group">
                                     <label>Port</label>
                                     <input 
                                         type="number" 
@@ -134,6 +224,7 @@ const MailSettings: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
+                            )}
                         </div>
                     </div>
 
@@ -159,9 +250,12 @@ const MailSettings: React.FC = () => {
                                 <div className="form-group">
                                     <label>Email de l'expéditeur</label>
                                     <input 
+                                        type="email"
                                         value={settings.sender_email} 
                                         onChange={e => setSettings({...settings, sender_email: e.target.value})}
+                                        placeholder="ex: ne-pas-repondre@ivry94.fr"
                                     />
+                                    <p className="text-xs text-gray-500 mt-2">Cet email doit être validé comme expéditeur autorisé dans votre compte Brevo.</p>
                                 </div>
                             </div>
                             <div className="form-group">
@@ -171,10 +265,26 @@ const MailSettings: React.FC = () => {
                                         theme="snow" 
                                         value={settings.template_html} 
                                         onChange={val => setSettings({...settings, template_html: val})}
+                                        modules={{
+                                            toolbar: [
+                                                [{ 'header': [1, 2, 3, false] }],
+                                                ['bold', 'italic', 'underline', 'strike'],
+                                                [{ 'color': [] }, { 'background': [] }],
+                                                [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                                                [{ 'align': [] }],
+                                                ['link', 'image'],
+                                                ['clean']
+                                            ],
+                                        }}
                                     />
                                 </div>
                             </div>
-                        </div>
+                                <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-2xl">
+                                    <p className="text-xs text-blue-800 leading-relaxed">
+                                        <strong>💡 Visibilité des images :</strong> Pour que les images s'affichent correctement dans <strong>Gmail</strong>, il est fortement recommandé d'utiliser le <strong>Serveur SMTP Classique</strong> de Brevo (Relais) plutôt que l'API. Sélectionnez "Serveur SMTP Classique" et utilisez le bouton de configuration automatique ci-dessus.
+                                    </p>
+                                </div>
+                            </div>
                         <div className="card-footer">
                             <button className="btn btn-primary btn-lg" onClick={handleSave} disabled={saving}>
                                 {saving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
@@ -204,6 +314,7 @@ const MailSettings: React.FC = () => {
                                 {testing ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
                                 Lancer le test
                             </button>
+                            <p className="text-[10px] text-orange-600 mt-2 font-bold italic">⚠️ Pensez à enregistrer vos modifications avant de lancer le test.</p>
                         </div>
                     </div>
 
@@ -245,8 +356,21 @@ const MailSettings: React.FC = () => {
                 .card-footer { padding: 20px 30px; background: #f8fafc; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; }
 
                 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 25px; }
+                .form-group { margin-bottom: 1.5rem; }
                 .form-group label { display: block; font-size: 0.75rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.025em; }
                 
+                .toggle-wrapper { display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 10px 15px; background: #f8fafc; border-radius: 12px; border: 1px solid #f1f5f9; width: fit-content; }
+                .toggle-track { width: 44px; height: 24px; background: #cbd5e1; border-radius: 20px; position: relative; transition: all 0.3s; }
+                .toggle-track.active { background: #10b981; }
+                .toggle-thumb { width: 18px; height: 18px; background: white; border-radius: 50%; position: absolute; top: 3px; left: 3px; transition: all 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                .toggle-track.active .toggle-thumb { left: 23px; }
+                .toggle-label { font-size: 0.9rem; font-weight: 700; color: #334155; }
+
+                .method-switcher { display: flex; background: #f1f5f9; padding: 6px; border-radius: 12px; }
+                .method-btn { flex: 1; padding: 10px 16px; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 700; color: #64748b; background: transparent; cursor: pointer; transition: all 0.2s ease; }
+                .method-btn:hover { color: #334155; }
+                .method-btn.active { background: white; color: #3b82f6; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
                 .input-with-icon { position: relative; display: flex; align-items: center; }
                 .input-with-icon svg { position: absolute; left: 15px; color: #94a3b8; }
                 .input-with-icon input { padding-left: 45px !important; }

@@ -984,6 +984,256 @@ app.get('/api/admin/rh/stats', authenticateAdmin, async (req, res) => {
     }
 });
 
+// Récupérer la hiérarchie des agents
+app.get('/api/admin/rh/hierarchy', authenticateAdmin, async (req, res) => {
+    try {
+        const today = new Date().toISOString().substring(0, 10);
+        // On récupère tous les agents actifs avec leur hiérarchie
+        const agents = await db.all(`
+            SELECT DIRECTION_L, SERVICE_L, SECTEUR_L, MATRICULE, NOM, PRENOM, POSTE_L, date_plusvu, DATE_DEPART, DATE_ARRIVEE
+            FROM rh.referentiel_agents 
+            WHERE date_plusvu IS NULL 
+            AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
+            ORDER BY DIRECTION_L, SERVICE_L, SECTEUR_L, NOM, PRENOM
+        `, [today]);
+
+        // Construction de l'objet hiérarchique (Rupture par DIRECTION_L -> SERVICE_L -> SECTEUR_L)
+        const hierarchy = {};
+        
+        agents.forEach(agent => {
+            const direction = agent.DIRECTION_L || 'SANS DIRECTION';
+            const service = agent.SERVICE_L;
+            const secteur = agent.SECTEUR_L;
+            
+            if (!hierarchy[direction]) hierarchy[direction] = { name: direction, count: 0, agents: [], services: {} };
+            if (service && service.trim() !== '' && service !== 'SANS SERVICE') {
+                if (!hierarchy[direction].services[service]) hierarchy[direction].services[service] = { name: service, count: 0, agents: [], secteurs: {} };
+            }
+            if (secteur && secteur.trim() !== '' && secteur !== 'SANS SECTEUR' && service) {
+                if (!hierarchy[direction].services[service].secteurs[secteur]) hierarchy[direction].services[service].secteurs[secteur] = { name: secteur, count: 0, agents: [] };
+            }
+            
+            hierarchy[direction].count++;
+            if (!service || service.trim() === '' || service === 'SANS SERVICE') {
+                hierarchy[direction].agents.push(agent);
+            } else {
+                hierarchy[direction].services[service].count++;
+                if (!secteur || secteur.trim() === '' || secteur === 'SANS SECTEUR') {
+                    hierarchy[direction].services[service].agents.push(agent);
+                } else {
+                    hierarchy[direction].services[service].secteurs[secteur].count++;
+                    hierarchy[direction].services[service].secteurs[secteur].agents.push(agent);
+                }
+            }
+
+
+        });
+
+        // Conversion en tableau pour le frontend
+        const result = Object.values(hierarchy).map(d => ({
+            ...d,
+            services: Object.values(d.services).map(s => ({
+                ...s,
+                secteurs: Object.values(s.secteurs)
+            }))
+        }));
+
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur hiérarchie', error: err.message });
+    }
+});
+
+// Récupérer les agents pour l'onboarding (arrivées futures et < 30j)
+app.get('/api/admin/rh/onboarding', authenticateAdmin, async (req, res) => {
+    try {
+        const today = new Date().toISOString().substring(0, 10);
+        // Date il y a 30 jours
+        const limitDate = new Date();
+        limitDate.setDate(limitDate.getDate() - 30);
+        const limitDateStr = limitDate.toISOString().substring(0, 10);
+
+        const agents = await db.all(`
+            SELECT MATRICULE, NOM, PRENOM, SERVICE_L, DIRECTION_L, DATE_ARRIVEE, POSTE_L, ad_username, email, ad_account_enabled 
+            FROM rh.referentiel_agents 
+            WHERE DATE_ARRIVEE >= ? AND DATE_ARRIVEE != ''
+            AND date_plusvu IS NULL
+            ORDER BY DATE_ARRIVEE ASC
+        `, [limitDateStr]);
+
+        const result = {
+            not_started: [],
+            in_progress: [],
+            completed: []
+        };
+
+        const now = new Date().getTime();
+
+        agents.forEach(agent => {
+            const arrivalTime = agent.DATE_ARRIVEE ? new Date(agent.DATE_ARRIVEE).getTime() : 0;
+            const daysSince = (now - arrivalTime) / (1000 * 3600 * 24);
+            const isNouvOrProch = daysSince <= 30; // true for future dates (daysSince < 0) and up to 30 days past
+
+            if (isNouvOrProch) {
+                // Par défaut, dans "Non commencé" selon la demande
+                result.not_started.push(agent);
+            } else if (!agent.ad_username) {
+                result.not_started.push(agent);
+            } else if (!agent.email || agent.email === '') {
+                result.in_progress.push(agent);
+            } else {
+                result.completed.push(agent);
+            }
+        });
+
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur onboarding', error: err.message });
+    }
+});
+
+app.get('/api/admin/rh/alignments', authenticateAdmin, async (req, res) => {
+    try {
+        const today = new Date().toISOString().substring(0, 10);
+        const mappingsStr = req.query.mappings;
+        let mappings = [{rhField: 'DIRECTION_L', adField: 'department'}, {rhField: 'SERVICE_L', adField: 'company'}];
+        if (mappingsStr) {
+            try { mappings = JSON.parse(mappingsStr); } catch (e) { console.error("Invalid mappings format"); }
+        }
+
+        // On récupère les agents avec un lien AD avec tous les champs pour supporter les mappings dynamiques
+        const agents = await db.all(`
+            SELECT * 
+            FROM rh.referentiel_agents 
+            WHERE ad_username IS NOT NULL AND ad_username != ''
+            AND date_plusvu IS NULL 
+            AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
+        `, [today]);
+
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) return res.status(400).json({ message: "AD non configuré" });
+
+        const adAttributes = [...new Set(['sAMAccountName', ...mappings.map(m => m.adField)])];
+
+        const allADUsers = await new Promise((resolve, reject) => {
+            const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
+            client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                if (err) { client.destroy(); return reject(err); }
+                const users = new Map();
+                const searchOptions = {
+                    filter: '(objectClass=user)',
+                    scope: 'sub',
+                    attributes: adAttributes,
+                    paged: true
+                };
+                client.search(adSettings.base_dn, searchOptions, (err, searchRes) => {
+                    if (err) { client.destroy(); return reject(err); }
+                    searchRes.on('searchEntry', (entry) => { 
+                        const u = flattenLDAPEntry(entry);
+                        if (u.sAMAccountName) users.set(u.sAMAccountName.toLowerCase(), u);
+                    });
+                    searchRes.on('end', () => { client.destroy(); resolve(users); });
+                    searchRes.on('error', (err) => { client.destroy(); reject(err); });
+                });
+            });
+        });
+
+        const discrepancies = [];
+        for (const agent of agents) {
+            const sam = agent.ad_username.includes('\\') ? agent.ad_username.split('\\').pop().toLowerCase() : agent.ad_username.toLowerCase();
+            const adUser = allADUsers.get(sam);
+            if (adUser) {
+                let hasDiscrepancy = false;
+                const rhData = {};
+                const adData = {};
+                
+                for (const m of mappings) {
+                    const rhVal = agent[m.rhField] || '';
+                    const adVal = adUser[m.adField] || '';
+                    rhData[m.rhField] = rhVal;
+                    adData[m.adField] = adVal;
+                    // On compare en string simple
+                    if (String(rhVal).trim() !== String(adVal).trim()) {
+                        hasDiscrepancy = true;
+                    }
+                }
+
+                if (hasDiscrepancy) {
+                    discrepancies.push({
+                        matricule: agent.MATRICULE,
+                        nom: agent.NOM,
+                        prenom: agent.PRENOM,
+                        ad_username: agent.ad_username,
+                        rh: rhData,
+                        ad: adData,
+                        mappings
+                    });
+                }
+            }
+        }
+
+        res.json(discrepancies);
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur alignements', error: err.message });
+    }
+});
+
+app.post('/api/admin/rh/align-to-ad', authenticateAdmin, async (req, res) => {
+    try {
+        const { agents } = req.body; // Liste des agents { matricule, ad_username, service, direction }
+        if (!agents || !Array.isArray(agents)) return res.status(400).json({ message: "Liste d'agents invalide" });
+
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) return res.status(400).json({ message: "AD non configuré" });
+
+        const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
+        await new Promise((resolve, reject) => {
+            client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => err ? reject(err) : resolve());
+        });
+
+        const results = { success: 0, error: 0, details: [] };
+
+        for (const agent of agents) {
+            try {
+                // On doit d'abord trouver le DN de l'utilisateur
+                const sam = agent.ad_username.includes('\\') ? agent.ad_username.split('\\').pop() : agent.ad_username;
+                const searchRes = await new Promise((resolve, reject) => {
+                    client.search(adSettings.base_dn, { filter: `(sAMAccountName=${sam})`, scope: 'sub', attributes: ['dn'] }, (err, res) => {
+                        if (err) return reject(err);
+                        let dn = null;
+                        res.on('searchEntry', (entry) => { dn = entry.objectName; });
+                        res.on('end', () => resolve(dn));
+                        res.on('error', reject);
+                    });
+                });
+
+                if (!searchRes) throw new Error("Utilisateur AD non trouvé");
+
+                const changes = [];
+                for (const [adField, newValue] of Object.entries(agent.updates)) {
+                    changes.push(new ldap.Change({ operation: 'replace', modification: { [adField]: newValue || '' } }));
+                }
+
+                if (changes.length > 0) {
+                    await new Promise((resolve, reject) => {
+                        client.modify(searchRes, changes, (err) => err ? reject(err) : resolve());
+                    });
+                }
+
+                results.success++;
+            } catch (err) {
+                results.error++;
+                results.details.push({ matricule: agent.matricule, error: err.message });
+            }
+        }
+
+        client.destroy();
+        res.json(results);
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur mise à jour AD', error: err.message });
+    }
+});
+
 // Récupérer les agents avec filtrage et pagination
 app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
     try {
@@ -1094,9 +1344,20 @@ app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
         `;
         const agents = await db.all(agentsQuery, [...params, parseInt(limit), offset]);
 
-        // Calculate subordinate counts for managers if management_level is requested
-        if (management_level) {
-            for (let agent of agents) {
+        // Déterminer les positions actives pour le flag is_active_position
+        const activePosSetting = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'rh_active_positions'");
+        const activePositions = activePosSetting && activePosSetting.setting_value ? JSON.parse(activePosSetting.setting_value) : [];
+        const activePosSet = new Set(activePositions.map(p => String(p).toUpperCase()));
+
+        // Ajouter les flags et calculs supplémentaires
+        for (let agent of agents) {
+            // Flag de position active : si rien n'est configuré, tout le monde est actif par défaut
+            const agentPos = (agent.POSITION_L || '').trim().toUpperCase();
+            agent.is_active_position = (activePositions.length === 0) || 
+                                       (agentPos !== '' && activePosSet.has(agentPos));
+
+            // Calculate subordinate counts for managers if management_level is requested
+            if (management_level) {
                 let countQuery = '';
                 let countParams = [today];
 
@@ -1124,6 +1385,22 @@ app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
         res.json({ agents, total, page: parseInt(page), limit: parseInt(limit) });
     } catch (err) {
         res.status(500).json({ message: 'Erreur lecture agents', error: err.message });
+    }
+});
+
+// Supprimer le lien AD d'un agent
+app.delete('/api/admin/rh/agents/:matricule/ad-link', authenticateAdmin, async (req, res) => {
+    try {
+        const { matricule } = req.params;
+        await db.run(
+            `UPDATE rh.referentiel_agents 
+             SET ad_username = NULL, ad_account_enabled = NULL, ad_last_logon = NULL, date_fin_association_ad = ?
+             WHERE MATRICULE = ?`,
+            [new Date().toISOString().substring(0, 10), matricule]
+        );
+        res.json({ message: `Lien AD supprimé pour ${matricule}` });
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur suppression lien AD', error: err.message });
     }
 });
 
@@ -1156,6 +1433,27 @@ app.post('/api/admin/rh/active-positions', authenticateAdmin, async (req, res) =
         res.json({ message: 'Positions enregistrées' });
     } catch (err) {
         res.status(500).json({ message: 'Erreur sauvegarde positions actives', error: err.message });
+    }
+});
+
+
+app.get('/api/admin/rh/align-mappings', authenticateAdmin, async (req, res) => {
+    try {
+        const setting = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'rh_ad_align_mappings'");
+        res.json(setting && setting.setting_value ? JSON.parse(setting.setting_value) : [{rhField: 'DIRECTION_L', adField: 'department'}, {rhField: 'SERVICE_L', adField: 'company'}]);
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur lecture mappings', error: err.message });
+    }
+});
+
+app.post('/api/admin/rh/align-mappings', authenticateAdmin, async (req, res) => {
+    try {
+        const { mappings } = req.body;
+        await db.run("INSERT OR REPLACE INTO app_settings (setting_key, setting_value, description) VALUES (?, ?, ?)",
+            ['rh_ad_align_mappings', JSON.stringify(mappings || []), 'Paramétrage des champs RH/AD pour les alignements']);
+        res.json({ message: 'Mappings enregistrés' });
+    } catch (err) {
+        res.status(500).json({ message: 'Erreur sauvegarde mappings', error: err.message });
     }
 });
 
@@ -1194,14 +1492,21 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
         // Colonnes techniques supplémentaires
         try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN date_fin_association_ad DATETIME"); } catch (e) { }
         try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN azure_id TEXT"); } catch (e) { }
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN azure_license TEXT"); } catch (e) { }
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN azure_account_enabled INTEGER DEFAULT 1"); } catch (e) { }
         try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN last_sync_modified INTEGER DEFAULT 0"); } catch (e) { }
         try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN ad_last_logon TEXT"); } catch (e) { }
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN ad_account_enabled INTEGER DEFAULT 1"); } catch (e) { }
 
         // 3. Récupérer les données Oracle
         const extractData = await db.all("SELECT * FROM rh.V_EXTRACT_DSI");
         const extractMatricules = new Set(extractData.map(r => String(r.MATRICULE)));
 
-        // 4. Réinitialiser les drapeaux de modification
+        // 4. Statistiques de départ
+        const beforeSyncCount = (await db.get("SELECT COUNT(*) as c FROM rh.referentiel_agents WHERE date_plusvu IS NULL")).c;
+        const existingMatricules = new Set((await db.all("SELECT MATRICULE FROM rh.referentiel_agents")).map(r => String(r.MATRICULE)));
+
+        // Réinitialiser les drapeaux de modification
         await db.run('UPDATE rh.referentiel_agents SET last_sync_modified = 0');
 
         // 5. UPSERT des données
@@ -1212,7 +1517,7 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
 
             const stmt = await db.prepare(`
                 INSERT INTO rh.referentiel_agents (${oracleCols.map(c => `"${c}"`).join(', ')}, date_plusvu, last_sync_modified) 
-                VALUES (${placeholders}, NULL, 1)
+                VALUES (${placeholders}, NULL, 0)
                 ON CONFLICT(MATRICULE) DO UPDATE SET 
                 ${setCols}, 
                 last_sync_modified = CASE 
@@ -1271,7 +1576,6 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
                 const prenom = rhA.PRENOM;
 
                 if (!matricule || !nom || !prenom) continue;
-
                 try {
                     const adMatch = await searchADUserByName(nom, prenom, adSettings);
                     if (adMatch) {
@@ -1284,15 +1588,34 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
             }
         }
 
-        const totalCopied = extractData.length;
-        const missing = (await db.get("SELECT count(*) as c FROM rh.referentiel_agents WHERE date_plusvu IS NOT NULL")).c;
-
-        const results = { new: totalCopied, matched: matchedCount, left: missing };
-        console.log(`[SYNC RH] Fin. Copiés: ${totalCopied}, AD liés: ${matchedCount}, Disparus: ${missing}`);
+        // 7. Calcul des statistiques réelles
+        // Nouveaux : matricules qui n'existaient pas au début
+        const newAgentsCount = extractData.filter(r => {
+            const m = String(r.MATRICULE || r.matricule || '').trim();
+            return m && !existingMatricules.has(m);
+        }).length;
+        
+        // Modifiés : ceux déjà existants dont last_sync_modified = 1
+        const modifiedAgentsCount = (await db.get("SELECT COUNT(*) as c FROM rh.referentiel_agents WHERE last_sync_modified = 1")).c;
+        
+        // Départs : ceux qui ont été marqués date_plusvu dans cette synchro
+        // (On compare le nombre d'actifs avant vs le nombre d'actifs maintenant)
+        const afterSyncActiveCount = (await db.get("SELECT COUNT(*) as c FROM rh.referentiel_agents WHERE date_plusvu IS NULL")).c;
+        const totalProcessedCount = extractData.length;
+        
+        const results = { 
+            total: totalProcessedCount,
+            new: newAgentsCount, 
+            modified: modifiedAgentsCount, 
+            departed: Math.max(0, beforeSyncCount + newAgentsCount - afterSyncActiveCount),
+            matched_ad: matchedCount 
+        };
+        
+        console.log(`[SYNC RH] Fin. Nouveaux: ${newAgentsCount}, Modifiés: ${modifiedAgentsCount}, Départs: ${results.departed}, AD liés: ${matchedCount}`);
         
         await db.run(
             'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
-            ['RH Oracle', 'success', `Sync RH terminée: ${totalCopied} agents, ${matchedCount} AD liés`, JSON.stringify(results), username]
+            ['RH Oracle', 'success', `Sync RH terminée: +${newAgentsCount} nouveaux, ~${modifiedAgentsCount} modifiés, -${results.departed} départs`, JSON.stringify(results), username]
         );
         console.log(`[SYNC LOG] Succès pour RH Oracle`);
 
@@ -1351,11 +1674,50 @@ function getLevenshteinDistance(a, b) {
 }
 
 function calculateMatchScore(rhNom, rhPrenom, adDisplay) {
+    // Normalise l'affichage LDAP pour gérer les encodages type \c3\a9 (UTF-8)
+    const normalizedAD = adDisplay.replace(/\\([0-9a-fA-F]{2})/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
     const s1 = `${rhNom} ${rhPrenom}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const s2 = adDisplay.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const s2 = normalizedAD.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const dist = getLevenshteinDistance(s1, s2);
     const maxLen = Math.max(s1.length, s2.length);
     return maxLen === 0 ? 100 : Math.round((1 - dist / maxLen) * 100);
+}
+
+// Fonction pour parser les dates LDAP (filetime)
+function parseLDAPDate(val) {
+    if (!val) return null;
+    try {
+        const timestamp = parseInt(val);
+        if (timestamp <= 0 || isNaN(timestamp)) return null;
+        // LDAP filetime est en 100-nanosecondes depuis le 1er Janvier 1601
+        return new Date((timestamp / 10000) - 11644473600000);
+    } catch (e) {
+        return null;
+    }
+}
+
+// Fonction pour décoder l'UTF-8 LDAP (ex: \c3\a9)
+function decodeLDAPString(str) {
+    if (!str || typeof str !== 'string') return str;
+    try {
+        // Remplace les \xx par les caractères correspondants si c'est de l'UTF-8 mixé
+        if (str.includes('\\')) {
+            // Utiliser un buffer pour gérer correctement l'UTF-8 multi-octets
+            const bytes = [];
+            for (let i = 0; i < str.length; i++) {
+                if (str[i] === '\\' && i + 2 < str.length) {
+                    bytes.push(parseInt(str.substring(i + 1, i + 3), 16));
+                    i += 2;
+                } else {
+                    bytes.push(str.charCodeAt(i));
+                }
+            }
+            return Buffer.from(bytes).toString('utf8');
+        }
+        return str;
+    } catch (e) {
+        return str;
+    }
 }
 
 app.get('/api/admin/rh/sync-ad/progress', authenticateAdmin, (req, res) => {
@@ -1366,7 +1728,7 @@ app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
     const username = req.user?.username || 'system';
     if (adSyncProgress.status === 'running') return res.status(400).json({ message: "Synchro déjà en cours" });
 
-    adSyncProgress = { current: 0, total: 0, status: 'running', associations: 0, currentName: '' };
+    adSyncProgress = { current: 0, total: 0, status: 'running', associations: 0, currentName: 'Synchronisation en cours...' };
     res.json({ message: "Synchronisation AD lancée" });
 
     (async () => {
@@ -1387,17 +1749,21 @@ app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
                 return;
             }
 
-            // 1. Charger tous les utilisateurs AD
+            // 1. Charger tous les utilisateurs AD avec pagination
             const allADUsers = await new Promise((resolve, reject) => {
                 const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
                 client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
                     if (err) { client.destroy(); return reject(err); }
                     const users = [];
-                    client.search(adSettings.base_dn, {
+                    const searchOptions = {
                         filter: '(objectClass=user)',
                         scope: 'sub',
-                        attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'userAccountControl', 'employeeID', 'description', 'lastLogonTimestamp']
-                    }, (err, searchRes) => {
+                        attributes: ['*', 'lastLogonTimestamp', 'lastLogon'],
+                        paged: true,
+                        sizeLimit: 10000
+                    };
+
+                    client.search(adSettings.base_dn, searchOptions, (err, searchRes) => {
                         if (err) { client.destroy(); return reject(err); }
                         searchRes.on('searchEntry', (entry) => { users.push(flattenLDAPEntry(entry)); });
                         searchRes.on('end', () => { client.destroy(); resolve(users); });
@@ -1428,11 +1794,14 @@ app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
                 }
 
                 // Index par nom normalisé
-                if (u.displayName) {
-                    const norm = u.displayName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
+                const displayName = decodeLDAPString(u.displayName);
+                const cn = decodeLDAPString(u.cn);
+                
+                if (displayName) {
+                    const norm = displayName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
                     if (norm.length > 5) adNameMap.set(norm, u);
-                } else if (u.cn) {
-                    const norm = u.cn.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
+                } else if (cn) {
+                    const norm = cn.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
                     if (norm.length > 5) adNameMap.set(norm, u);
                 }
             });
@@ -1448,10 +1817,8 @@ app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
             for (let i = 0; i < agentsToSync.length; i++) {
                 const agent = agentsToSync[i];
                 adSyncProgress.current = i + 1;
-                const agentNom = agent.NOM || agent.nom || '';
-                const agentPrenom = agent.PRENOM || agent.prenom || '';
-                adSyncProgress.currentName = `${agentNom} ${agentPrenom}`;
-
+                adSyncProgress.currentName = `Traitement: ${i+1}/${agentsToSync.length}`; 
+                
                 // Petit délai pour la visibilité de la barre de progression si c'est trop rapide
                 if (i % 5 === 0) await new Promise(resolve => setTimeout(resolve, 30));
 
@@ -1464,32 +1831,60 @@ app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
 
                 let match = null;
 
-                // 1. Recherche par matricule (Haute priorité)
+                // Si l'agent a déjà un lien AD (manuel ou auto), on NE re-matche PAS par nom/matricule
+                // pour ne pas écraser un lien donné manuellement
+                if (agent.ad_username) {
+                    // Cherche directement par le username connu (peut être domain\user ou juste user)
+                    const samLookup = agent.ad_username.includes('\\') 
+                        ? agent.ad_username.split('\\').pop().toLowerCase()
+                        : agent.ad_username.toLowerCase();
+                    const existingAD = adMatriculeMap.get(samLookup);
+                    if (existingAD) {
+                        const uac = parseInt(existingAD.userAccountControl);
+                        const enabled = isNaN(uac) ? 1 : (!(uac & 2) ? 1 : 0);
+                        
+                        // Fusion de lastLogon et lastLogonTimestamp
+                        const d1 = parseLDAPDate(existingAD.lastLogonTimestamp);
+                        const d2 = parseLDAPDate(existingAD.lastLogon);
+                        let bestLogon = null;
+                        if (d1 && d2) bestLogon = d1 > d2 ? d1 : d2;
+                        else bestLogon = d1 || d2 || null;
+
+                        const lastLogonIso = bestLogon ? bestLogon.toISOString() : null;
+                        
+                        await db.run('UPDATE rh.referentiel_agents SET ad_account_enabled = ?, ad_last_logon = ? WHERE MATRICULE = ?', [enabled, lastLogonIso, agentMatricule]);
+                        adSyncProgress.associations++;
+                    } else {
+                        // Le compte AD connu a disparu ou n'est pas indexé (mauvais format?)
+                        console.log(`[AD Sync] Compte AD '${agent.ad_username}' non trouvé dans l'index pour ${agentNom}`);
+                        await db.run('UPDATE rh.referentiel_agents SET ad_account_enabled = 0 WHERE MATRICULE = ?', [agentMatricule]);
+                    }
+                    continue; // Passe à l'agent suivant sans re-matcher
+                }
+
+                // 1. Agent sans lien AD: Recherche par matricule (Haute priorité)
                 if (matricule) {
                     match = adMatriculeMap.get(matricule);
                 }
 
-                // 2. Si non trouvé, recherche par nom/prénom
+                // 2. Si non trouvé, recherche par nom/prénom (ne s'applique qu'aux agents sans lien)
                 if (!match && fullNameNorm.length > 3) {
                     match = adNameMap.get(fullNameNorm) || adNameMap.get(fullNameNormReverse);
                 }
 
-                // 3. Traitement du match
+                // 3. Traitement du match (nouveau lien)
                 if (match) {
                     const uac = parseInt(match.userAccountControl);
                     const enabled = isNaN(uac) ? 1 : (!(uac & 2) ? 1 : 0);
 
-                    let lastLogonIso = null;
-                    if (match.lastLogonTimestamp) {
-                        try {
-                            const timestamp = parseInt(match.lastLogonTimestamp);
-                            if (timestamp > 0) {
-                                // Windows FileTime (100ns since 1601-01-01) to JS Date
-                                const date = new Date((timestamp / 10000) - 11644473600000);
-                                lastLogonIso = date.toISOString();
-                            }
-                        } catch (e) { }
-                    }
+                    // Fusion de lastLogon et lastLogonTimestamp
+                    const d1 = parseLDAPDate(match.lastLogonTimestamp);
+                    const d2 = parseLDAPDate(match.lastLogon);
+                    let bestLogon = null;
+                    if (d1 && d2) bestLogon = d1 > d2 ? d1 : d2;
+                    else bestLogon = d1 || d2 || null;
+
+                    const lastLogonIso = bestLogon ? bestLogon.toISOString() : null;
 
                     const email = Array.isArray(match.mail) ? match.mail[0] : (match.mail || null);
                     await db.run(
@@ -1499,17 +1894,6 @@ app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
                         [match.sAMAccountName, enabled, lastLogonIso, email, agentMatricule]
                     );
                     adSyncProgress.associations++;
-                } else if (agent.ad_username) {
-                    // Si l'agent était lié mais n'est plus trouvé dans l'AD (ou plus matché)
-                    const existingAD = adMatriculeMap.get(agent.ad_username.toLowerCase());
-                    if (existingAD) {
-                        const uac = parseInt(existingAD.userAccountControl);
-                        const enabled = isNaN(uac) ? 1 : (!(uac & 2) ? 1 : 0);
-                        await db.run('UPDATE rh.referentiel_agents SET ad_account_enabled = ? WHERE MATRICULE = ?', [enabled, agentMatricule]);
-                    } else {
-                        // Le compte spécifié a disparu de l'AD
-                        await db.run('UPDATE rh.referentiel_agents SET ad_account_enabled = 0 WHERE MATRICULE = ?', [agentMatricule]);
-                    }
                 }
             }
 
@@ -1584,11 +1968,12 @@ app.post('/api/admin/rh/sync-azure', authenticateAdmin, async (req, res) => {
                 skuRes.data.value.forEach(sku => {
                     skuMap.set(sku.skuId, sku.skuPartNumber);
                 });
-            } catch (e) { console.error("Error fetching subscribedSkus:", e.message); }
+                console.log(`[Azure Sync] ${skuMap.size} SKUs récupérés: ${[...skuMap.values()].join(', ')}`);
+            } catch (e) { console.error("[Azure Sync] ERREUR lors de la récupération des SKUs:", e.message); }
 
             // 3. Récupérer tous les utilisateurs Azure avec licences
             let allAzureUsers = [];
-            let nextLink = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,assignedLicenses';
+            let nextLink = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,assignedLicenses,accountEnabled';
             while (nextLink) {
                 const graphRes = await axios.get(nextLink, { headers: { Authorization: `Bearer ${accessToken}` } });
                 allAzureUsers = allAzureUsers.concat(graphRes.data.value);
@@ -1610,12 +1995,26 @@ app.post('/api/admin/rh/sync-azure', authenticateAdmin, async (req, res) => {
             const azEmailMap = new Map();
             allAzureUsers.forEach(u => {
                 if (u.displayName) {
-                    const normalized = u.displayName.toLowerCase().replace(/\s+/g, '');
+                    // Normalisation avec suppression des accents pour meilleur matching
+                    const normalized = u.displayName.toLowerCase()
+                        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                        .replace(/[^a-z]/g, "");
                     azNameMap.set(normalized, u);
+                    // Aussi indexer par prénom+nom
+                    const parts = u.displayName.trim().split(/\s+/);
+                    if (parts.length >= 2) {
+                        const reversed = (parts.slice(1).join('') + parts[0]).toLowerCase()
+                            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                            .replace(/[^a-z]/g, "");
+                        if (!azNameMap.has(reversed)) azNameMap.set(reversed, u);
+                    }
                 }
                 if (u.mail) azEmailMap.set(u.mail.toLowerCase(), u);
                 if (u.userPrincipalName) azEmailMap.set(u.userPrincipalName.toLowerCase(), u);
             });
+
+            // Afficher les SKUs disponibles pour diagnostic
+            console.log(`[Azure Sync] SKUs disponibles: ${[...skuMap.values()].join(', ')}`);
 
             for (let i = 0; i < agents.length; i++) {
                 const agent = agents[i];
@@ -1628,32 +2027,52 @@ app.post('/api/admin/rh/sync-azure', authenticateAdmin, async (req, res) => {
                 const agentPrenom = agent.PRENOM || agent.prenom || '';
                 const agentMail = agent.MAIL || agent.mail || agent.EMAIL || agent.email || '';
 
-                const normalizedRH = (agentNom + agentPrenom).toLowerCase().replace(/\s+/g, '');
-                const normalizedRHReverse = (agentPrenom + agentNom).toLowerCase().replace(/\s+/g, '');
+                const normalizedRH = (agentNom + agentPrenom).toLowerCase()
+                    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                    .replace(/[^a-z]/g, "");
+                const normalizedRHReverse = (agentPrenom + agentNom).toLowerCase()
+                    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                    .replace(/[^a-z]/g, "");
 
                 let match = null;
                 if (agentMail) match = azEmailMap.get(agentMail.toLowerCase());
                 if (!match) match = azNameMap.get(normalizedRH) || azNameMap.get(normalizedRHReverse);
+                // Essai aussi par mail si le sAMAccountName@domaine est connu
+                if (!match && agent.ad_username) {
+                    const possibleUpn = agent.ad_username.toLowerCase();
+                    match = azEmailMap.get(possibleUpn) || [...azEmailMap.keys()].reduce((best, key) => {
+                        if (key.startsWith(possibleUpn + '@')) return azEmailMap.get(key);
+                        return best;
+                    }, null);
+                }
                 if (match) {
                     let mainLicense = null;
                     if (match.assignedLicenses && match.assignedLicenses.length > 0) {
-                        // Priorités de licences (on prend la plus "haute")
-                        const priorities = ['SPE_E5', 'SPE_E3', 'O365_BUSINESS_PREMIUM', 'O365_BUSINESS_STANDARD', 'M365_BUSINESS_BASIC', 'DEVELOPER_PACK', 'ENTERPRISEPREMIUM', 'ENTERPRISEPACK'];
-                        const userSkus = match.assignedLicenses.map(l => skuMap.get(l.skuId)).filter(Boolean);
+                        // Récupère le nom de la SKU ou le skuId brut comme fallback
+                        const userSkus = match.assignedLicenses.map(l => skuMap.get(l.skuId) || l.skuId);
+                        console.log(`[Azure Sync] ${agentNom}: SKUs = [${userSkus.join(', ')}]`);
+
+                        const priorities = [
+                            'SPE_E5', 'SPE_E3', 'SPE_E1',
+                            'ENTERPRISEPREMIUM', 'ENTERPRISEPACK', 'ENTERPRISE_THREAT_DETECTION',
+                            'M365_BUSINESS_PREMIUM', 'O365_BUSINESS_PREMIUM',
+                            'M365_BUSINESS_STANDARD', 'O365_BUSINESS_STANDARD',
+                            'M365_BUSINESS_BASIC', 'O365_BUSINESS_ESSENTIALS',
+                            'DEVELOPER_PACK', 'DEVELOPERPACK_E5',
+                            'MICROSOFT_365_COPILOT', 'TEAMS_EXPLORATORY', 'FLOW_FREE',
+                            'ET1', 'E1', 'E3', 'E5'
+                        ];
 
                         for (const p of priorities) {
-                            if (userSkus.includes(p)) {
-                                mainLicense = p;
-                                break;
-                            }
+                            if (userSkus.includes(p)) { mainLicense = p; break; }
                         }
-                        // Si aucune des prioritaires, prendre la première trouvée
-                        if (!mainLicense && userSkus.length > 0) mainLicense = userSkus[0];
+                        // Si aucune prioritaire, prendre la première disponible (même si c'est un skuId brut)
+                        if (!mainLicense) mainLicense = userSkus[0] || null;
                     }
 
                     await db.run(
-                        'UPDATE rh.referentiel_agents SET azure_id = ?, azure_license = ? WHERE MATRICULE = ?',
-                        [match.id, mainLicense, agent.MATRICULE]
+                        'UPDATE rh.referentiel_agents SET azure_id = ?, azure_license = ?, azure_account_enabled = ? WHERE MATRICULE = ?',
+                        [match.id, mainLicense, match.accountEnabled ? 1 : 0, agent.MATRICULE]
                     );
                     if (mainLicense) {
                         console.log(`[Azure Sync] MATCH trouvé pour ${agentNom}: ${match.userPrincipalName} (Licence: ${mainLicense})`);

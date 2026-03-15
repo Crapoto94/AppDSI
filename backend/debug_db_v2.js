@@ -1,26 +1,26 @@
-const sqlite3 = require('sqlite3').verbose();
+const sqlite3 = require('sqlite3');
+const { open } = require('sqlite');
 const path = require('path');
 
-const db = new sqlite3.Database(path.join(__dirname, 'database.sqlite'), sqlite3.OPEN_READONLY, (err) => {
-    if (err) {
-        console.error('Erreur ouverture DB:', err.message);
-        return;
+async function debug() {
+    try {
+        const db = await open({
+            filename: path.join(__dirname, 'database.sqlite'),
+            driver: sqlite3.Database
+        });
+
+        const rhDbPath = path.join(__dirname, 'oracle_rh.sqlite');
+        await db.exec(`ATTACH DATABASE '${rhDbPath}' AS rh`);
+
+        console.log("--- SAMPLE Azure DATA ---");
+        const sample = await db.all("SELECT MATRICULE, azure_id, azure_license FROM rh.referentiel_agents WHERE azure_id IS NOT NULL LIMIT 20");
+        console.log(JSON.stringify(sample, null, 2));
+        
+        process.exit(0);
+    } catch (err) {
+        console.error("Debug failed:", err);
+        process.exit(1);
     }
-    
-    db.all("PRAGMA table_info(oracle_commande)", (err, rows) => {
-        if (err) {
-            console.error('Erreur PRAGMA:', err.message);
-        } else {
-            console.log('--- COLONNES ORACLE_COMMANDE ---');
-            console.log(JSON.stringify(rows.map(r => r.name), null, 2));
-            
-            db.get("SELECT * FROM oracle_commande LIMIT 1", (err, row) => {
-                if (!err && row) {
-                    console.log('--- EXEMPLE DE LIGNE ---');
-                    console.log(JSON.stringify(row, null, 2));
-                }
-                db.close();
-            });
-        }
-    });
-});
+}
+
+debug();

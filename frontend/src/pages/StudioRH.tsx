@@ -11,8 +11,26 @@ import {
   LayoutDashboard,
   Settings as SettingsIcon, Activity,
   Bell, Lock, Sliders, Eye, EyeOff, Cloud, CloudOff,
-  Database, ShieldCheck, Monitor, MonitorOff
+  Database, ShieldCheck, Monitor, MonitorOff, Network, ArrowRightLeft
 } from 'lucide-react';
+
+export const getAzureLicenseName = (licenseStr: string) => {
+  if (!licenseStr) return '';
+  const l = licenseStr.toLowerCase();
+  
+  if (l.includes('6fd2c87f-b296-42f0-b197-1e91e994b900') || l.includes('e3')) return 'E3';
+  if (l.includes('18181a46-0d4e-4ce5-a730-f173718ccc14') || l.includes('e1')) return 'E1';
+  if (l.includes('c7df2760-2c81-4ef7-b578-5b5392b571df') || l.includes('f3')) return 'F3';
+  if (l.includes('8c4ce438-32a7-4ac5-91a6-e22ae08d9c8b') || l.includes('f1')) return 'F1';
+  if (l.includes('05e9a617-0261-4cee-970c-d492c969ce70') || l.includes('e5')) return 'E5';
+  if (l.includes('cb5cb0b2-7102-4214-9def-63c631024317') || l.includes('premium')) return 'Biz P';
+  if (l.includes('199a5c09-e0ca-475f-86ea-eb0c8c36ed60') || l.includes('standard')) return 'Biz S';
+  if (l.includes('f30db892-07e9-47e9-837c-80727f46fd3d')) return 'Automate';
+  if (l.includes('3b555118-da6a-4418-894f-7df1e2096870')) return 'Copilot';
+
+  if (licenseStr.includes('-')) return licenseStr.split('-')[0].substring(0, 4); 
+  return licenseStr.split('_').pop() || licenseStr;
+};
 
 interface ColumnSetting {
   id: number;
@@ -203,6 +221,568 @@ const EncadrantsView: React.FC<EncadrantsViewProps> = ({ headers }) => {
   );
 };
 
+interface OnboardingData {
+  not_started: Agent[];
+  in_progress: Agent[];
+  completed: Agent[];
+}
+
+const OnboardingView: React.FC<{ headers: { Authorization: string } }> = ({ headers }) => {
+  const [data, setData] = React.useState<OnboardingData | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const fetchOnboarding = async () => {
+      try {
+        const res = await axios.get('/api/admin/rh/onboarding', { headers });
+        setData(res.data);
+      } catch (err) {
+        console.error('Erreur onboarding', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchOnboarding();
+  }, [headers]);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
+        <Loader2 className="spin" size={32} style={{ color: '#059669' }} />
+      </div>
+    );
+  }
+
+  const renderAgentCard = (agent: Agent) => (
+    <div key={agent.MATRICULE || agent.matricule} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ width: '36px', height: '36px', background: '#f8fafc', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#64748b', fontSize: '13px' }}>
+          {(agent.PRENOM || agent.prenom)?.[0]}{(agent.NOM || agent.nom)?.[0]}
+        </div>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a' }}>{agent.NOM || agent.nom} {agent.PRENOM || agent.prenom}</div>
+          <div style={{ fontSize: '11px', color: '#64748b' }}>{agent.POSTE_L || agent.poste_l || '-'}</div>
+        </div>
+      </div>
+      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span><b>Arrivée:</b> {agent.DATE_ARRIVEE ? new Date(agent.DATE_ARRIVEE).toLocaleDateString('fr-FR') : '-'}</span>
+          <span style={{ color: agent.ad_username ? '#059669' : '#ef4444', fontWeight: 600 }}>{agent.ad_username || 'Sans AD'}</span>
+        </div>
+        <div style={{ marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.SERVICE_L || '-'}</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Onboarding (Arrivées)</h1>
+        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0 0' }}>Suivi des arrivées récentes (30 derniers jours) et futures.</p>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', alignItems: 'start' }}>
+        <div style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '12px', padding: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#b91c1c' }}>Non commencé</h3>
+            <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: '99px', fontSize: '12px', fontWeight: 700 }}>{data?.not_started?.length || 0}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {data?.not_started?.map(renderAgentCard)}
+            {data?.not_started?.length === 0 && <div style={{ fontSize: '13px', color: '#991b1b', textAlign: 'center', padding: '10px' }}>Aucun agent</div>}
+          </div>
+        </div>
+
+        <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', borderRadius: '12px', padding: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#c2410c' }}>En cours</h3>
+            <span style={{ background: '#ffedd5', color: '#c2410c', padding: '2px 8px', borderRadius: '99px', fontSize: '12px', fontWeight: 700 }}>{data?.in_progress?.length || 0}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {data?.in_progress?.map(renderAgentCard)}
+            {data?.in_progress?.length === 0 && <div style={{ fontSize: '13px', color: '#9a3412', textAlign: 'center', padding: '10px' }}>Aucun agent</div>}
+          </div>
+        </div>
+
+        <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: '12px', padding: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#15803d' }}>Terminé</h3>
+            <span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: '99px', fontSize: '12px', fontWeight: 700 }}>{data?.completed?.length || 0}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {data?.completed?.map(renderAgentCard)}
+            {data?.completed?.length === 0 && <div style={{ fontSize: '13px', color: '#166534', textAlign: 'center', padding: '10px' }}>Aucun agent</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AgentCard: React.FC<{ agent: any }> = ({ agent }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+    <div style={{ width: '28px', height: '28px', background: '#e2e8f0', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: '#475569' }}>
+      {agent.PRENOM?.[0]}{agent.NOM?.[0]}
+    </div>
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.NOM} {agent.PRENOM}</div>
+      <div style={{ fontSize: '10px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.POSTE_L || '-'}</div>
+    </div>
+  </div>
+);
+
+const HierarchyView: React.FC<{ headers: { Authorization: string } }> = ({ headers }) => {
+  const [data, setData] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [expandedDirs, setExpandedDirs] = React.useState<Record<string, boolean>>({});
+  const [expandedServs, setExpandedServs] = React.useState<Record<string, boolean>>({});
+
+  React.useEffect(() => {
+    const fetchHierarchy = async () => {
+      try {
+        const res = await axios.get('/api/admin/rh/hierarchy', { headers });
+        setData(res.data);
+        if (res.data && res.data.length > 0) {
+          const initDirs: Record<string, boolean> = {};
+          const initServs: Record<string, boolean> = {};
+          res.data.forEach((d: any) => { 
+            initDirs[d.name] = true; 
+            if (d.services) {
+              d.services.forEach((s: any) => { initServs[s.name] = true; });
+            }
+          });
+          setExpandedDirs(initDirs);
+          setExpandedServs(initServs);
+        }
+      } catch (err) {
+        console.error('Erreur hierarchy', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHierarchy();
+  }, [headers]);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
+        <Loader2 className="spin" size={32} style={{ color: '#059669' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Organisation</h1>
+        <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0 0' }}>Vue hiérarchique : Direction &rarr; Service &rarr; Secteur &rarr; Agents actifs.</p>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {data.length === 0 ? (
+           <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Aucune donnée hiérarchique</div>
+        ) : (
+          data.map((dir, dIdx) => {
+            const isDirExpanded = expandedDirs[dir.name];
+            return (
+              <div key={`dir-${dIdx}`} style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                <div 
+                  onClick={() => setExpandedDirs(prev => ({ ...prev, [dir.name]: !isDirExpanded }))}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', cursor: 'pointer', background: isDirExpanded ? '#f8fafc' : 'white', borderBottom: isDirExpanded ? '1px solid #e2e8f0' : 'none' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <Network size={20} style={{ color: '#0f766e' }} />
+                    <span style={{ fontWeight: 700, fontSize: '16px', color: '#0f172a' }}>{dir.name}</span>
+                    <span style={{ background: '#f1f5f9', color: '#475569', borderRadius: '99px', padding: '2px 10px', fontSize: '12px', fontWeight: 700 }}>
+                      {dir.count} agents
+                    </span>
+                  </div>
+                  <ChevronRight size={18} style={{ color: '#94a3b8', transform: isDirExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+                </div>
+                
+                {isDirExpanded && (
+                  <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '12px', background: '#fafbfc' }}>
+                    {/* Agents directement rattachés à la Direction */}
+                    {dir.agents && dir.agents.length > 0 && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f766e', textTransform: 'uppercase', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ width: '8px', height: '2px', background: '#0f766e' }}></span>
+                          Agents sans service ({dir.agents.length})
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px' }}>
+                          {dir.agents.map((agent: any) => (
+                            <AgentCard key={agent.MATRICULE} agent={agent} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {dir.services.map((serv: any, sIdx: number) => {
+                      const isServExpanded = expandedServs[serv.name];
+                      return (
+                        <div key={`srv-${sIdx}`} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                          <div 
+                            onClick={() => setExpandedServs(prev => ({ ...prev, [serv.name]: !isServExpanded }))}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer' }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontWeight: 600, fontSize: '14px', color: '#1e293b' }}>{serv.name}</span>
+                              <span style={{ fontSize: '11px', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>{serv.count}</span>
+                            </div>
+                            <ChevronRight size={16} style={{ color: '#cbd5e1', transform: isServExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+                          </div>
+                          
+                          {isServExpanded && (
+                            <div style={{ padding: '0 16px 16px 16px', borderTop: '1px outset #f1f5f9' }}>
+                               {/* Agents directement rattachés au Service */}
+                               {serv.agents && serv.agents.length > 0 && (
+                                <div style={{ marginTop: '16px' }}>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ width: '8px', height: '2px', background: '#3b82f6' }}></span>
+                                    Agents sans secteur ({serv.agents.length})
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px' }}>
+                                    {serv.agents.map((agent: any) => (
+                                      <AgentCard key={agent.MATRICULE} agent={agent} />
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {serv.secteurs.map((sec: any, secIdx: number) => (
+                                <div key={`sec-${secIdx}`} style={{ marginTop: '16px' }}>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
+                                    {sec.name} ({sec.count})
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px' }}>
+                                    {sec.agents.map((agent: any) => (
+                                      <AgentCard key={agent.MATRICULE} agent={agent} />
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+};
+
+const AlignmentView: React.FC<{ headers: { Authorization: string } }> = ({ headers }) => {
+  const [data, setData] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [isAligning, setIsAligning] = React.useState(false);
+  const [syncStatus, setSyncStatus] = React.useState<{ message: string, type: 'success' | 'error' } | null>(null);
+
+  const fetchAlignments = React.useCallback(async () => {
+    setLoading(true);
+    setSyncStatus(null);
+    try {
+      const res = await axios.get('/api/admin/rh/alignments', { headers });
+      setData(res.data);
+    } catch (err) {
+      console.error('Erreur alignments', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [headers]);
+
+  React.useEffect(() => { fetchAlignments(); }, [fetchAlignments]);
+
+  const toggleSelect = (ad_username: string) => {
+    const next = new Set(selected);
+    if (next.has(ad_username)) next.delete(ad_username);
+    else next.add(ad_username);
+    setSelected(next);
+  };
+
+  const selectAll = () => {
+    if (selected.size === data.length) setSelected(new Set());
+    else setSelected(new Set(data.map(d => d.ad_username)));
+  };
+
+  const handleAlign = async () => {
+    if (selected.size === 0) return;
+    setIsAligning(true);
+    setSyncStatus(null);
+    const payload = data
+      .filter(d => selected.has(d.ad_username))
+      .map(d => {
+        const updates: Record<string, string> = {};
+        d.mappings.forEach((m: any) => { updates[m.adField] = d.rh[m.rhField]; });
+        return { matricule: d.matricule, ad_username: d.ad_username, updates };
+      });
+
+    try {
+      const res = await axios.post('/api/admin/rh/align-to-ad', { agents: payload }, { headers });
+      setSyncStatus({ type: 'success', message: `${res.data.success} agents alignés avec succès (${res.data.error} erreurs).` });
+      setSelected(new Set());
+      fetchAlignments();
+    } catch (err: any) {
+      setSyncStatus({ type: 'error', message: err.response?.data?.message || 'Erreur lors de l\'alignement.' });
+    } finally {
+      setIsAligning(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}>
+        <Loader2 className="spin" size={32} style={{ color: '#059669' }} />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Alignement RH &rarr; AD</h1>
+          <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0 0' }}>Analysez les incohérences entre la base RH et l'Active Directory, puis appliquez les corrections à l'AD.</p>
+        </div>
+        <button 
+          onClick={handleAlign}
+          disabled={selected.size === 0 || isAligning}
+          style={{ padding: '10px 20px', background: selected.size === 0 ? '#94a3b8' : '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 600, fontSize: '14px', cursor: selected.size === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px', opacity: isAligning ? 0.7 : 1 }}
+        >
+          {isAligning ? <Loader2 className="spin" size={18} /> : <ArrowRightLeft size={18} />}
+          Aligner {selected.size > 0 ? `(${selected.size}) agents` : 'les agents'}
+        </button>
+      </div>
+
+      {syncStatus && (
+        <div style={{ padding: '12px 16px', borderRadius: '8px', background: syncStatus.type === 'success' ? '#f0fdf4' : '#fef2f2', color: syncStatus.type === 'success' ? '#16a34a' : '#dc2626', border: `1px solid ${syncStatus.type === 'success' ? '#dcfce7' : '#fee2e2'}`, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 600 }}>
+          {syncStatus.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+          {syncStatus.message}
+        </div>
+      )}
+
+      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+              <th style={{ padding: '16px', textAlign: 'left', width: '40px' }}><input type="checkbox" checked={selected.size === data.length && data.length > 0} onChange={selectAll} /></th>
+              <th style={{ padding: '16px', textAlign: 'left', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Agent</th>
+              <th style={{ padding: '16px', textAlign: 'left', fontSize: '11px', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Champs incohérents</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.length === 0 ? (
+              <tr><td colSpan={3} style={{ padding: '40px', textAlign: 'center', color: '#16a34a', fontWeight: 600 }}><CheckCircle2 size={32} style={{ margin: '0 auto 10px', opacity: 0.5 }} />Tous les agents configurés sont alignés avec l'AD !</td></tr>
+            ) : (
+              data.map((agent) => (
+                <tr key={agent.ad_username} style={{ borderBottom: '1px solid #f1f5f9', background: selected.has(agent.ad_username) ? '#f0f9ff' : 'white' }}>
+                  <td style={{ padding: '16px' }}><input type="checkbox" checked={selected.has(agent.ad_username)} onChange={() => toggleSelect(agent.ad_username)} /></td>
+                  <td style={{ padding: '16px' }}>
+                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px' }}>{agent.nom} {agent.prenom}</div>
+                    <div style={{ fontSize: '11px', color: '#64748b' }}>{agent.ad_username}</div>
+                  </td>
+                  <td style={{ padding: '16px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {agent.mappings.map((m: any, idx: number) => {
+                        const isDiff = String(agent.rh[m.rhField] || '').trim() !== String(agent.ad[m.adField] || '').trim();
+                        if (!isDiff) return null;
+                        return (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13px', background: '#f8fafc', padding: '8px 12px', borderRadius: '6px' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700, marginBottom: '2px' }}>RH ({m.rhField})</div>
+                              <div style={{ fontWeight: 600, color: '#0f172a' }}>{agent.rh[m.rhField] || '-'}</div>
+                            </div>
+                            <ArrowRightLeft size={14} style={{ color: '#cbd5e1' }} />
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700, marginBottom: '2px' }}>AD ({m.adField})</div>
+                              <div style={{ fontWeight: 600, color: '#ef4444', textDecoration: 'line-through' }}>{agent.ad[m.adField] || '-'}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+const AlignmentSettings: React.FC<{ headers: { Authorization: string } }> = ({ headers }) => {
+  const [testAgent, setTestAgent] = React.useState<Agent | null>(null);
+  const [testAgentDetails, setTestAgentDetails] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [mappings, setMappings] = React.useState([{rhField: 'DIRECTION_L', adField: 'department'}, {rhField: 'SERVICE_L', adField: 'company'}, {rhField: 'POSTE_L', adField: 'title'}]);
+  
+  const [searchTerm, setSearchTerm] = React.useState('Mourad Badoud');
+  const [searchResults, setSearchResults] = React.useState<Agent[]>([]);
+  const [isSearching, setIsSearching] = React.useState(false);
+
+  const searchAgent = React.useCallback(async (term: string) => {
+    if (term.length < 2) return;
+    setIsSearching(true);
+    try {
+      const res = await axios.get(`/api/admin/rh/agents?q=${term}&limit=10`, { headers });
+      setSearchResults(res.data.agents || []);
+    } catch {}
+    setIsSearching(false);
+  }, [headers]);
+
+  const selectAgent = async (agent: Agent) => {
+    setTestAgent(agent);
+    setSearchResults([]);
+    setSearchTerm(`${agent.nom} ${agent.prenom}`);
+    setLoading(true);
+    try {
+      const res = await axios.get(`/api/admin/rh/agent-details/${agent.matricule}`, { headers });
+      setTestAgentDetails(res.data);
+    } catch {}
+    setLoading(false);
+  };
+
+  // Load initial on mount
+  React.useEffect(() => {
+    searchAgent('Mourad Badoud').then(() => {
+       // We can just rely on the search results effect, or explicit load.
+       const loadFirst = async () => {
+         try {
+           const res = await axios.get('/api/admin/rh/agents?q=Mourad Badoud&limit=1', { headers });
+           if (res.data.agents?.length > 0) {
+              selectAgent(res.data.agents[0]);
+           }
+         } catch {}
+       };
+       loadFirst();
+    });
+  }, [headers]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ width: '40px', height: '40px', background: '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+            <ArrowRightLeft size={20} />
+          </div>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Champs d'alignement</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>Configurez les correspondances entre la base RH et l'Active Directory.</p>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>Agent de test (recherche par nom)</label>
+        <div style={{ position: 'relative' }}>
+          <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0 12px' }}>
+             <Search size={16} style={{ color: '#94a3b8' }} />
+             <input 
+               value={searchTerm}
+               onChange={(e) => {
+                 setSearchTerm(e.target.value);
+                 if (e.target.value.length > 2) searchAgent(e.target.value);
+                 else setSearchResults([]);
+               }}
+               onFocus={() => { if (searchTerm.length > 2) searchAgent(searchTerm) }}
+               onBlur={() => setTimeout(() => setSearchResults([]), 200)}
+               placeholder="Rechercher un agent..."
+               style={{ flex: 1, padding: '10px', border: 'none', background: 'transparent', outline: 'none', fontSize: '14px' }} 
+             />
+             {isSearching && <Loader2 size={16} className="spin" style={{ color: '#94a3b8' }} />}
+          </div>
+          {searchResults.length > 0 && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', marginTop: '4px', zIndex: 10, boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', maxHeight: '200px', overflowY: 'auto' }}>
+              {searchResults.map(a => (
+                <div 
+                  key={a.matricule} 
+                  onClick={() => selectAgent(a)}
+                  style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                   <div style={{ width: '24px', height: '24px', background: '#e2e8f0', color: '#475569', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '10px' }}>
+                     {a.prenom?.[0]}{a.nom?.[0]}
+                   </div>
+                   <div><b>{a.nom}</b> {a.prenom}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '20px' }}>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}><Loader2 className="spin" size={24} style={{ color: '#2563eb' }} /></div>
+        ) : testAgentDetails ? (
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+             <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+               <div style={{ width: '32px', height: '32px', background: '#e2e8f0', color: '#475569', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '12px' }}>
+                 {testAgent?.prenom?.[0]}{testAgent?.nom?.[0]}
+               </div>
+               <div>
+                  <div style={{ fontWeight: 700, fontSize: '14px', color: '#0f172a' }}>{testAgent?.nom} {testAgent?.prenom}</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>Test de configuration - Aperçu des valeurs</div>
+               </div>
+               <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                 <div style={{ background: '#f0fdf4', color: '#16a34a', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, border: '1px solid #dcfce7' }}>RH Ok</div>
+                 <div style={{ background: testAgentDetails.ad ? '#eff6ff' : '#fef2f2', color: testAgentDetails.ad ? '#2563eb' : '#dc2626', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, border: `1px solid ${testAgentDetails.ad ? '#dbeafe' : '#fee2e2'}` }}>
+                   {testAgentDetails.ad ? `AD: ${testAgentDetails.ad.sAMAccountName}` : 'Sans AD'}
+                 </div>
+               </div>
+             </div>
+
+             <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px' }}>
+               <thead>
+                 <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                   <th style={{ textAlign: 'left', padding: '8px 12px', color: '#64748b', fontSize: '11px', textTransform: 'uppercase', width: '25%' }}>Champ RH</th>
+                   <th style={{ textAlign: 'left', padding: '8px 12px', color: '#0f172a', fontSize: '12px', width: '25%' }}>Valeur (Mourad B.)</th>
+                   <th style={{ textAlign: 'center', padding: '8px', width: '50px' }}></th>
+                   <th style={{ textAlign: 'left', padding: '8px 12px', color: '#64748b', fontSize: '11px', textTransform: 'uppercase', width: '25%' }}>Champ AD</th>
+                   <th style={{ textAlign: 'left', padding: '8px 12px', color: '#0f172a', fontSize: '12px', width: '25%' }}>Valeur actuelle dans l'AD</th>
+                 </tr>
+               </thead>
+               <tbody>
+                 {mappings.map((m, idx) => {
+                   const rhVal = String(testAgentDetails.rh?.[m.rhField] || '');
+                   const adVal = String(testAgentDetails.ad?.[m.adField] || '');
+                   const isMatch = rhVal.trim() === adVal.trim();
+                   
+                   return (
+                     <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                       <td style={{ padding: '12px', fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                         <div style={{ background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', display: 'inline-block', border: '1px solid #e2e8f0' }}>{m.rhField}</div>
+                       </td>
+                       <td style={{ padding: '12px', fontSize: '13px', color: '#0f172a', fontWeight: 500 }}>{rhVal || '-'}</td>
+                       <td style={{ padding: '12px', textAlign: 'center' }}><ArrowRightLeft size={14} style={{ color: isMatch ? '#10b981' : '#f43f5e' }} /></td>
+                       <td style={{ padding: '12px', fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                         <div style={{ background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', display: 'inline-block', border: '1px solid #e2e8f0' }}>{m.adField}</div>
+                       </td>
+                       <td style={{ padding: '12px', fontSize: '13px', color: isMatch ? '#0f172a' : '#f43f5e', fontWeight: isMatch ? 500 : 700 }}>
+                         {adVal || '-'}
+                         {!isMatch && adVal && <span style={{ marginLeft: '8px', fontSize: '10px', color: '#ef4444', backgroundColor: '#fef2f2', padding: '2px 6px', borderRadius: '4px' }}>Incohérence</span>}
+                       </td>
+                     </tr>
+                   );
+                 })}
+               </tbody>
+             </table>
+           </div>
+        ) : (
+          <div style={{ color: '#ef4444', fontSize: '13px' }}>Veuillez rechercher et sélectionner un agent.</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const StudioRH: React.FC = () => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -221,9 +801,9 @@ const StudioRH: React.FC = () => {
   const [proposals, setProposals] = useState<any[]>([]);
   const [showProposalsModal, setShowProposalsModal] = useState(false);
 
-  const [limit, setLimit] = useState(50);
+  const [limit, setLimit] = useState(10);
   const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'users' | 'encadrants' | 'settings' | 'logs'>('users');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'agents' | 'hierarchy' | 'encadrants' | 'onboarding' | 'alignment' | 'settings' | 'logs'>('agents');
 
   // Manual linking states
   const [linkingAgent, setLinkingAgent] = useState<Agent | null>(null);
@@ -265,6 +845,30 @@ const StudioRH: React.FC = () => {
       return dateStr; // Fallback to original string on error
     }
   };
+
+  const getManagementLevelStyle = (poste: string | undefined | null) => {
+    if (!poste) return { color: '#64748b', bg: '#f1f5f9' };
+    const p = poste.toUpperCase();
+    if (p.startsWith('DIRECTEUR·TRICE GENERAL·E') || p.startsWith('DIRECTEUR GENERAL') || p.startsWith('DIRECTRICE GENERAL')) return { color: '#7c3aed', bg: '#7c3aed22' };
+    if (p.startsWith('DIRECTEUR·TRICE D') || p.startsWith('DIRECTEUR D') || p.startsWith('DIRECTRICE D')) return { color: '#1d4ed8', bg: '#1d4ed822' };
+    if (p.startsWith('RESPONSABLE DU SERVICE')) return { color: '#0369a1', bg: '#0369a122' };
+    if (p.startsWith('RESPONSABLE DU SECTEUR')) return { color: '#0f766e', bg: '#0f766e22' };
+    return { color: '#64748b', bg: '#f1f5f9' };
+  };
+
+  const isDeparted = (agent: Agent) => agent.DATE_DEPART && new Date(agent.DATE_DEPART) <= new Date();
+  
+  const isArrivalFuture = (agent: Agent) => agent.DATE_ARRIVEE && new Date(agent.DATE_ARRIVEE) > new Date();
+  
+  const isArrivalRecent = (agent: Agent) => {
+    if (!agent.DATE_ARRIVEE) return false;
+    const arrivalDate = new Date(agent.DATE_ARRIVEE).getTime();
+    const now = new Date().getTime();
+    const daysSince = (now - arrivalDate) / (1000 * 3600 * 24);
+    return daysSince >= 0 && daysSince <= 30;
+  };
+
+  const isInactive = (agent: Agent) => agent.is_active_position === false || agent.date_plusvu;
 
   const fetchStats = async () => {
     if (!token) return;
@@ -536,8 +1140,11 @@ const StudioRH: React.FC = () => {
 
   const menuItems = [
     { id: 'dashboard', title: "Dashboard", icon: LayoutDashboard },
-    { id: 'users', title: "Utilisateurs", icon: Users },
+    { id: 'agents', title: "Agents", icon: Users },
+    { id: 'hierarchy', title: "Organisation", icon: Network },
     { id: 'encadrants', title: "Encadrants", icon: Sliders },
+    { id: 'onboarding', title: "Onboarding", icon: UserPlus },
+    { id: 'alignment', title: "Alignement AD", icon: ArrowRightLeft },
     { id: 'settings', title: "Paramètres", icon: SettingsIcon },
     { id: 'logs', title: "Logs", icon: Activity },
   ];
@@ -582,9 +1189,12 @@ const StudioRH: React.FC = () => {
               <span className="crumb-root">Studio RH</span>
               <ChevronRight size={14} />
               <span className="crumb-active">
-                {currentView === 'users' ? 'Liste des utilisateurs' : 
+                {currentView === 'agents' ? 'Liste des agents' : 
                  currentView === 'dashboard' ? 'Tableau de bord' :
+                 currentView === 'hierarchy' ? 'Organisation' :
                  currentView === 'encadrants' ? 'Encadrants' :
+                 currentView === 'onboarding' ? 'Onboarding' :
+                 currentView === 'alignment' ? 'Alignement AD' :
                  currentView === 'settings' ? 'Paramètres' : 'Logs de synchronisation'}
               </span>
             </div>
@@ -607,11 +1217,11 @@ const StudioRH: React.FC = () => {
               </div>
             )}
 
-            {currentView === 'users' && (
+            {currentView === 'agents' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div className="content-top-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-                    <h1 className="content-title" style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Liste des utilisateurs</h1>
+                    <h1 className="content-title" style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>Liste des agents</h1>
                     {proposals.length > 0 && (
                       <div className="header-badge warning" onClick={() => setShowProposalsModal(true)} style={{ backgroundColor: '#fff7ed', color: '#ea580c', border: '1px solid #ffedd5', padding: '6px 14px', borderRadius: '99px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <AlertCircle size={14} />
@@ -649,7 +1259,7 @@ const StudioRH: React.FC = () => {
                   </div>
                   <div className="status-select">
                     <select value={activeFilter || ''} onChange={(e) => { setActiveFilter(e.target.value || null); setPage(1); }} style={{ padding: '10px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: '#f1f5f9', fontSize: '14px', outline: 'none', cursor: 'pointer' }}>
-                      <option value="">Tous les utilisateurs</option>
+                      <option value="">Tous les agents</option>
                       <option value="actif">Agents actifs</option>
                       <option value="non_actif">Agents non-actifs</option>
                       <option value="parti">Agents partis</option>
@@ -700,12 +1310,12 @@ const StudioRH: React.FC = () => {
                     <thead>
                       <tr>
                         <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}><input type="checkbox" /></th>
-                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Utilisateur</th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Agent</th>
                         <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Matricule</th>
                         <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Service</th>
                         <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Direction</th>
                         <th style={{ textAlign: 'center', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Connexion AD/Azure</th>
-                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Départ/Arrivée</th>
+                        <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Arrivée</th>
                         <th style={{ textAlign: 'left', padding: '16px', backgroundColor: '#f8fafc', color: '#64748b', fontSize: '11px', fontWeight: 700, borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>Statut</th>
                       </tr>
                     </thead>
@@ -713,36 +1323,60 @@ const StudioRH: React.FC = () => {
                       {loadingAgents && agents.length === 0 ? (
                         <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center' }}><Loader2 className="spin" size={32} style={{ margin: '0 auto' }} /></td></tr>
                       ) : agents.length === 0 ? (
-                        <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Aucun utilisateur trouvé</td></tr>
+                        <tr><td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Aucun agent trouvé</td></tr>
                       ) : (
-                        agents.map((agent) => (
+                        agents.map((agent) => {
+                          const styleMgmt = getManagementLevelStyle(agent.POSTE_L);
+                          const departed = isDeparted(agent);
+                          const inactive = !departed && isInactive(agent);
+                          const arrivalFuture = isArrivalFuture(agent);
+                          const arrivalRecent = isArrivalRecent(agent);
+                          return (
                           <tr key={agent.matricule} style={{ opacity: loadingAgents ? 0.6 : 1, transition: 'opacity 0.2s' }}>
                             <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}><input type="checkbox" /></td>
                              <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9' }}>
                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                 <div style={{ 
-                                   width: '40px', 
-                                   height: '40px', 
-                                   background: '#f1f5f9', 
-                                   borderRadius: '10px', 
-                                   display: 'flex', 
-                                   alignItems: 'center', 
-                                   justifyContent: 'center', 
-                                   fontWeight: 700, 
-                                   color: '#64748b', 
-                                   fontSize: '14px',
-                                   position: 'relative',
-                                   border: (agent.DATE_ARRIVEE && agent.DATE_ARRIVEE !== '' && new Date(agent.DATE_ARRIVEE) > new Date()) ? '2px dashed #3b82f6' : 'none',
-                                   textDecoration: (agent.DATE_DEPART && agent.DATE_DEPART !== '' && new Date(agent.DATE_DEPART) <= new Date()) ? 'line-through' : 'none'
-                                 }}>
-                                   {agent.prenom?.[0]}{agent.nom?.[0]}
+                                 <div style={{ position: 'relative' }}>
+                                   <div style={{ 
+                                     width: '40px', 
+                                     height: '40px', 
+                                     minWidth: '40px',
+                                     flexShrink: 0,
+                                     background: departed ? '#f1f5f9' : styleMgmt.bg, 
+                                     borderRadius: '10px', 
+                                     display: 'flex', 
+                                     alignItems: 'center', 
+                                     justifyContent: 'center', 
+                                     fontWeight: 700, 
+                                     color: departed ? '#94a3b8' : styleMgmt.color, 
+                                     fontSize: '14px',
+                                     position: 'relative',
+                                     overflow: 'hidden',
+                                     border: (departed || inactive) ? '2px dashed #94a3b8' : 'none',
+                                     opacity: departed ? 0.6 : 1
+                                   }}>
+                                     {departed && (
+                                       <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 10, pointerEvents: 'none' }}>
+                                         <line x1="0" y1="100%" x2="100%" y2="0" stroke="#ef4444" strokeWidth="2" />
+                                       </svg>
+                                     )}
+                                     <span style={{ position: 'relative', zIndex: 1 }}>
+                                        {agent.prenom?.[0]}{agent.nom?.[0]}
+                                     </span>
+                                   </div>
+                                   {arrivalFuture && (
+                                     <div style={{ position: 'absolute', bottom: '-4px', right: '-4px', background: '#3b82f6', color: 'white', borderRadius: '4px', fontSize: '9px', fontWeight: 800, padding: '1px 3px', border: '1px solid white' }}>PROCH</div>
+                                   )}
+                                   {arrivalRecent && (
+                                     <div style={{ position: 'absolute', bottom: '-4px', right: '-4px', background: '#10b981', color: 'white', borderRadius: '4px', fontSize: '9px', fontWeight: 800, padding: '1px 3px', border: '1px solid white' }}>NOUV</div>
+                                   )}
                                  </div>
                                  <div 
                                    onClick={() => loadAgentDetails(agent)}
-                                   style={{ cursor: 'pointer' }}
+                                   style={{ cursor: 'pointer', maxWidth: '200px' }}
                                  >
-                                   <div style={{ fontWeight: 700, color: '#3b82f6', fontSize: '13.5px' }} className="agent-name-link">{agent.nom} {agent.prenom}</div>
-                                   <div style={{ fontSize: '12px', color: '#64748b' }}>{agent.POSTE_L || agent.FONCTION || '-'}</div>
+                                   <div style={{ fontWeight: 700, color: '#3b82f6', fontSize: '13.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} className="agent-name-link">{agent.nom} {agent.prenom}</div>
+                                   <div style={{ fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.POSTE_L || agent.FONCTION || '-'}</div>
                                  </div>
                                </div>
                              </td>
@@ -764,33 +1398,38 @@ const StudioRH: React.FC = () => {
                                    </div>
                                  )}
                                  {agent.azure_id ? (
-                                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title={`Lié à Entra ID: ${agent.azure_id}${agent.azure_license ? ` (${agent.azure_license})` : ''}`}>
-                                     <Cloud size={18} style={{ color: '#8b5cf6' }} />
-                                     {agent.azure_license && (
+                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title={`Lié à Entra ID: ${agent.azure_id}${agent.azure_license ? ` (${agent.azure_license})` : ''}`}>
+                                     <Cloud size={24} style={{ color: '#8b5cf6' }} />
+                                     {agent.azure_license && (() => {
+                                       const licName = getAzureLicenseName(agent.azure_license);
+                                       return (
                                        <span style={{ 
-                                         fontSize: '9px', 
+                                         fontSize: '11px', 
                                          fontWeight: 800, 
-                                         padding: '1px 5px', 
+                                         padding: '2px 6px', 
                                          borderRadius: '4px',
-                                         backgroundColor: agent.azure_license.includes('E5') ? '#faf5ff' : 
-                                                          agent.azure_license.includes('E3') ? '#eff6ff' : 
-                                                          agent.azure_license.includes('PREMIUM') ? '#f0fdf4' : '#f8fafc',
-                                         color: agent.azure_license.includes('E5') ? '#7e22ce' : 
-                                                agent.azure_license.includes('E3') ? '#1d4ed8' : 
-                                                agent.azure_license.includes('PREMIUM') ? '#15803d' : '#64748b',
+                                         backgroundColor: licName.includes('E5') ? '#faf5ff' : 
+                                                          licName.includes('E3') ? '#eff6ff' : 
+                                                          licName.includes('E1') ? '#f0fdf4' : 
+                                                          licName.includes('F3') ? '#fff7ed' : 
+                                                          licName.includes('F1') ? '#fef2f2' : '#f8fafc',
+                                         color: licName.includes('E5') ? '#7e22ce' : 
+                                                licName.includes('E3') ? '#1d4ed8' : 
+                                                licName.includes('E1') ? '#15803d' : 
+                                                licName.includes('F3') ? '#c2410c' : 
+                                                licName.includes('F1') ? '#b91c1c' : '#64748b',
                                          border: `1px solid ${
-                                           agent.azure_license.includes('E5') ? '#e9d5ff' : 
-                                           agent.azure_license.includes('E3') ? '#dbeafe' : 
-                                           agent.azure_license.includes('PREMIUM') ? '#bbf7d0' : '#e2e8f0'
+                                           licName.includes('E5') ? '#e9d5ff' : 
+                                           licName.includes('E3') ? '#dbeafe' : 
+                                           licName.includes('E1') ? '#bbf7d0' : 
+                                           licName.includes('F3') ? '#ffedd5' : 
+                                           licName.includes('F1') ? '#fecaca' : '#e2e8f0'
                                          }`
                                        }}>
-                                         {agent.azure_license.includes('E5') ? 'E5' : 
-                                          agent.azure_license.includes('E3') ? 'E3' : 
-                                          agent.azure_license.includes('PREMIUM') ? 'BP' : 
-                                          agent.azure_license.includes('STANDARD') ? 'BS' : 
-                                          agent.azure_license.split('_').pop()}
+                                         {licName}
                                        </span>
-                                     )}
+                                       );
+                                     })()}
                                    </div>
                                  ) : (
                                    <div title="Aucun lien Azure">
@@ -800,11 +1439,7 @@ const StudioRH: React.FC = () => {
                                </div>
                              </td>
                              <td style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
-                               {agent.DATE_DEPART ? (
-                                 <div style={{ color: new Date(agent.DATE_DEPART) <= new Date() ? '#ef4444' : '#f59e0b', fontWeight: 600 }}>
-                                    Départ: {formatDateFr(agent.DATE_DEPART)}
-                                 </div>
-                               ) : (agent.DATE_ARRIVEE && agent.DATE_ARRIVEE !== '' && new Date(agent.DATE_ARRIVEE) > new Date()) ? (
+                               {isArrivalFuture(agent) ? (
                                  <div style={{ color: '#3b82f6', fontWeight: 600 }}>
                                     Arrivée: {formatDateFr(agent.DATE_ARRIVEE)}
                                  </div>
@@ -834,7 +1469,8 @@ const StudioRH: React.FC = () => {
                                </div>
                              </td>
                           </tr>
-                        ))
+                        );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -861,6 +1497,18 @@ const StudioRH: React.FC = () => {
 
             {currentView === 'encadrants' && (
               <EncadrantsView headers={headers} />
+            )}
+
+            {currentView === 'hierarchy' && (
+              <HierarchyView headers={headers} />
+            )}
+
+            {currentView === 'onboarding' && (
+              <OnboardingView headers={headers} />
+            )}
+
+            {currentView === 'alignment' && (
+              <AlignmentView headers={headers} />
             )}
 
             {currentView === 'settings' && (
@@ -899,17 +1547,7 @@ const StudioRH: React.FC = () => {
                     </div>
                   </div>
 
-                  <div style={{ background: 'white', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', opacity: 0.6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{ width: '40px', height: '40px', background: '#f1f5f9', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-                        <Sliders size={20} />
-                      </div>
-                      <div>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Paramètres avancés</h3>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>Seuils de correspondance et règles de synchronisation.</p>
-                      </div>
-                    </div>
-                  </div>
+                  <AlignmentSettings headers={headers} />
                 </div>
               </div>
             )}
@@ -1243,7 +1881,7 @@ const StudioRH: React.FC = () => {
                                 ) : (
                                   agentFullDetails.azure.licenses.map((license: string) => (
                                     <span key={license} style={{ padding: '6px 14px', background: '#f5f3ff', color: '#7c3aed', borderRadius: '20px', fontSize: '12px', fontWeight: 700, border: '1px solid #ddd6fe' }}>
-                                      {license}
+                                      {getAzureLicenseName(license)}
                                     </span>
                                   ))
                                 )}
