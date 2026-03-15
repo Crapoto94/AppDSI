@@ -20,17 +20,26 @@ async function test() {
         from: `"${s.sender_name}" <${s.sender_email}>`
     });
 
-    const transporter = nodemailer.createTransport({
-        host: s.smtp_host,
-        port: s.smtp_port,
-        secure: s.smtp_secure === 'ssl',
-        auth: {
-            user: s.smtp_user,
-            pass: s.smtp_pass
-        },
-        debug: true,
-        logger: true
-    });
+    let transporter;
+
+    if (s.smtp_host) {
+        transporter = nodemailer.createTransport({
+            host: s.smtp_host,
+            port: s.smtp_port,
+            secure: s.smtp_secure === 'ssl',
+            auth: {
+                user: s.smtp_user,
+                pass: s.smtp_pass
+            },
+            debug: true,
+            logger: true
+        });
+    } else {
+        const brevoTransport = require('nodemailer-brevo-transport');
+        transporter = nodemailer.createTransport(new brevoTransport({
+            apiKey: s.smtp_pass
+        }));
+    }
     
     const content = "Test mail content";
     const html = s.template_html.replace('{{content}}', content);

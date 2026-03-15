@@ -1046,6 +1046,17 @@ app.get('/api/admin/rh/agents', authenticateAdmin, async (req, res) => {
                     whereClauses.push("ad_username IS NULL AND date_plusvu IS NULL AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)");
                     params.push(today);
                     break;
+                case 'arrivals':
+                    whereClauses.push("DATE_ARRIVEE IS NOT NULL AND DATE_ARRIVEE > ?");
+                    params.push(today);
+                    break;
+                case 'departures':
+                    whereClauses.push("(DATE_DEPART IS NOT NULL AND DATE_DEPART != '' AND DATE_DEPART >= ?)");
+                    params.push(today);
+                    break;
+                case 'modified':
+                    whereClauses.push("last_sync_modified = 1");
+                    break;
             }
         }
 
@@ -1166,7 +1177,8 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
             CREATE TABLE IF NOT EXISTS rh.referentiel_agents (
                 ${createCols}, 
                 ad_username TEXT, 
-                date_plusvu DATETIME
+                date_plusvu DATETIME,
+                last_sync_modified INTEGER DEFAULT 0
             )
         `);
 
@@ -1182,22 +1194,31 @@ app.post('/api/admin/rh/sync', authenticateAdmin, async (req, res) => {
         // Colonnes techniques supplémentaires
         try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN date_fin_association_ad DATETIME"); } catch (e) { }
         try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN azure_id TEXT"); } catch (e) { }
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN last_sync_modified INTEGER DEFAULT 0"); } catch (e) { }
+        try { await db.run("ALTER TABLE rh.referentiel_agents ADD COLUMN ad_last_logon TEXT"); } catch (e) { }
 
         // 3. Récupérer les données Oracle
         const extractData = await db.all("SELECT * FROM rh.V_EXTRACT_DSI");
         const extractMatricules = new Set(extractData.map(r => String(r.MATRICULE)));
 
-        // 4. UPSERT des données
+        // 4. Réinitialiser les drapeaux de modification
+        await db.run('UPDATE rh.referentiel_agents SET last_sync_modified = 0');
+
+        // 5. UPSERT des données
         await db.run('BEGIN TRANSACTION');
         try {
             const placeholders = oracleCols.map(() => '?').join(',');
             const setCols = oracleCols.map(c => `"${c}"=excluded."${c}"`).join(',');
 
             const stmt = await db.prepare(`
-                INSERT INTO rh.referentiel_agents (${oracleCols.map(c => `"${c}"`).join(', ')}, date_plusvu) 
-                VALUES (${placeholders}, NULL)
+                INSERT INTO rh.referentiel_agents (${oracleCols.map(c => `"${c}"`).join(', ')}, date_plusvu, last_sync_modified) 
+                VALUES (${placeholders}, NULL, 1)
                 ON CONFLICT(MATRICULE) DO UPDATE SET 
-                ${setCols}, date_plusvu=NULL
+                ${setCols}, 
+                last_sync_modified = CASE 
+                    WHEN ${oracleCols.map(c => `COALESCE(rh.referentiel_agents."${c}", '') <> COALESCE(excluded."${c}", '')`).join(' OR ')} 
+                    THEN 1 ELSE 0 END,
+                date_plusvu=NULL
             `);
 
             for (const row of extractData) {
@@ -1634,7 +1655,13 @@ app.post('/api/admin/rh/sync-azure', authenticateAdmin, async (req, res) => {
                         'UPDATE rh.referentiel_agents SET azure_id = ?, azure_license = ? WHERE MATRICULE = ?',
                         [match.id, mainLicense, agent.MATRICULE]
                     );
-                    console.log(`[Azure Sync] MATCH trouvé pour ${agentNom}: ${match.userPrincipalName} (${mainLicense || 'Pas de licence'})`);
+                    if (mainLicense) {
+                        console.log(`[Azure Sync] MATCH trouvé pour ${agentNom}: ${match.userPrincipalName} (Licence: ${mainLicense})`);
+                    } else {
+                        // Log plus précis si pas de licence
+                        const skus = match.assignedLicenses?.map(l => skuMap.get(l.skuId) || l.skuId) || [];
+                        console.log(`[Azure Sync] MATCH trouvé pour ${agentNom}: ${match.userPrincipalName} (Pas de licence connue. SKUs bruts: ${skus.join(', ')})`);
+                    }
                 } else {
                     // console.log(`[Azure Sync] Aucun match pour ${agentNom} (${agentMail || 'pas de mail'})`);
                 }
@@ -3742,6 +3769,11 @@ app.delete('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
 app.get('/api/mail-settings', authenticateAdmin, async (req, res) => {
     try {
         const settings = await db.get('SELECT * FROM mail_settings WHERE id = 1');
+        if (settings) {
+            // Ensure booleans are converted properly if handled as numbers 0/1 in SQLite
+            settings.global_enable = !!settings.global_enable;
+            settings.use_api = !!settings.use_api;
+        }
         res.json(settings);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lecture paramètres mail' });
@@ -3751,20 +3783,35 @@ app.get('/api/mail-settings', authenticateAdmin, async (req, res) => {
 app.post('/api/mail-settings', authenticateAdmin, async (req, res) => {
     const s = req.body;
     try {
+        const params = [
+            s.smtp_host || null, 
+            (s.smtp_port && !isNaN(s.smtp_port)) ? parseInt(s.smtp_port) : null, 
+            s.smtp_user || null, 
+            s.smtp_pass || null,
+            s.smtp_secure || null, 
+            s.proxy_host || null, 
+            (s.proxy_port && !isNaN(s.proxy_port)) ? parseInt(s.proxy_port) : null,
+            s.sender_email || null, 
+            s.sender_name || 'DSI Hub', 
+            s.api_key || null, 
+            s.template_html || '',
+            s.global_enable ? 1 : 0, 
+            s.use_api ? 1 : 0, 
+            s.api_url || null
+        ];
+
         await db.run(`
             UPDATE mail_settings SET 
                 smtp_host = ?, smtp_port = ?, smtp_user = ?, smtp_pass = ?, 
                 smtp_secure = ?, proxy_host = ?, proxy_port = ?, 
-                sender_email = ?, sender_name = ?, api_key = ?, template_html = ?
+                sender_email = ?, sender_name = ?, api_key = ?, template_html = ?,
+                global_enable = ?, use_api = ?, api_url = ?
             WHERE id = 1
-        `, [
-            s.smtp_host, s.smtp_port, s.smtp_user, s.smtp_pass,
-            s.smtp_secure, s.proxy_host, s.proxy_port,
-            s.sender_email, s.sender_name, s.api_key, s.template_html
-        ]);
+        `, params);
         res.json({ message: 'Paramètres mis à jour' });
     } catch (error) {
-        res.status(500).json({ message: 'Erreur mise à jour paramètres mail' });
+        console.error('Erreur mise à jour paramètres mail:', error);
+        res.status(500).json({ message: 'Erreur mise à jour paramètres mail', error: error.message });
     }
 });
 
@@ -6169,55 +6216,155 @@ app.delete('/api/attachments/:id', authenticateJWT, async (req, res) => {
 async function sendMail(to, subject, content) {
     const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
     if (!s) throw new Error("Paramètres mail non configurés");
+    
+    // Check if emails are globally disabled
+    if (s.global_enable === 0 || s.global_enable === false) {
+        console.log(`[MAIL SYSTEM] Envoi global désactivé. Mail ignoré pour: ${to}`);
+        return { message: 'Envoi désactivé globalement' };
+    }
 
-    let transporter;
+    if (!s.sender_email) {
+        throw new Error("L'adresse email de l'expéditeur n'est pas configurée (Paramètres > Mail)");
+    }
 
-    // Si un hôte SMTP est défini, on utilise le transport SMTP classique
-    if (s.smtp_host) {
-        transporter = nodemailer.createTransport({
+    let htmlTemplate = (s.template_html || '{{content}}');
+    let html = htmlTemplate.replace('{{content}}', content);
+
+    const attachments = [];
+
+    // Localhost replacer for backward compatibility
+    if (html.includes('http://localhost:3001/img/logo_dsi.png')) {
+        const logoPath = path.join(__dirname, 'magapp_img', 'logo_dsi.png');
+        if (fs.existsSync(logoPath)) {
+            const cid = 'logo_dsi';
+            html = html.split('http://localhost:3001/img/logo_dsi.png').join(`cid:${cid}`);
+            attachments.push({
+                filename: 'logo_dsi.png',
+                content: fs.readFileSync(logoPath).toString('base64'),
+                cid: cid
+            });
+        }
+    }
+
+    // Dynamic Base64 extraction to CID - Robust regex for quotes
+    const base64Regex = /src=["']data:(image\/[a-zA-Z+]*);base64,([^"']+)["']/g;
+    let match;
+    let imgCounter = 1;
+    const matches = [];
+    
+    // Scan all base64 images
+    while ((match = base64Regex.exec(html)) !== null) {
+        matches.push({ full: match[0], mime: match[1], data: match[2] });
+    }
+
+    matches.forEach(m => {
+        const ext = m.mime.split('/')[1] || 'png';
+        const cid = `img_cid_${imgCounter}`;
+        
+        // Replace the whole src="..." attribute
+        const newSrc = `src="cid:${cid}"`;
+        html = html.split(m.full).join(newSrc);
+        
+        attachments.push({
+            filename: `image_${imgCounter}.${ext}`,
+            content: m.data,
+            cid: cid
+        });
+        imgCounter++;
+    });
+
+    console.log(`[MAIL] Préparation envoi pour ${to}. Sujet: ${subject}. Pièces jointes: ${attachments.length}`);
+
+    // Use API if explicitly requested OR fallback if SMTP is chosen but not fully configured
+    if (s.use_api === 1 || s.use_api === true || (!s.smtp_host && (s.api_key || s.smtp_pass))) {
+        let apiKey = (s.api_key || s.smtp_pass || '').trim();
+        if (!apiKey) {
+            throw new Error("Clé API Brevo manquante ou vide (Paramètres > Mail)");
+        }
+        
+        const apiUrl = s.api_url || 'https://api.brevo.com/v3/smtp/email';
+        
+        const payload = {
+            sender: { name: s.sender_name || 'DSI Hub', email: s.sender_email },
+            to: [{ email: to }],
+            subject: subject,
+            htmlContent: html,
+            attachment: attachments.map(a => ({
+                content: a.content,
+                name: a.filename,
+                contentId: `<${a.cid}>` // Format standard avec chevrons pour Gmail
+            }))
+        };
+
+        const config = {
+            headers: {
+                'api-key': apiKey,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        };
+
+        // Optionnel : Gestion du proxy si configuré
+        if (s.proxy_host) {
+            config.proxy = {
+                host: s.proxy_host,
+                port: parseInt(s.proxy_port || 80),
+                protocol: 'http'
+            };
+        }
+
+        try {
+            const response = await axios.post(apiUrl, payload, config);
+            console.log(`[MAIL] Envoi API réussi pour ${to} (ID: ${response.data.messageId})`);
+        } catch (error) {
+            console.error('[MAIL] Erreur API Brevo:', error.response?.data || error.message);
+            const errorMsg = error.response?.data?.message || (error.response?.data?.code === 'unauthorized' ? 'Clé API invalide ou non reconnue par Brevo (401)' : error.message);
+            throw new Error(`Échec de l'envoi API Brevo : ${errorMsg}`);
+        }
+    } else {
+        // Use SMTP
+        if (!s.smtp_host) throw new Error("Hôte SMTP non configuré et l'API n'est pas sélectionnée");
+        
+        console.log(`[MAIL] Envoi via SMTP: ${s.smtp_host}:${s.smtp_port} pour ${to}`);
+
+        const transporterOptions = {
             host: s.smtp_host,
             port: s.smtp_port,
-            secure: s.smtp_secure === 'ssl', // true for 465, false for other ports
+            secure: s.smtp_secure === 'ssl',
             auth: {
                 user: s.smtp_user,
                 pass: s.smtp_pass,
             },
-            tls: {
-                // Do not fail on invalid certs if using internal relays
-                rejectUnauthorized: false
-            }
-        });
-    } else {
-        // Fallback sur Brevo si configuré
-        transporter = nodemailer.createTransport(
-            new brevoTransport({
-                apiKey: s.smtp_pass
-            })
-        );
-    }
+            tls: { rejectUnauthorized: false }
+        };
 
-    let html = (s.template_html || '{{content}}').replace('{{content}}', content);
+        // Note: Pour le proxy SMTP, il faudrait socks-proxy-agent. 
+        // Ici on se concentre sur la validation standard d'abord.
+        
+        const transporter = nodemailer.createTransport(transporterOptions);
 
-    // Gmail et les boites perso bloquent souvent les CID ou les pièces jointes si le relais SMTP n'est pas "propre"
-    // Le logo fait 17ko, on peut l'injecter en Base64 directement dans le HTML pour une compatibilité maximale
-    if (html.includes('cid:logo_dsi')) {
-        const logoPath = path.join(__dirname, 'magapp_img', 'logo_dsi.png');
-        if (fs.existsSync(logoPath)) {
-            const logoBase64 = fs.readFileSync(logoPath).toString('base64');
-            html = html.replace('cid:logo_dsi', `data:image/png;base64,${logoBase64}`);
+        const mailOptions = {
+            from: `"${s.sender_name}" <${s.sender_email}>`,
+            to,
+            subject,
+            html,
+            attachments: attachments.map(a => ({
+                filename: a.filename,
+                content: Buffer.from(a.content, 'base64'),
+                cid: a.cid // Nodemailer gère parfaitement le format MIME pour Gmail
+            }))
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log(`[MAIL] Envoi SMTP réussi pour ${to}`);
+        } catch (error) {
+            console.error('[MAIL] Échec SMTP:', error.message);
+            throw new Error(`Échec de l'envoi SMTP : ${error.message}`);
         }
     }
-
-    const mailOptions = {
-        from: `"${s.sender_name}" <${s.sender_email}>`,
-        to,
-        subject,
-        html,
-        attachments: []
-    };
-
-    await transporter.sendMail(mailOptions);
 }
+
 
 async function sendMaintenanceEmail(appId) {
     try {

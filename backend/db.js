@@ -314,6 +314,28 @@ async function setupDb() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             username TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS mail_settings (
+            id INTEGER PRIMARY KEY,
+            smtp_host TEXT,
+            smtp_port INTEGER,
+            smtp_user TEXT,
+            smtp_pass TEXT,
+            smtp_secure TEXT,
+            proxy_host TEXT,
+            proxy_port INTEGER,
+            sender_email TEXT,
+            sender_name TEXT,
+            api_key TEXT,
+            template_html TEXT,
+            global_enable INTEGER DEFAULT 1,
+            use_api INTEGER DEFAULT 1,
+            api_url TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO mail_settings (id, sender_name, template_html, global_enable, use_api) 
+        VALUES (1, 'DSI Hub', '<html><body>{{content}}</body></html>', 1, 1);
     `);
 
     // Note: Tables moved to external DBs (glpi, gf, rh) are not created here anymore.
