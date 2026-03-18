@@ -622,7 +622,7 @@ const AlignmentSettings: React.FC<{ headers: { Authorization: string } }> = ({ h
   const [testAgent, setTestAgent] = React.useState<Agent | null>(null);
   const [testAgentDetails, setTestAgentDetails] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(false);
-  const [mappings, setMappings] = React.useState([{rhField: 'DIRECTION_L', adField: 'department'}, {rhField: 'SERVICE_L', adField: 'company'}, {rhField: 'POSTE_L', adField: 'title'}]);
+  const [mappings] = React.useState([{rhField: 'DIRECTION_L', adField: 'department'}, {rhField: 'SERVICE_L', adField: 'company'}, {rhField: 'POSTE_L', adField: 'title'}]);
   
   const [searchTerm, setSearchTerm] = React.useState('Mourad Badoud');
   const [searchResults, setSearchResults] = React.useState<Agent[]>([]);
