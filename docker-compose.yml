@@ -19,9 +19,8 @@ services:
       - ./backend/file_certif:/app/file_certif
       - ./backend/file_telecom:/app/file_telecom
       - ./backend/magapp_img:/app/magapp_img
-      # Optionnel : Monte les fichiers de logs pour une consultation facile
-      - ./backend/mouchard.log:/app/mouchard.log
-      - ./backend/import_error.log:/app/import_error.log
+      # Dossier de logs pour éviter les conflits de montage de fichiers inexistants
+      - ./backend/logs:/app/logs
     networks:
       - app-network
     # Redémarre automatiquement le conteneur sauf s'il est explicitement arrêté

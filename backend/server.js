@@ -61,7 +61,7 @@ async function authenticateAD(username, password, config) {
 
         const log = (msg) => {
             console.log(`[AD Auth Debug] ${msg} (Host: ${config.host})`);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Auth Debug: ${msg}\n`);
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] AD Auth Debug: ${msg}\n`);
         };
 
         client.on('error', (err) => {
@@ -248,7 +248,7 @@ const storage = multer.diskStorage({
 
         const logMsg = `Multer Destination: type=${type}, folder=${folder}, dest=${dest}`;
         console.log(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
 
         cb(null, dest);
@@ -260,7 +260,7 @@ const storage = multer.diskStorage({
 
         const logMsg = `Multer Filename: target_id=${req.body.target_id}, final_name=${fname}`;
         console.log(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
 
         cb(null, fname);
@@ -286,7 +286,7 @@ app.use((req, res, next) => {
 
     res.send = function (body) {
         if (this.statusCode === 500) {
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] BODY 500 (${req.url}): ${body}
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] BODY 500 (${req.url}): ${body}
 `);
         }
         return originalSend.apply(this, arguments);
@@ -294,7 +294,7 @@ app.use((req, res, next) => {
 
     res.json = function (body) {
         if (this.statusCode === 500) {
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] JSON 500 (${req.url}): ${JSON.stringify(body)}
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] JSON 500 (${req.url}): ${JSON.stringify(body)}
 `);
         }
         return originalJson.apply(this, arguments);
@@ -310,7 +310,7 @@ app.use((req, res, next) => {
         const time = new Date().toISOString();
         const line = `[${time}] ${msg}
 `;
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), line);
     });
     next();
 });
@@ -396,7 +396,7 @@ const ntlmOptions = {
     domaincontroller: 'ldap://10.103.130.118',
     internalservererror: function (req, res, next) {
         const msg = `NTLM Internal Error (${req.url}): Session cassée ou erreur proxy. Forcing retry.`;
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${msg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${msg}\n`);
         console.error(msg);
 
         // On force la fermeture de la connexion et on demande au navigateur de recommencer (401)
@@ -427,7 +427,7 @@ const ntlmOptions = {
     },
     debug: function () {
         const msg = Array.prototype.slice.call(arguments).join(' ');
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] NTLM DEBUG: ${msg}\n`);
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] NTLM DEBUG: ${msg}\n`);
     }
 };
 
@@ -446,7 +446,7 @@ app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
 
     const redirectUrl = req.query.redirect || defaultRedirect;
 
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect triggered. Detected login: ${login}, Target: ${redirectUrl}
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect triggered. Detected login: ${login}, Target: ${redirectUrl}
 `);
 
     let displayName = login;
@@ -464,11 +464,11 @@ app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
             }
         } catch (e) {
             console.error('Erreur SSO Redirect AD:', e.message);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO AD Error: ${e.message}
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] SSO AD Error: ${e.message}
 `);
         }
     } else {
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect failed to detect login
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect failed to detect login
 `);
     }
 
@@ -487,7 +487,7 @@ app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
 
 // Route NTLM spécifique pour la détection du login Windows
 app.get('/api/auth/ntlm', (req, res, next) => {
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] HIT /api/auth/ntlm (Optional-NTLM)
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] HIT /api/auth/ntlm (Optional-NTLM)
 `);
     next();
 }, ntlmMiddleware, async (req, res) => {
@@ -497,7 +497,7 @@ app.get('/api/auth/ntlm', (req, res, next) => {
 
     const logMsg = `NTLM Call: User=${login}, Domain=${req.ntlm ? req.ntlm.Domain : 'N/A'}, Workstation=${req.ntlm ? req.ntlm.Workstation : 'N/A'}`;
     console.log(logMsg);
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
 
     if (login) {
@@ -508,19 +508,19 @@ app.get('/api/auth/ntlm', (req, res, next) => {
                 if (info) {
                     if (info.displayName) displayName = info.displayName;
                     if (info.mail) email = info.mail;
-                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Success: DisplayName=${displayName}
+                    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Success: DisplayName=${displayName}
 `);
                 } else {
-                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Failed for ${login}
+                    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Failed for ${login}
 `);
                 }
             } else {
-                fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD disabled or no settings
+                fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] AD disabled or no settings
 `);
             }
         } catch (e) {
             console.error('Erreur lookup AD pour NTLM:', e.message);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Error: ${e.message}
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Error: ${e.message}
 `);
         }
     }
@@ -3430,7 +3430,7 @@ app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
     const logMsg = `Ping AD (Route): Tentative pour ${host}:${port} avec ${bind_dn}`;
     console.log(logMsg);
     console.log(`[DEBUG AD PING] Full Params: host=${host}, port=${port}, base=${base_dn}, bind=${bind_dn}`);
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
 
     const client = ldap.createClient({
         url: `ldap://${host}:${port}`,
@@ -3440,7 +3440,7 @@ app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
 
     client.on('error', (err) => {
         console.error('LDAP Ping Client Error:', err.message);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Erreur: ${err.message}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Erreur: ${err.message}
 `);
         res.status(500).json({ success: false, message: `Impossible de contacter le serveur : ${err.message}` });
     });
@@ -3449,11 +3449,11 @@ app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
         if (err) {
             client.destroy();
             console.error('AD Ping Bind Error:', err.message);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Echec Bind: ${err.message}\n`);
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Echec Bind: ${err.message}\n`);
             return res.status(401).json({ success: false, message: `Liaison échouée : ${err.message}` });
         }
         client.destroy();
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Succès\n`);
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] Ping AD Succès\n`);
         res.json({ success: true, message: 'La liaison avec l\'Active Directory a réussi !' });
     });
 });
@@ -3470,7 +3470,7 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
 
     const logMsg = `Lookup AD: Recherche d'infos pour ${username} via le compte technique ${bind_dn}`;
     console.log(logMsg);
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
 
     const client = ldap.createClient({
@@ -3480,7 +3480,7 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
     });
 
     client.on('error', (err) => {
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Erreur: ${err.message}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Erreur: ${err.message}
 `);
         res.status(500).json({ success: false, message: `Erreur client LDAP : ${err.message}` });
     });
@@ -3488,7 +3488,7 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
     client.bind(bind_dn, bind_password, (err) => {
         if (err) {
             client.destroy();
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Echec Bind: ${err.message}
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD Echec Bind: ${err.message}
 `);
             return res.status(401).json({ success: false, message: `Liaison technique échouée : ${err.message}` });
         }
@@ -3531,7 +3531,7 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
             searchRes.on('end', (result) => {
                 client.destroy();
                 if (entries.length === 0) {
-                    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Utilisateur non trouvé\n`);
+                    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Utilisateur non trouvé\n`);
                     return res.status(404).json({ success: false, message: `Utilisateur "${username}" non trouvé dans l'AD.` });
                 }
 
@@ -3539,7 +3539,7 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
                 const exactMatch = entries.find(e => e.sAMAccountName && e.sAMAccountName.toLowerCase() === username.toLowerCase());
                 const userEntry = exactMatch || entries[0];
 
-                fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Succès pour ${username} (Match: ${userEntry.sAMAccountName})\n`);
+                fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] Lookup AD: Succès pour ${username} (Match: ${userEntry.sAMAccountName})\n`);
                 res.json({
                     success: true,
                     message: `Informations récupérées pour ${userEntry.displayName || userEntry.cn || username}`,
@@ -3553,13 +3553,13 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
 // Route pour voir les logs dans le navigateur
 app.get('/mouchard', (req, res) => {
     try {
-        const logPath = path.join(__dirname, 'mouchard.log');
+        const logPath = path.join(__dirname, 'logs', 'mouchard.log');
         if (!fs.existsSync(logPath)) return res.send("Aucun log disponible.");
 
         // Sécurité : Vérifier que c'est bien un fichier (évite EISDIR si volume Docker mal monté)
         const stats = fs.statSync(logPath);
         if (stats.isDirectory()) {
-            return res.send("Erreur : 'mouchard.log' est un dossier sur le serveur. Veuillez supprimer le dossier et relancer pour qu'un fichier soit créé.");
+            return res.send("Erreur : 'logs', 'mouchard.log' est un dossier sur le serveur. Veuillez supprimer le dossier et relancer pour qu'un fichier soit créé.");
         }
 
         const logs = fs.readFileSync(logPath, 'utf8');
@@ -4041,14 +4041,14 @@ app.post('/api/magapp/icons/upload', authenticateJWT, (err, req, res, next) => {
         // A Multer error occurred when uploading.
         const logMsg = `Multer Error during upload: ${err.message}`;
         console.error(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
 `);
         return res.status(500).json({ message: 'Erreur lors de la gestion du fichier uploadé', error: err.message });
     } else if (err) {
         // An unknown error occurred when uploading.
         const logMsg = `Unknown Error during upload: ${err.message}`;
         console.error(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
 `);
         return res.status(500).json({ message: "Erreur inconnue lors de l'upload", error: err.message });
     }
@@ -4058,7 +4058,7 @@ app.post('/api/magapp/icons/upload', authenticateJWT, (err, req, res, next) => {
     if (!req.file) {
         const logMsg = 'No file received in /api/magapp/icons/upload';
         console.error(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
 `);
         return res.status(400).send('No file uploaded.');
     }
@@ -4239,7 +4239,7 @@ app.post('/api/send-test-mail', authenticateAdmin, async (req, res) => {
     try {
         const logMsg = `Tentative d'envoi de mail de test à: ${to}`;
         console.log(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
 
         await sendMail(to, "Test d'envoi DSI Hub", "<p>Ceci est un mail de test envoyé depuis le paramétrage du <strong>DSI Hub Ivry</strong>.</p><p>Si vous recevez ce message, la configuration est correcte.</p>");
@@ -4247,7 +4247,7 @@ app.post('/api/send-test-mail', authenticateAdmin, async (req, res) => {
     } catch (error) {
         const errMsg = `ÉCHEC envoi mail de test: ${error.message}`;
         console.error(errMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${errMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${errMsg}
 `);
         res.status(500).json({ message: "Erreur d'envoi", error: error.message });
     }
@@ -4280,7 +4280,7 @@ app.delete('/api/certificates/:id', authenticateAdmin, async (req, res) => {
         await db.run('DELETE FROM certificates WHERE id = ?', [req.params.id]);
 
         const logMsg = `Certificat supprimé: ID ${req.params.id} (${cert.order_number})`;
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
 
         res.json({ message: 'Certificat supprimé avec succès' });
@@ -4304,7 +4304,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
         if (err) {
             const logMsg = `Multer Error during upload: ${err.message}`;
             console.error(logMsg);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
 `);
             return res.status(500).json({ message: 'Erreur Multer', error: err.message });
         }
@@ -4314,7 +4314,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
     if (!req.file) {
         const logMsg = 'No file received in /api/certificates/upload';
         console.error(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ERREUR: ${logMsg}
 `);
         return res.status(400).send('No file uploaded.');
     }
@@ -4326,7 +4326,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
 
         const logMsg = `Processing file: ${filePath}`;
         console.log(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
 `);
 
         if (fileName.toLowerCase().endsWith('.pdf')) {
@@ -4335,7 +4335,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
             content = pdfData.text;
             const logParsed = `PDF Parsed successfully. Text length: ${content.length}`;
             console.log(logParsed);
-            fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ${logParsed}
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logParsed}
 `);
         } else {
             fs.unlinkSync(filePath);
@@ -4499,7 +4499,7 @@ app.post('/api/certificates/upload', authenticateJWT, (req, res, next) => {
         const logErr = `Certif upload error: ${error.message}
 Stack: ${error.stack}`;
         console.error(logErr);
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${new Date().toISOString()}] ERREUR CRITIQUE: ${logErr}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ERREUR CRITIQUE: ${logErr}
 `);
         res.status(500).json({ message: 'Error processing certificate PDF', error: error.message });
     }
@@ -4511,7 +4511,7 @@ app.use((err, req, res, next) => {
     const errMsg = `[${time}] ERREUR CRITIQUE (${req.method} ${req.url}): ${err.message}
 Stack: ${err.stack}
 `;
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), errMsg);
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), errMsg);
     console.error(errMsg);
 
     if (res.headersSent) {
@@ -5060,7 +5060,7 @@ app.post('/api/tiers/import', authenticateAdminOrFinances, uploadMemory.single('
 
         const msg = `Import Excel tiers: ${created} créés, ${updated} mis à jour`;
         const time = new Date().toISOString();
-        fs.appendFileSync(path.join(__dirname, 'mouchard.log'), `[${time}] POST /api/tiers/import - 200 - par ${req.user.username}: ${msg}
+        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${time}] POST /api/tiers/import - 200 - par ${req.user.username}: ${msg}
 `);
 
         res.json({ message: 'Import réussi', created, updated });
@@ -5175,7 +5175,7 @@ app.get('/api/budget/lines', authenticateJWT, async (req, res) => {
     if (where.length > 0) query += ' WHERE ' + where.join(' AND ');
 
     const logMsg = `[${new Date().toISOString()}] Query Lines: ${query}, Params: ${JSON.stringify(params)}\n`;
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), logMsg);
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), logMsg);
 
     const lines = await db.all(query, params);
     res.json(lines);
@@ -5210,7 +5210,7 @@ app.get('/api/budget/invoices', authenticateJWT, async (req, res) => {
     if (where.length > 0) query += ' WHERE ' + where.join(' AND ');
 
     const logMsg = `[${new Date().toISOString()}] Query Invoices: ${query}, Params: ${JSON.stringify(params)}\n`;
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), logMsg);
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), logMsg);
 
     const invoices = await db.all(query, params);
     res.json(invoices);
@@ -5277,7 +5277,7 @@ const logMouchard = (msg) => {
     const time = new Date().toISOString();
     const line = `[${time}] ${msg}
 `;
-    fs.appendFileSync(path.join(__dirname, 'mouchard.log'), line);
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), line);
     console.log(line);
 };
 

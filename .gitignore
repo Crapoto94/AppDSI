@@ -52,3 +52,6 @@ desktop.ini
 node_modules/ 
 package-lock.json   # Optionnel, r‚g‚n‚r‚ par npm
 frontend/start_frontend.bat 
+
+backend/logs/*
+backend/*.log
