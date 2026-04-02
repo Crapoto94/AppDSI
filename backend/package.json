@@ -26,6 +26,7 @@
     "nodemailer-sendinblue-transport": "^2.0.1",
     "oracledb": "^6.10.0",
     "pdf-parse": "^1.1.1",
+    "pg": "^8.20.0",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.0.2",
     "xlsx": "^0.18.5"

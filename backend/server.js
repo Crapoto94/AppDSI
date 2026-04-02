@@ -5,6 +5,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const setupDb = require('./db');
+const { pgDb, setupPgDb } = require('./pg_db');
 const updateTierStats = require('./update_tier_stats');
 const multer = require('multer');
 const xlsx = require('xlsx');
@@ -3760,6 +3761,9 @@ setupDb().then(async database => {
     // Recalcul au démarrage
     await recalculateAllOperations();
 
+    // Initialize PostgreSQL for MagApp
+    await setupPgDb();
+
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Backend server running on http://0.0.0.0:${PORT}`);
     });
@@ -3792,7 +3796,7 @@ async function recalculateAllOperations() {
 // Magapp Public Routes
 app.get('/api/magapp/categories', async (req, res) => {
     try {
-        const categories = await db.all('SELECT * FROM magapp_categories ORDER BY display_order ASC, name ASC');
+        const categories = await pgDb.all('SELECT * FROM magapp_categories ORDER BY display_order ASC, name ASC');
         res.json(categories);
     } catch (err) {
         res.status(500).json({ message: 'Error fetching categories' });
@@ -3801,7 +3805,7 @@ app.get('/api/magapp/categories', async (req, res) => {
 
 app.get('/api/magapp/apps', async (req, res) => {
     try {
-        const apps = await db.all('SELECT * FROM magapp_apps ORDER BY name ASC');
+        const apps = await pgDb.all('SELECT * FROM magapp_apps ORDER BY name ASC');
         res.json(apps);
     } catch (err) {
         res.status(500).json({ message: 'Error fetching apps' });
@@ -3811,7 +3815,7 @@ app.get('/api/magapp/apps', async (req, res) => {
 // Route de test de connectivité des applications
 app.post('/api/magapp/health-check', async (req, res) => {
     try {
-        const apps = await db.all('SELECT id, url FROM magapp_apps WHERE is_maintenance = 0');
+        const apps = await pgDb.all('SELECT id, url FROM magapp_apps WHERE is_maintenance = 0');
         const results = {};
 
         const checkApp = async (app) => {
@@ -3859,7 +3863,7 @@ app.get('/api/magapp/favorites', async (req, res) => {
     const { username } = req.query;
     if (!username) return res.status(400).json({ message: 'Username requis' });
     try {
-        const favorites = await db.all('SELECT app_id FROM magapp_favorites WHERE username = ?', [username]);
+        const favorites = await pgDb.all('SELECT app_id FROM magapp_favorites WHERE username = ?', [username]);
         res.json(favorites.map(f => f.app_id));
     } catch (err) {
         res.status(500).json({ message: 'Erreur lecture favoris' });
@@ -3870,7 +3874,7 @@ app.post('/api/magapp/favorites', async (req, res) => {
     const { username, app_id } = req.body;
     if (!username || !app_id) return res.status(400).json({ message: 'Données manquantes' });
     try {
-        await db.run('INSERT OR IGNORE INTO magapp_favorites (username, app_id) VALUES (?, ?)', [username, app_id]);
+        await pgDb.run('INSERT INTO magapp_favorites (username, app_id) VALUES (?, ?)', [username, app_id]);
         res.json({ message: 'Ajouté aux favoris' });
     } catch (err) {
         res.status(500).json({ message: 'Erreur ajout favoris' });
@@ -3881,7 +3885,7 @@ app.delete('/api/magapp/favorites', async (req, res) => {
     const { username, app_id } = req.query;
     if (!username || !app_id) return res.status(400).json({ message: 'Données manquantes' });
     try {
-        await db.run('DELETE FROM magapp_favorites WHERE username = ? AND app_id = ?', [username, app_id]);
+        await pgDb.run('DELETE FROM magapp_favorites WHERE username = ? AND app_id = ?', [username, app_id]);
         res.json({ message: 'Retiré des favoris' });
     } catch (err) {
         res.status(500).json({ message: 'Erreur suppression favoris' });
@@ -3894,7 +3898,7 @@ app.post('/api/magapp/clicks', async (req, res) => {
     const user_agent = req.headers['user-agent'];
 
     try {
-        await db.run(
+        await pgDb.run(
             'INSERT INTO magapp_clicks (app_id, username, ip_address, user_agent) VALUES (?, ?, ?, ?)',
             [app_id, username || 'Anonyme', ip_address, user_agent]
         );
@@ -3909,8 +3913,8 @@ app.post('/api/magapp/subscribe', async (req, res) => {
     if (!app_id || !email) return res.status(400).json({ message: 'Données manquantes' });
 
     try {
-        await db.run(
-            'INSERT OR IGNORE INTO magapp_subscriptions (app_id, email) VALUES (?, ?)',
+        await pgDb.run(
+            'INSERT INTO magapp_subscriptions (app_id, email) VALUES (?, ?)',
             [app_id, email]
         );
         res.json({ message: 'Vous recevrez désormais les notifications de maintenance pour cette application.' });
@@ -3958,7 +3962,7 @@ app.get('/api/magapp/user-subscriptions', async (req, res) => {
     const { email } = req.query;
     if (!email) return res.status(400).json({ message: 'Email requis' });
     try {
-        const subs = await db.all('SELECT app_id FROM magapp_subscriptions WHERE email = ?', [email]);
+        const subs = await pgDb.all('SELECT app_id FROM magapp_subscriptions WHERE email = ?', [email]);
         res.json(subs.map(s => s.app_id));
     } catch (err) {
         res.status(500).json({ message: 'Erreur lecture abonnements' });
@@ -3969,29 +3973,7 @@ app.delete('/api/magapp/user-subscriptions', async (req, res) => {
     const { email, app_id } = req.query;
     if (!email || !app_id) return res.status(400).json({ message: 'Données manquantes' });
     try {
-        await db.run('DELETE FROM magapp_subscriptions WHERE email = ? AND app_id = ?', [email, app_id]);
-        res.json({ message: 'Désabonné avec succès' });
-    } catch (err) {
-        res.status(500).json({ message: 'Erreur désabonnement' });
-    }
-});
-
-app.get('/api/magapp/user-subscriptions', async (req, res) => {
-    const { email } = req.query;
-    if (!email) return res.status(400).json({ message: 'Email requis' });
-    try {
-        const subs = await db.all('SELECT app_id FROM magapp_subscriptions WHERE email = ?', [email]);
-        res.json(subs.map(s => s.app_id));
-    } catch (err) {
-        res.status(500).json({ message: 'Erreur lecture abonnements' });
-    }
-});
-
-app.delete('/api/magapp/user-subscriptions', async (req, res) => {
-    const { email, app_id } = req.query;
-    if (!email || !app_id) return res.status(400).json({ message: 'Données manquantes' });
-    try {
-        await db.run('DELETE FROM magapp_subscriptions WHERE email = ? AND app_id = ?', [email, app_id]);
+        await pgDb.run('DELETE FROM magapp_subscriptions WHERE email = ? AND app_id = ?', [email, app_id]);
         res.json({ message: 'Désabonné avec succès' });
     } catch (err) {
         res.status(500).json({ message: 'Erreur désabonnement' });
@@ -4000,7 +3982,7 @@ app.delete('/api/magapp/user-subscriptions', async (req, res) => {
 
 app.get('/api/magapp/subscriptions', authenticateAdmin, async (req, res) => {
     try {
-        const subs = await db.all(`
+        const subs = await pgDb.all(`
             SELECT s.*, a.name as app_name 
             FROM magapp_subscriptions s
             JOIN magapp_apps a ON s.app_id = a.id
@@ -4014,7 +3996,7 @@ app.get('/api/magapp/subscriptions', authenticateAdmin, async (req, res) => {
 
 app.delete('/api/magapp/subscriptions/:id', authenticateAdmin, async (req, res) => {
     try {
-        await db.run('DELETE FROM magapp_subscriptions WHERE id = ?', [req.params.id]);
+        await pgDb.run('DELETE FROM magapp_subscriptions WHERE id = ?', [req.params.id]);
         res.json({ message: 'Abonnement supprimé' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur suppression abonnement', error: error.message });
@@ -4087,24 +4069,24 @@ app.post('/api/magapp/icons/upload', authenticateJWT, (err, req, res, next) => {
 // Click Statistics API for Admin
 app.get('/api/magapp/stats', authenticateJWT, async (req, res) => {
     try {
-        const stats = await db.all(`
+        const stats = await pgDb.all(`
             SELECT 
                 a.id,
                 a.name,
                 COALESCE(total_info.total_clicks, 0) as total_clicks,
                 COALESCE(today_info.today_clicks, 0) as today_clicks,
                 CASE WHEN COALESCE(today_info.today_clicks, 0) > 0 THEN 1 ELSE 0 END as has_today_stats,
-                ROUND(CAST(COALESCE(total_info.total_clicks, 0) AS REAL) / COALESCE(total_info.total_days, 1), 2) as avg_clicks_per_day,
-                ROUND(CAST(COALESCE(total_info.unique_users_total, 0) AS REAL) / COALESCE(total_info.total_days, 1), 2) as avg_unique_users_per_day
+                ROUND(CAST(COALESCE(total_info.total_clicks, 0) AS NUMERIC) / NULLIF(COALESCE(total_info.total_days, 1), 0), 2) as avg_clicks_per_day,
+                ROUND(CAST(COALESCE(total_info.unique_users_total, 0) AS NUMERIC) / NULLIF(COALESCE(total_info.total_days, 1), 0), 2) as avg_unique_users_per_day
             FROM magapp_apps a
             LEFT JOIN (
-                SELECT app_id, COUNT(*) as total_clicks, COUNT(DISTINCT date(clicked_at, 'localtime')) as total_days, COUNT(DISTINCT COALESCE(username, ip_address)) as unique_users_total
+                SELECT app_id, COUNT(*) as total_clicks, COUNT(DISTINCT DATE(clicked_at)) as total_days, COUNT(DISTINCT COALESCE(username, ip_address)) as unique_users_total
                 FROM magapp_clicks GROUP BY app_id
             ) total_info ON a.id = total_info.app_id
             LEFT JOIN (
                 SELECT app_id, COUNT(*) as today_clicks
                 FROM magapp_clicks 
-                WHERE date(clicked_at, 'localtime') = date('now', 'localtime')
+                WHERE DATE(clicked_at) = CURRENT_DATE
                 GROUP BY app_id
             ) today_info ON a.id = today_info.app_id
             ORDER BY a.name ASC
@@ -4121,7 +4103,7 @@ app.get('/api/magapp/stats', authenticateJWT, async (req, res) => {
 app.post('/api/magapp/categories', authenticateAdmin, async (req, res) => {
     const { name, icon, display_order } = req.body;
     try {
-        const result = await db.run('INSERT INTO magapp_categories (name, icon, display_order) VALUES (?, ?, ?)', [name, icon, display_order || 0]);
+        const result = await pgDb.run('INSERT INTO magapp_categories (name, icon, display_order) VALUES (?, ?, ?)', [name, icon, display_order || 0]);
         res.json({ id: result.lastID, message: 'Catégorie créée' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur création', error: error.message });
@@ -4131,7 +4113,7 @@ app.post('/api/magapp/categories', authenticateAdmin, async (req, res) => {
 app.put('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => {
     const { name, icon, display_order } = req.body;
     try {
-        await db.run('UPDATE magapp_categories SET name = ?, icon = ?, display_order = ? WHERE id = ?', [name, icon, display_order || 0, req.params.id]);
+        await pgDb.run('UPDATE magapp_categories SET name = ?, icon = ?, display_order = ? WHERE id = ?', [name, icon, display_order || 0, req.params.id]);
         res.json({ message: 'Catégorie mise à jour' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur mise à jour', error: error.message });
@@ -4140,7 +4122,7 @@ app.put('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => {
 
 app.delete('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => {
     try {
-        await db.run('DELETE FROM magapp_categories WHERE id = ?', [req.params.id]);
+        await pgDb.run('DELETE FROM magapp_categories WHERE id = ?', [req.params.id]);
         res.json({ message: 'Catégorie supprimée' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur suppression', error: error.message });
@@ -4148,21 +4130,22 @@ app.delete('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => 
 });
 
 app.post('/api/magapp/apps', authenticateAdmin, async (req, res) => {
-    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end } = req.body;
+    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator } = req.body;
     try {
-        const result = await db.run('INSERT INTO magapp_apps (category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null]);
+        const result = await pgDb.run('INSERT INTO magapp_apps (category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, app_type || 'Web', present_magapp || 'oui', present_onboard || 'oui', email_createur || '', lien_mercator || '']);
         res.json({ id: result.lastID, message: 'Application créée' });
     } catch (error) {
+        console.error('Erreur création app:', error);
         res.status(500).json({ message: 'Erreur création', error: error.message });
     }
 });
 
 app.put('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
-    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end } = req.body;
+    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator } = req.body;
     try {
-        const oldApp = await db.get('SELECT is_maintenance FROM magapp_apps WHERE id = ?', [req.params.id]);
+        const oldApp = await pgDb.get('SELECT is_maintenance FROM magapp_apps WHERE id = ?', [req.params.id]);
 
-        await db.run('UPDATE magapp_apps SET category_id = ?, name = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ? WHERE id = ?', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, req.params.id]);
+        await pgDb.run('UPDATE magapp_apps SET category_id = ?, name = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ?, app_type = ?, present_magapp = ?, present_onboard = ?, email_createur = ?, lien_mercator = ? WHERE id = ?', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, app_type || 'Web', present_magapp || 'oui', present_onboard || 'oui', email_createur || '', lien_mercator || '', req.params.id]);
 
         // Si on vient d'activer la maintenance, on prévient les abonnés
         if (is_maintenance && (!oldApp || !oldApp.is_maintenance)) {
@@ -4171,16 +4154,64 @@ app.put('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
 
         res.json({ message: 'Application mise à jour' });
     } catch (error) {
+        console.error('Erreur MAJ app:', error);
         res.status(500).json({ message: 'Erreur mise à jour', error: error.message });
     }
 });
 
 app.delete('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
     try {
-        await db.run('DELETE FROM magapp_apps WHERE id = ?', [req.params.id]);
+        await pgDb.run('DELETE FROM magapp_apps WHERE id = ?', [req.params.id]);
         res.json({ message: 'Application supprimée' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur suppression', error: error.message });
+    }
+});
+
+// MagApp Settings (Feature flags in Postgres)
+app.get('/api/magapp/settings', async (req, res) => {
+    try {
+        const settings = await pgDb.get('SELECT * FROM magapp_settings LIMIT 1');
+        res.json(settings || { show_tickets: true, show_subscriptions: true, show_health_check: true });
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching MagApp settings' });
+    }
+});
+
+app.post('/api/magapp/settings', authenticateAdmin, async (req, res) => {
+    const { show_tickets, show_subscriptions, show_health_check } = req.body;
+    try {
+        // Postgres booleans require true/false, not 1/0
+        await pgDb.run('UPDATE magapp_settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ? WHERE id = 1', 
+            [!!show_tickets, !!show_subscriptions, !!show_health_check]);
+        res.json({ message: 'Settings updated' });
+    } catch (error) {
+        console.error('Erreur magapp_settings:', error);
+        res.status(500).json({ message: 'Error updating MagApp settings', error: error.message });
+    }
+});
+
+// PostgreSQL Connection Settings (in SQLite)
+app.get('/api/postgres-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM postgres_settings WHERE id = 1');
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching postgres settings' });
+    }
+});
+
+app.post('/api/postgres-settings', authenticateAdmin, async (req, res) => {
+    const { host, port, database, username, password, is_enabled } = req.body;
+    try {
+        await db.run(
+            'UPDATE postgres_settings SET host = ?, port = ?, database = ?, username = ?, password = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+            [host, port, database, username, password, is_enabled ? 1 : 0]
+        );
+        res.json({ message: 'PostgreSQL connection settings updated. Restart server to apply.' });
+    } catch (error) {
+        console.error('Erreur postgres_settings:', error);
+        res.status(500).json({ message: 'Error updating postgres settings', error: error.message });
     }
 });
 
@@ -6787,18 +6818,18 @@ async function sendMail(to, subject, content) {
 
 async function sendMaintenanceEmail(appId) {
     try {
-        const app = await db.get('SELECT * FROM magapp_apps WHERE id = ?', [appId]);
+        const app = await pgDb.get('SELECT * FROM magapp_apps WHERE id = ?', [appId]);
         if (!app) return;
 
-        const subs = await db.all('SELECT email FROM magapp_subscriptions WHERE app_id = ?', [appId]);
+        const subs = await pgDb.all('SELECT email FROM magapp_subscriptions WHERE app_id = ?', [appId]);
         if (subs.length === 0) return;
 
         const subject = `[DSI Hub] Maintenance en cours : ${app.name}`;
         const content = `
             <h2>Alerte Maintenance</h2>
             <p>L'application <strong>${app.name}</strong> est actuellement en maintenance.</p>
-            <p><strong>Début :</strong> ${new Date(app.maintenance_start).toLocaleString('fr-FR')}</p>
-            <p><strong>Fin estimée :</strong> ${new Date(app.maintenance_end).toLocaleString('fr-FR')}</p>
+            <p><strong>Début :</strong> ${app.maintenance_start ? new Date(app.maintenance_start).toLocaleString('fr-FR') : 'Non spécifié'}</p>
+            <p><strong>Fin estimée :</strong> ${app.maintenance_end ? new Date(app.maintenance_end).toLocaleString('fr-FR') : 'Non spécifié'}</p>
             <br>
             <p>Vous recevez ce mail car vous êtes abonné aux alertes pour cette application.</p>
         `;

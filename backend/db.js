@@ -192,40 +192,6 @@ async function setupDb() {
             is_enabled INTEGER DEFAULT 0
         );
 
-        CREATE TABLE IF NOT EXISTS magapp_apps (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT,
-            url TEXT NOT NULL,
-            icon TEXT,
-            category TEXT,
-            is_internal INTEGER DEFAULT 1,
-            status TEXT DEFAULT 'active'
-        );
-
-        CREATE TABLE IF NOT EXISTS magapp_favorites (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            app_id INTEGER NOT NULL,
-            FOREIGN KEY (app_id) REFERENCES magapp_apps (id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS magapp_clicks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            app_id INTEGER NOT NULL,
-            username TEXT,
-            clicked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (app_id) REFERENCES magapp_apps (id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS magapp_subscriptions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            app_id INTEGER,
-            email TEXT NOT NULL,
-            subscribed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (app_id) REFERENCES magapp_apps (id) ON DELETE CASCADE
-        );
-
         CREATE TABLE IF NOT EXISTS email_templates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             slug TEXT UNIQUE,
@@ -336,6 +302,19 @@ async function setupDb() {
 
         INSERT OR IGNORE INTO mail_settings (id, sender_name, template_html, global_enable, use_api) 
         VALUES (1, 'DSI Hub', '<html><body>{{content}}</body></html>', 1, 1);
+
+        CREATE TABLE IF NOT EXISTS postgres_settings (
+            id INTEGER PRIMARY KEY,
+            is_enabled INTEGER DEFAULT 1,
+            host TEXT DEFAULT '10.103.130.106',
+            port INTEGER DEFAULT 5432,
+            database TEXT DEFAULT 'ivry_admin',
+            username TEXT DEFAULT 'postgres',
+            password TEXT DEFAULT 'ivrypassword',
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO postgres_settings (id) VALUES (1);
     `);
 
     // Note: Tables moved to external DBs (glpi, gf, rh) are not created here anymore.

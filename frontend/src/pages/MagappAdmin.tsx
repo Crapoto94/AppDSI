@@ -20,6 +20,11 @@ interface AppItem {
   is_maintenance: number;
   maintenance_start: string | null;
   maintenance_end: string | null;
+  app_type: string;
+  present_magapp: string;
+  present_onboard: string;
+  email_createur: string;
+  lien_mercator: string;
 }
 
 interface ClickStats {
@@ -40,6 +45,17 @@ interface Subscription {
   subscribed_at: string;
 }
 
+interface PostgresSettings {
+  id: number;
+  is_enabled: number;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password?: string;
+  updated_at: string;
+}
+
 const MagappAdmin: React.FC = () => {
   const [apps, setApps] = useState<AppItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -52,6 +68,8 @@ const MagappAdmin: React.FC = () => {
   const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [editingApp, setEditingApp] = useState<AppItem | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [postgresSettings, setPostgresSettings] = useState<PostgresSettings | null>(null);
+  const [showPgSettings, setShowPgSettings] = useState(false);
   const [newCategory, setNewCategory] = useState<Partial<Category>>({ name: '', icon: '', display_order: 0 });
   const [newApp, setNewApp] = useState<Partial<AppItem>>({
     name: '', 
@@ -62,20 +80,28 @@ const MagappAdmin: React.FC = () => {
     display_order: 0,
     is_maintenance: 0,
     maintenance_start: '',
-    maintenance_end: ''
+    maintenance_end: '',
+    app_type: 'Web',
+    present_magapp: 'oui',
+    present_onboard: 'oui',
+    email_createur: '',
+    lien_mercator: ''
   });
   const [showIconSelector, setShowIconSelector] = useState<{ type: 'new' | 'edit', open: boolean }>({ type: 'new', open: false });
+  const [magappSettings, setMagappSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true });
 
   const token = localStorage.getItem('token');
 
   const fetchData = async () => {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
-      const [appsRes, catsRes, statsRes, iconsRes] = await Promise.all([
+      const [appsRes, catsRes, statsRes, iconsRes, settingsRes, pgSettingsRes] = await Promise.all([
         fetch('/api/magapp/apps', { headers }),
         fetch('/api/magapp/categories', { headers }),
         fetch('/api/magapp/stats', { headers }),
-        fetch('/api/magapp/icons', { headers })
+        fetch('/api/magapp/icons', { headers }),
+        fetch('/api/magapp/settings', { headers }),
+        fetch('/api/postgres-settings', { headers })
       ]);
 
       if (appsRes.ok) {
@@ -91,6 +117,12 @@ const MagappAdmin: React.FC = () => {
       }
       if (iconsRes.ok) {
         setAvailableIcons(await iconsRes.json());
+      }
+      if (settingsRes.ok) {
+        setMagappSettings(await settingsRes.json());
+      }
+      if (pgSettingsRes.ok) {
+        setPostgresSettings(await pgSettingsRes.json());
       }
     } catch (e) {
       console.error("Erreur de chargement", e);
@@ -181,6 +213,43 @@ const MagappAdmin: React.FC = () => {
     }
   };
 
+  const handleSaveSettings = async () => {
+    try {
+      const response = await fetch('/api/magapp/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(magappSettings)
+      });
+      if (response.ok) {
+        alert('Paramètres mis à jour');
+      }
+    } catch (e) {
+      alert('Erreur lors de la sauvegarde des paramètres');
+    }
+  };
+
+  const handleSavePostgresSettings = async () => {
+    if (!postgresSettings) return;
+    try {
+      const response = await fetch('/api/postgres-settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(postgresSettings)
+      });
+      if (response.ok) {
+        alert('Configuration PostgreSQL mise à jour. Redémarrage du serveur nécessaire pour appliquer les changements.');
+      }
+    } catch (e) {
+      alert('Erreur lors de la sauvegarde de la configuration PostgreSQL');
+    }
+  };
+
   const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -265,6 +334,9 @@ const MagappAdmin: React.FC = () => {
           <p className="text-gray-500 font-medium">Gérez les applications visibles sur le portail public</p>
         </div>
         <div className="header-actions">
+          <button className={`stats-toggle-btn ${showPgSettings ? 'active' : ''}`} onClick={() => setShowPgSettings(!showPgSettings)}>
+            <Globe size={18} /> {showPgSettings ? 'Masquer config DB' : 'Config DB'}
+          </button>
           <button className={`stats-toggle-btn ${showSubscriptions ? 'active' : ''}`} onClick={() => setShowSubscriptions(!showSubscriptions)}>
             <Bell size={18} /> {showSubscriptions ? 'Masquer abonnements' : 'Abonnements'}
           </button>
@@ -398,6 +470,74 @@ const MagappAdmin: React.FC = () => {
           </section>
         )}
 
+        <section className="admin-card settings-section" style={{ marginBottom: '30px', padding: '24px', background: '#f8fafc', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.25rem', margin: 0, fontWeight: 700, color: '#1e293b' }}>
+              <Bell size={22} color="#0078a4" /> Paramètres du Magapp
+            </h2>
+            <button className="save-btn" onClick={handleSaveSettings} style={{ padding: '10px 24px', background: '#0078a4', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Save size={18} /> Appliquer les paramètres
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: '40px' }}>
+            <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: 600, color: '#475569' }}>
+              <input type="checkbox" checked={magappSettings.show_tickets} onChange={e => setMagappSettings({...magappSettings, show_tickets: e.target.checked})} style={{ width: '18px', height: '18px' }} /> 
+              Afficher "Mes Tickets"
+            </label>
+            <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: 600, color: '#475569' }}>
+              <input type="checkbox" checked={magappSettings.show_subscriptions} onChange={e => setMagappSettings({...magappSettings, show_subscriptions: e.target.checked})} style={{ width: '18px', height: '18px' }} /> 
+              Afficher "Abonnements"
+            </label>
+            <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: 600, color: '#475569' }}>
+              <input type="checkbox" checked={magappSettings.show_health_check} onChange={e => setMagappSettings({...magappSettings, show_health_check: e.target.checked})} style={{ width: '18px', height: '18px' }} /> 
+              Afficher "Tester les applis"
+            </label>
+          </div>
+        </section>
+
+        {showPgSettings && postgresSettings && (
+          <section className="admin-card settings-section" style={{ marginBottom: '30px', padding: '24px', background: '#fff7ed', borderRadius: '16px', border: '1px solid #ffedd5' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.25rem', margin: 0, fontWeight: 700, color: '#9a3412' }}>
+                <Globe size={22} color="#c2410c" /> Configuration PostgreSQL
+              </h2>
+              <button className="save-btn" onClick={handleSavePostgresSettings} style={{ padding: '10px 24px', background: '#c2410c', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Save size={18} /> Enregistrer la config DB
+              </button>
+            </div>
+            <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+              <div className="form-group">
+                <label>Hôte (IP/DNS)</label>
+                <input type="text" value={postgresSettings.host} onChange={e => setPostgresSettings({...postgresSettings, host: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Port</label>
+                <input type="number" value={postgresSettings.port} onChange={e => setPostgresSettings({...postgresSettings, port: parseInt(e.target.value)})} />
+              </div>
+              <div className="form-group">
+                <label>Base de données</label>
+                <input type="text" value={postgresSettings.database} onChange={e => setPostgresSettings({...postgresSettings, database: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Utilisateur</label>
+                <input type="text" value={postgresSettings.username} onChange={e => setPostgresSettings({...postgresSettings, username: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label>Mot de passe</label>
+                <input type="password" value={postgresSettings.password || ''} onChange={e => setPostgresSettings({...postgresSettings, password: e.target.value})} placeholder="Laisser vide pour ne pas changer" />
+              </div>
+              <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <label className="checkbox-label" style={{ marginBottom: '10px' }}>
+                  <input type="checkbox" checked={postgresSettings.is_enabled === 1} onChange={e => setPostgresSettings({...postgresSettings, is_enabled: e.target.checked ? 1 : 0})} /> Activer PostgreSQL
+                </label>
+              </div>
+            </div>
+            <p style={{ marginTop: '15px', fontSize: '0.85rem', color: '#9a3412', fontWeight: 600 }}>
+              Dernière mise à jour : {new Date(postgresSettings.updated_at).toLocaleString('fr-FR')}
+            </p>
+          </section>
+        )}
+
         <section className="admin-card creation-section">
           <div className="card-header">
             <Plus size={20} className="header-icon" />
@@ -434,6 +574,38 @@ const MagappAdmin: React.FC = () => {
             <div className="form-group">
               <label><Hash size={14} /> Ordre</label>
               <input type="number" value={newApp.display_order} onChange={e => setNewApp({...newApp, display_order: parseInt(e.target.value)})} />
+            </div>
+
+            <div className="form-group">
+              <label><Type size={14} /> Type d'application</label>
+              <select value={newApp.app_type} onChange={e => setNewApp({...newApp, app_type: e.target.value})}>
+                <option value="Web">Web</option>
+                <option value="Saas">Saas</option>
+                <option value="Client Serveur">Client Serveur</option>
+                <option value="Monoposte">Monoposte</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label><Bell size={14} /> Visibilité</label>
+              <div style={{ display: 'flex', gap: '20px', marginTop: '10px' }}>
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={newApp.present_magapp === 'oui'} onChange={e => setNewApp({...newApp, present_magapp: e.target.checked ? 'oui' : 'non'})} /> Magapp
+                </label>
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={newApp.present_onboard === 'oui'} onChange={e => setNewApp({...newApp, present_onboard: e.target.checked ? 'oui' : 'non'})} /> Onboarding
+                </label>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label><AlignLeft size={14} /> Email Créateur</label>
+              <input type="text" placeholder="prenom.nom@villedivry.fr" value={newApp.email_createur} onChange={e => setNewApp({...newApp, email_createur: e.target.value})} />
+            </div>
+
+            <div className="form-group">
+              <label><Globe size={14} /> Lien Mercator</label>
+              <input type="text" placeholder="https://mercator..." value={newApp.lien_mercator} onChange={e => setNewApp({...newApp, lien_mercator: e.target.value})} />
             </div>
             
             <div className="form-group maintenance-group">
@@ -528,6 +700,34 @@ const MagappAdmin: React.FC = () => {
                           Changer
                         </button>
                       </div>
+                    </div>
+
+                    <div className="edit-row">
+                      <div className="form-group">
+                        <label>Type</label>
+                        <select value={editingApp.app_type} onChange={e => setEditingApp({...editingApp, app_type: e.target.value})}>
+                          <option value="Web">Web</option>
+                          <option value="Saas">Saas</option>
+                          <option value="Client Serveur">Client Serveur</option>
+                          <option value="Monoposte">Monoposte</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Visibilité</label>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <label className="checkbox-label" style={{ fontSize: '0.8rem' }}>
+                            <input type="checkbox" checked={editingApp.present_magapp === 'oui'} onChange={e => setEditingApp({...editingApp, present_magapp: e.target.checked ? 'oui' : 'non'})} /> Mag
+                          </label>
+                          <label className="checkbox-label" style={{ fontSize: '0.8rem' }}>
+                            <input type="checkbox" checked={editingApp.present_onboard === 'oui'} onChange={e => setEditingApp({...editingApp, present_onboard: e.target.checked ? 'oui' : 'non'})} /> Onb
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="edit-row">
+                      <input type="text" value={editingApp.email_createur} onChange={e => setEditingApp({...editingApp, email_createur: e.target.value})} placeholder="Email Créateur" />
+                      <input type="text" value={editingApp.lien_mercator} onChange={e => setEditingApp({...editingApp, lien_mercator: e.target.value})} placeholder="Lien Mercator" />
                     </div>
                     
                     <div className="edit-maintenance-row">

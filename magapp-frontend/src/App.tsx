@@ -4,6 +4,7 @@ import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTr
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
+import ConfirmationModal from './components/ConfirmationModal';
 
 interface Category {
   id: number;
@@ -23,6 +24,11 @@ interface AppItem {
   is_maintenance: number;
   maintenance_start: string | null;
   maintenance_end: string | null;
+  app_type: string;
+  present_magapp: string;
+  present_onboard: string;
+  email_createur: string;
+  lien_mercator: string;
 }
 
 interface Ticket {
@@ -56,6 +62,24 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true });
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean,
+    type: 'info' | 'confirm' | 'prompt' | 'error' | 'success',
+    title: string,
+    message: string,
+    onConfirm: (val?: string) => void,
+    defaultValue?: string,
+    placeholder?: string,
+    confirmLabel?: string,
+    cancelLabel?: string
+  }>({
+    isOpen: false,
+    type: 'info',
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   const apiBase = `/api`; // Utiliser le proxy Vite pour les données
 
@@ -103,13 +127,14 @@ function App() {
         }
       };
 
-      const [cats, appsData, favs, subs, tickets, ticketsList] = await Promise.all([
+      const [cats, appsData, favs, subs, tickets, ticketsList, settingsData] = await Promise.all([
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
         email ? fetchSafe(`${apiBase}/magapp/user-subscriptions?email=${email}`, []) : Promise.resolve([]),
         email ? fetchSafe(`${apiBase}/magapp/tickets-count?email=${email}`, { count: 0 }) : Promise.resolve({ count: 0 }),
-        email ? fetchSafe(`${apiBase}/magapp/tickets?email=${email}`, []) : Promise.resolve([])
+        email ? fetchSafe(`${apiBase}/magapp/tickets?email=${email}`, []) : Promise.resolve([]),
+        fetchSafe(`${apiBase}/magapp/settings`, { show_tickets: true, show_subscriptions: true, show_health_check: true })
       ]);
 
       setCategories(cats.sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
@@ -118,6 +143,7 @@ function App() {
       setSubscriptions(subs);
       setTicketCount(tickets.count || 0);
       setUserTickets(ticketsList);
+      setSettings(settingsData);
     } catch (error) {
       console.error("Erreur globale de chargement des données", error);
     } finally {
@@ -164,12 +190,14 @@ function App() {
     );
   }
 
-  const filteredApps = apps.filter(app => 
+  const appsVisible = apps.filter(app => app.present_magapp === 'oui');
+
+  const filteredApps = appsVisible.filter(app => 
     app.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (app.description && app.description.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const favoriteApps = apps.filter(app => favorites.includes(app.id));
+  const favoriteApps = appsVisible.filter(app => favorites.includes(app.id));
 
   const appsByCategory: Record<number, AppItem[]> = {};
   filteredApps.forEach(app => {
@@ -197,7 +225,13 @@ function App() {
       setHealthResults(res.data.results || {});
     } catch (error) {
       console.error("Erreur lors du test des applications", error);
-      alert("Erreur lors du test de connectivité.");
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Erreur de test',
+        message: 'Erreur lors du test de connectivité des applications.',
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
     } finally {
       setIsTesting(false);
     }
@@ -215,44 +249,104 @@ function App() {
     const isSubscribed = subscriptions.includes(app.id);
 
     if (isSubscribed) {
-      if (window.confirm(`Voulez-vous vous désabonner des alertes pour "${app.name}" ?`)) {
-        try {
-          await axios.delete(`${apiBase}/magapp/user-subscriptions?email=${userEmail}&app_id=${app.id}`);
-          setSubscriptions(prev => prev.filter(id => id !== app.id));
-        } catch (error) {
-          alert("Erreur lors du désabonnement.");
+      setModalConfig({
+        isOpen: true,
+        type: 'confirm',
+        title: 'Désabonnement',
+        message: `Voulez-vous vous désabonner des alertes pour "${app.name}" ?`,
+        confirmLabel: 'Se désabonner',
+        cancelLabel: 'Rester abonné',
+        onConfirm: async () => {
+          setModalConfig(prev => ({ ...prev, isOpen: false }));
+          try {
+            await axios.delete(`${apiBase}/magapp/user-subscriptions?email=${userEmail}&app_id=${app.id}`);
+            setSubscriptions(prev => prev.filter(id => id !== app.id));
+          } catch (error) {
+            setModalConfig({
+              isOpen: true,
+              type: 'error',
+              title: 'Erreur',
+              message: 'Erreur lors du désabonnement.',
+              onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+            });
+          }
         }
-      }
+      });
       return;
     }
 
     if (!userEmail) {
-      const email = window.prompt(`Nous n'avons pas trouvé votre email AD. Entrez votre adresse email pour être informé des maintenances de ${app.name} :`);
-      if (!email) return;
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        alert("Veuillez entrer une adresse email valide.");
-        return;
-      }
-      try {
-        const res = await axios.post(`${apiBase}/magapp/subscribe`, { app_id: app.id, email });
-        setSubscriptions(prev => [...prev, app.id]);
-        alert(res.data.message);
-      } catch (error) {
-        alert("Une erreur est survenue lors de l'abonnement.");
-      }
+      setModalConfig({
+        isOpen: true,
+        type: 'prompt',
+        title: 'Saisir votre email',
+        message: `Nous n'avons pas trouvé votre email. Entrez votre adresse pour être informé des maintenances de ${app.name} :`,
+        placeholder: 'nom@villedivry.fr',
+        onConfirm: async (email) => {
+          if (!email) return;
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            setModalConfig({
+              isOpen: true,
+              type: 'error',
+              title: 'Email invalide',
+              message: 'Veuillez entrer une adresse email valide.',
+              onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+            });
+            return;
+          }
+          setModalConfig(prev => ({ ...prev, isOpen: false }));
+          try {
+            const res = await axios.post(`${apiBase}/magapp/subscribe`, { app_id: app.id, email });
+            setSubscriptions(prev => [...prev, app.id]);
+            setModalConfig({
+              isOpen: true,
+              type: 'success',
+              title: 'Abonnement réussi',
+              message: res.data.message,
+              onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+            });
+          } catch (error) {
+            setModalConfig({
+              isOpen: true,
+              type: 'error',
+              title: 'Erreur',
+              message: "Une erreur est survenue lors de l'abonnement.",
+              onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+            });
+          }
+        }
+      });
       return;
     }
 
-    if (window.confirm(`Voulez-vous vous abonner aux alertes de maintenance pour "${app.name}" via votre adresse : ${userEmail} ?`)) {
-      try {
-        const res = await axios.post(`${apiBase}/magapp/subscribe`, { app_id: app.id, email: userEmail });
-        setSubscriptions(prev => [...prev, app.id]);
-        alert(res.data.message);
-      } catch (error) {
-        console.error("Erreur d'abonnement", error);
-        alert("Une erreur est survenue lors de l'abonnement.");
+    setModalConfig({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Confirmation d\'abonnement',
+      message: `Voulez-vous vous abonner aux alertes de maintenance pour "${app.name}" via votre adresse : ${userEmail} ?`,
+      onConfirm: async () => {
+        setModalConfig(prev => ({ ...prev, isOpen: false }));
+        try {
+          const res = await axios.post(`${apiBase}/magapp/subscribe`, { app_id: app.id, email: userEmail });
+          setSubscriptions(prev => [...prev, app.id]);
+          setModalConfig({
+            isOpen: true,
+            type: 'success',
+            title: 'Abonnement réussi',
+            message: res.data.message,
+            onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+          });
+        } catch (error) {
+          setModalConfig({
+            isOpen: true,
+            type: 'error',
+            title: 'Erreur',
+            message: "Une erreur est survenue lors de l'abonnement.",
+            onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+          });
+        }
       }
-    }
+    });
   };
 
   const renderTicketsList = (tickets: Ticket[], title: string, icon: React.ReactNode, accentColor: string, showClosed: boolean, setShowClosed: (v: boolean) => void) => {
@@ -421,49 +515,53 @@ function App() {
               </div>
             </div>
 
-            <button 
-              onClick={() => setShowTickets(true)}
-              style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '8px', 
-                background: 'white', 
-                border: '1px solid #cbd5e1', 
-                padding: '10px 18px', 
-                borderRadius: '10px',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                color: '#475569',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-              }}
-            >
-              <LifeBuoy size={18} />
-              Mes tickets ({ticketCount})
-            </button>
+            {settings.show_tickets && (
+              <button 
+                onClick={() => setShowTickets(true)}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px', 
+                  background: 'white', 
+                  border: '1px solid #cbd5e1', 
+                  padding: '10px 18px', 
+                  borderRadius: '10px',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  color: '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                }}
+              >
+                <LifeBuoy size={18} />
+                Mes tickets ({ticketCount})
+              </button>
+            )}
 
-            <button 
-              onClick={() => setShowSubs(true)}
-              style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '8px', 
-                background: 'white', 
-                border: '1px solid #cbd5e1', 
-                padding: '10px 18px', 
-                borderRadius: '10px',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                color: '#475569',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-              }}
-            >
-              <Heart size={18} />
-              Mes abonnements
-            </button>
+            {settings.show_subscriptions && (
+              <button 
+                onClick={() => setShowSubs(true)}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px', 
+                  background: 'white', 
+                  border: '1px solid #cbd5e1', 
+                  padding: '10px 18px', 
+                  borderRadius: '10px',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  color: '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                }}
+              >
+                <Heart size={18} />
+                Mes abonnements
+              </button>
+            )}
 
             <button 
               onClick={handleLogout}
@@ -485,7 +583,7 @@ function App() {
       </header>
 
       {/* Modal Abonnements */}
-      {showSubs && (
+      {showSubs && settings.show_subscriptions && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div style={{ background: 'white', maxWidth: '500px', width: '100%', borderRadius: '24px', padding: '40px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative' }}>
             <button 
@@ -526,7 +624,7 @@ function App() {
       )}
 
       {/* Modal Tickets */}
-      {showTickets && (
+      {showTickets && settings.show_tickets && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div style={{ background: 'white', maxWidth: '800px', width: '100%', borderRadius: '24px', padding: '40px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
             <button 
@@ -601,30 +699,32 @@ function App() {
           onChange={(e) => setSearchTerm(e.target.value)}
         />
         
-        <button 
-          onClick={handleHealthCheck}
-          disabled={isTesting}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: isTesting ? '#f1f5f9' : '#0078a4',
-            color: isTesting ? '#94a3b8' : 'white',
-            border: 'none',
-            padding: '12px 24px',
-            borderRadius: '12px',
-            fontSize: '0.95rem',
-            fontWeight: 700,
-            cursor: isTesting ? 'wait' : 'pointer',
-            transition: 'all 0.2s',
-            boxShadow: isTesting ? 'none' : '0 4px 6px -1px rgba(0,120,164,0.2)',
-            marginLeft: '15px',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          {isTesting ? <Loader2 className="loading-spinner" size={18} /> : <Activity size={18} />}
-          {isTesting ? "Test en cours..." : "Tester les applis"}
-        </button>
+        {settings.show_health_check && (
+          <button 
+            onClick={handleHealthCheck}
+            disabled={isTesting}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: isTesting ? '#f1f5f9' : '#0078a4',
+              color: isTesting ? '#94a3b8' : 'white',
+              border: 'none',
+              padding: '12px 24px',
+              borderRadius: '12px',
+              fontSize: '0.95rem',
+              fontWeight: 700,
+              cursor: isTesting ? 'wait' : 'pointer',
+              transition: 'all 0.2s',
+              boxShadow: isTesting ? 'none' : '0 4px 6px -1px rgba(0,120,164,0.2)',
+              marginLeft: '15px',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {isTesting ? <Loader2 className="loading-spinner" size={18} /> : <Activity size={18} />}
+            {isTesting ? "Test en cours..." : "Tester les applis"}
+          </button>
+        )}
       </div>
 
       {/* Mes Favoris Section Dynamique */}
@@ -641,6 +741,7 @@ function App() {
                 app={app} 
                 isFavorite={true}
                 isSubscribed={subscriptions.includes(app.id)}
+                showSubscriptions={settings.show_subscriptions}
                 toggleFavorite={toggleFavorite}
                 handleSubscribe={handleSubscribe}
                 handleAppClick={handleAppClick}
@@ -669,6 +770,7 @@ function App() {
                   app={app} 
                   isFavorite={favorites.includes(app.id)}
                   isSubscribed={subscriptions.includes(app.id)}
+                  showSubscriptions={settings.show_subscriptions}
                   toggleFavorite={toggleFavorite}
                   handleSubscribe={handleSubscribe}
                   handleAppClick={handleAppClick}
@@ -680,6 +782,19 @@ function App() {
           </section>
         );
       })}
+
+      <ConfirmationModal 
+        isOpen={modalConfig.isOpen}
+        type={modalConfig.type}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        defaultValue={modalConfig.defaultValue}
+        placeholder={modalConfig.placeholder}
+        confirmLabel={modalConfig.confirmLabel}
+        cancelLabel={modalConfig.cancelLabel}
+        onConfirm={modalConfig.onConfirm}
+        onCancel={() => setModalConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }
@@ -688,6 +803,7 @@ interface AppCardProps {
   app: AppItem;
   isFavorite: boolean;
   isSubscribed: boolean;
+  showSubscriptions: boolean;
   toggleFavorite: (e: React.MouseEvent, appId: number) => void;
   handleSubscribe: (e: React.MouseEvent, app: AppItem) => void;
   handleAppClick: (app: AppItem) => void;
@@ -695,7 +811,7 @@ interface AppCardProps {
   healthStatus?: 'ok' | 'fail';
 }
 
-const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, toggleFavorite, handleSubscribe, handleAppClick, formatDate, healthStatus }) => {
+const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSubscriptions, toggleFavorite, handleSubscribe, handleAppClick, formatDate, healthStatus }) => {
   const isMaint = app.is_maintenance === 1;
   const healthClass = healthStatus === 'ok' ? 'health-ok' : (healthStatus === 'fail' ? 'health-fail' : '');
   
@@ -743,27 +859,29 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, toggle
       </a>
 
       <div className="card-actions" style={{ position: 'absolute', right: '25px', display: 'flex', gap: '8px', zIndex: 5 }}>
-        <button 
-          className="subscribe-btn-custom"
-          onClick={(e) => handleSubscribe(e, app)}
-          title={isSubscribed ? "Se désabonner des alertes" : "S'abonner aux alertes maintenance"}
-          style={{ 
-            background: 'white', 
-            border: '1px solid #e2e8f0', 
-            borderRadius: '50%', 
-            width: '32px', 
-            height: '32px', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            cursor: 'pointer',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-            color: isSubscribed ? '#0078a4' : '#94a3b8',
-            transition: 'all 0.2s'
-          }}
-        >
-          <Bell size={16} fill={isSubscribed ? "#0078a4" : "none"} />
-        </button>
+        {showSubscriptions && (
+          <button 
+            className="subscribe-btn-custom"
+            onClick={(e) => handleSubscribe(e, app)}
+            title={isSubscribed ? "Se désabonner des alertes" : "S'abonner aux alertes maintenance"}
+            style={{ 
+              background: 'white', 
+              border: '1px solid #e2e8f0', 
+              borderRadius: '50%', 
+              width: '32px', 
+              height: '32px', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+              color: isSubscribed ? '#0078a4' : '#94a3b8',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Bell size={16} fill={isSubscribed ? "#0078a4" : "none"} />
+          </button>
+        )}
         <button 
           className="favorite-btn"
           onClick={(e) => toggleFavorite(e, app.id)}
