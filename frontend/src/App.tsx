@@ -81,13 +81,13 @@ function App() {
           <Route path="access-requests" element={<AdminAccessRequests />} />
           <Route path="mail" element={<MailSettings />} />
           <Route path="email-templates" element={<EmailTemplates />} />
-          <Route path="magapp" element={<MagappAdmin />} />
           <Route path="sql" element={<AdminSQL />} />
           <Route path="settings" element={<AdminSettings />} />
           <Route path="frizbi" element={<FrizbiSettings />} />
         </Route>
 
         <Route path="/rh" element={<PrivateRoute path="/rh"><StudioRH /></PrivateRoute>} />
+        <Route path="/admin/magapp" element={<PrivateRoute allowedRoles={['admin']}><MagappAdmin /></PrivateRoute>} />
         <Route path="/studio-rh" element={<Navigate to="/rh" replace />} />
       </Routes>
     </BrowserRouter>

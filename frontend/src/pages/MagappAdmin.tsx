@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Save, X, Globe, AlignLeft, Image as ImageIcon, Hash, LayoutGrid, AlertTriangle, BarChart2, Bell, Type } from 'lucide-react';
-
+import Header from '../components/Header';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings } from 'lucide-react';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 
 interface Category {
   id: number;
@@ -45,6 +47,14 @@ interface Subscription {
   subscribed_at: string;
 }
 
+interface AppVersion {
+  id: number;
+  version_number: string;
+  release_notes_html: string;
+  release_date: string;
+  is_active: boolean;
+}
+
 interface PostgresSettings {
   id: number;
   is_enabled: number;
@@ -61,15 +71,11 @@ const MagappAdmin: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [stats, setStats] = useState<ClickStats[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [availableIcons, setAvailableIcons] = useState<string[]>([]);
-  const [showStats, setShowStats] = useState(false);
+  const [activeTab, setActiveTab] = useState<'apps' | 'categories' | 'versions' | 'subscriptions' | 'stats' | 'postgres' | 'settings'>('apps');
   const [showAllStats, setShowAllStats] = useState(false);
-  const [showCategories, setShowCategories] = useState(false);
-  const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [editingApp, setEditingApp] = useState<AppItem | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [postgresSettings, setPostgresSettings] = useState<PostgresSettings | null>(null);
-  const [showPgSettings, setShowPgSettings] = useState(false);
   const [newCategory, setNewCategory] = useState<Partial<Category>>({ name: '', icon: '', display_order: 0 });
   const [newApp, setNewApp] = useState<Partial<AppItem>>({
     name: '', 
@@ -87,1481 +93,1161 @@ const MagappAdmin: React.FC = () => {
     email_createur: '',
     lien_mercator: ''
   });
-  const [showIconSelector, setShowIconSelector] = useState<{ type: 'new' | 'edit', open: boolean }>({ type: 'new', open: false });
   const [magappSettings, setMagappSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true });
+  const [versions, setVersions] = useState<AppVersion[]>([]);
+  const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
+  const [newVersion, setNewVersion] = useState({ version_number: '', release_notes_html: '' });
+  const [showAppModal, setShowAppModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [appToDelete, setAppToDelete] = useState<AppItem | null>(null);
 
   const token = localStorage.getItem('token');
 
   const fetchData = async () => {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
-      const [appsRes, catsRes, statsRes, iconsRes, settingsRes, pgSettingsRes] = await Promise.all([
+      const [appsRes, catsRes, statsRes, pgSettingsRes, settingsRes] = await Promise.all([
         fetch('/api/magapp/apps', { headers }),
         fetch('/api/magapp/categories', { headers }),
         fetch('/api/magapp/stats', { headers }),
-        fetch('/api/magapp/icons', { headers }),
-        fetch('/api/magapp/settings', { headers }),
-        fetch('/api/postgres-settings', { headers })
+        fetch('/api/postgres-settings', { headers }),
+        fetch('/api/magapp/settings', { headers })
       ]);
 
-      if (appsRes.ok) {
-        const appsData = await appsRes.json();
-        setApps(appsData.sort((a: any, b: any) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
-      }
-      if (catsRes.ok) {
-        const catsData = await catsRes.json();
-        setCategories(catsData.sort((a: any, b: any) => a.display_order - b.display_order));
-      }
-      if (statsRes.ok) {
-        setStats(await statsRes.json());
-      }
-      if (iconsRes.ok) {
-        setAvailableIcons(await iconsRes.json());
-      }
-      if (settingsRes.ok) {
-        setMagappSettings(await settingsRes.json());
-      }
-      if (pgSettingsRes.ok) {
-        setPostgresSettings(await pgSettingsRes.json());
-      }
-    } catch (e) {
-      console.error("Erreur de chargement", e);
-    }
+      if (appsRes.ok) setApps(await appsRes.json());
+      if (catsRes.ok) setCategories(await catsRes.json());
+      if (statsRes.ok) setStats(await statsRes.json());
+      if (pgSettingsRes.ok) setPostgresSettings(await pgSettingsRes.json());
+      if (settingsRes.ok) setMagappSettings(await settingsRes.json());
+    } catch (e) { console.error(e); }
   };
 
   const fetchSubscriptions = async () => {
     try {
-      const response = await fetch('/api/magapp/subscriptions', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        setSubscriptions(await response.json());
-      }
-    } catch (e) {
-      console.error("Erreur abonnements", e);
-    }
+      const response = await fetch('/api/magapp/subscriptions', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) setSubscriptions(await response.json());
+    } catch (e) { console.error(e); }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    if (showSubscriptions) fetchSubscriptions();
-  }, [showSubscriptions]);
-
-  const handleDeleteSubscription = async (id: number) => {
-    if (!window.confirm("Supprimer cet abonnement ?")) return;
+  const fetchVersions = async () => {
     try {
-      const response = await fetch(`/api/magapp/subscriptions/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) fetchSubscriptions();
-    } catch (e) {
-      alert("Erreur suppression");
-    }
+      const response = await fetch('/api/magapp/versions');
+      if (response.ok) setVersions(await response.json());
+    } catch (e) { console.error(e); }
   };
+
+  useEffect(() => { fetchData(); fetchVersions(); fetchSubscriptions(); }, []);
+  useEffect(() => { if (activeTab === 'subscriptions') fetchSubscriptions(); if (activeTab === 'versions') fetchVersions(); }, [activeTab]);
+  
+  // Set default category for "New App" when categories change
+  useEffect(() => {
+    if (categories.length > 0 && !newApp.category_id) {
+       setNewApp(prev => ({ ...prev, category_id: categories[0].id }));
+    } else if (categories.length > 0 && newApp.category_id === 1 && !categories.find(c => c.id === 1)) {
+       // If default 1 is not in list, pick the first one
+       setNewApp(prev => ({ ...prev, category_id: categories[0].id }));
+    }
+  }, [categories]);
 
   const handleSaveApp = async (appData: Partial<AppItem>, isEditing: boolean) => {
     const url = isEditing ? `/api/magapp/apps/${appData.id}` : '/api/magapp/apps';
     const method = isEditing ? 'PUT' : 'POST';
-    
     try {
       const response = await fetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(appData)
       });
-
-      if (response.ok) {
-        setEditingApp(null);
+      if (response.ok) { 
+        setEditingApp(null); 
+        setShowAppModal(false);
+        fetchData();
         if (!isEditing) {
-          setNewApp({ 
+          setNewApp({
             name: '', 
-            category_id: categories.length > 0 ? categories[0].id : 1, 
+            category_id: categories[0]?.id || 1, 
             description: '', 
             url: '', 
             icon: '/img/default.png', 
             display_order: 0,
             is_maintenance: 0,
             maintenance_start: '',
-            maintenance_end: ''
+            maintenance_end: '',
+            app_type: 'Web',
+            present_magapp: 'oui',
+            present_onboard: 'oui',
+            email_createur: '',
+            lien_mercator: ''
           });
         }
+      } else {
+        const errData = await response.json();
+        alert(`Erreur: ${errData.message || 'Échec de la sauvegarde'}`);
+      }
+    } catch (e) { 
+      console.error(e);
+      alert("Erreur réseau ou serveur"); 
+    }
+  };
+
+  const handleDeleteApp = (app: AppItem) => {
+    setAppToDelete(app);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!appToDelete) return;
+    try {
+      const response = await fetch(`/api/magapp/apps/${appToDelete.id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) {
+        setShowDeleteModal(false);
+        setAppToDelete(null);
         fetchData();
       } else {
         const err = await response.json();
-        alert(`Erreur: ${err.message || "Erreur lors de l'enregistrement"}`);
+        alert("Erreur lors de la suppression: " + (err.message || "Cause inconnue"));
       }
     } catch (e) {
-      alert("Erreur de connexion au serveur.");
+      alert("Erreur réseau lors de la suppression");
     }
   };
 
-  const handleDeleteApp = async (id: number) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir supprimer cette application ?")) return;
-    const response = await fetch(`/api/magapp/apps/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (response.ok) {
-      fetchData();
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    try {
-      const response = await fetch('/api/magapp/settings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(magappSettings)
-      });
-      if (response.ok) {
-        alert('Paramètres mis à jour');
-      }
-    } catch (e) {
-      alert('Erreur lors de la sauvegarde des paramètres');
-    }
-  };
-
-  const handleSavePostgresSettings = async () => {
-    if (!postgresSettings) return;
-    try {
-      const response = await fetch('/api/postgres-settings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(postgresSettings)
-      });
-      if (response.ok) {
-        alert('Configuration PostgreSQL mise à jour. Redémarrage du serveur nécessaire pour appliquer les changements.');
-      }
-    } catch (e) {
-      alert('Erreur lors de la sauvegarde de la configuration PostgreSQL');
-    }
-  };
-
-  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const handleIconUpload = async (file: File) => {
     const formData = new FormData();
-    formData.append('file', file);
     formData.append('target_type', 'magapp_icon');
-
+    formData.append('icon', file);
+    
     try {
-      const response = await fetch('/api/magapp/icons/upload', {
+      const response = await fetch('/api/magapp/upload-icon', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
-
       if (response.ok) {
         const data = await response.json();
-        const iconsRes = await fetch('/api/magapp/icons', { headers: { 'Authorization': `Bearer ${token}` } });
-        if (iconsRes.ok) {
-          setAvailableIcons(await iconsRes.json());
-        }
-        if (showIconSelector.type === 'new') {
-          setNewApp({ ...newApp, icon: data.path });
-        } else if (editingApp) {
-          setEditingApp({ ...editingApp, icon: data.path });
-        }
-        setShowIconSelector({ ...showIconSelector, open: false });
+        if (editingApp) setEditingApp({ ...editingApp, icon: data.url });
+        else setNewApp({ ...newApp, icon: data.url });
       } else {
         alert("Erreur lors de l'upload de l'icône");
       }
-    } catch (err) {
-      console.error(err);
-      alert("Erreur de connexion");
+    } catch (e) {
+      console.error(e);
+      alert("Erreur réseau");
     }
   };
 
   const handleSaveCategory = async (catData: Partial<Category>, isEditing: boolean) => {
     const url = isEditing ? `/api/magapp/categories/${catData.id}` : '/api/magapp/categories';
     const method = isEditing ? 'PUT' : 'POST';
-    
     try {
       const response = await fetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(catData)
       });
-
-      if (response.ok) {
-        setEditingCategory(null);
-        if (!isEditing) setNewCategory({ name: '', icon: '', display_order: 0 });
-        fetchData();
-      } else {
-        const err = await response.json();
-        alert(`Erreur: ${err.message || "Erreur lors de l'enregistrement"}`);
-      }
-    } catch (e) {
-      alert("Erreur de connexion au serveur.");
-    }
+      if (response.ok) { setEditingCategory(null); fetchData(); }
+    } catch (e) { alert("Erreur"); }
   };
 
   const handleDeleteCategory = async (id: number) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir supprimer cette catégorie ?")) return;
-    const response = await fetch(`/api/magapp/categories/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
+    if (!window.confirm("Supprimer cette catégorie ?")) return;
+    await fetch(`/api/magapp/categories/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+    fetchData();
+  };
+
+  const handleDeleteSubscription = async (id: number) => {
+    if (!window.confirm("Supprimer cet abonnement ?")) return;
+    await fetch(`/api/magapp/subscriptions/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+    fetchSubscriptions();
+  };
+
+  const handleSaveVersion = async (vData: any, isEditing: boolean) => {
+    const url = isEditing ? `/api/admin/magapp/versions/${vData.id}` : '/api/admin/magapp/versions';
+    const method = isEditing ? 'PUT' : 'POST';
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(vData)
     });
-    if (response.ok) {
-      fetchData();
+    if (response.ok) { setEditingVersion(null); setNewVersion({ version_number: '', release_notes_html: '' }); fetchVersions(); }
+  };
+
+  const handleDeleteVersion = async (id: number) => {
+    if (!window.confirm("Supprimer cette version ?")) return;
+    await fetch(`/api/admin/magapp/versions/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+    fetchVersions();
+  };
+
+  const handleActivateVersion = async (id: number) => {
+    await fetch(`/api/admin/magapp/versions/${id}/activate`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
+    fetchVersions();
+  };
+
+  const handleSavePostgresSettings = async () => {
+    if (!postgresSettings) return;
+    await fetch('/api/postgres-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(postgresSettings)
+    });
+    alert('Config mise à jour');
+  };
+
+  const handleSaveMagappSettings = async () => {
+    try {
+      const response = await fetch('/api/magapp/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(magappSettings)
+      });
+      if (response.ok) {
+        alert('Paramètres MagApp mis à jour avec succès');
+      } else {
+        alert('Erreur lors de la mise à jour des paramètres');
+      }
+    } catch (e) {
+      alert("Erreur réseau");
     }
   };
 
   const filteredStats = showAllStats ? stats : stats.filter(s => s.today_clicks > 0);
 
   return (
-    <div className="magapp-admin-wrapper animate-in fade-in duration-500">
-      <div className="admin-page-header-simple">
-        <div className="title-group">
-          <h2 className="text-2xl font-black text-gray-900">Catalogue MagApp</h2>
-          <p className="text-gray-500 font-medium">Gérez les applications visibles sur le portail public</p>
-        </div>
-        <div className="header-actions">
-          <button className={`stats-toggle-btn ${showPgSettings ? 'active' : ''}`} onClick={() => setShowPgSettings(!showPgSettings)}>
-            <Globe size={18} /> {showPgSettings ? 'Masquer config DB' : 'Config DB'}
-          </button>
-          <button className={`stats-toggle-btn ${showSubscriptions ? 'active' : ''}`} onClick={() => setShowSubscriptions(!showSubscriptions)}>
-            <Bell size={18} /> {showSubscriptions ? 'Masquer abonnements' : 'Abonnements'}
-          </button>
-          <button className={`stats-toggle-btn ${showCategories ? 'active' : ''}`} onClick={() => setShowCategories(!showCategories)}>
-            <LayoutGrid size={18} /> {showCategories ? 'Masquer catégories' : 'Catégories'}
-          </button>
-          <button className={`stats-toggle-btn ${showStats ? 'active' : ''}`} onClick={() => setShowStats(!showStats)}>
-            <BarChart2 size={18} /> {showStats ? 'Masquer stats' : 'Statistiques'}
-          </button>
-        </div>
-      </div>
-
-      <main className="magapp-main-content">
-
-        {showSubscriptions && (
-          <section className="admin-card subscriptions-admin-section">
-            <div className="card-header">
-              <Bell size={20} className="header-icon" />
-              <h2>Abonnements aux notifications de maintenance</h2>
-            </div>
-            <div className="stats-table-wrapper">
-              <table className="stats-table">
-                <thead>
-                  <tr>
-                    <th>Application</th>
-                    <th>Email de l'abonné</th>
-                    <th>Date d'inscription</th>
-                    <th style={{ textAlign: 'center' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subscriptions.map(sub => (
-                    <tr key={sub.id}>
-                      <td className="stat-name">{sub.app_name}</td>
-                      <td>{sub.email}</td>
-                      <td>{new Date(sub.subscribed_at).toLocaleString('fr-FR')}</td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button className="delete-icon-btn" onClick={() => handleDeleteSubscription(sub.id)}>
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {subscriptions.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', padding: '20px' }}>Aucun abonnement enregistré</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {showStats && (
-          <section className="admin-card stats-section">
-            <div className="card-header" style={{ justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <BarChart2 size={20} className="header-icon" />
-                <h2>Statistiques d'utilisation {!showAllStats && "(Aujourd'hui)"}</h2>
-              </div>
+    <div className="magapp-admin-container animate-fade-in">
+      <Header />
+      
+      <div className="magapp-admin-content container">
+        <header className="admin-header-v2">
+          <div className="header-info">
+            <h1>Administration MagApp</h1>
+            <p>Pilotage du catalogue et des statistiques d'usage.</p>
+          </div>
+          
+          <nav className="admin-tabs-v2">
+            {[
+              { id: 'apps', icon: <LayoutGrid size={18} />, label: 'Applications' },
+              { id: 'categories', icon: <Tag size={18} />, label: 'Catégories' },
+              { id: 'versions', icon: <Code size={18} />, label: 'Versions' },
+              { id: 'subscriptions', icon: <Bell size={18} />, label: 'Abonnés' },
+              { id: 'stats', icon: <BarChart2 size={18} />, label: 'Stats' },
+              { id: 'postgres', icon: <Globe size={18} />, label: 'DB' },
+              { id: 'settings', icon: <Settings size={18} />, label: 'Paramètres' }
+            ].map(tab => (
               <button 
-                className={`stats-filter-btn ${showAllStats ? 'active' : ''}`}
-                onClick={() => setShowAllStats(!showAllStats)}
+                key={tab.id}
+                className={`tab-btn-v2 ${activeTab === tab.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab.id as any)}
               >
-                {showAllStats ? "Stats du jour uniquement" : "Toutes les applis"}
+                {tab.icon}
+                <span>{tab.label}</span>
               </button>
-            </div>
-            <div className="stats-table-wrapper">
-              <table className="stats-table">
-                <thead>
-                  <tr>
-                    <th>Application</th>
-                    <th>Clics Totaux</th>
-                    <th>Moy. Clics / jour</th>
-                    <th>Moy. Utilisateurs / jour</th>
-                    {!showAllStats && <th>Clics Aujourd'hui</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredStats.map(s => (
-                    <tr key={s.id}>
-                      <td className="stat-name">{s.name}</td>
-                      <td>{s.total_clicks}</td>
-                      <td className="stat-highlight">{s.avg_clicks_per_day}</td>
-                      <td className="stat-highlight-users">{s.avg_unique_users_per_day}</td>
-                      {!showAllStats && <td className="stat-highlight">{s.today_clicks}</td>}
-                    </tr>
-                  ))}
-                  {filteredStats.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: '20px' }}>{showAllStats ? "Aucune donnée enregistrée" : "Aucun clic aujourd'hui"}</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
+            ))}
+          </nav>
+        </header>
 
-        {showCategories && (
-          <section className="admin-card categories-admin-section">
-            <div className="card-header">
-              <LayoutGrid size={20} className="header-icon" />
-              <h2>Gestion des Catégories</h2>
-            </div>
-            
-            <div className="category-creation-row">
-              <input type="text" placeholder="Nom de la catégorie" value={newCategory.name} onChange={e => setNewCategory({...newCategory, name: e.target.value})} />
-              <input type="number" placeholder="Ordre" value={newCategory.display_order} onChange={e => setNewCategory({...newCategory, display_order: parseInt(e.target.value)})} style={{ width: '80px' }} />
-              <button className="add-cat-btn" onClick={() => handleSaveCategory(newCategory, false)} disabled={!newCategory.name}>
-                <Plus size={16} /> Ajouter
-              </button>
-            </div>
-
-            <div className="categories-list">
-              {categories.map(cat => (
-                <div key={cat.id} className="category-item">
-                  {editingCategory?.id === cat.id ? (
-                    <div className="cat-edit-mode">
-                      <input type="text" value={editingCategory.name} onChange={e => setEditingCategory({...editingCategory, name: e.target.value})} />
-                      <input type="number" value={editingCategory.display_order} onChange={e => setEditingCategory({...editingCategory, display_order: parseInt(e.target.value)})} style={{ width: '80px' }} />
-                      <button className="save-icon-btn" onClick={() => handleSaveCategory(editingCategory, true)}><Save size={16} /></button>
-                      <button className="cancel-icon-btn" onClick={() => setEditingCategory(null)}><X size={16} /></button>
-                    </div>
-                  ) : (
-                    <>
-                      <span className="cat-name">{cat.name}</span>
-                      <span className="cat-order">Ordre: {cat.display_order}</span>
-                      <div className="cat-actions">
-                        <button className="edit-icon-btn" onClick={() => setEditingCategory(cat)}><Edit2 size={14} /></button>
-                        <button className="delete-icon-btn" onClick={() => handleDeleteCategory(cat.id)}><Trash2 size={14} /></button>
-                      </div>
-                    </>
-                  )}
+        <main className="admin-workspace-v2">
+          {activeTab === 'apps' && (
+            <div className="workspace-grid" style={{ gridTemplateColumns: '1fr' }}>
+              <section className="workspace-section">
+                <div className="section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <h2>Annuaire ({apps.length})</h2>
+                    <div className="header-icon-v2"><LayoutGrid size={20} /></div>
+                  </div>
+                  <button className="primary-btn-v2" onClick={() => { setEditingApp(null); setShowAppModal(true); }}>
+                    <Plus size={18} /> Nouvelle Application
+                  </button>
                 </div>
-              ))}
-            </div>
-          </section>
-        )}
+                
+                <div className="apps-grid-v2">
+                  {apps.map(app => (
+                    <div key={app.id} className="app-card-v2">
+                      <div className="app-card-inner-v2">
+                        <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} />
+                        <div className="app-details-v2">
+                          <h4>{app.name}</h4>
+                          <p>{app.url}</p>
+                        </div>
+                        <div className="app-actions-v2">
+                          <button onClick={() => { setEditingApp(app); setShowAppModal(true); }}><Edit2 size={16} /></button>
+                          <button onClick={() => handleDeleteApp(app)} className="delete"><Trash2 size={16} /></button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
-        <section className="admin-card settings-section" style={{ marginBottom: '30px', padding: '24px', background: '#f8fafc', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.25rem', margin: 0, fontWeight: 700, color: '#1e293b' }}>
-              <Bell size={22} color="#0078a4" /> Paramètres du Magapp
-            </h2>
-            <button className="save-btn" onClick={handleSaveSettings} style={{ padding: '10px 24px', background: '#0078a4', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Save size={18} /> Appliquer les paramètres
-            </button>
-          </div>
-          <div style={{ display: 'flex', gap: '40px' }}>
-            <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: 600, color: '#475569' }}>
-              <input type="checkbox" checked={magappSettings.show_tickets} onChange={e => setMagappSettings({...magappSettings, show_tickets: e.target.checked})} style={{ width: '18px', height: '18px' }} /> 
-              Afficher "Mes Tickets"
-            </label>
-            <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: 600, color: '#475569' }}>
-              <input type="checkbox" checked={magappSettings.show_subscriptions} onChange={e => setMagappSettings({...magappSettings, show_subscriptions: e.target.checked})} style={{ width: '18px', height: '18px' }} /> 
-              Afficher "Abonnements"
-            </label>
-            <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: 600, color: '#475569' }}>
-              <input type="checkbox" checked={magappSettings.show_health_check} onChange={e => setMagappSettings({...magappSettings, show_health_check: e.target.checked})} style={{ width: '18px', height: '18px' }} /> 
-              Afficher "Tester les applis"
-            </label>
-          </div>
-        </section>
+              {showAppModal && (
+                <div className="modal-overlay-v2">
+                  <div className="modal-content-v2 animate-fade-in">
+                    <div className="modal-header-v2">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div className="header-icon-v2">{editingApp ? <Edit2 size={18} /> : <Plus size={18} />}</div>
+                        <h3>{editingApp ? 'Modifier Application' : 'Nouvelle Application'}</h3>
+                      </div>
+                      <button className="close-modal-btn" onClick={() => setShowAppModal(false)}><X size={20} /></button>
+                    </div>
+                    
+                    <div className="modal-body-v2">
+                      <div className="form-grid-v2">
+                        <div className="form-group-v2">
+                          <label>Nom</label>
+                          <input type="text" value={editingApp ? editingApp.name : newApp.name} onChange={e => editingApp ? setEditingApp({...editingApp, name: e.target.value}) : setNewApp({...newApp, name: e.target.value})} />
+                        </div>
+                        <div className="form-group-v2">
+                          <label>URL</label>
+                          <input type="text" value={editingApp ? editingApp.url : newApp.url} onChange={e => editingApp ? setEditingApp({...editingApp, url: e.target.value}) : setNewApp({...newApp, url: e.target.value})} />
+                        </div>
+                        <div className="form-group-v2">
+                          <label>Catégorie</label>
+                          <select value={editingApp ? editingApp.category_id : newApp.category_id} onChange={e => editingApp ? setEditingApp({...editingApp, category_id: parseInt(e.target.value)}) : setNewApp({...newApp, category_id: parseInt(e.target.value)})}>
+                            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group-v2">
+                          <label>Type</label>
+                          <select value={editingApp ? editingApp.app_type : newApp.app_type} onChange={e => editingApp ? setEditingApp({...editingApp, app_type: e.target.value}) : setNewApp({...newApp, app_type: e.target.value})}>
+                            <option value="Web">Web</option>
+                            <option value="SAAS">SAAS</option>
+                            <option value="Client/serveur">Client/serveur</option>
+                            <option value="Monoposte">Monoposte</option>
+                          </select>
+                        </div>
+                        <div className="form-group-v2 full-width">
+                          <label>Description</label>
+                          <textarea rows={2} value={editingApp ? editingApp.description : newApp.description} onChange={e => editingApp ? setEditingApp({...editingApp, description: e.target.value}) : setNewApp({...newApp, description: e.target.value})} />
+                        </div>
+                        <div className="form-group-v2">
+                          <label>MagApp</label>
+                          <select value={editingApp ? editingApp.present_magapp : newApp.present_magapp} onChange={e => editingApp ? setEditingApp({...editingApp, present_magapp: e.target.value}) : setNewApp({...newApp, present_magapp: e.target.value})}>
+                            <option value="oui">Oui</option>
+                            <option value="non">Non</option>
+                          </select>
+                        </div>
+                        <div className="form-group-v2">
+                          <label>OnBoard</label>
+                          <select value={editingApp ? editingApp.present_onboard : newApp.present_onboard} onChange={e => editingApp ? setEditingApp({...editingApp, present_onboard: e.target.value}) : setNewApp({...newApp, present_onboard: e.target.value})}>
+                            <option value="oui">Oui</option>
+                            <option value="non">Non</option>
+                          </select>
+                        </div>
+                        <div className="form-group-v2">
+                          <label>Email Créateur</label>
+                          <input type="text" value={editingApp ? editingApp.email_createur : newApp.email_createur} onChange={e => editingApp ? setEditingApp({...editingApp, email_createur: e.target.value}) : setNewApp({...newApp, email_createur: e.target.value})} />
+                        </div>
+                        <div className="form-group-v2">
+                          <label>Lien Mercator</label>
+                          <input type="text" value={editingApp ? editingApp.lien_mercator : newApp.lien_mercator} onChange={e => editingApp ? setEditingApp({...editingApp, lien_mercator: e.target.value}) : setNewApp({...newApp, lien_mercator: e.target.value})} />
+                        </div>
+                        
+                        <div className="form-group-v2 full-width" style={{ marginTop: '10px', padding: '15px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
+                          <label style={{ color: '#4f46e5' }}>Logo de l'application</label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginTop: '10px' }}>
+                            <img 
+                              src={editingApp ? editingApp.icon : newApp.icon} 
+                              alt="Preview" 
+                              style={{ width: '60px', height: '60px', borderRadius: '12px', objectFit: 'contain', background: 'white', padding: '5px', border: '1px solid #e2e8f0' }} 
+                              onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }}
+                            />
+                            <div style={{ flex: 1 }}>
+                              <input 
+                                type="file" 
+                                id="icon-upload" 
+                                style={{ display: 'none' }} 
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleIconUpload(file);
+                                }}
+                              />
+                              <label htmlFor="icon-upload" className="filter-btn-v2" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                <Globe size={16} /> Choisir un fichier
+                              </label>
+                              <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '5px' }}>Recommandé: PNG/WebP avec fond transparent.</p>
+                            </div>
+                          </div>
+                        </div>
 
-        {showPgSettings && postgresSettings && (
-          <section className="admin-card settings-section" style={{ marginBottom: '30px', padding: '24px', background: '#fff7ed', borderRadius: '16px', border: '1px solid #ffedd5' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.25rem', margin: 0, fontWeight: 700, color: '#9a3412' }}>
-                <Globe size={22} color="#c2410c" /> Configuration PostgreSQL
-              </h2>
-              <button className="save-btn" onClick={handleSavePostgresSettings} style={{ padding: '10px 24px', background: '#c2410c', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Save size={18} /> Enregistrer la config DB
-              </button>
-            </div>
-            <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-              <div className="form-group">
-                <label>Hôte (IP/DNS)</label>
-                <input type="text" value={postgresSettings.host} onChange={e => setPostgresSettings({...postgresSettings, host: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Port</label>
-                <input type="number" value={postgresSettings.port} onChange={e => setPostgresSettings({...postgresSettings, port: parseInt(e.target.value)})} />
-              </div>
-              <div className="form-group">
-                <label>Base de données</label>
-                <input type="text" value={postgresSettings.database} onChange={e => setPostgresSettings({...postgresSettings, database: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Utilisateur</label>
-                <input type="text" value={postgresSettings.username} onChange={e => setPostgresSettings({...postgresSettings, username: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label>Mot de passe</label>
-                <input type="password" value={postgresSettings.password || ''} onChange={e => setPostgresSettings({...postgresSettings, password: e.target.value})} placeholder="Laisser vide pour ne pas changer" />
-              </div>
-              <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <label className="checkbox-label" style={{ marginBottom: '10px' }}>
-                  <input type="checkbox" checked={postgresSettings.is_enabled === 1} onChange={e => setPostgresSettings({...postgresSettings, is_enabled: e.target.checked ? 1 : 0})} /> Activer PostgreSQL
-                </label>
-              </div>
-            </div>
-            <p style={{ marginTop: '15px', fontSize: '0.85rem', color: '#9a3412', fontWeight: 600 }}>
-              Dernière mise à jour : {new Date(postgresSettings.updated_at).toLocaleString('fr-FR')}
-            </p>
-          </section>
-        )}
+                        <div className="form-group-v2">
+                          <label>Maintenance</label>
+                          <select value={editingApp ? editingApp.is_maintenance : newApp.is_maintenance} onChange={e => editingApp ? setEditingApp({...editingApp, is_maintenance: parseInt(e.target.value)}) : setNewApp({...newApp, is_maintenance: parseInt(e.target.value)})}>
+                            <option value={0}>Non</option>
+                            <option value={1}>En cours</option>
+                          </select>
+                        </div>
+                        <div className="form-group-v2">
+                          <label>Début Maintenance</label>
+                          <input type="datetime-local" value={editingApp ? (editingApp.maintenance_start ? new Date(editingApp.maintenance_start).toISOString().slice(0, 16) : '') : (newApp.maintenance_start || '')} onChange={e => editingApp ? setEditingApp({...editingApp, maintenance_start: e.target.value}) : setNewApp({...newApp, maintenance_start: e.target.value})} />
+                        </div>
+                        <div className="form-group-v2">
+                          <label>Fin Maintenance (estimée)</label>
+                          <input type="datetime-local" value={editingApp ? (editingApp.maintenance_end ? new Date(editingApp.maintenance_end).toISOString().slice(0, 16) : '') : (newApp.maintenance_end || '')} onChange={e => editingApp ? setEditingApp({...editingApp, maintenance_end: e.target.value}) : setNewApp({...newApp, maintenance_end: e.target.value})} />
+                        </div>
+                        <div className="form-group-v2">
+                          <label>Ordre</label>
+                          <input type="number" value={editingApp ? editingApp.display_order : newApp.display_order} onChange={e => editingApp ? setEditingApp({...editingApp, display_order: parseInt(e.target.value)}) : setNewApp({...newApp, display_order: parseInt(e.target.value)})} />
+                        </div>
+                      </div>
+                    </div>
 
-        <section className="admin-card creation-section">
-          <div className="card-header">
-            <Plus size={20} className="header-icon" />
-            <h2>Nouvelle Application</h2>
-          </div>
-          <div className="form-grid">
-            <div className="form-group">
-              <label><Type size={14} /> Nom</label>
-              <input type="text" placeholder="Ex: Outlook Web Access" value={newApp.name} onChange={e => setNewApp({...newApp, name: e.target.value})} />
-            </div>
-            <div className="form-group">
-              <label><LayoutGrid size={14} /> Catégorie</label>
-              <select value={newApp.category_id} onChange={e => setNewApp({...newApp, category_id: parseInt(e.target.value)})}>
-                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label><Globe size={14} /> URL</label>
-              <input type="text" placeholder="https://..." value={newApp.url} onChange={e => setNewApp({...newApp, url: e.target.value})} />
-            </div>
-            <div className="form-group full-width">
-              <label><AlignLeft size={14} /> Description</label>
-              <input type="text" placeholder="Description courte pour l'infobulle..." value={newApp.description} onChange={e => setNewApp({...newApp, description: e.target.value})} />
-            </div>
-            <div className="form-group">
-              <label><ImageIcon size={14} /> Icône</label>
-              <div className="icon-selector-input">
-                <img src={newApp.icon} alt="Aperçu" className="icon-preview" onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} />
-                <button className="select-icon-btn" onClick={() => setShowIconSelector({ type: 'new', open: true })}>
-                  Choisir une icône
-                </button>
-              </div>
-            </div>
-            <div className="form-group">
-              <label><Hash size={14} /> Ordre</label>
-              <input type="number" value={newApp.display_order} onChange={e => setNewApp({...newApp, display_order: parseInt(e.target.value)})} />
-            </div>
+                    <div className="modal-footer-v2">
+                      <button className="primary-btn-v2" style={{ width: '100%' }} onClick={() => {
+                        handleSaveApp(editingApp || newApp, !!editingApp);
+                      }}>
+                        <Save size={18} /> {editingApp ? 'Enregistrer les modifications' : 'Créer l\'application'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-            <div className="form-group">
-              <label><Type size={14} /> Type d'application</label>
-              <select value={newApp.app_type} onChange={e => setNewApp({...newApp, app_type: e.target.value})}>
-                <option value="Web">Web</option>
-                <option value="Saas">Saas</option>
-                <option value="Client Serveur">Client Serveur</option>
-                <option value="Monoposte">Monoposte</option>
-              </select>
-            </div>
+              {showDeleteModal && appToDelete && (
+                <div className="modal-overlay-v2">
+                  <div className="modal-content-v2 animate-fade-in" style={{ maxWidth: '450px' }}>
+                    <div className="modal-header-v2">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div className="header-icon-v2" style={{ background: '#fff1f2', color: '#e11d48' }}><Trash2 size={18} /></div>
+                        <h3>Supprimer l'application</h3>
+                      </div>
+                      <button className="close-modal-btn" onClick={() => setShowDeleteModal(false)}><X size={20} /></button>
+                    </div>
+                    
+                    <div className="modal-body-v2">
+                      <p style={{ margin: 0, color: '#475569', lineHeight: '1.6' }}>
+                        Êtes-vous sûr de vouloir supprimer l'application <strong>{appToDelete.name}</strong> ?<br/>
+                        <span style={{ fontSize: '0.85rem', color: '#ef4444', fontWeight: '700', display: 'block', marginTop: '10px' }}>
+                          Cette action est irréversible et supprimera également tous les favoris et abonnés associés à cette application.
+                        </span>
+                      </p>
+                    </div>
 
-            <div className="form-group">
-              <label><Bell size={14} /> Visibilité</label>
-              <div style={{ display: 'flex', gap: '20px', marginTop: '10px' }}>
-                <label className="checkbox-label">
-                  <input type="checkbox" checked={newApp.present_magapp === 'oui'} onChange={e => setNewApp({...newApp, present_magapp: e.target.checked ? 'oui' : 'non'})} /> Magapp
-                </label>
-                <label className="checkbox-label">
-                  <input type="checkbox" checked={newApp.present_onboard === 'oui'} onChange={e => setNewApp({...newApp, present_onboard: e.target.checked ? 'oui' : 'non'})} /> Onboarding
-                </label>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label><AlignLeft size={14} /> Email Créateur</label>
-              <input type="text" placeholder="prenom.nom@villedivry.fr" value={newApp.email_createur} onChange={e => setNewApp({...newApp, email_createur: e.target.value})} />
-            </div>
-
-            <div className="form-group">
-              <label><Globe size={14} /> Lien Mercator</label>
-              <input type="text" placeholder="https://mercator..." value={newApp.lien_mercator} onChange={e => setNewApp({...newApp, lien_mercator: e.target.value})} />
-            </div>
-            
-            <div className="form-group maintenance-group">
-              <label className="checkbox-label">
-                <input type="checkbox" checked={newApp.is_maintenance === 1} onChange={e => setNewApp({...newApp, is_maintenance: e.target.checked ? 1 : 0})} /> 
-                <AlertTriangle size={14} style={{ color: '#f59e0b' }} /> Mode Maintenance
-              </label>
-              {newApp.is_maintenance === 1 && (
-                <div className="date-inputs">
-                  <input type="date" value={newApp.maintenance_start || ''} onChange={e => setNewApp({...newApp, maintenance_start: e.target.value})} />
-                  <span>au</span>
-                  <input type="date" value={newApp.maintenance_end || ''} onChange={e => setNewApp({...newApp, maintenance_end: e.target.value})} />
+                    <div className="modal-footer-v2" style={{ display: 'flex', gap: '12px' }}>
+                      <button className="filter-btn-v2" style={{ flex: 1 }} onClick={() => setShowDeleteModal(false)}>Annuler</button>
+                      <button className="primary-btn-v2" style={{ flex: 1, background: '#e11d48' }} onClick={confirmDelete}>
+                        Supprimer
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
+          )}
 
-            <div className="form-actions">
-              <button className="submit-btn" onClick={() => handleSaveApp(newApp, false)} disabled={!newApp.name}>
-                <Plus size={18} /> Ajouter au catalogue
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {showIconSelector.open && (
-          <div className="modal-overlay" onClick={() => setShowIconSelector({ ...showIconSelector, open: false })}>
-            <div className="modal-content icon-picker-modal" onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2>Choisir une icône locale</h2>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                  <input 
-                    type="file" 
-                    id="icon-upload" 
-                    style={{ display: 'none' }} 
-                    accept="image/*"
-                    onChange={handleIconUpload}
-                  />
-                  <button 
-                    className="upload-icon-btn"
-                    onClick={() => document.getElementById('icon-upload')?.click()}
-                  >
-                    <Plus size={16} /> Uploader une image
-                  </button>
-                  <button className="close-btn" onClick={() => setShowIconSelector({ ...showIconSelector, open: false })}><X size={20} /></button>
+          {activeTab === 'categories' && (
+            <div className="workspace-grid">
+              <section className="workspace-section">
+                <div className="section-header">
+                  <h2>{editingCategory ? 'Modifier Catégorie' : 'Nouvelle Catégorie'}</h2>
+                  <div className="header-icon-v2">{editingCategory ? <Edit2 size={20} /> : <Tag size={20} />}</div>
                 </div>
-              </div>
-              <div className="icons-grid">
-                {availableIcons.map(iconPath => (
-                  <div 
-                    key={iconPath} 
-                    className={`icon-item ${ (showIconSelector.type === 'new' ? newApp.icon : editingApp?.icon) === iconPath ? 'selected' : ''}`}
-                    onClick={() => {
-                      if (showIconSelector.type === 'new') {
-                        setNewApp({ ...newApp, icon: iconPath });
-                      } else if (editingApp) {
-                        setEditingApp({ ...editingApp, icon: iconPath });
-                      }
-                      setShowIconSelector({ ...showIconSelector, open: false });
-                    }}
-                  >
-                    <img src={iconPath} alt={iconPath.split('/').pop()} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+                <div className="form-group-v2">
+                  <label>Nom</label>
+                  <input type="text" value={editingCategory ? editingCategory.name : newCategory.name} onChange={e => editingCategory ? setEditingCategory({...editingCategory, name: e.target.value}) : setNewCategory({...newCategory, name: e.target.value})} />
+                </div>
+                <div className="form-group-v2" style={{ marginTop: '10px' }}>
+                  <label>Icône (Badge/Emoji)</label>
+                  <input type="text" value={editingCategory ? editingCategory.icon : newCategory.icon} onChange={e => editingCategory ? setEditingCategory({...editingCategory, icon: e.target.value}) : setNewCategory({...newCategory, icon: e.target.value})} />
+                </div>
+                <div className="form-group-v2" style={{ marginTop: '10px' }}>
+                  <label>Ordre</label>
+                  <input type="number" value={editingCategory ? editingCategory.display_order : newCategory.display_order} onChange={e => editingCategory ? setEditingCategory({...editingCategory, display_order: parseInt(e.target.value)}) : setNewCategory({...newCategory, display_order: parseInt(e.target.value)})} />
+                </div>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                  <button className="primary-btn-v2" style={{ flex: 1 }} onClick={() => editingCategory ? handleSaveCategory(editingCategory, true) : handleSaveCategory(newCategory, false)}>
+                    <Save size={18} /> {editingCategory ? 'Sauvegarder' : 'Ajouter'}
+                  </button>
+                  {editingCategory && (
+                    <button className="filter-btn-v2" onClick={() => setEditingCategory(null)}>
+                      Annuler
+                    </button>
+                  )}
+                </div>
+              </section>
 
-        <section className="list-section">
-          <div className="list-header">
-            <h2>Applications configurées ({apps.length})</h2>
-          </div>
-          
-          <div className="admin-apps-grid">
-            {apps.map(app => (
-              <div key={app.id} className={`app-admin-card ${editingApp?.id === app.id ? 'editing' : ''}`}>
-                {editingApp?.id === app.id ? (
-                  <div className="edit-form">
-                    <div className="edit-row">
-                      <input type="text" value={editingApp.name} onChange={e => setEditingApp({...editingApp, name: e.target.value})} placeholder="Nom" />
-                      <select value={editingApp.category_id} onChange={e => setEditingApp({...editingApp, category_id: parseInt(e.target.value)})}>
-                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                    </div>
-                    <input type="text" value={editingApp.url} onChange={e => setEditingApp({...editingApp, url: e.target.value})} placeholder="URL" />
-                    
-                    <div className="edit-icon-selector">
-                      <label><ImageIcon size={14} /> Icône</label>
-                      <div className="icon-selector-input">
-                        <img src={editingApp.icon} alt="Aperçu" className="icon-preview" onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} />
-                        <button className="select-icon-btn" onClick={() => setShowIconSelector({ type: 'edit', open: true })}>
-                          Changer
+              <section className="workspace-section">
+                <div className="section-header">
+                  <h2>Existantes</h2>
+                </div>
+                <div className="categories-list-v2">
+                  {categories.map(cat => (
+                    <div key={cat.id} className="category-item-v2">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>{cat.icon}</span>
+                        <span>{cat.name}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={() => setEditingCategory(cat)} style={{ color: '#64748b', background: 'none', border: 'none', cursor: 'pointer' }}>
+                          <Edit2 size={14} />
+                        </button>
+                        <button onClick={() => handleDeleteCategory(cat.id)} style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
 
-                    <div className="edit-row">
-                      <div className="form-group">
-                        <label>Type</label>
-                        <select value={editingApp.app_type} onChange={e => setEditingApp({...editingApp, app_type: e.target.value})}>
-                          <option value="Web">Web</option>
-                          <option value="Saas">Saas</option>
-                          <option value="Client Serveur">Client Serveur</option>
-                          <option value="Monoposte">Monoposte</option>
-                        </select>
+          {activeTab === 'versions' && (
+            <div className="workspace-grid">
+              <section className="workspace-section">
+                <div className="section-header">
+                  <h2>{editingVersion ? 'Modifier Version' : 'Nouvelle Version'}</h2>
+                  <div className="header-icon-v2"><Code size={20} /></div>
+                </div>
+                <div className="form-group-v2">
+                  <label>Numéro de version</label>
+                  <input type="text" value={editingVersion ? editingVersion.version_number : newVersion.version_number} onChange={e => editingVersion ? setEditingVersion({...editingVersion, version_number: e.target.value}) : setNewVersion({...newVersion, version_number: e.target.value})} />
+                </div>
+                <div className="form-group-v2" style={{ marginTop: '10px' }}>
+                  <label>Notes de mise à jour</label>
+                  <ReactQuill 
+                    theme="snow" 
+                    value={editingVersion ? editingVersion.release_notes_html : newVersion.release_notes_html} 
+                    onChange={val => editingVersion ? setEditingVersion({...editingVersion, release_notes_html: val}) : setNewVersion({...newVersion, release_notes_html: val})} 
+                    style={{ height: '200px', marginBottom: '50px' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button className="primary-btn-v2" style={{ flex: 1 }} onClick={() => editingVersion ? handleSaveVersion(editingVersion, true) : handleSaveVersion(newVersion, false)}>
+                    {editingVersion ? 'Mettre à jour' : 'Publier'}
+                  </button>
+                  {editingVersion && <button className="filter-btn-v2" onClick={() => setEditingVersion(null)}>Annuler</button>}
+                </div>
+              </section>
+
+              <section className="workspace-section">
+                <div className="section-header">
+                  <h2>Historique</h2>
+                </div>
+                {versions.map(v => (
+                  <div key={v.id} className="app-card-v2" style={{ marginBottom: '10px' }}>
+                    <div className="app-card-inner-v2" style={{ alignItems: 'flex-start' }}>
+                      <div className="app-details-v2" style={{ flex: 1 }}>
+                        <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {v.version_number}
+                          {v.is_active && <CheckCircle size={14} color="#10b981" />}
+                        </h4>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{new Date(v.release_date).toLocaleDateString()}</span>
+                        <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#64748b', maxHeight: '40px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }} dangerouslySetInnerHTML={{ __html: v.release_notes_html }}></div>
                       </div>
-                      <div className="form-group">
-                        <label>Visibilité</label>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                          <label className="checkbox-label" style={{ fontSize: '0.8rem' }}>
-                            <input type="checkbox" checked={editingApp.present_magapp === 'oui'} onChange={e => setEditingApp({...editingApp, present_magapp: e.target.checked ? 'oui' : 'non'})} /> Mag
-                          </label>
-                          <label className="checkbox-label" style={{ fontSize: '0.8rem' }}>
-                            <input type="checkbox" checked={editingApp.present_onboard === 'oui'} onChange={e => setEditingApp({...editingApp, present_onboard: e.target.checked ? 'oui' : 'non'})} /> Onb
-                          </label>
-                        </div>
+                      <div className="app-actions-v2">
+                        {!v.is_active && <button onClick={() => handleActivateVersion(v.id)} style={{ color: '#10b981' }} title="Activer"><CheckCircle size={16} /></button>}
+                        <button onClick={() => setEditingVersion(v)} title="Modifier"><Edit2 size={16} /></button>
+                        <button onClick={() => handleDeleteVersion(v.id)} className="delete" title="Supprimer"><Trash2 size={16} /></button>
                       </div>
-                    </div>
-
-                    <div className="edit-row">
-                      <input type="text" value={editingApp.email_createur} onChange={e => setEditingApp({...editingApp, email_createur: e.target.value})} placeholder="Email Créateur" />
-                      <input type="text" value={editingApp.lien_mercator} onChange={e => setEditingApp({...editingApp, lien_mercator: e.target.value})} placeholder="Lien Mercator" />
-                    </div>
-                    
-                    <div className="edit-maintenance-row">
-                      <label className="checkbox-label">
-                        <input type="checkbox" checked={editingApp.is_maintenance === 1} onChange={e => setEditingApp({...editingApp, is_maintenance: e.target.checked ? 1 : 0})} /> Mode Maintenance
-                      </label>
-                      {editingApp.is_maintenance === 1 && (
-                        <div className="maint-dates">
-                          <input type="date" value={editingApp.maintenance_start || ''} onChange={e => setEditingApp({...editingApp, maintenance_start: e.target.value})} />
-                          <span>au</span>
-                          <input type="date" value={editingApp.maintenance_end || ''} onChange={e => setEditingApp({...editingApp, maintenance_end: e.target.value})} />
-                        </div>
-                      )}
-                    </div>
-
-                    <textarea value={editingApp.description} onChange={e => setEditingApp({...editingApp, description: e.target.value})} placeholder="Description" rows={2} />
-                    <div className="edit-actions">
-                      <button className="save-btn" onClick={() => handleSaveApp(editingApp, true)}><Save size={16} /> Enregistrer</button>
-                      <button className="cancel-btn" onClick={() => setEditingApp(null)}><X size={16} /> Annuler</button>
                     </div>
                   </div>
-                ) : (
-                  <>
-                    <div className={`app-card-side ${app.is_maintenance === 1 ? 'maintenance' : ''}`}></div>
-                    <div className="app-card-content">
-                      <div className="app-card-main">
-                        <div className="app-card-icon">
-                          <img src={app.icon} alt={app.name} onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} />
-                        </div>
-                        <div className="app-card-text">
-                          <div className="app-card-title-row">
-                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              {app.name}
-                              {app.is_maintenance === 1 && <AlertTriangle size={14} color="#f59e0b" />}                            </h3>
-                            <span className="category-tag">{categories.find(c => c.id === app.category_id)?.name}</span>
-                          </div>
-                          <p className="app-card-url">{app.url}</p>
-                        </div>
-                      </div>
-                      <div className="app-card-footer">
-                        <div className="footer-left">
-                          {app.is_maintenance === 1 ? (
-                            <span className="maint-status">
-                              Maintenance du {app.maintenance_start ? new Date(app.maintenance_start).toLocaleDateString() : '?'} au {app.maintenance_end ? new Date(app.maintenance_end).toLocaleDateString() : '?'}
-                            </span>
-                          ) : (
-                            <p className="app-card-desc">{app.description || "Aucune description"}</p>
-                          )}
-                        </div>
-                        <div className="app-card-actions">
-                          <button className="edit-btn" onClick={() => setEditingApp(app)} title="Modifier">
-                            <Edit2 size={16} />
-                          </button>
-                          <button className="delete-btn" onClick={() => handleDeleteApp(app.id)} title="Supprimer">
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
+                ))}
+              </section>
+            </div>
+          )}
+
+          {activeTab === 'subscriptions' && (
+            <section className="workspace-section">
+              <div className="section-header">
+                <h2>Abonnements Actifs</h2>
+                <div className="header-icon-v2"><Bell size={20} /></div>
               </div>
-            ))}
-          </div>
-        </section>
-      </main>
+              <table className="modern-table-v2">
+                <thead>
+                  <tr><th>App</th><th>Utilisateur</th><th>Date</th><th>Action</th></tr>
+                </thead>
+                <tbody>
+                  {subscriptions.map(s => (
+                    <tr key={s.id}>
+                      <td><strong>{s.app_name}</strong></td>
+                      <td>{s.email || 'Utilisateur'}</td>
+                      <td>{new Date(s.subscribed_at).toLocaleDateString()}</td>
+                      <td><button onClick={() => handleDeleteSubscription(s.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#ef4444' }}><Trash2 size={16} /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          {activeTab === 'stats' && (
+            <section className="workspace-section">
+              <div className="section-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <h2>Usage</h2>
+                  <div className="header-icon-v2"><BarChart2 size={20} /></div>
+                </div>
+                <button className={`filter-btn-v2 ${showAllStats ? 'active' : ''}`} onClick={() => setShowAllStats(!showAllStats)}>
+                  {showAllStats ? "Toutes" : "Aujourd'hui"}
+                </button>
+              </div>
+              <div className="stats-visual-grid-v2">
+                {filteredStats.map(s => (
+                  <div key={s.id} className="stat-card-v2">
+                    <div className="stat-info-v2">
+                      <span className="stat-name-v2">{s.name}</span>
+                      <span className="stat-value-v2">{showAllStats ? s.total_clicks : s.today_clicks} 🖱️</span>
+                    </div>
+                    <div className="stat-bar-bg-v2">
+                      <div className="stat-bar-fill-v2" style={{ width: `${Math.min(100, ((showAllStats ? s.total_clicks : s.today_clicks) / (Math.max(...stats.map(x => showAllStats ? x.total_clicks : x.today_clicks)) || 1)) * 100)}%` }}></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {activeTab === 'postgres' && postgresSettings && (
+            <section className="workspace-section" style={{ maxWidth: '600px' }}>
+              <div className="section-header">
+                <h2>PostgreSQL Configuration</h2>
+                <div className="header-icon-v2"><Globe size={20} /></div>
+              </div>
+              <div className="form-grid-v2">
+                <div className="form-group-v2 full-width">
+                  <label>Host</label>
+                  <input type="text" value={postgresSettings.host} onChange={e => setPostgresSettings({...postgresSettings, host: e.target.value})} />
+                </div>
+                <div className="form-group-v2">
+                  <label>Database</label>
+                  <input type="text" value={postgresSettings.database} onChange={e => setPostgresSettings({...postgresSettings, database: e.target.value})} />
+                </div>
+                <div className="form-group-v2">
+                  <label>User</label>
+                  <input type="text" value={postgresSettings.username} onChange={e => setPostgresSettings({...postgresSettings, username: e.target.value})} />
+                </div>
+                <div className="form-group-v2 full-width">
+                  <label>Password</label>
+                  <input type="password" value={postgresSettings.password || ''} onChange={e => setPostgresSettings({...postgresSettings, password: e.target.value})} placeholder="••••••••" />
+                </div>
+                <button className="primary-btn-v2" style={{ marginTop: '10px' }} onClick={handleSavePostgresSettings}><Save size={18} /> Sauvegarder</button>
+              </div>
+            </section>
+          )}
+
+          {activeTab === 'settings' && (
+            <section className="workspace-section" style={{ maxWidth: '600px' }}>
+              <div className="section-header">
+                <h2>Paramètres MagApp</h2>
+                <div className="header-icon-v2"><Settings size={20} /></div>
+              </div>
+              <div className="form-grid-v2">
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les tickets système (GLPI)</span>
+                    <input 
+                      type="checkbox" 
+                      checked={magappSettings.show_tickets} 
+                      onChange={e => setMagappSettings({...magappSettings, show_tickets: e.target.checked})} 
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Active l'affichage du panneau latéral des tickets incidents pour les utilisateurs.</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les abonnements Push</span>
+                    <input 
+                      type="checkbox" 
+                      checked={magappSettings.show_subscriptions} 
+                      onChange={e => setMagappSettings({...magappSettings, show_subscriptions: e.target.checked})} 
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Permet aux utilisateurs de s'abonner aux notifications d'état d'un service (abonnement Push).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher le Health Check global</span>
+                    <input 
+                      type="checkbox" 
+                      checked={magappSettings.show_health_check} 
+                      onChange={e => setMagappSettings({...magappSettings, show_health_check: e.target.checked})} 
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le badge d'état global du système (Health Check) en haut de la page.</p>
+                </div>
+                <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
+                  <Save size={18} /> Mettre à jour les paramètres
+                </button>
+              </div>
+            </section>
+          )}
+        </main>
+      </div>
 
       <style>{`
-        .admin-container {
+        .magapp-admin-container {
           min-height: 100vh;
-          background-color: #f0f4f8;
+          background: #f8fafc;
+          padding-bottom: 50px;
           color: #1e293b;
+          font-family: 'Inter', system-ui, -apple-system, sans-serif;
         }
 
-        .stats-toggle-btn {
-          margin-left: auto;
-          background: white;
-          border: 1px solid #e2e8f0;
-          padding: 10px 20px;
-          border-radius: 12px;
-          cursor: pointer;
-          color: #64748b;
-          font-weight: 700;
+        .magapp-admin-content {
+          margin-top: 30px;
+          max-width: 1400px !important;
+          padding: 0 40px;
+        }
+
+        .admin-header-v2 {
           display: flex;
+          justify-content: space-between;
           align-items: center;
-          gap: 10px;
-          transition: all 0.2s;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
-
-        .stats-toggle-btn:hover {
-          color: #0078a4;
-          border-color: #0078a4;
-        }
-
-        .stats-toggle-btn.active {
-          background: #0078a4;
-          color: white;
-          border-color: #0078a4;
-        }
-
-        .stats-section {
-          background: #f8fafc !important;
-          border: 1px dashed #cbd5e1 !important;
-        }
-
-        .stats-table-wrapper {
-          overflow-x: auto;
-        }
-
-        .stats-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.9rem;
-        }
-
-        .stats-table th {
-          text-align: left;
-          padding: 12px;
-          border-bottom: 2px solid #e2e8f0;
-          color: #64748b;
-          font-weight: 700;
-        }
-
-        .stats-table td {
-          padding: 12px;
-          border-bottom: 1px solid #f1f5f9;
-        }
-
-        .stat-name {
-          font-weight: 700;
-          color: #1e293b;
-        }
-
-        .stat-highlight {
-          color: #0078a4;
-          font-weight: 800;
-          font-size: 1rem;
-        }
-
-        .stat-highlight-users {
-          color: #10b981;
-          font-weight: 800;
-          font-size: 1rem;
-        }
-
-        .admin-main {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 40px 20px;
-        }
-
-        .admin-page-header {
-          display: flex;
-          align-items: flex-start;
-          gap: 20px;
           margin-bottom: 40px;
+          padding: 32px 40px;
+          background: rgba(255, 255, 255, 0.5);
+          backdrop-filter: blur(12px);
+          border-radius: 30px;
+          border: 1px solid rgba(255, 255, 255, 0.8);
+          box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
+          flex-wrap: wrap;
+          gap: 20px;
         }
 
-        .header-actions {
-          margin-left: auto;
-          display: flex;
-          gap: 10px;
+        .header-info h1 {
+          font-size: 2.2rem;
+          font-weight: 1000;
+          margin: 0;
+          color: #0f172a;
+          letter-spacing: -0.04em;
         }
 
-        .stats-toggle-btn {
-          background: white;
-          border: 1px solid #e2e8f0;
-          padding: 10px 20px;
-          border-radius: 12px;
-          cursor: pointer;
+        .header-info p {
           color: #64748b;
-          font-weight: 700;
+          margin: 6px 0 0 0;
+          font-size: 1.05rem;
+          font-weight: 500;
+        }
+
+        .admin-tabs-v2 {
+          display: flex;
+          background: rgba(255, 255, 255, 0.5);
+          backdrop-filter: blur(8px);
+          padding: 6px;
+          border-radius: 18px;
+          gap: 6px;
+          border: 1px solid white;
+        }
+
+        .tab-btn-v2 {
           display: flex;
           align-items: center;
-          gap: 10px;
-          transition: all 0.2s;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
-
-        .stats-filter-btn {
-          background: #f1f5f9;
-          border: 1px solid #e2e8f0;
-          padding: 6px 14px;
-          border-radius: 8px;
-          cursor: pointer;
-          color: #64748b;
-          font-size: 0.85rem;
-          font-weight: 600;
-          transition: all 0.2s;
-        }
-
-        .stats-filter-btn:hover {
-          background: #e2e8f0;
-        }
-
-        .stats-filter-btn.active {
-          background: #0078a4;
-          color: white;
-          border-color: #0078a4;
-        }
-
-        .categories-admin-section {
-          background: #f0f9ff !important;
-          border: 1px solid #bae6fd !important;
-        }
-
-        .subscriptions-admin-section {
-          background: #fdf2f8 !important;
-          border: 1px solid #fbcfe8 !important;
-        }
-
-        .subscriptions-admin-section .header-icon {
-          color: #db2777;
-          background: #fce7f3;
-        }
-
-        .category-creation-row {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 20px;
-          padding-bottom: 20px;
-          border-bottom: 1px solid #e0f2fe;
-        }
-
-        .category-creation-row input {
-          padding: 8px 12px;
-          border: 1px solid #bae6fd;
-          border-radius: 8px;
-        }
-
-        .add-cat-btn {
-          background: #0078a4;
-          color: white;
+          gap: 8px;
+          padding: 12px 20px;
           border: none;
-          padding: 8px 16px;
-          border-radius: 8px;
-          font-weight: 600;
+          background: none;
+          border-radius: 14px;
+          color: #64748b;
+          font-weight: 800;
+          font-size: 0.9rem;
           cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .tab-btn-v2:hover {
+          color: #4f46e5;
+          background: rgba(255, 255, 255, 0.8);
+          transform: translateY(-1px);
+        }
+
+        .tab-btn-v2.active {
+          background: white;
+          color: #4f46e5;
+          box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.1);
+          transform: scale(1.05);
+        }
+
+        .admin-workspace-v2 {
+          animation: fadeSlideUp 0.5s ease-out;
+        }
+
+        .workspace-grid {
+          display: grid;
+          grid-template-columns: 400px 1fr;
+          gap: 30px;
+        }
+
+        .workspace-section {
+          background: rgba(255, 255, 255, 0.7);
+          backdrop-filter: blur(16px);
+          border-radius: 28px;
+          border: 1px solid rgba(255, 255, 255, 0.8);
+          box-shadow: 0 20px 25px -5px rgba(0,0,0,0.02);
+          padding: 32px;
+          display: flex;
+          flex-direction: column;
+          margin-bottom: 30px;
+        }
+
+        .section-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 24px;
+        }
+
+        .section-header h2 {
+          font-size: 1.2rem;
+          font-weight: 800;
+          margin: 0;
+          color: #1e293b;
+        }
+
+        .header-icon-v2 {
+          width: 40px;
+          height: 40px;
+          background: #eef2ff;
+          color: #4f46e5;
           display: flex;
           align-items: center;
+          justify-content: center;
+          border-radius: 12px;
+        }
+
+        .form-grid-v2 {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 16px;
+        }
+
+        .form-group-v2 {
+          display: flex;
+          flex-direction: column;
           gap: 6px;
         }
 
-        .categories-list {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-          gap: 15px;
+        .form-group-v2.full-width { grid-column: span 2; }
+
+        .form-group-v2 label {
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: #64748b;
+          margin-left: 2px;
         }
 
-        .category-item {
+        .form-group-v2 input, 
+        .form-group-v2 textarea, 
+        .form-group-v2 select {
+          padding: 10px 14px;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
           background: white;
-          padding: 12px 16px;
-          border-radius: 10px;
-          border: 1px solid #e0f2fe;
+          font-size: 0.9rem;
+          transition: all 0.2s;
+        }
+
+        .form-group-v2 input:focus {
+          border-color: #4f46e5;
+          box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+          outline: none;
+        }
+
+        .apps-grid-v2 {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+          gap: 24px;
+        }
+
+        .app-card-v2 {
+          background: rgba(255, 255, 255, 0.6);
+          backdrop-filter: blur(12px);
+          border: 1px solid rgba(255, 255, 255, 0.7);
+          border-radius: 24px;
+          padding: 24px;
+          transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+          position: relative;
+          overflow: hidden;
+        }
+
+        .app-card-v2:hover {
+          transform: translateY(-8px) scale(1.02);
+          background: rgba(255, 255, 255, 0.9);
+          box-shadow: 0 20px 40px -15px rgba(0,0,0,0.1);
+          border-color: #4f46e5;
+        }
+
+        .app-card-inner-v2 {
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 16px;
         }
 
-        .cat-name {
-          font-weight: 700;
-          color: #0369a1;
-          flex-grow: 1;
+        .app-card-inner-v2 img {
+          width: 56px;
+          height: 56px;
+          border-radius: 16px;
+          background: white;
+          padding: 8px;
+          border: 1px solid #f1f5f9;
+          object-fit: contain;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+          transition: transform 0.3s;
         }
 
-        .cat-order {
-          font-size: 0.8rem;
-          color: #64748b;
-          background: #f1f5f9;
-          padding: 2px 8px;
-          border-radius: 4px;
+        .app-card-v2:hover img {
+          transform: rotate(-5deg) scale(1.1);
         }
 
-        .cat-actions {
-          display: flex;
-          gap: 5px;
+        .app-details-v2 h4 {
+          margin: 0;
+          font-size: 1.15rem;
+          font-weight: 800;
+          color: #0f172a;
+          letter-spacing: -0.01em;
         }
 
-        .cat-edit-mode {
+        .app-details-v2 p {
+          margin: 2px 0 0 0;
+          font-size: 0.75rem;
+          color: #94a3b8;
+          max-width: 150px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .app-actions-v2 {
+          margin-left: auto;
           display: flex;
           gap: 8px;
-          width: 100%;
         }
 
-        .cat-edit-mode input {
-          padding: 4px 8px;
-          border: 1px solid #0078a4;
-          border-radius: 4px;
-          font-size: 0.9rem;
-        }
-
-        .edit-icon-btn, .save-icon-btn { color: #0078a4; background: none; border: none; cursor: pointer; }
-        .delete-icon-btn, .cancel-icon-btn { color: #ef4444; background: none; border: none; cursor: pointer; }
-
-        .back-button {
-          background: white;
-          border: 1px solid #e2e8f0;
-          padding: 10px;
+        .app-actions-v2 button {
+          width: 36px;
+          height: 36px;
+          border: none;
+          background: #f8fafc;
+          color: #64748b;
           border-radius: 12px;
           cursor: pointer;
-          color: #64748b;
           transition: all 0.2s;
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+          box-shadow: 0 2px 4px rgba(0,0,0,0.02);
         }
 
-        .back-button:hover {
-          color: #0078a4;
-          border-color: #0078a4;
-          transform: translateX(-2px);
+        .app-actions-v2 button:hover { 
+          background: #4f46e5; 
+          color: white; 
+          transform: scale(1.1);
+          box-shadow: 0 4px 8px rgba(79, 70, 229, 0.2);
+        }
+        
+        .app-actions-v2 button.delete:hover { 
+          background: #e11d48; 
+          box-shadow: 0 4px 8px rgba(225, 29, 72, 0.2);
         }
 
-        .title-group h1 {
-          margin: 0;
-          font-size: 2rem;
-          font-weight: 800;
-          color: #0f172a;
-          letter-spacing: -0.025em;
-        }
-
-        .title-group p {
-          margin: 4px 0 0 0;
-          color: #64748b;
-          font-size: 1rem;
-        }
-
-        .admin-card {
-          background: white;
-          border-radius: 16px;
-          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
-          padding: 24px;
-          margin-bottom: 40px;
-          border: 1px solid #e2e8f0;
-        }
-
-        .card-header {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          margin-bottom: 24px;
-          padding-bottom: 16px;
-          border-bottom: 1px solid #f1f5f9;
-        }
-
-        .header-icon {
-          color: #0078a4;
-          background: #f0f9ff;
-          padding: 8px;
-          border-radius: 8px;
-          width: 36px;
-          height: 36px;
-        }
-
-        .card-header h2 {
-          margin: 0;
-          font-size: 1.25rem;
-          font-weight: 700;
-          color: #1e293b;
-        }
-
-        .form-grid {
+        .stats-visual-grid-v2 {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
           gap: 20px;
         }
 
-        .form-group {
+        .stat-card-v2 {
+          background: white;
+          padding: 20px;
+          border-radius: 18px;
+          border: 1px solid #e2e8f0;
+        }
+
+        .stat-info-v2 {
           display: flex;
-          flex-direction: column;
-          gap: 8px;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
         }
 
-        .form-group.full-width {
-          grid-column: span 3;
+        .stat-name-v2 { font-weight: 700; color: #475569; }
+        .stat-value-v2 { font-weight: 900; color: #1e293b; font-size: 1.1rem; }
+
+        .stat-bar-bg-v2 {
+          height: 6px;
+          background: #f1f5f9;
+          border-radius: 10px;
+          overflow: hidden;
         }
 
-        .form-group label {
-          font-size: 0.875rem;
+        .stat-bar-fill-v2 {
+          height: 100%;
+          background: linear-gradient(90deg, #4f46e5, #7c3aed);
+          border-radius: 10px;
+          transition: width 1s ease-out;
+        }
+
+        .primary-btn-v2 {
+          background: linear-gradient(135deg, #4f46e5, #6366f1);
+          color: white;
+          border: none;
+          padding: 14px 28px;
+          border-radius: 14px;
+          font-weight: 800;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          box-shadow: 0 10px 20px -5px rgba(79, 70, 229, 0.3);
+          transition: all 0.3s;
+        }
+
+        .primary-btn-v2:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 15px 30px -10px rgba(79, 70, 229, 0.4);
+          filter: brightness(1.1);
+        }
+
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .categories-list-v2 {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 12px;
+        }
+
+        .category-item-v2 {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px 16px;
+          background: white;
+          border-radius: 12px;
+          border: 1px solid #e2e8f0;
+        }
+
+        .category-item-v2 span { font-weight: 700; color: #334155; }
+
+        .modern-table-v2 {
+          width: 100%;
+          border-collapse: separate;
+          border-spacing: 0 8px;
+        }
+
+        .modern-table-v2 th {
+          text-align: left;
+          padding: 12px 16px;
+          color: #64748b;
+          font-weight: 700;
+          font-size: 0.8rem;
+          text-transform: uppercase;
+        }
+
+        .modern-table-v2 td {
+          padding: 16px;
+          background: white;
+          border-top: 1px solid #f1f5f9;
+          border-bottom: 1px solid #f1f5f9;
+        }
+
+        .modern-table-v2 td:first-child { border-left: 1px solid #f1f5f9; border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
+        .modern-table-v2 td:last-child { border-right: 1px solid #f1f5f9; border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+
+        .filter-btn-v2 {
+          padding: 8px 16px;
+          border: 1px solid #e2e8f0;
+          background: white;
+          border-radius: 10px;
           font-weight: 600;
           color: #64748b;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .form-group input, .form-group select {
-          padding: 10px 14px;
-          border: 1px solid #e2e8f0;
-          border-radius: 8px;
-          font-size: 0.95rem;
-          transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .form-group input:focus, .form-group select:focus {
-          outline: none;
-          border-color: #0078a4;
-          box-shadow: 0 0 0 3px rgba(0, 120, 164, 0.1);
-        }
-
-        .maintenance-group {
-          grid-column: span 3;
-          background: #fffbeb;
-          padding: 15px;
-          border-radius: 12px;
-          border: 1px solid #fef3c7;
-          display: flex;
-          flex-direction: row;
-          align-items: center;
-          gap: 30px;
-        }
-
-        .date-inputs {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .date-inputs input {
-          padding: 6px 10px !important;
-        }
-
-        .checkbox-label {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 0.9rem;
-          font-weight: 700;
           cursor: pointer;
         }
 
-        .form-actions {
-          grid-column: span 3;
-          display: flex;
-          justify-content: flex-end;
-          margin-top: 10px;
-        }
-
-        .submit-btn {
-          background: #0078a4;
+        .filter-btn-v2.active {
+          background: #4f46e5;
           color: white;
-          border: none;
-          padding: 12px 24px;
-          border-radius: 8px;
-          font-weight: 700;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          transition: background 0.2s;
+          border-color: #4f46e5;
         }
 
-        .submit-btn:hover {
-          background: #005a7c;
-        }
-
-        .submit-btn:disabled {
-          background: #cbd5e1;
-          cursor: not-allowed;
-        }
-
-        .icon-selector-input {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          background: #f8fafc;
-          padding: 8px;
-          border-radius: 8px;
-          border: 1px solid #e2e8f0;
-        }
-
-        .icon-preview {
-          width: 32px;
-          height: 32px;
-          object-fit: contain;
-          background: white;
-          border-radius: 4px;
-          padding: 2px;
-          border: 1px solid #e2e8f0;
-        }
-
-        .select-icon-btn {
-          background: #0078a4;
-          color: white;
-          border: none;
-          padding: 6px 12px;
-          border-radius: 6px;
-          font-size: 0.85rem;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .upload-icon-btn {
-          background: #10b981;
-          color: white;
-          border: none;
-          padding: 6px 12px;
-          border-radius: 6px;
-          font-size: 0.85rem;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .upload-icon-btn:hover {
-          background: #059669;
-        }
-
-        .modal-overlay {
+        .modal-overlay-v2 {
           position: fixed;
           top: 0;
           left: 0;
           right: 0;
           bottom: 0;
-          background: rgba(0,0,0,0.5);
+          background: rgba(15, 23, 42, 0.4);
+          backdrop-filter: blur(12px);
           display: flex;
           align-items: center;
           justify-content: center;
-          z-index: 1000;
-          backdrop-filter: blur(4px);
+          z-index: 10000;
+          padding: 20px;
         }
 
-        .icon-picker-modal {
+        .modal-content-v2 {
           background: white;
-          width: 90%;
-          max-width: 600px;
-          max-height: 80vh;
-          border-radius: 16px;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .modal-header {
-          padding: 20px;
-          border-bottom: 1px solid #e2e8f0;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .icons-grid {
-          padding: 20px;
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-          gap: 12px;
+          border-radius: 32px;
+          width: 100%;
+          max-width: 700px;
+          max-height: 90vh;
           overflow-y: auto;
-        }
-
-        .icon-item {
-          aspect-ratio: 1;
-          padding: 8px;
-          border-radius: 8px;
-          border: 1px solid #e2e8f0;
-          cursor: pointer;
-          transition: all 0.2s;
+          box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.3);
           display: flex;
+          flex-direction: column;
+          border: 1px solid rgba(255,255,255,0.8);
+        }
+
+        .modal-header-v2 {
+          padding: 32px 40px;
+          display: flex;
+          justify-content: space-between;
           align-items: center;
-          justify-content: center;
+          border-bottom: 1px solid #f1f5f9;
         }
 
-        .icon-item:hover {
-          border-color: #0078a4;
-          background: #f0f9ff;
-        }
-
-        .icon-item.selected {
-          border-color: #0078a4;
-          background: #e0f2fe;
-          box-shadow: 0 0 0 2px #0078a4;
-        }
-
-        .icon-item img {
-          width: 100%;
-          height: 100%;
-          object-fit: contain;
-        }
-
-        .close-btn {
-          background: none;
-          border: none;
-          cursor: pointer;
-          color: #64748b;
-        }
-
-        .list-header {
-          margin-bottom: 24px;
-        }
-
-        .list-header h2 {
+        .modal-header-v2 h3 {
+          margin: 0;
           font-size: 1.5rem;
-          font-weight: 700;
-          color: #1e293b;
+          font-weight: 900;
+          color: #0f172a;
+          letter-spacing: -0.02em;
         }
 
-        .admin-apps-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
-          gap: 20px;
+        .modal-body-v2 {
+          padding: 40px;
         }
 
-        .app-admin-card {
-          background: white;
-          border: 1px solid #e2e8f0;
-          border-radius: 8px;
-          display: flex;
-          position: relative;
-          overflow: hidden;
-          transition: transform 0.2s, box-shadow 0.2s;
-          height: 120px;
-        }
-
-        .app-admin-card:hover {
-          box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-        }
-
-        .app-admin-card.editing {
-          height: auto;
-          min-height: 280px;
-          border-color: #0078a4;
-          box-shadow: 0 0 0 2px rgba(0, 120, 164, 0.1);
-        }
-
-        .app-card-side {
-          width: 8px;
-          background-color: #74b1c7;
-          flex-shrink: 0;
-        }
-
-        .app-card-side.maintenance {
-          background-color: #f59e0b;
-        }
-
-        .app-card-content {
-          flex-grow: 1;
-          display: flex;
-          flex-direction: column;
-          padding: 16px;
-        }
-
-        .app-card-main {
-          display: flex;
-          gap: 16px;
-          align-items: center;
-          margin-bottom: 12px;
-        }
-
-        .app-card-icon {
-          width: 48px;
-          height: 48px;
-          flex-shrink: 0;
-          background: #f8fafc;
-          border-radius: 8px;
-          padding: 4px;
-          border: 1px solid #f1f5f9;
-        }
-
-        .app-card-icon img {
-          width: 100%;
-          height: 100%;
-          object-fit: contain;
-        }
-
-        .app-card-text {
-          flex-grow: 1;
-        }
-
-        .app-card-title-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 2px;
-        }
-
-        .app-card-title-row h3 {
-          margin: 0;
-          font-size: 1.1rem;
-          color: #0078a4;
-          font-weight: 600;
-        }
-
-        .category-tag {
-          font-size: 0.7rem;
-          background: #f1f5f9;
-          color: #64748b;
-          padding: 2px 8px;
-          border-radius: 20px;
-          font-weight: 600;
-          text-transform: uppercase;
-        }
-
-        .app-card-url {
-          margin: 0;
-          font-size: 0.8rem;
-          color: #94a3b8;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 300px;
-        }
-
-        .app-card-footer {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-top: auto;
+        .modal-footer-v2 {
+          padding: 32px 40px;
           border-top: 1px solid #f1f5f9;
-          padding-top: 10px;
+          background: #f8fafc;
+          border-bottom-left-radius: 32px;
+          border-bottom-right-radius: 32px;
         }
 
-        .footer-left {
-          flex: 1;
-        }
-
-        .maint-status {
-          font-size: 0.75rem;
-          color: #92400e;
-          font-weight: 700;
-          background: #fef3c7;
-          padding: 2px 8px;
-          border-radius: 4px;
-        }
-
-        .app-card-desc {
-          margin: 0;
-          font-size: 0.85rem;
-          color: #64748b;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 300px;
-        }
-
-        .app-card-actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .edit-btn, .delete-btn {
-          background: none;
-          border: none;
-          cursor: pointer;
-          padding: 6px;
-          border-radius: 6px;
-          transition: background 0.2s;
-        }
-
-        .edit-btn { color: #0078a4; }
-        .edit-btn:hover { background: #f0f9ff; }
-        .delete-btn { color: #ef4444; }
-        .delete-btn:hover { background: #fef2f2; }
-
-        .edit-form {
-          padding: 20px;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          width: 100%;
-        }
-
-        .edit-row {
-          display: grid;
-          grid-template-columns: 2fr 1fr;
-          gap: 12px;
-        }
-
-        .edit-form input, .edit-form select, .edit-form textarea {
-          padding: 8px 12px;
-          border: 1px solid #e2e8f0;
-          border-radius: 6px;
-          font-size: 0.9rem;
-        }
-
-        .edit-maintenance-row {
-          background: #fffbeb;
-          padding: 10px;
-          border-radius: 8px;
-          border: 1px solid #fef3c7;
-          display: flex;
-          align-items: center;
-          gap: 15px;
-        }
-
-        .maint-dates {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .edit-icon-selector {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .edit-actions {
-          display: flex;
-          gap: 10px;
-          margin-top: 10px;
-        }
-
-        .save-btn {
-          background: #10b981;
-          color: white;
-          border: none;
-          padding: 8px 16px;
-          border-radius: 6px;
-          font-weight: 600;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-
-        .cancel-btn {
+        .close-modal-btn {
           background: #f1f5f9;
-          color: #64748b;
           border: none;
-          padding: 8px 16px;
-          border-radius: 6px;
-          font-weight: 600;
+          padding: 10px;
+          border-radius: 12px;
           cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 6px;
+          color: #64748b;
+          transition: all 0.2s;
         }
 
-        @media (max-width: 900px) {
-          .form-grid { grid-template-columns: 1fr 1fr; }
-          .form-group.full-width, .form-actions { grid-column: span 2; }
-          .admin-apps-grid { grid-template-columns: 1fr; }
+        .close-modal-btn:hover {
+          background: #fee2e2;
+          color: #ef4444;
+          transform: rotate(90deg);
+        }
+
+        .animate-fade-in {
+          animation: modalFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes modalFadeIn {
+          from { opacity: 0; transform: scale(0.9) translateY(20px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        @media (max-width: 1024px) {
+          .workspace-grid { grid-template-columns: 1fr; }
         }
       `}</style>
     </div>

@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
     host: true,
-    allowedHosts: ['po22038', 'PO22038'],
+    allowedHosts: ['po22038', 'PO22038', 'magapp-dev.ivry.local', 'magapp.ivry.local'],
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

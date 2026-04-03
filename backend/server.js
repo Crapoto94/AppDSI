@@ -34,7 +34,14 @@ function flattenLDAPEntry(entry) {
     const pojo = entry.pojo;
     if (!pojo) return entry.object || entry;
 
-    const obj = { dn: pojo.objectName };
+    let rawDn = pojo.objectName || '';
+    try {
+        if (rawDn && typeof rawDn === 'string' && rawDn.includes('\\')) {
+            rawDn = decodeURIComponent(rawDn.replace(/\\([0-9a-fA-F]{2})/g, '%$1'));
+        }
+    } catch(e) {}
+
+    const obj = { dn: rawDn };
     if (pojo.attributes && Array.isArray(pojo.attributes)) {
         pojo.attributes.forEach(attr => {
             obj[attr.type] = attr.values.length === 1 ? attr.values[0] : attr.values;
@@ -245,6 +252,7 @@ const storage = multer.diskStorage({
         else if (type === 'invoice') folder = 'file_factures';
         else if (type === 'certif') folder = 'file_certif';
         else if (type === 'telecom_invoice') folder = 'file_telecom';
+        else if (type === 'magapp_icon') folder = 'magapp_img';
         const dest = path.join(__dirname, folder);
 
         const logMsg = `Multer Destination: type=${type}, folder=${folder}, dest=${dest}`;
@@ -255,16 +263,14 @@ const storage = multer.diskStorage({
         cb(null, dest);
     },
     filename: (req, file, cb) => {
-        const targetId = (req.body.target_id || 'unknown').replace(/[^a-z0-9]/gi, '_');
-        const ext = path.extname(file.originalname);
-        const fname = `${targetId}_${Date.now()}${ext}`;
-
-        const logMsg = `Multer Filename: target_id=${req.body.target_id}, final_name=${fname}`;
-        console.log(logMsg);
-        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
-`);
-
-        cb(null, fname);
+        if (req.body.target_type === 'magapp_icon') {
+            const fname = file.originalname.replace(/[^a-z0-9.]/gi, '_');
+            cb(null, fname);
+        } else {
+            const targetId = (req.body.target_id || 'unknown').replace(/[^a-z0-9]/gi, '_');
+            const fname = `${targetId}_${Date.now()}${path.extname(file.originalname)}`;
+            cb(null, fname);
+        }
     }
 });
 const upload = multer({ storage });
@@ -539,14 +545,33 @@ app.get('/api/auth/ntlm', (req, res, next) => {
 app.get('/api/auth/auto-login', ntlmMiddleware, async (req, res) => {
     try {
         // On prend soit le login détecté par NTLM, soit celui passé en paramètre (retour de redirect)
-        const winLogin = req.query.login || req.ntlm.UserName;
+        let winLogin = req.query.login || req.ntlm.UserName;
+        if (winLogin) winLogin = winLogin.replace(/@ivry94\.fr$/i, '');
 
         if (!winLogin) {
             return res.status(401).json({ message: 'Login Windows non détecté' });
         }
 
         // Chercher l'utilisateur de façon insensible à la casse
-        const user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE LOWER(username) = LOWER(?)', [winLogin]);
+        let user = await pgDb.get('SELECT username, role, service_code, service_complement FROM users WHERE username = ?', [winLogin.toLowerCase()]);
+
+        if (!user) {
+            // Création automatique de l'utilisateur s'il n'existe pas localement (SSO Mouchard)
+            try {
+                const isAdminAccount = winLogin.toLowerCase() === 'admin' || winLogin.toLowerCase() === 'adminhub';
+                const role = isAdminAccount ? 'admin' : 'user';
+                const isApproved = isAdminAccount ? 1 : 0;
+
+                await pgDb.run(
+                    'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
+                    [winLogin.toLowerCase(), role, isApproved]
+                );
+                user = await pgDb.get('SELECT username, role, service_code, service_complement FROM users WHERE username = ?', [winLogin.toLowerCase()]);
+                console.log(`[AUTH] Nouvel utilisateur SSO créé automatiquement: ${winLogin} (Role: ${role})`);
+            } catch (insertError) {
+                console.error(`[AUTH] Erreur lors de la création auto de l'utilisateur SSO ${winLogin}:`, insertError);
+            }
+        }
 
         if (user) {
             const accessToken = jwt.sign({ id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement }, SECRET_KEY);
@@ -559,11 +584,10 @@ app.get('/api/auth/auto-login', ntlmMiddleware, async (req, res) => {
     }
 });
 
-// Route d'authentification AD manuelle pour le Magasin d'Applications
 // Récupérer le profil utilisateur actuel (depuis la DB pour avoir le statut à jour)
 app.get('/api/auth/me', authenticateJWT, async (req, res) => {
     try {
-        const user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE id = ?', [req.user.id]);
+        const user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
         if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
 
         // Force l'approbation pour les admins
@@ -594,7 +618,9 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
 });
 
 app.post('/api/auth/magapp-login', async (req, res) => {
-    const { username, password } = req.body;
+    let { username, password } = req.body;
+    
+    if (username) username = username.replace(/@ivry94\.fr$/i, '');
 
     if (!username || !password) {
         return res.status(400).json({ message: 'Login et mot de passe requis' });
@@ -614,7 +640,7 @@ app.post('/api/auth/magapp-login', async (req, res) => {
         }
 
         // 2. Vérifier si l'utilisateur existe dans notre base locale
-        let user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+        let user = await pgDb.get('SELECT username, role, service_code, service_complement FROM users WHERE username = ?', [username.toLowerCase()]);
 
         if (!user) {
             // Création automatique de l'utilisateur s'il est OK AD mais absent de la base locale
@@ -624,16 +650,15 @@ app.post('/api/auth/magapp-login', async (req, res) => {
                 const role = isAdminAccount ? 'admin' : 'magapp';
                 const isApproved = isAdminAccount ? 1 : 0;
 
-                const result = await db.run(
+                await pgDb.run(
                     'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
                     [adUser.username.toLowerCase(), role, isApproved]
                 );
                 // Récupérer l'utilisateur fraîchement créé
-                user = await db.get('SELECT id, username, role, service_code, service_complement, is_approved FROM users WHERE id = ?', [result.lastID]);
+                user = await pgDb.get('SELECT username, role, service_code, service_complement, is_approved FROM users WHERE username = ?', [adUser.username.toLowerCase()]);
                 console.log(`[AUTH] Nouvel utilisateur AD créé automatiquement via MagApp: ${adUser.username} (Role: ${role})`);
             } catch (insertError) {
                 console.error(`[AUTH] Erreur lors de la création auto de l'utilisateur ${username}:`, insertError);
-                // Si l'insertion échoue, on continue avec les infos AD uniquement (fallback)
             }
         }
 
@@ -679,7 +704,7 @@ app.post('/api/auth/magapp-login', async (req, res) => {
 // Active Directory Settings API
 app.get('/api/ad-settings', authenticateAdmin, async (req, res) => {
     try {
-        const settings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        const settings = await pgDb.get('SELECT * FROM ad_settings WHERE id = 1');
         if (settings && settings.bind_password) {
             settings.bind_password = '********';
         }
@@ -714,7 +739,7 @@ app.post('/api/ad-settings', authenticateAdmin, async (req, res) => {
 // Route publique : retourne uniquement is_enabled (pour Login.tsx)
 app.get('/api/azure-ad-settings/status', async (req, res) => {
     try {
-        const settings = await db.get('SELECT is_enabled FROM azure_ad_settings WHERE id = 1');
+        const settings = await pgDb.get('SELECT is_enabled FROM azure_ad_settings WHERE id = 1');
         res.json({ is_enabled: !!(settings && settings.is_enabled) });
     } catch (error) {
         res.json({ is_enabled: false });
@@ -724,7 +749,7 @@ app.get('/api/azure-ad-settings/status', async (req, res) => {
 // Route admin : retourne la config complète (mot de passe masqué)
 app.get('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
     try {
-        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        const settings = await pgDb.get('SELECT * FROM azure_ad_settings WHERE id = 1');
         if (settings && settings.client_secret) {
             settings.client_secret = '••••••••';
         }
@@ -758,7 +783,7 @@ app.post('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
 
 app.get('/api/auth/azure/login', async (req, res) => {
     try {
-        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        const settings = await pgDb.get('SELECT * FROM azure_ad_settings WHERE id = 1');
         if (!settings || !settings.is_enabled) {
             console.warn('[AZURE] Tentative de connexion alors que Azure AD est désactivé');
             return res.status(503).json({ message: 'L\'authentification Azure AD est désactivée' });
@@ -791,7 +816,7 @@ app.get('/api/auth/azure/callback', async (req, res) => {
     }
 
     try {
-        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        const settings = await pgDb.get('SELECT * FROM azure_ad_settings WHERE id = 1');
         console.log('[AZURE] Échange du code contre un token...');
 
         // 1. Échanger le code contre un token
@@ -860,7 +885,7 @@ app.get('/api/auth/azure/callback', async (req, res) => {
 app.post('/api/admin/azure/lookup', authenticateAdmin, async (req, res) => {
     const { username } = req.body;
     try {
-        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        const settings = await pgDb.get('SELECT * FROM azure_ad_settings WHERE id = 1');
         if (!settings || !settings.is_enabled) {
             return res.status(400).json({ success: false, message: 'Azure AD non configuré ou désactivé' });
         }
@@ -4003,6 +4028,13 @@ app.delete('/api/magapp/subscriptions/:id', authenticateAdmin, async (req, res) 
     }
 });
 
+app.post('/api/magapp/upload-icon', authenticateAdmin, upload.single('icon'), (req, res) => {
+    console.log(`[MagApp] Upload attempt: file=${req.file ? req.file.filename : 'none'}, type=${req.body.target_type}`);
+    if (!req.file) return res.status(400).json({ message: 'Aucun fichier reçu' });
+    const fileUrl = `/img/${req.file.filename}`;
+    res.json({ url: fileUrl });
+});
+
 app.get('/api/magapp/icons', authenticateJWT, (req, res) => {
     const dir = path.join(__dirname, 'magapp_img');
     try {
@@ -4160,10 +4192,14 @@ app.put('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
 });
 
 app.delete('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
+    const appId = parseInt(req.params.id);
+    console.log(`[MagApp] Delete attempt: id=${appId}`);
     try {
-        await pgDb.run('DELETE FROM magapp_apps WHERE id = ?', [req.params.id]);
+        const result = await pgDb.run('DELETE FROM magapp_apps WHERE id = ?', [appId]);
+        console.log(`[MagApp] Delete success: id=${appId}, changes=${result.changes}`);
         res.json({ message: 'Application supprimée' });
     } catch (error) {
+        console.error(`[MagApp] Delete error (id=${appId}):`, error);
         res.status(500).json({ message: 'Erreur suppression', error: error.message });
     }
 });
@@ -4188,6 +4224,113 @@ app.post('/api/magapp/settings', authenticateAdmin, async (req, res) => {
     } catch (error) {
         console.error('Erreur magapp_settings:', error);
         res.status(500).json({ message: 'Error updating MagApp settings', error: error.message });
+    }
+});
+
+// --- MagApp Versions API (What's New) --- //
+
+// Read all versions (order by descending ID/Date)
+app.get('/api/magapp/versions', async (req, res) => {
+    try {
+        const versions = await pgDb.all('SELECT * FROM magapp.versions ORDER BY release_date DESC');
+        res.json(versions);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching MagApp versions', error: error.message });
+    }
+});
+
+// Admin CRUD pour les versions
+app.post('/api/admin/magapp/versions', authenticateAdmin, async (req, res) => {
+    const { version_number, release_notes_html } = req.body;
+    try {
+        const result = await pgDb.run(
+            'INSERT INTO magapp.versions (version_number, release_notes_html) VALUES (?, ?)',
+            [version_number, release_notes_html || '']
+        );
+        res.json({ id: result.lastID, message: 'Version créée' });
+    } catch (error) {
+        console.error('Erreur creation version:', error);
+        res.status(500).json({ message: 'Erreur création de version', error: error.message });
+    }
+});
+
+app.put('/api/admin/magapp/versions/:id', authenticateAdmin, async (req, res) => {
+    const { version_number, release_notes_html } = req.body;
+    try {
+        await pgDb.run(
+            'UPDATE magapp.versions SET version_number = ?, release_notes_html = ? WHERE id = ?',
+            [version_number, release_notes_html, req.params.id]
+        );
+        res.json({ message: 'Version mise à jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur mise à jour de version', error: error.message });
+    }
+});
+
+app.delete('/api/admin/magapp/versions/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const id = req.params.id;
+        console.log(`[ADMIN] Suppression de la version ID: ${id} par ${req.user.username}`);
+        
+        // On pourrait vérifier si elle est active ici, mais l'utilisateur a confirmé vouloir pouvoir la supprimer
+        const result = await pgDb.run('DELETE FROM magapp.versions WHERE id = ?', [parseInt(id)]);
+        
+        if (result.changes === 0) {
+            return res.status(404).json({ message: 'Version non trouvée' });
+        }
+        
+        res.json({ message: 'Version supprimée' });
+    } catch (error) {
+        console.error('Erreur suppression version:', error);
+        res.status(500).json({ message: 'Erreur suppression de version', error: error.message });
+    }
+});
+
+app.put('/api/admin/magapp/versions/:id/activate', authenticateAdmin, async (req, res) => {
+    try {
+        // Only one version can be active at a time
+        await pgDb.run('UPDATE magapp.versions SET is_active = FALSE');
+        await pgDb.run('UPDATE magapp.versions SET is_active = TRUE WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Version définie comme principale (active)' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur bascule de version', error: error.message });
+    }
+});
+
+// User Version Preferences (Has the user seen the active version?)
+app.get('/api/magapp/user-version', authenticateJWT, async (req, res) => {
+    try {
+        const username = req.user.username;
+        let pref = await pgDb.get('SELECT * FROM magapp.user_versions WHERE username = ?', [username]);
+        if (!pref) {
+            pref = { username, last_seen_version_id: null };
+        }
+        res.json(pref);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching user version prefs', error: error.message });
+    }
+});
+
+app.post('/api/magapp/user-version', authenticateJWT, async (req, res) => {
+    const { version_id } = req.body;
+    const username = req.user.username;
+    try {
+        // pgDb.run ajoute automatiquement RETURNING id aux INSERT,
+        // mais user_versions n'a pas de colonne id. On fait un SELECT + INSERT/UPDATE.
+        const existing = await pgDb.get('SELECT username FROM magapp.user_versions WHERE username = ?', [username]);
+        if (existing) {
+            await pgDb.run('UPDATE magapp.user_versions SET last_seen_version_id = ?, seen_at = CURRENT_TIMESTAMP WHERE username = ?', [version_id, username]);
+        } else {
+            // Use pgDb.all for INSERT to avoid pgDb.run's automatic RETURNING id
+            await pgDb.all(
+                `INSERT INTO magapp.user_versions (username, last_seen_version_id, seen_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+                [username, version_id]
+            );
+        }
+        res.json({ message: 'Version vue enregistrée' });
+    } catch (error) {
+        console.error('Erreur maj user_version:', error);
+        res.status(500).json({ message: 'Error updating user version pref', error: error.message });
     }
 });
 
@@ -4776,7 +4919,9 @@ app.post('/api/admin/sql/query', authenticateAdmin, async (req, res) => {
 
 // Auth Routes
 app.post('/api/login', async (req, res) => {
-    const { username, password } = req.body;
+    let { username, password } = req.body;
+    
+    if (username) username = username.replace(/@ivry94\.fr$/i, '');
 
     // 1. Tentative via Active Directory si activé
     try {
@@ -4785,7 +4930,7 @@ app.post('/api/login', async (req, res) => {
             const adUser = await authenticateAD(username, password, adSettings);
             if (adUser) {
                 // L'utilisateur est authentifié AD. On cherche son profil localement.
-                let user = await db.get('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+                let user = await db.get('SELECT * FROM users WHERE username = ?', [username.toLowerCase()]);
 
                 if (!user) {
                     // Création automatique de l'utilisateur s'il est OK AD mais absent de la base locale

@@ -5,7 +5,7 @@ import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   LayoutDashboard, Users, MessageSquare, ShieldCheck, 
-  Mail, Settings, LayoutGrid, Activity, Smartphone,
+  Mail, Settings, LayoutGrid, Activity, 
   Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders
 } from 'lucide-react';
 
@@ -45,7 +45,6 @@ const AdminLayout: React.FC = () => {
     { title: "Azure AD (Entra)", icon: Shield, path: "/admin/azure-ad" },
     { title: "Liaison GLPI", icon: Database, path: "/admin/glpi" },
     { title: "Liaison Oracle", icon: Database, path: "/admin/oracle" },
-    { title: "Magasin d'Apps", icon: Smartphone, path: "/admin/magapp" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
     { title: "Logs Système", icon: Activity, path: "http://localhost:3001/mouchard", external: true },
   ];

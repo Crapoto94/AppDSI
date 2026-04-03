@@ -14,7 +14,8 @@ function convertSqliteToPostgres(sql) {
                     .replace(/magapp_favorites/gi, 'magapp.favorites')
                     .replace(/magapp_clicks/gi, 'magapp.clicks')
                     .replace(/magapp_subscriptions/gi, 'magapp.subscriptions')
-                    .replace(/magapp_settings/gi, 'magapp.settings');
+                    .replace(/magapp_settings/gi, 'magapp.settings')
+                    .replace(/\busers\b/gi, 'hub.users');
     
     newSql = newSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
     
@@ -57,6 +58,7 @@ async function setupPgDb() {
   const client = await pool.connect();
   try {
     await client.query('CREATE SCHEMA IF NOT EXISTS magapp;');
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub;');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.categories (
@@ -94,6 +96,25 @@ async function setupPgDb() {
         show_tickets BOOLEAN DEFAULT TRUE,
         show_subscriptions BOOLEAN DEFAULT TRUE,
         show_health_check BOOLEAN DEFAULT TRUE
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.versions (
+        id SERIAL PRIMARY KEY,
+        version_number VARCHAR(50) NOT NULL,
+        release_notes_html TEXT,
+        release_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_active BOOLEAN DEFAULT FALSE
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.user_versions (
+        username VARCHAR(255) PRIMARY KEY,
+        last_seen_version_id INTEGER,
+        seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_version FOREIGN KEY(last_seen_version_id) REFERENCES magapp.versions(id) ON DELETE CASCADE
       );
     `);
 
@@ -163,6 +184,21 @@ async function setupPgDb() {
         show_tickets BOOLEAN DEFAULT TRUE,
         show_subscriptions BOOLEAN DEFAULT TRUE,
         show_health_check BOOLEAN DEFAULT TRUE
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.users (
+        username VARCHAR(255) PRIMARY KEY,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(50) DEFAULT 'user',
+        displayName VARCHAR(255),
+        email VARCHAR(255),
+        service_code VARCHAR(100),
+        service_complement VARCHAR(255),
+        last_activity VARCHAR(100),
+        is_approved INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 

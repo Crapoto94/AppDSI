@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -63,6 +63,10 @@ function App() {
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
   const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true });
+  const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
+  const [allVersions, setAllVersions] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string; is_active: boolean }[]>([]);
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean,
     type: 'info' | 'confirm' | 'prompt' | 'error' | 'success',
@@ -96,6 +100,7 @@ function App() {
           setIsLoggedIn(true);
           setIsAutoLogging(false);
           await loadAppData(user.username, user.email);
+          await checkVersions();
           return;
         }
 
@@ -148,6 +153,53 @@ function App() {
       console.error("Erreur globale de chargement des données", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch versions and check if user has seen the active one
+  const checkVersions = async () => {
+    try {
+      const versionsRes = await axios.get(`${apiBase}/magapp/versions`);
+      const versions = versionsRes.data;
+      setAllVersions(versions);
+      const active = versions.find((v: any) => v.is_active);
+      if (active) {
+        setActiveVersion(active);
+        // Check if user has seen this version
+        const token = localStorage.getItem('token');
+        if (token) {
+          try {
+            const prefRes = await axios.get(`${apiBase}/magapp/user-version`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const pref = prefRes.data;
+            if (!pref.last_seen_version_id || pref.last_seen_version_id !== active.id) {
+              setShowWhatsNew(true);
+            }
+          } catch {
+            // If API fails (no token etc), show the modal anyway
+            setShowWhatsNew(true);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Erreur chargement versions', e);
+    }
+  };
+
+  const handleWhatsNewDismiss = async (markAsSeen: boolean) => {
+    setShowWhatsNew(false);
+    if (markAsSeen && activeVersion) {
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          await axios.post(`${apiBase}/magapp/user-version`, { version_id: activeVersion.id }, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+        } catch (e) {
+          console.error('Erreur enregistrement version vue', e);
+        }
+      }
     }
   };
 
@@ -483,6 +535,26 @@ function App() {
             <img src={logoDsiHub} alt="Logo" style={{ height: '50px' }} />
             <div style={{ width: '2px', height: '30px', background: '#0078a4', opacity: 0.3 }}></div>
             <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, color: '#0078a4', letterSpacing: '-0.025em' }}>Magasin d'Applications</h1>
+            {activeVersion && (
+              <span
+                onClick={() => setShowVersionHistory(true)}
+                style={{ 
+                  fontSize: '0.7rem', 
+                  fontWeight: 700, 
+                  color: '#7c3aed', 
+                  background: '#f5f3ff', 
+                  padding: '2px 10px', 
+                  borderRadius: '20px', 
+                  cursor: 'pointer',
+                  border: '1px solid #e9d5ff',
+                  transition: 'all 0.2s',
+                  userSelect: 'none'
+                }}
+                title="Voir l'historique des versions"
+              >
+                {activeVersion.version_number}
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '25px' }}>
@@ -581,6 +653,86 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* Modal What's New */}
+      {showWhatsNew && activeVersion && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(6px)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: 'white', maxWidth: '560px', width: '100%', borderRadius: '24px', padding: '0', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            {/* Header violet */}
+            <div style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)', padding: '30px 40px', color: 'white' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                <Tag size={24} />
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, background: 'rgba(255,255,255,0.2)', padding: '3px 12px', borderRadius: '20px' }}>{activeVersion.version_number}</span>
+              </div>
+              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800 }}>Nouveautés !</h2>
+              <p style={{ margin: '6px 0 0', fontSize: '0.85rem', opacity: 0.85 }}>
+                {new Date(activeVersion.release_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+              </p>
+            </div>
+            {/* Contenu */}
+            <div style={{ padding: '30px 40px', maxHeight: '40vh', overflowY: 'auto' }}>
+              <div
+                className="whatsnew-content"
+                dangerouslySetInnerHTML={{ __html: activeVersion.release_notes_html }}
+                style={{ fontSize: '0.95rem', lineHeight: 1.7, color: '#334155', overflowWrap: 'break-word' }}
+              />
+            </div>
+            {/* Actions */}
+            <div style={{ padding: '20px 40px 30px', display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid #f1f5f9' }}>
+              <button
+                onClick={() => handleWhatsNewDismiss(false)}
+                style={{ padding: '10px 20px', borderRadius: '10px', border: '1px solid #e2e8f0', background: 'white', color: '#64748b', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}
+              >
+                Afficher à ma prochaine connexion
+              </button>
+              <button
+                onClick={() => handleWhatsNewDismiss(true)}
+                style={{ padding: '10px 24px', borderRadius: '10px', border: 'none', background: '#7c3aed', color: 'white', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem', boxShadow: '0 4px 6px -1px rgba(124,58,237,0.3)' }}
+              >
+                J'ai compris ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Historique des versions */}
+      {showVersionHistory && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: 'white', maxWidth: '600px', width: '100%', borderRadius: '24px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ padding: '30px 40px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
+              <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Tag size={22} color="#7c3aed" /> Historique des versions
+              </h2>
+              <button
+                onClick={() => setShowVersionHistory(false)}
+                style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div style={{ padding: '20px 40px 30px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {allVersions.map(v => (
+                <div key={v.id} style={{ borderLeft: v.is_active ? '3px solid #7c3aed' : '3px solid #e2e8f0', paddingLeft: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                    <span style={{ fontWeight: 800, fontSize: '1.05rem', color: v.is_active ? '#7c3aed' : '#475569' }}>{v.version_number}</span>
+                    {v.is_active && <span style={{ background: '#7c3aed', color: 'white', padding: '1px 8px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: 700 }}>ACTUELLE</span>}
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8', marginLeft: 'auto' }}>
+                      {new Date(v.release_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </span>
+                  </div>
+                  <div
+                    className="whatsnew-content"
+                    dangerouslySetInnerHTML={{ __html: v.release_notes_html }}
+                    style={{ fontSize: '0.85rem', lineHeight: 1.6, color: '#64748b' }}
+                  />
+                </div>
+              ))}
+              {allVersions.length === 0 && <p style={{ textAlign: 'center', color: '#94a3b8' }}>Aucune version publiée</p>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Abonnements */}
       {showSubs && settings.show_subscriptions && (

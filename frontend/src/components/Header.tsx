@@ -1,6 +1,6 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { User, LogOut, Info, X, LayoutDashboard, Wallet, Users, FileCheck, Settings, Phone, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2 } from 'lucide-react';
+import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2 } from 'lucide-react';
 import axios from 'axios';
 
 interface Todo {
@@ -11,7 +11,10 @@ interface Todo {
   created_at: string;
 }
 
-const Header: React.FC = () => {
+interface HeaderProps {
+}
+
+const Header: React.FC<HeaderProps> = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const token = localStorage.getItem('token');
@@ -156,13 +159,6 @@ const Header: React.FC = () => {
     navigate('/login');
   };
 
-  const navItems = [
-    { path: '/', label: 'Tableau de bord', icon: <LayoutDashboard size={18} /> },
-    { path: '/budget', label: 'Budget', icon: <Wallet size={18} /> },
-    { path: '/tiers', label: 'Tiers', icon: <Users size={18} /> },
-    { path: '/telecom', label: 'Télécom', icon: <Phone size={18} /> },
-    { path: '/certif', label: 'Certificats', icon: <FileCheck size={18} /> },
-  ];
 
   return (
     <header className="main-header">
@@ -180,20 +176,6 @@ const Header: React.FC = () => {
           )}
         </div>
 
-        {token && (
-          <nav className="main-nav">
-            {navItems.map((item) => (
-              <Link 
-                key={item.path} 
-                to={item.path} 
-                className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-              </Link>
-            ))}
-          </nav>
-        )}
 
         <nav className="header-nav">
           {token ? (
