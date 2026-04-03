@@ -238,8 +238,25 @@ const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'm
 folders.forEach(f => {
     const dir = path.join(__dirname, f);
     if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-        console.log(`Created directory: ${dir}`);
+        try {
+            fs.mkdirSync(dir, { recursive: true });
+            console.log(`Created directory: ${dir}`);
+        } catch (err) {
+            console.error(`Error creating directory ${dir}:`, err.message);
+        }
+    }
+    
+    // Diagnostic de permission pour Docker
+    if (f === 'magapp_img') {
+        const testFile = path.join(dir, '.write_test');
+        try {
+            fs.writeFileSync(testFile, `Test write at ${new Date().toISOString()}`);
+            console.log(`[DIAGNOSTIC] Write test SUCCESS in ${dir}`);
+            fs.unlinkSync(testFile);
+        } catch (err) {
+            console.error(`[DIAGNOSTIC] Write test FAILED in ${dir}:`, err.message);
+            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] CRITICAL: Permission denied in ${dir}\n`);
+        }
     }
 });
 
@@ -3843,12 +3860,7 @@ app.delete('/api/magapp/subscriptions/:id', authenticateAdmin, async (req, res) 
     }
 });
 
-app.post('/api/magapp/upload-icon', authenticateAdmin, upload.single('icon'), (req, res) => {
-    console.log(`[MagApp] Upload attempt: file=${req.file ? req.file.filename : 'none'}, type=${req.body.target_type}`);
-    if (!req.file) return res.status(400).json({ message: 'Aucun fichier reçu' });
-    const fileUrl = `/img/${req.file.filename}`;
-    res.json({ url: fileUrl });
-});
+// Route déplacée plus bas pour consolidation (ligne 3979)
 
 app.get('/api/magapp/icons', authenticateJWT, (req, res) => {
     const dir = path.join(__dirname, 'magapp_img');
@@ -3976,12 +3988,34 @@ app.delete('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => 
     }
 });
 
-app.post('/api/magapp/upload-icon', authenticateAdmin, upload.single('icon'), (req, res) => {
+app.post('/api/magapp/upload-icon', authenticateAdmin, (req, res, next) => {
+    upload.single('icon')(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            console.error(`[MagApp] Multer Error: ${err.message}`);
+            return res.status(500).json({ message: 'Erreur Multer', error: err.message });
+        } else if (err) {
+            console.error(`[MagApp] Unknown Upload Error: ${err.message}`);
+            return res.status(500).json({ message: 'Erreur Upload', error: err.message });
+        }
+        next();
+    });
+}, (req, res) => {
     if (!req.file) {
+        console.error('[MagApp] Upload failed: No file received');
         return res.status(400).json({ message: 'Aucun fichier envoyé' });
     }
+    
     const fileUrl = `/api/img/${req.file.filename}`;
-    res.json({ url: fileUrl });
+    const logMsg = `Icon uploaded: ${req.file.filename} -> ${fileUrl}`;
+    console.log(`[MagApp] ${logMsg}`);
+    
+    // Log dans mouchard
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+    
+    res.json({ 
+        message: 'Icône uploadée avec succès', 
+        url: fileUrl 
+    });
 });
 
 app.post('/api/magapp/apps', authenticateAdmin, async (req, res) => {
