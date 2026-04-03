@@ -7,7 +7,6 @@ const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [isAutoLogging, setIsAutoLogging] = useState(true);
   const [azureEnabled, setAzureEnabled] = useState(false);
   const navigate = useNavigate();
   const { setPendingApproval, login } = useAuth();
@@ -56,13 +55,10 @@ const Login: React.FC = () => {
       if (azureError) {
         setError("L'authentification Azure AD a échoué.");
       }
-
-      // L'utilisateur ne veut plus de tentative de connexion automatique (SSO)
-      setIsAutoLogging(false);
     };
 
     attemptAuth();
-  }, [navigate, setPendingApproval]);
+  }, [navigate, login]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,13 +92,6 @@ const Login: React.FC = () => {
       <Header />
       <div className="container login-container">
         <div className="login-box">
-          {isAutoLogging ? (
-            <div className="auto-logging">
-              <div className="loader"></div>
-              <h2>Connexion automatique...</h2>
-              <p>Vérification de votre identité Windows</p>
-            </div>
-          ) : (
             <>
               <h2>Connexion Hub DSI</h2>
               <p>Connectez-vous pour accéder à vos services.</p>
@@ -158,7 +147,6 @@ const Login: React.FC = () => {
                 </>
               )}
             </>
-          )}
         </div>
       </div>
 

@@ -36,19 +36,10 @@ const Header: React.FC<HeaderProps> = () => {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [newTodo, setNewTodo] = useState({ task: '', priority: 0 });
   const [isReleasing, setIsReleasing] = useState(false);
-  const [, setWinLogin] = useState<string | null>(null);
 
   useEffect(() => {
     fetchChangelog();
     fetchTodos();
-
-    // Récupération automatique du login Windows
-    fetch('/api/auth/ntlm', { credentials: 'include' })
-      .then(res => res.json())
-      .then(data => {
-        if (data.login) setWinLogin(data.login);
-      })
-      .catch(err => console.error("NTLM detection failed:", err));
   }, []);
 
   const fetchChangelog = async () => {

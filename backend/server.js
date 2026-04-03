@@ -11,7 +11,6 @@ const multer = require('multer');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
-const ntlm = require('express-ntlm');
 const pdf = require('pdf-parse');
 const nodemailer = require('nodemailer');
 const brevoTransport = require('nodemailer-brevo-transport');
@@ -396,193 +395,6 @@ const authenticateAdminOrFinances = (req, res, next) => {
         }
     });
 };
-
-// Configuration NTLM
-const ntlmOptions = {
-    domain: 'IVRY',
-    domaincontroller: 'ldap://10.103.130.118',
-    internalservererror: function (req, res, next) {
-        const msg = `NTLM Internal Error (${req.url}): Session cassée ou erreur proxy. Forcing retry.`;
-        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${msg}\n`);
-        console.error(msg);
-
-        // On force la fermeture de la connexion et on demande au navigateur de recommencer (401)
-        res.setHeader('Connection', 'close');
-        res.setHeader('WWW-Authenticate', 'NTLM');
-
-        // Pour la route optionnelle, on peut aussi choisir de continuer sans auth 
-        // mais pour sso-redirect il vaut mieux que le navigateur réessaie proprement.
-        if (req.url.includes('/api/auth/ntlm')) {
-            // Pour l'appel axios, on préfère que ça échoue proprement plutôt que de boucler à l'infini
-            // si c'est vraiment un problème de proxy
-            req.ntlm = { UserName: null, Authenticated: false };
-            return next();
-        }
-
-        if (req.url.includes('/api/auth/sso-redirect')) {
-            // Pour sso-redirect, on renvoie vers le frontend avec un flag de retry ou d'erreur
-            const redirectUrl = req.query.redirect || 'http://localhost:5174';
-            try {
-                const url = new URL(redirectUrl);
-                url.searchParams.set('error', 'ntlm_handshake_failed');
-                return res.redirect(url.toString());
-            } catch (e) {
-                // Si l'URL de redirection est invalide, on continue vers le 401 standard
-            }
-        }
-        res.status(401).send(msg);
-    },
-    debug: function () {
-        const msg = Array.prototype.slice.call(arguments).join(' ');
-        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] NTLM DEBUG: ${msg}\n`);
-    }
-};
-
-const ntlmMiddleware = ntlm(ntlmOptions);
-const ntlmMiddlewareForced = ntlm(ntlmOptions);
-
-// Route SSO avec redirection (pour éviter les problèmes de CORS avec NTLM)
-app.get('/api/auth/sso-redirect', ntlmMiddlewareForced, async (req, res) => {
-    const login = req.ntlm ? req.ntlm.UserName : null;
-
-    // Détection dynamique du host pour la redirection
-    const host = req.get('host'); // ex: 10.103.131.162:3001
-    const protocol = req.protocol;
-    const frontendHost = host.replace(':3001', ':5174');
-    const defaultRedirect = `${protocol}://${frontendHost}/`;
-
-    const redirectUrl = req.query.redirect || defaultRedirect;
-
-    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect triggered. Detected login: ${login}, Target: ${redirectUrl}
-`);
-
-    let displayName = login;
-    let email = '';
-
-    if (login) {
-        try {
-            const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
-            if (adSettings && adSettings.is_enabled) {
-                const info = await getADUserInfo(login, adSettings);
-                if (info) {
-                    if (info.displayName) displayName = info.displayName;
-                    if (info.mail) email = info.mail;
-                }
-            }
-        } catch (e) {
-            console.error('Erreur SSO Redirect AD:', e.message);
-            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] SSO AD Error: ${e.message}
-`);
-        }
-    } else {
-        fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] SSO Redirect failed to detect login
-`);
-    }
-
-    // On redirige vers le frontend avec les infos en paramètres (encodés)
-    const url = new URL(redirectUrl);
-    if (login) {
-        url.searchParams.set('login', login);
-        if (displayName) url.searchParams.set('name', displayName);
-        if (email) url.searchParams.set('email', email);
-    } else {
-        url.searchParams.set('error', 'no_login_detected');
-    }
-
-    res.redirect(url.toString());
-});
-
-// Route NTLM spécifique pour la détection du login Windows
-app.get('/api/auth/ntlm', (req, res, next) => {
-    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] HIT /api/auth/ntlm (Optional-NTLM)
-`);
-    next();
-}, ntlmMiddleware, async (req, res) => {
-    const login = req.ntlm ? req.ntlm.UserName : null;
-    let displayName = login;
-    let email = '';
-
-    const logMsg = `NTLM Call: User=${login}, Domain=${req.ntlm ? req.ntlm.Domain : 'N/A'}, Workstation=${req.ntlm ? req.ntlm.Workstation : 'N/A'}`;
-    console.log(logMsg);
-    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}
-`);
-
-    if (login) {
-        try {
-            const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
-            if (adSettings && adSettings.is_enabled) {
-                const info = await getADUserInfo(login, adSettings);
-                if (info) {
-                    if (info.displayName) displayName = info.displayName;
-                    if (info.mail) email = info.mail;
-                    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Success: DisplayName=${displayName}
-`);
-                } else {
-                    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Failed for ${login}
-`);
-                }
-            } else {
-                fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] AD disabled or no settings
-`);
-            }
-        } catch (e) {
-            console.error('Erreur lookup AD pour NTLM:', e.message);
-            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] AD Lookup Error: ${e.message}
-`);
-        }
-    }
-
-    res.json({
-        login: login,
-        displayName: displayName,
-        email: email,
-        domain: req.ntlm ? req.ntlm.Domain : 'N/A',
-        workstation: req.ntlm ? req.ntlm.Workstation : 'N/A'
-    });
-});
-
-// Route d'auto-login via NTLM
-app.get('/api/auth/auto-login', ntlmMiddleware, async (req, res) => {
-    try {
-        // On prend soit le login détecté par NTLM, soit celui passé en paramètre (retour de redirect)
-        let winLogin = req.query.login || req.ntlm.UserName;
-        if (winLogin) winLogin = winLogin.replace(/@ivry94\.fr$/i, '');
-
-        if (!winLogin) {
-            return res.status(401).json({ message: 'Login Windows non détecté' });
-        }
-
-        // Chercher l'utilisateur de façon insensible à la casse
-        let user = await pgDb.get('SELECT username, role, service_code, service_complement FROM users WHERE username = ?', [winLogin.toLowerCase()]);
-
-        if (!user) {
-            // Création automatique de l'utilisateur s'il n'existe pas localement (SSO Mouchard)
-            try {
-                const isAdminAccount = winLogin.toLowerCase() === 'admin' || winLogin.toLowerCase() === 'adminhub';
-                const role = isAdminAccount ? 'admin' : 'user';
-                const isApproved = isAdminAccount ? 1 : 0;
-
-                await pgDb.run(
-                    'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
-                    [winLogin.toLowerCase(), role, isApproved]
-                );
-                user = await pgDb.get('SELECT username, role, service_code, service_complement FROM users WHERE username = ?', [winLogin.toLowerCase()]);
-                console.log(`[AUTH] Nouvel utilisateur SSO créé automatiquement: ${winLogin} (Role: ${role})`);
-            } catch (insertError) {
-                console.error(`[AUTH] Erreur lors de la création auto de l'utilisateur SSO ${winLogin}:`, insertError);
-            }
-        }
-
-        if (user) {
-            const accessToken = jwt.sign({ id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement }, SECRET_KEY);
-            res.json({ accessToken, user: { id: user.id, username: user.username, role: user.role, service_code: user.service_code, service_complement: user.service_complement } });
-        } else {
-            res.status(404).json({ message: `Utilisateur Windows "${winLogin}" non reconnu dans la base` });
-        }
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur auto-login', error: error.message });
-    }
-});
 
 // Récupérer le profil utilisateur actuel (depuis la DB pour avoir le statut à jour)
 app.get('/api/auth/me', authenticateJWT, async (req, res) => {
@@ -4159,6 +3971,14 @@ app.delete('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => 
     } catch (error) {
         res.status(500).json({ message: 'Erreur suppression', error: error.message });
     }
+});
+
+app.post('/api/magapp/upload-icon', authenticateAdmin, upload.single('icon'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'Aucun fichier envoyé' });
+    }
+    const fileUrl = `/api/img/${req.file.filename}`;
+    res.json({ url: fileUrl });
 });
 
 app.post('/api/magapp/apps', authenticateAdmin, async (req, res) => {

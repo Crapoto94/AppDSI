@@ -82,7 +82,7 @@ const MagappAdmin: React.FC = () => {
     category_id: 1, 
     description: '', 
     url: '', 
-    icon: '/img/default.png', 
+    icon: '/api/img/default.png', 
     display_order: 0,
     is_maintenance: 0,
     maintenance_start: '',
@@ -168,7 +168,7 @@ const MagappAdmin: React.FC = () => {
             category_id: categories[0]?.id || 1, 
             description: '', 
             url: '', 
-            icon: '/img/default.png', 
+            icon: '/api/img/default.png', 
             display_order: 0,
             is_maintenance: 0,
             maintenance_start: '',
@@ -363,9 +363,15 @@ const MagappAdmin: React.FC = () => {
                   {apps.map(app => (
                     <div key={app.id} className="app-card-v2">
                       <div className="app-card-inner-v2">
-                        <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} />
+                        <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} />
                         <div className="app-details-v2">
-                          <h4>{app.name}</h4>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <h4>{app.name}</h4>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              {app.lien_mercator && <div className="status-dot mercator" title="Lien Mercator renseigné"></div>}
+                              {app.email_createur && <div className="status-dot creator" title="Email créateur renseigné"></div>}
+                            </div>
+                          </div>
                           <p>{app.url}</p>
                         </div>
                         <div className="app-actions-v2">
@@ -448,7 +454,7 @@ const MagappAdmin: React.FC = () => {
                               src={editingApp ? editingApp.icon : newApp.icon} 
                               alt="Preview" 
                               style={{ width: '60px', height: '60px', borderRadius: '12px', objectFit: 'contain', background: 'white', padding: '5px', border: '1px solid #e2e8f0' }} 
-                              onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }}
+                              onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }}
                             />
                             <div style={{ flex: 1 }}>
                               <input 
@@ -952,22 +958,29 @@ const MagappAdmin: React.FC = () => {
         }
 
         .app-card-v2 {
-          background: rgba(255, 255, 255, 0.6);
-          backdrop-filter: blur(12px);
-          border: 1px solid rgba(255, 255, 255, 0.7);
-          border-radius: 24px;
-          padding: 24px;
-          transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+          background: white;
+          border: 2px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 20px;
+          transition: all 0.3s ease;
           position: relative;
           overflow: hidden;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         }
 
         .app-card-v2:hover {
-          transform: translateY(-8px) scale(1.02);
-          background: rgba(255, 255, 255, 0.9);
-          box-shadow: 0 20px 40px -15px rgba(0,0,0,0.1);
+          transform: translateY(-4px);
           border-color: #4f46e5;
+          box-shadow: 0 12px 20px -8px rgba(79, 70, 229, 0.2);
         }
+
+        .status-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+        }
+        .status-dot.mercator { background-color: #10b981; } /* Green */
+        .status-dot.creator { background-color: #3b82f6; } /* Blue */
 
         .app-card-inner-v2 {
           display: flex;

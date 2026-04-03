@@ -93,28 +93,30 @@ body {
   align-items: center;
   text-decoration: none;
   color: var(--text-blue);
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  height: 55px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  height: 60px;
   background: #fff;
-  transition: box-shadow 0.2s;
+  transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
-}
-
-.app-card::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 10px;
-  background-color: #74b1c7; /* Couleur bleutée de la barre à droite dans le screen */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
 .app-card:hover {
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  border-color: var(--primary-blue);
+  box-shadow: 0 4px 12px rgba(0,120,164,0.15);
+  transform: translateY(-2px);
 }
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot.mercator { background-color: #10b981; }
+.status-dot.creator { background-color: #3b82f6; }
 
 .subscribe-btn {
   position: absolute;

@@ -990,14 +990,20 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSu
             src={app.icon} 
             alt={app.name} 
             style={{ filter: isMaint ? 'grayscale(1) opacity(0.5)' : 'none' }}
-            onError={(e) => { (e.target as HTMLImageElement).src = '/img/default.png'; }} 
+            onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} 
           />
         </div>
         <span className="app-name" style={{ 
           color: isMaint ? '#94a3b8' : 'var(--text-blue)', 
           paddingRight: '80px'
         }}>
-          {app.name}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{app.name}</span>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              {app.lien_mercator && <div className="status-dot mercator" title="Lien Mercator renseigné"></div>}
+              {app.email_createur && <div className="status-dot creator" title="Email créateur renseigné"></div>}
+            </div>
+          </div>
           {healthStatus === 'ok' && <CheckCircle2 size={14} color="#22c55e" />}
           {healthStatus === 'fail' && <XCircle size={14} color="#ef4444" />}
         </span>
