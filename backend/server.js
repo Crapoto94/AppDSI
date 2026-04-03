@@ -263,7 +263,10 @@ const storage = multer.diskStorage({
     },
     filename: (req, file, cb) => {
         if (req.body.target_type === 'magapp_icon') {
-            const fname = file.originalname.replace(/[^a-z0-9.]/gi, '_');
+            const timestamp = Date.now();
+            const ext = path.extname(file.originalname);
+            const baseName = path.basename(file.originalname, ext).replace(/[^a-z0-9]/gi, '_');
+            const fname = `${baseName}_${timestamp}${ext}`;
             cb(null, fname);
         } else {
             const targetId = (req.body.target_id || 'unknown').replace(/[^a-z0-9]/gi, '_');

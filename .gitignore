@@ -60,3 +60,9 @@ backend/*.log
 # Exclure les fichiers de base de données locaux
 *.sqlite
 
+
+
+# Logs
+backend/logs/*.log
+*.log
+
