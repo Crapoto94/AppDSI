@@ -38,7 +38,7 @@ const FrizbiSettings: React.FC = () => {
 
   const fetchSettings = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/admin/frizbi-settings', { headers });
+      const res = await axios.get('/api/admin/frizbi-settings', { headers });
       if (res.data) setSettings(res.data);
     } catch (err) {
       console.error("Error fetching Frizbi settings", err);
@@ -51,7 +51,7 @@ const FrizbiSettings: React.FC = () => {
     setSaving(true);
     setStatus(null);
     try {
-      await axios.post('http://localhost:3001/api/admin/frizbi-settings', settings, { headers });
+      await axios.post('/api/admin/frizbi-settings', settings, { headers });
       setStatus({ type: 'success', message: 'Paramètres enregistrés avec succès' });
     } catch (err: any) {
       setStatus({ type: 'error', message: err.response?.data?.message || 'Erreur lors de l\'enregistrement' });
@@ -64,7 +64,7 @@ const FrizbiSettings: React.FC = () => {
     setTesting(true);
     setStatus(null);
     try {
-      const res = await axios.post('http://localhost:3001/api/admin/frizbi/test-connection', {
+      const res = await axios.post('/api/admin/frizbi/test-connection', {
         api_url: settings.api_url,
         client_id: settings.client_id,
         client_secret: settings.client_secret
@@ -82,7 +82,7 @@ const FrizbiSettings: React.FC = () => {
     setTesting(true);
     setStatus(null);
     try {
-      await axios.post('http://localhost:3001/api/admin/frizbi/send-test', {
+      await axios.post('/api/admin/frizbi/send-test', {
         mobile: testMobile
       }, { headers });
       setStatus({ type: 'success', message: 'SMS de test envoyé avec succès !' });

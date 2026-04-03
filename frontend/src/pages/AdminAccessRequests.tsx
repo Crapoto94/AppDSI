@@ -25,7 +25,7 @@ const AdminAccessRequests: React.FC = () => {
 
     const fetchTiles = async () => {
         try {
-            const res = await axios.get('http://localhost:3001/api/tiles-all');
+            const res = await axios.get('/api/tiles-all');
             setTiles(res.data);
         } catch (err) {
             console.error('Error fetching tiles:', err);
@@ -35,7 +35,7 @@ const AdminAccessRequests: React.FC = () => {
     const fetchRequests = async () => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:3001/api/admin/access-requests', {
+            const res = await axios.get('/api/admin/access-requests', {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setRequests(res.data);
@@ -58,7 +58,7 @@ const AdminAccessRequests: React.FC = () => {
 
     const handleAction = async (id: number, action: 'approve' | 'reject') => {
         try {
-            await axios.post(`http://localhost:3001/api/admin/access-requests/${id}/${action}`, {}, {
+            await axios.post(`/api/admin/access-requests/${id}/${action}`, {}, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             fetchRequests();

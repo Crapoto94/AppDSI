@@ -21,7 +21,7 @@ const AdminMessages: React.FC = () => {
     const fetchMessages = async () => {
         setLoading(true);
         try {
-            const res = await axios.get('http://localhost:3001/api/messages', {
+            const res = await axios.get('/api/messages', {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setMessages(res.data);
@@ -40,11 +40,11 @@ const AdminMessages: React.FC = () => {
         setSaving(true);
         try {
             if (editing.id) {
-                await axios.put(`http://localhost:3001/api/messages/${editing.id}`, editing, {
+                await axios.put(`/api/messages/${editing.id}`, editing, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
             } else {
-                await axios.post('http://localhost:3001/api/messages', editing, {
+                await axios.post('/api/messages', editing, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
             }
@@ -60,7 +60,7 @@ const AdminMessages: React.FC = () => {
     const handleDelete = async (id: number) => {
         if (!confirm('Supprimer ce message ?')) return;
         try {
-            await axios.delete(`http://localhost:3001/api/messages/${id}`, {
+            await axios.delete(`/api/messages/${id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             fetchMessages();

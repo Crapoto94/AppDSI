@@ -28,7 +28,7 @@ const EmailTemplates: React.FC = () => {
 
   const fetchTemplates = async () => {
     try {
-      const res = await axios.get('http://localhost:3001/api/email-templates', {
+      const res = await axios.get('/api/email-templates', {
         headers: { Authorization: `Bearer ${token}` }
       });
       setTemplates(res.data);
@@ -45,11 +45,11 @@ const EmailTemplates: React.FC = () => {
     setSaving(true);
     try {
       if (editing.id) {
-        await axios.put(`http://localhost:3001/api/email-templates/${editing.id}`, editing, {
+        await axios.put(`/api/email-templates/${editing.id}`, editing, {
           headers: { Authorization: `Bearer ${token}` }
         });
       } else {
-        await axios.post('http://localhost:3001/api/email-templates', editing, {
+        await axios.post('/api/email-templates', editing, {
           headers: { Authorization: `Bearer ${token}` }
         });
       }
@@ -65,7 +65,7 @@ const EmailTemplates: React.FC = () => {
   const handleDelete = async (id: number) => {
     if (!confirm('Supprimer ce modèle ?')) return;
     try {
-      await axios.delete(`http://localhost:3001/api/email-templates/${id}`, {
+      await axios.delete(`/api/email-templates/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchTemplates();

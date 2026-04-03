@@ -26,7 +26,7 @@ const AdminSettings: React.FC = () => {
 
     const fetchSettings = async () => {
         try {
-            const res = await axios.get('http://localhost:3001/api/admin/settings', {
+            const res = await axios.get('/api/admin/settings', {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setSettings(res.data);
@@ -40,7 +40,7 @@ const AdminSettings: React.FC = () => {
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await axios.post('http://localhost:3001/api/admin/settings', {
+            await axios.post('/api/admin/settings', {
                 setting_key: formKey,
                 setting_value: formValue,
                 description: formDescription
@@ -58,7 +58,7 @@ const AdminSettings: React.FC = () => {
     const handleDelete = async (key: string) => {
         if (!window.confirm(`Êtes-vous sûr de vouloir supprimer la variable "${key}" ?`)) return;
         try {
-            await axios.delete(`http://localhost:3001/api/admin/settings/${key}`, {
+            await axios.delete(`/api/admin/settings/${key}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             fetchSettings();

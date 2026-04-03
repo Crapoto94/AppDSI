@@ -17,7 +17,7 @@ const AdminLayout: React.FC = () => {
   useEffect(() => {
     const fetchPendingCount = async () => {
       try {
-        const res = await axios.get('http://localhost:3001/api/admin/access-requests', {
+        const res = await axios.get('/api/admin/access-requests', {
           headers: { Authorization: `Bearer ${token}` }
         });
         setPendingCount(res.data.length);
@@ -46,7 +46,7 @@ const AdminLayout: React.FC = () => {
     { title: "Liaison GLPI", icon: Database, path: "/admin/glpi" },
     { title: "Liaison Oracle", icon: Database, path: "/admin/oracle" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
-    { title: "Logs Système", icon: Activity, path: "http://localhost:3001/mouchard", external: true },
+    { title: "Logs Système", icon: Activity, path: "/mouchard", external: true },
   ];
 
   const getPageTitle = () => {

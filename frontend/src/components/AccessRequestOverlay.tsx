@@ -11,7 +11,7 @@ const AccessRequestOverlay: React.FC = () => {
 
     useEffect(() => {
         if (pendingApproval) {
-            axios.get('http://localhost:3001/api/messages/code/nologin')
+            axios.get('/api/messages/code/nologin')
                 .then(res => setMessage(res.data.content))
                 .catch(err => console.error(err));
         }

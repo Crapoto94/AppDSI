@@ -25,7 +25,7 @@ const MailSettings: React.FC = () => {
 
     const fetchSettings = async () => {
         try {
-            const res = await axios.get('http://localhost:3001/api/mail-settings', {
+            const res = await axios.get('/api/mail-settings', {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (res.data) {
@@ -48,7 +48,7 @@ const MailSettings: React.FC = () => {
         setSaving(true);
         setStatus(null);
         try {
-            await axios.post('http://localhost:3001/api/mail-settings', settings, {
+            await axios.post('/api/mail-settings', settings, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setStatus({ type: 'success', msg: 'Configuration enregistrée avec succès' });
@@ -65,7 +65,7 @@ const MailSettings: React.FC = () => {
         setTesting(true);
         setStatus(null);
         try {
-            await axios.post('http://localhost:3001/api/send-test-mail', { to: testEmail }, {
+            await axios.post('/api/send-test-mail', { to: testEmail }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setStatus({ type: 'success', msg: 'Email de test envoyé ! Vérifiez votre boîte de réception.' });
