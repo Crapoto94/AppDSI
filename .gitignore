@@ -55,3 +55,8 @@ frontend/start_frontend.bat
 
 backend/logs/*
 backend/*.log
+
+
+# Exclure les fichiers de base de données locaux
+*.sqlite
+
