@@ -36,14 +36,23 @@ function flattenLDAPEntry(entry) {
     let rawDn = pojo.objectName || '';
     try {
         if (rawDn && typeof rawDn === 'string' && rawDn.includes('\\')) {
-            rawDn = decodeURIComponent(rawDn.replace(/\\([0-9a-fA-F]{2})/g, '%$1'));
+            rawDn = decodeLDAPString(rawDn);
         }
     } catch(e) {}
 
     const obj = { dn: rawDn };
     if (pojo.attributes && Array.isArray(pojo.attributes)) {
         pojo.attributes.forEach(attr => {
-            obj[attr.type] = attr.values.length === 1 ? attr.values[0] : attr.values;
+            let val = attr.values.length === 1 ? attr.values[0] : attr.values;
+            // Décodage systématique des attributs texte
+            if (['cn', 'displayName', 'memberOf', 'mail', 'title', 'department', 'sAMAccountName'].includes(attr.type)) {
+                if (Array.isArray(val)) {
+                    val = val.map(v => decodeLDAPString(v));
+                } else {
+                    val = decodeLDAPString(val);
+                }
+            }
+            obj[attr.type] = val;
         });
     }
     return obj;
@@ -141,11 +150,21 @@ async function authenticateAD(username, password, config) {
                             return resolve(null); // Mot de passe incorrect
                         }
 
-                        log(`User bind SUCCESS for ${username}`);
                         // 4. Vérification de l'appartenance au groupe si requis
                         if (config.required_group) {
-                            const groups = Array.isArray(userEntry.memberOf) ? userEntry.memberOf : [userEntry.memberOf];
-                            const hasGroup = groups.some(g => g && g.toLowerCase().includes(config.required_group.toLowerCase()));
+                            const configGroup = config.required_group.toLowerCase().trim().normalize('NFC');
+                            const groups = Array.isArray(userEntry.memberOf) 
+                                ? userEntry.memberOf 
+                                : (userEntry.memberOf ? [userEntry.memberOf] : []);
+                            
+                            log(`User Groups Found: ${JSON.stringify(groups)}`);
+                                
+                            const hasGroup = groups.some(g => {
+                                if (!g) return false;
+                                const normalizedG = g.toLowerCase().normalize('NFC');
+                                return normalizedG.includes(configGroup);
+                            });
+
                             if (!hasGroup) {
                                 log(`Group check FAILED: ${username} not in ${config.required_group}`);
                                 return reject(new Error(`L'utilisateur n'appartient pas au groupe requis : ${config.required_group}`));
@@ -234,7 +253,7 @@ async function getADUserInfo(username, config) {
 }
 
 // Configuration Multer dynamique
-const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img', 'file_telecom'];
+const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img', 'file_telecom', 'logs'];
 folders.forEach(f => {
     const dir = path.join(__dirname, f);
     if (!fs.existsSync(dir)) {
@@ -536,7 +555,7 @@ app.post('/api/auth/magapp-login', async (req, res) => {
 // Active Directory Settings API
 app.get('/api/ad-settings', authenticateAdmin, async (req, res) => {
     try {
-        const settings = await pgDb.get('SELECT * FROM ad_settings WHERE id = 1');
+        const settings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
         if (settings && settings.bind_password) {
             settings.bind_password = '********';
         }
@@ -571,7 +590,7 @@ app.post('/api/ad-settings', authenticateAdmin, async (req, res) => {
 // Route publique : retourne uniquement is_enabled (pour Login.tsx)
 app.get('/api/azure-ad-settings/status', async (req, res) => {
     try {
-        const settings = await pgDb.get('SELECT is_enabled FROM azure_ad_settings WHERE id = 1');
+        const settings = await db.get('SELECT is_enabled FROM azure_ad_settings WHERE id = 1');
         res.json({ is_enabled: !!(settings && settings.is_enabled) });
     } catch (error) {
         res.json({ is_enabled: false });
@@ -581,7 +600,7 @@ app.get('/api/azure-ad-settings/status', async (req, res) => {
 // Route admin : retourne la config complète (mot de passe masqué)
 app.get('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
     try {
-        const settings = await pgDb.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
         if (settings && settings.client_secret) {
             settings.client_secret = '••••••••';
         }
@@ -615,7 +634,7 @@ app.post('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
 
 app.get('/api/auth/azure/login', async (req, res) => {
     try {
-        const settings = await pgDb.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
         if (!settings || !settings.is_enabled) {
             console.warn('[AZURE] Tentative de connexion alors que Azure AD est désactivé');
             return res.status(503).json({ message: 'L\'authentification Azure AD est désactivée' });
@@ -648,7 +667,7 @@ app.get('/api/auth/azure/callback', async (req, res) => {
     }
 
     try {
-        const settings = await pgDb.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
         console.log('[AZURE] Échange du code contre un token...');
 
         // 1. Échanger le code contre un token
@@ -717,7 +736,7 @@ app.get('/api/auth/azure/callback', async (req, res) => {
 app.post('/api/admin/azure/lookup', authenticateAdmin, async (req, res) => {
     const { username } = req.body;
     try {
-        const settings = await pgDb.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
         if (!settings || !settings.is_enabled) {
             return res.status(400).json({ success: false, message: 'Azure AD non configuré ou désactivé' });
         }
@@ -1556,23 +1575,26 @@ function parseLDAPDate(val) {
 
 // Fonction pour décoder l'UTF-8 LDAP (ex: \c3\a9)
 function decodeLDAPString(str) {
-    if (!str || typeof str !== 'string') return str;
+    if (!str) return str;
+    // Si c'est un buffer, on le convertit en string UTF-8
+    if (Buffer.isBuffer(str)) return str.toString('utf8');
+    if (typeof str !== 'string') return str;
+    
     try {
-        // Remplace les \xx par les caractères correspondants si c'est de l'UTF-8 mixé
+        // LDAP escape \xx handling
         if (str.includes('\\')) {
-            // Utiliser un buffer pour gérer correctement l'UTF-8 multi-octets
             const bytes = [];
             for (let i = 0; i < str.length; i++) {
-                if (str[i] === '\\' && i + 2 < str.length) {
+                if (str[i] === '\\' && i + 2 < str.length && /[0-9a-fA-F]{2}/.test(str.substring(i + 1, i + 3))) {
                     bytes.push(parseInt(str.substring(i + 1, i + 3), 16));
                     i += 2;
                 } else {
                     bytes.push(str.charCodeAt(i));
                 }
             }
-            return Buffer.from(bytes).toString('utf8');
+            return Buffer.from(bytes).toString('utf8').normalize('NFC');
         }
-        return str;
+        return str.normalize('NFC');
     } catch (e) {
         return str;
     }
@@ -3607,7 +3629,7 @@ setupDb().then(async database => {
         if (!adExists) {
             await db.run(`
                 INSERT INTO ad_settings (id, is_enabled, host, port, base_dn, required_group, bind_dn, bind_password) 
-                VALUES (1, 0, "10.103.130.118", 389, "DC=ivry,DC=local", "gantto", "CN=testo,OU=IRS,OU=IVRY,DC=ivry,DC=local", "")
+                VALUES (1, 0, "10.103.130.118", 389, "DC=ivry,DC=local", "", "CN=testo,OU=IRS,OU=IVRY,DC=ivry,DC=local", "")
 
             `);
         }
