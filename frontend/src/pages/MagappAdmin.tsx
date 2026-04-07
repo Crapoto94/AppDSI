@@ -27,6 +27,8 @@ interface AppItem {
   present_onboard: string;
   email_createur: string;
   lien_mercator: string;
+  mercator_id: number | null;
+  mercator_name: string;
 }
 
 interface ClickStats {
@@ -95,6 +97,7 @@ const MagappAdmin: React.FC = () => {
   });
   const [magappSettings, setMagappSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true });
   const [versions, setVersions] = useState<AppVersion[]>([]);
+  const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
   const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
   const [newVersion, setNewVersion] = useState({ version_number: '', release_notes_html: '' });
   const [showAppModal, setShowAppModal] = useState(false);
@@ -106,12 +109,13 @@ const MagappAdmin: React.FC = () => {
   const fetchData = async () => {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
-      const [appsRes, catsRes, statsRes, pgSettingsRes, settingsRes] = await Promise.all([
+      const [appsRes, catsRes, statsRes, pgSettingsRes, settingsRes, mercatorRes] = await Promise.all([
         fetch('/api/magapp/apps', { headers }),
         fetch('/api/magapp/categories', { headers }),
         fetch('/api/magapp/stats', { headers }),
         fetch('/api/postgres-settings', { headers }),
-        fetch('/api/magapp/settings', { headers })
+        fetch('/api/magapp/settings', { headers }),
+        fetch('/api/magapp/mercator-apps', { headers })
       ]);
 
       if (appsRes.ok) setApps(await appsRes.json());
@@ -119,6 +123,7 @@ const MagappAdmin: React.FC = () => {
       if (statsRes.ok) setStats(await statsRes.json());
       if (pgSettingsRes.ok) setPostgresSettings(await pgSettingsRes.json());
       if (settingsRes.ok) setMagappSettings(await settingsRes.json());
+      if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
     } catch (e) { console.error(e); }
   };
 
@@ -177,7 +182,9 @@ const MagappAdmin: React.FC = () => {
             present_magapp: 'oui',
             present_onboard: 'oui',
             email_createur: '',
-            lien_mercator: ''
+            lien_mercator: '',
+            mercator_id: null,
+            mercator_name: ''
           });
         }
       } else {
@@ -368,7 +375,8 @@ const MagappAdmin: React.FC = () => {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <h4>{app.name}</h4>
                             <div style={{ display: 'flex', gap: '4px' }}>
-                              {app.lien_mercator && <div className="status-dot mercator" title="Lien Mercator renseigné"></div>}
+                              {app.mercator_id && <div className="status-dot mercator" title={`Lié à Mercator : ${app.mercator_name}`}></div>}
+                              {(!app.mercator_id && app.lien_mercator) && <div className="status-dot mercator" title="Lien Mercator renseigné (ancienne version)"></div>}
                               {app.email_createur && <div className="status-dot creator" title="Email créateur renseigné"></div>}
                             </div>
                           </div>
@@ -442,9 +450,38 @@ const MagappAdmin: React.FC = () => {
                           <label>Email Créateur</label>
                           <input type="text" value={editingApp ? editingApp.email_createur : newApp.email_createur} onChange={e => editingApp ? setEditingApp({...editingApp, email_createur: e.target.value}) : setNewApp({...newApp, email_createur: e.target.value})} />
                         </div>
+
                         <div className="form-group-v2">
-                          <label>Lien Mercator</label>
-                          <input type="text" value={editingApp ? editingApp.lien_mercator : newApp.lien_mercator} onChange={e => editingApp ? setEditingApp({...editingApp, lien_mercator: e.target.value}) : setNewApp({...newApp, lien_mercator: e.target.value})} />
+                          <label>Application Mercator</label>
+                          <select 
+                            value={editingApp ? (editingApp.mercator_id || '') : (newApp.mercator_id || '')} 
+                            onChange={e => {
+                                const val = e.target.value ? parseInt(e.target.value) : null;
+                                const name = e.target.value ? (mercatorApps.find(m => m.id === val)?.name || '') : '';
+                                if (editingApp) {
+                                    setEditingApp({...editingApp, mercator_id: val, mercator_name: name});
+                                } else {
+                                    setNewApp({...newApp, mercator_id: val, mercator_name: name});
+                                }
+                            }}>
+                            <option value="">Aucune</option>
+                            {mercatorApps.map(m => (
+                                <option key={m.id} value={m.id}>{m.name}</option>
+                            ))}
+                          </select>
+                          {(() => {
+                              const currId = editingApp ? editingApp.mercator_id : newApp.mercator_id;
+                              const currMercator = currId ? mercatorApps.find(m => m.id === currId) : null;
+                              if (currMercator && currMercator.description) {
+                                  return (
+                                      <div style={{ marginTop: '10px', padding: '10px 15px', background: '#eef2ff', borderRadius: '8px', color: '#4338ca', fontSize: '0.85rem', lineHeight: '1.4' }}>
+                                          <strong>Description Mercator :</strong><br/>
+                                          <div dangerouslySetInnerHTML={{ __html: currMercator.description }} />
+                                      </div>
+                                  );
+                              }
+                              return null;
+                          })()}
                         </div>
                         
                         <div className="form-group-v2 full-width" style={{ marginTop: '10px', padding: '15px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>

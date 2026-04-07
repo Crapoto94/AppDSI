@@ -77,6 +77,7 @@ function App() {
           <Route path="azure-ad" element={<Admin section="azure-ad" />} />
           <Route path="glpi" element={<Admin section="glpi" />} />
           <Route path="oracle" element={<Admin section="oracle" />} />
+          <Route path="mariadb" element={<Admin section="mariadb" />} />
           <Route path="messages" element={<AdminMessages />} />
           <Route path="access-requests" element={<AdminAccessRequests />} />
           <Route path="mail" element={<MailSettings />} />

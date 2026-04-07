@@ -20,6 +20,7 @@
     "express-ntlm": "^2.7.0",
     "jsonwebtoken": "^9.0.3",
     "ldapjs": "^3.0.7",
+    "mariadb": "^3.5.2",
     "multer": "^2.1.1",
     "nodemailer": "^8.0.1",
     "nodemailer-brevo-transport": "^2.2.1",

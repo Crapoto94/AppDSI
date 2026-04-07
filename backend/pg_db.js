@@ -55,8 +55,9 @@ const pgDb = {
 };
 
 async function setupPgDb() {
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('CREATE SCHEMA IF NOT EXISTS magapp;');
     await client.query('CREATE SCHEMA IF NOT EXISTS hub;');
 
@@ -86,6 +87,8 @@ async function setupPgDb() {
         present_onboard VARCHAR(3) DEFAULT 'oui',
         email_createur VARCHAR(255) DEFAULT '',
         lien_mercator VARCHAR(1024) DEFAULT '',
+        mercator_id INTEGER DEFAULT NULL,
+        mercator_name VARCHAR(255) DEFAULT '',
         CONSTRAINT fk_category FOREIGN KEY(category_id) REFERENCES magapp.categories(id) ON DELETE SET NULL
       );
     `);
@@ -131,7 +134,9 @@ async function setupPgDb() {
       { name: 'present_magapp', type: "VARCHAR(3) DEFAULT 'oui'" },
       { name: 'present_onboard', type: "VARCHAR(3) DEFAULT 'oui'" },
       { name: 'email_createur', type: "VARCHAR(255) DEFAULT ''" },
-      { name: 'lien_mercator', type: "VARCHAR(1024) DEFAULT ''" }
+      { name: 'lien_mercator', type: "VARCHAR(1024) DEFAULT ''" },
+      { name: 'mercator_id', type: "INTEGER DEFAULT NULL" },
+      { name: 'mercator_name', type: "VARCHAR(255) DEFAULT ''" }
     ];
 
     for (const col of columnsToMigrate) {
@@ -210,9 +215,9 @@ async function setupPgDb() {
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
-    console.error('[PG DB] Initialization error:', error);
+    console.error('[PG DB] Initialization error:', error.message);
   } finally {
-    client.release();
+    if (client) client.release();
   }
 }
 

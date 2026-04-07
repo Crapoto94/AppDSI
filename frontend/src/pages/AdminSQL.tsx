@@ -70,7 +70,7 @@ const AdminSQL: React.FC = () => {
     setLoading(true);
     try {
       const res = await axios.post('/api/admin/sql/query', 
-        { sql: finalQuery },
+        { sql: finalQuery, db: selectedDb },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setQueryResult(res.data);
@@ -101,7 +101,12 @@ const AdminSQL: React.FC = () => {
       console.warn("Could not fetch table info", err);
     }
 
-    const q = `SELECT * FROM "${selectedDb}"."${tableName}" LIMIT 25`;
+    let q;
+    if (selectedDb.startsWith('mariadb_')) {
+      q = `SELECT * FROM \`${tableName}\` LIMIT 25`;
+    } else {
+      q = `SELECT * FROM "${selectedDb}"."${tableName}" LIMIT 25`;
+    }
     runQuery(q);
   };
 

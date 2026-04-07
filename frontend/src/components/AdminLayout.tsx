@@ -45,6 +45,7 @@ const AdminLayout: React.FC = () => {
     { title: "Azure AD (Entra)", icon: Shield, path: "/admin/azure-ad" },
     { title: "Liaison GLPI", icon: Database, path: "/admin/glpi" },
     { title: "Liaison Oracle", icon: Database, path: "/admin/oracle" },
+    { title: "Liaison MariaDB", icon: Database, path: "/admin/mariadb" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
     { title: "Logs Système", icon: Activity, path: "/mouchard", external: true },
   ];

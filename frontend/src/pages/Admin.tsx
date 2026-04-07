@@ -41,7 +41,7 @@ interface UserData {
 }
 
 interface AdminProps {
-  section?: 'main' | 'tiles' | 'users' | 'ad' | 'azure-ad' | 'glpi' | 'oracle';
+  section?: 'main' | 'tiles' | 'users' | 'ad' | 'azure-ad' | 'glpi' | 'oracle' | 'mariadb';
 }
 
 const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
@@ -101,6 +101,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [oracleConfigs, setOracleConfigs] = useState<any[]>([
     { type: 'FINANCES', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
     { type: 'RH', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 }
+  ]);
+  const [mariadbConfigs, setMariadbConfigs] = useState<any[]>([
+    { type: 'MAIN', host: '', port: 3306, user: '', password: '', database: '', is_enabled: 0 }
   ]);
   const [oracleTestResults, setOracleTestResults] = useState<Record<string, { success: boolean, message: string, details?: string[] }>>({});
   const [isTestingOracle, setIsTestingOracle] = useState<Record<string, boolean>>({});
@@ -497,6 +500,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     if (section === 'azure-ad') fetchAzureSettings();
     if (section === 'glpi') fetchGLPISettings();
     if (section === 'oracle') fetchOracleSettings();
+    if (section === 'mariadb') fetchMariaDBSettings();
     if (section === 'main') { fetchTiles(); fetchUsers(); }
   }, [section, token]);
 
@@ -683,6 +687,74 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         setOracleTestResults(prev => ({ ...prev, [type]: { success: false, message: error.response?.data?.message || 'Erreur de connexion' } }));
     } finally {
         setIsTestingOracle(prev => ({ ...prev, [type]: false }));
+    }
+  };
+
+  const fetchMariaDBSettings = async () => {
+    try {
+      const res = await fetch('/api/mariadb-settings', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        const types = ['MAIN'];
+        const syncedData = types.map(t => {
+          const existing = data.find((d: any) => d.type === t);
+          return existing || { type: t, host: '', port: 3306, user: '', password: '', database: '', is_enabled: 0 };
+        });
+        setMariadbConfigs(syncedData);
+      }
+    } catch (e) {}
+  };
+
+  const handleSaveMariaDB = async (config: any) => {
+    setIsSaving(true);
+    try {
+      await axios.post('/api/mariadb-settings', config, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert(`Paramètres MariaDB ${config.type} enregistrés`);
+      fetchMariaDBSettings();
+    } catch (error) {
+      alert('Erreur lors de la sauvegarde');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleTestMariaDB = async (type: string) => {
+    const config = mariadbConfigs.find(c => c.type === type);
+    if (!config) return;
+    
+    setIsTestingOracle(prev => ({ ...prev, [`MARIADB_${type}`]: true }));
+    
+    try {
+        const res = await axios.post('/api/mariadb/test-connection', { type }, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        alert(res.data.message);
+    } catch (error: any) {
+        alert(error.response?.data?.message || 'Erreur de connexion MariaDB');
+    } finally {
+        setIsTestingOracle(prev => ({ ...prev, [`MARIADB_${type}`]: false }));
+    }
+  };
+
+  const handleCheckMariaDBTables = async (type: string) => {
+    setIsTestingOracle(prev => ({ ...prev, [`MARIADB_${type}`]: true }));
+    try {
+        const res = await axios.post('/api/mariadb/check-tables', { type }, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        setOracleTestResults(prev => ({ 
+            ...prev, 
+            [`MARIADB_${type}`]: { success: true, message: res.data.message, details: res.data.details } 
+        }));
+    } catch (error: any) {
+        setOracleTestResults(prev => ({ 
+            ...prev, 
+            [`MARIADB_${type}`]: { success: false, message: error.response?.data?.message || 'Erreur lors du listage des tables' } 
+        }));
+    } finally {
+        setIsTestingOracle(prev => ({ ...prev, [`MARIADB_${type}`]: false }));
     }
   };
 
@@ -1849,6 +1921,158 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       </div>
                       )}
                       </div>                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {section === 'mariadb' && (
+          <div className="admin-oracle-section">
+            <div className="section-header luxe-header">
+              <div className="header-icon-container">
+                <Database size={32} strokeWidth={1.5} />
+              </div>
+              <div className="header-content">
+                <h2>Liaison MariaDB</h2>
+                <p>Paramétrez les flux de données entre les bases MariaDB RH/FINANCES et la base locale.</p>
+              </div>
+            </div>
+
+            <div className="oracle-grid">
+              {['MAIN'].map(type => {
+                const config = mariadbConfigs.find(c => c.type === type) || { type, host: '', port: 3306, user: '', password: '', database: '', is_enabled: 0 };
+                const testing = isTestingOracle[`MARIADB_${type}`];
+                const result = oracleTestResults[`MARIADB_${type}`];
+
+                return (
+                  <div key={type} className="oracle-card glass-card">
+                    <div className="card-header">
+                      <div className="header-info">
+                        <div className="type-icon">
+                          <Database size={20} />
+                        </div>
+                        <h3>Connexion Centrale MariaDB</h3>
+                      </div>
+                      <div className={`status-badge ${config.is_enabled ? 'active' : 'inactive'}`}>
+                        {config.is_enabled ? 'Activé' : 'Désactivé'}
+                      </div>
+                    </div>
+
+                    <div className="card-body">
+                      <div className="form-grid">
+                        <div className="input-group">
+                          <label><Globe size={14} /> Hôte / IP</label>
+                          <input 
+                            type="text" 
+                            placeholder="ex: 10.1.x.x"
+                            value={config.host || ''} 
+                            onChange={(e) => {
+                              const updated = mariadbConfigs.map(c => c.type === type ? { ...c, host: e.target.value } : c);
+                              setMariadbConfigs(updated);
+                            }}
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label><Hash size={14} /> Port</label>
+                          <input 
+                            type="number" 
+                            value={config.port || 3306} 
+                            onChange={(e) => {
+                              const updated = mariadbConfigs.map(c => c.type === type ? { ...c, port: parseInt(e.target.value) } : c);
+                              setMariadbConfigs(updated);
+                            }}
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label><UserPlus size={14} /> Utilisateur</label>
+                          <input 
+                            type="text" 
+                            value={config.user || ''} 
+                            onChange={(e) => {
+                              const updated = mariadbConfigs.map(c => c.type === type ? { ...c, user: e.target.value } : c);
+                              setMariadbConfigs(updated);
+                            }}
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label><Lock size={14} /> Mot de passe</label>
+                          <input 
+                            type="password" 
+                            value={config.password || ''} 
+                            onChange={(e) => {
+                              const updated = mariadbConfigs.map(c => c.type === type ? { ...c, password: e.target.value } : c);
+                              setMariadbConfigs(updated);
+                            }}
+                          />
+                        </div>
+                        <div className="input-group full">
+                          <label><Database size={14} /> Base de données</label>
+                          <input 
+                            type="text" 
+                            placeholder="Nom de la base..."
+                            value={config.database || ''} 
+                            onChange={(e) => {
+                              const updated = mariadbConfigs.map(c => c.type === type ? { ...c, database: e.target.value } : c);
+                              setMariadbConfigs(updated);
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="toggle-container">
+                        <label className="luxe-toggle">
+                          <input 
+                            type="checkbox" 
+                            checked={!!config.is_enabled}
+                            onChange={(e) => {
+                              const updated = mariadbConfigs.map(c => c.type === type ? { ...c, is_enabled: e.target.checked ? 1 : 0 } : c);
+                              setMariadbConfigs(updated);
+                            }}
+                          />
+                          <span className="slider"></span>
+                          <span className="label-text">Activer cette liaison</span>
+                        </label>
+                      </div>
+
+                      <div className="card-actions">
+                        <button className="btn-save-luxe" onClick={() => handleSaveMariaDB(config)} disabled={isSaving}>
+                          <Save size={18} /> Enregistrer Paramètres
+                        </button>
+                        <div className="btn-group">
+                          <button className="btn-test-luxe" onClick={() => handleTestMariaDB(type)} disabled={testing}>
+                            {testing ? <Loader2 className="animate-spin" size={18} /> : <Zap size={18} />}
+                            Tester
+                          </button>
+                          <button className="btn-test-luxe" onClick={() => handleCheckMariaDBTables(type)} disabled={testing}>
+                            <LayoutGrid size={18} /> Lister Tables
+                          </button>
+                        </div>
+                      </div>
+
+                      {result && result.details && result.details.length > 0 && (
+                        <div className="mt-4">
+                          <h4 className="text-sm font-semibold mb-2">Tables trouvées ({result.details.length}) :</h4>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-60 overflow-y-auto w-full p-2 bg-gray-50 border rounded text-xs font-mono">
+                             {result.details.map((t: string) => (
+                               <div key={t} className="p-1 bg-white border shadow-sm rounded truncate">
+                                   {t}
+                               </div>
+                             ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {result && !result.details && (
+                        <div className={`result-feedback ${result.success ? 'success' : 'error'} mt-4`}>
+                          {result.success ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+                          <div className="result-content">
+                            <span className="result-title">{result.message}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 );
               })}
             </div>

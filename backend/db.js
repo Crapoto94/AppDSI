@@ -315,7 +315,24 @@ async function setupDb() {
         );
 
         INSERT OR IGNORE INTO postgres_settings (id) VALUES (1);
+
+        CREATE TABLE IF NOT EXISTS mariadb_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT UNIQUE,
+            host TEXT,
+            port INTEGER DEFAULT 3306,
+            user TEXT,
+            password TEXT,
+            database TEXT,
+            is_enabled INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO mariadb_settings (type, host, port, user, password, database, is_enabled)
+        VALUES 
+        ('MAIN', '', 3306, '', '', '', 0);
     `);
+
 
     // Note: Tables moved to external DBs (glpi, gf, rh) are not created here anymore.
     // They are accessed via their attached aliases (e.g. glpi.tickets, gf.oracle_commande).

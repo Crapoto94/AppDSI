@@ -18,6 +18,7 @@ const ldap = require('ldapjs');
 const { exec } = require('child_process');
 const axios = require('axios');
 const oracledb = require('oracledb');
+const mariadb = require('mariadb');
 try {
     // Tentative de passage en mode thin par défaut (si supporté par la version installée)
     // node-oracledb 6+ est thin par défaut
@@ -2498,6 +2499,105 @@ app.post('/api/oracle/sync-config', authenticateAdmin, async (req, res) => {
     }
 });
 
+// --- MariaDB Settings Routes ---
+app.get('/api/mariadb-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const settings = await db.all('SELECT * FROM mariadb_settings ORDER BY id');
+        // Masquer les mots de passe
+        if (settings) {
+            settings.forEach(s => { if (s.password) s.password = '********'; });
+        }
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lecture paramètres MariaDB', error: error.message });
+    }
+});
+
+app.post('/api/mariadb-settings', authenticateAdmin, async (req, res) => {
+    const { type, host, port, user, password, database, is_enabled } = req.body;
+    try {
+        if (!password || password === '********') {
+            await db.run(
+                'UPDATE mariadb_settings SET host = ?, port = ?, user = ?, database = ?, is_enabled = ? WHERE type = ?',
+                [host, port, user, database, is_enabled ? 1 : 0, type]
+            );
+        } else {
+            await db.run(
+                'UPDATE mariadb_settings SET host = ?, port = ?, user = ?, password = ?, database = ?, is_enabled = ? WHERE type = ?',
+                [host, port, user, password, database, is_enabled ? 1 : 0, type]
+            );
+        }
+        res.json({ success: true, message: 'Paramètres MariaDB enregistrés' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur sauvegarde MariaDB', error: error.message });
+    }
+});
+
+app.post('/api/mariadb/test-connection', authenticateAdmin, async (req, res) => {
+    const { type } = req.body;
+    let conn;
+    try {
+        const settings = await db.get('SELECT * FROM mariadb_settings WHERE type = ?', [type]);
+        if (!settings) return res.status(404).json({ success: false, message: "Paramètres non trouvés" });
+
+        conn = await mariadb.createConnection({
+            host: settings.host,
+            port: settings.port,
+            user: settings.user,
+            password: settings.password,
+            database: settings.database,
+            connectTimeout: 5000
+        });
+
+        const rows = await conn.query("SELECT 1 as val");
+        res.json({
+            success: true,
+            message: `Connexion à MariaDB ${type} (${settings.host}) réussie !`,
+            data: rows
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: `Erreur de connexion : ${error.message}` });
+    } finally {
+        if (conn) {
+            try { await conn.end(); } catch(e) {}
+        }
+    }
+});
+
+app.post('/api/mariadb/check-tables', authenticateAdmin, async (req, res) => {
+    const { type } = req.body;
+    let conn;
+    try {
+        const settings = await db.get('SELECT * FROM mariadb_settings WHERE type = ?', [type]);
+        if (!settings) return res.status(404).json({ success: false, message: "Paramètres non trouvés" });
+
+        conn = await mariadb.createConnection({
+            host: settings.host,
+            port: settings.port,
+            user: settings.user,
+            password: settings.password,
+            database: settings.database,
+            connectTimeout: 5000
+        });
+
+        // Récupérer la liste des tables
+        const rows = await conn.query("SHOW TABLES");
+        const tables = rows.map(r => Object.values(r)[0]);
+
+        res.json({
+            success: true,
+            message: `Tables de la base MariaDB ${type} (${settings.host})`,
+            details: tables
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: `Erreur : ${error.message}` });
+    } finally {
+        if (conn) {
+            try { await conn.end(); } catch(e) {}
+        }
+    }
+});
+
 // Helper pour extraire une date propre d'une chaîne Oracle
 function parseOracleDate(val) {
     if (val === null || val === undefined) return null;
@@ -3691,6 +3791,25 @@ app.get('/api/magapp/apps', async (req, res) => {
     }
 });
 
+app.get('/api/magapp/mercator-apps', async (req, res) => {
+    try {
+        const mariadbSettings = await db.get('SELECT * FROM mariadb_settings WHERE type = ?', ['MAIN']);
+        if (!mariadbSettings || !mariadbSettings.is_enabled) {
+            return res.json([]);
+        }
+        const conn = await mariadb.createConnection({
+            host: mariadbSettings.host, port: mariadbSettings.port, user: mariadbSettings.user,
+            password: mariadbSettings.password, database: mariadbSettings.database, connectTimeout: 5000
+        });
+        const rows = await conn.query('SELECT id, name, description FROM m_applications ORDER BY name');
+        await conn.end();
+        res.json(rows);
+    } catch (err) {
+        console.error('Error fetching mercator apps:', err.message);
+        res.json([]);
+    }
+});
+
 // Route de test de connectivité des applications
 app.post('/api/magapp/health-check', async (req, res) => {
     try {
@@ -4041,9 +4160,9 @@ app.post('/api/magapp/upload-icon', authenticateAdmin, (req, res, next) => {
 });
 
 app.post('/api/magapp/apps', authenticateAdmin, async (req, res) => {
-    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator } = req.body;
+    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator, mercator_id, mercator_name } = req.body;
     try {
-        const result = await pgDb.run('INSERT INTO magapp_apps (category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, app_type || 'Web', present_magapp || 'oui', present_onboard || 'oui', email_createur || '', lien_mercator || '']);
+        const result = await pgDb.run('INSERT INTO magapp_apps (category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator, mercator_id, mercator_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, app_type || 'Web', present_magapp || 'oui', present_onboard || 'oui', email_createur || '', lien_mercator || '', mercator_id || null, mercator_name || '']);
         res.json({ id: result.lastID, message: 'Application créée' });
     } catch (error) {
         console.error('Erreur création app:', error);
@@ -4052,11 +4171,11 @@ app.post('/api/magapp/apps', authenticateAdmin, async (req, res) => {
 });
 
 app.put('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
-    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator } = req.body;
+    const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator, mercator_id, mercator_name } = req.body;
     try {
         const oldApp = await pgDb.get('SELECT is_maintenance FROM magapp_apps WHERE id = ?', [req.params.id]);
 
-        await pgDb.run('UPDATE magapp_apps SET category_id = ?, name = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ?, app_type = ?, present_magapp = ?, present_onboard = ?, email_createur = ?, lien_mercator = ? WHERE id = ?', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, app_type || 'Web', present_magapp || 'oui', present_onboard || 'oui', email_createur || '', lien_mercator || '', req.params.id]);
+        await pgDb.run('UPDATE magapp_apps SET category_id = ?, name = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ?, app_type = ?, present_magapp = ?, present_onboard = ?, email_createur = ?, lien_mercator = ?, mercator_id = ?, mercator_name = ? WHERE id = ?', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, app_type || 'Web', present_magapp || 'oui', present_onboard || 'oui', email_createur || '', lien_mercator || '', mercator_id || null, mercator_name || '', req.params.id]);
 
         // Si on vient d'activer la maintenance, on prévient les abonnés
         if (is_maintenance && (!oldApp || !oldApp.is_maintenance)) {
@@ -4701,6 +4820,12 @@ app.get('/api/settings/public', authenticateJWT, async (req, res) => {
 app.get('/api/admin/sql/databases', authenticateAdmin, async (req, res) => {
     try {
         const databases = await db.all("PRAGMA database_list");
+        
+        const mariadbs = await db.all("SELECT type, database as dbName FROM mariadb_settings WHERE is_enabled = 1");
+        for (const m of mariadbs) {
+            databases.push({ seq: 1000 + databases.length, name: `mariadb_${m.type}`, file: `MariaDB (${m.dbName || m.type})` });
+        }
+        
         res.json(databases);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lecture bases de données', error: error.message });
@@ -4709,7 +4834,24 @@ app.get('/api/admin/sql/databases', authenticateAdmin, async (req, res) => {
 
 app.get('/api/admin/sql/tables', authenticateAdmin, async (req, res) => {
     try {
-        const dbName = typeof req.query.db === 'string' && req.query.db ? req.query.db.replace(/[^a-zA-Z0-9_]/g, '') : 'main';
+        const rawDbName = typeof req.query.db === 'string' && req.query.db ? req.query.db : 'main';
+        
+        if (rawDbName.startsWith('mariadb_')) {
+            const type = rawDbName.split('_')[1];
+            const settings = await db.get('SELECT * FROM mariadb_settings WHERE type = ?', [type]);
+            if (!settings) return res.status(404).json({ message: "Paramètres MariaDB non trouvés" });
+            
+            const conn = await mariadb.createConnection({
+                host: settings.host, port: settings.port, user: settings.user,
+                password: settings.password, database: settings.database, connectTimeout: 5000
+            });
+            const rows = await conn.query("SHOW TABLES");
+            await conn.end();
+            const tables = rows.map(r => ({ name: Object.values(r)[0], type: 'table' }));
+            return res.json(tables);
+        }
+
+        const dbName = rawDbName.replace(/[^a-zA-Z0-9_]/g, '');
         const tables = await db.all(`SELECT name, type FROM "${dbName}".sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name`);
         res.json(tables);
     } catch (error) {
@@ -4718,9 +4860,28 @@ app.get('/api/admin/sql/tables', authenticateAdmin, async (req, res) => {
 });
 app.get('/api/admin/sql/table-info/:tableName', authenticateAdmin, async (req, res) => {
     const { tableName } = req.params;
-    const dbName = typeof req.query.db === 'string' && req.query.db ? req.query.db.replace(/[^a-zA-Z0-9_]/g, '') : 'main';
+    const rawDbName = typeof req.query.db === 'string' && req.query.db ? req.query.db : 'main';
 
     try {
+        if (rawDbName.startsWith('mariadb_')) {
+            const type = rawDbName.split('_')[1];
+            const settings = await db.get('SELECT * FROM mariadb_settings WHERE type = ?', [type]);
+            const conn = await mariadb.createConnection({
+                host: settings.host, port: settings.port, user: settings.user,
+                password: settings.password, database: settings.database, connectTimeout: 5000
+            });
+            
+            const cols = await conn.query(`DESCRIBE \`${tableName}\``);
+            const pks = cols.filter(c => c.Key === 'PRI').map(c => c.Field);
+            
+            const countRows = await conn.query(`SELECT COUNT(*) as c FROM \`${tableName}\``);
+            const count = (countRows && countRows.length > 0) ? Number(countRows[0].c) : 0;
+            
+            await conn.end();
+            return res.json({ pk: pks, indices: [], count });
+        }
+
+        const dbName = rawDbName.replace(/[^a-zA-Z0-9_]/g, '');
         const columns = await db.all(`PRAGMA "${dbName}".table_info("${tableName}")`);
         const pks = columns.filter(c => c.pk > 0).map(c => c.name);
 
@@ -4770,19 +4931,39 @@ app.get('/api/admin/sql/table/:tableName', authenticateAdmin, async (req, res) =
 });
 
 app.post('/api/admin/sql/query', authenticateAdmin, async (req, res) => {
-    const { sql } = req.body;
+    const { sql, db: requestDb } = req.body;
     if (!sql) return res.status(400).json({ message: 'Requête SQL requise' });
 
     const startTime = Date.now();
     try {
         let records;
-        const isSelect = sql.trim().toUpperCase().startsWith('SELECT') || sql.trim().toUpperCase().startsWith('PRAGMA');
 
-        if (isSelect) {
-            records = await db.all(sql);
+        if (requestDb && requestDb.startsWith('mariadb_')) {
+            const type = requestDb.split('_')[1];
+            const settings = await db.get('SELECT * FROM mariadb_settings WHERE type = ?', [type]);
+            const conn = await mariadb.createConnection({
+                host: settings.host, port: settings.port, user: settings.user,
+                password: settings.password, database: settings.database, connectTimeout: 5000
+            });
+            
+            const result = await conn.query(sql);
+            if (!Array.isArray(result)) {
+                // For INSERT, UPDATE, DELETE
+                records = [{ affectedRows: result.affectedRows, insertId: result.insertId ? parseInt(result.insertId) : null }];
+            } else {
+                records = result; // Map or convert if needed, usually row objects are returned directly
+                // Filter meta
+                if (records.meta) delete records.meta;
+            }
+            await conn.end();
         } else {
-            const result = await db.run(sql);
-            records = [{ changes: result.changes, lastID: result.lastID }];
+            const isSelect = sql.trim().toUpperCase().startsWith('SELECT') || sql.trim().toUpperCase().startsWith('PRAGMA') || sql.trim().toUpperCase().startsWith('EXPLAIN');
+            if (isSelect) {
+                records = await db.all(sql);
+            } else {
+                const result = await db.run(sql);
+                records = [{ changes: result.changes, lastID: result.lastID }];
+            }
         }
 
         const executionTime = Date.now() - startTime;
