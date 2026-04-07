@@ -999,10 +999,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSu
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span>{app.name}</span>
-            <div style={{ display: 'flex', gap: '4px' }}>
-              {app.lien_mercator && <div className="status-dot mercator" title="Lien Mercator renseigné"></div>}
-              {app.email_createur && <div className="status-dot creator" title="Email créateur renseigné"></div>}
-            </div>
+
           </div>
           {healthStatus === 'ok' && <CheckCircle2 size={14} color="#22c55e" />}
           {healthStatus === 'fail' && <XCircle size={14} color="#ef4444" />}
