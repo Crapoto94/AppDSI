@@ -103,6 +103,7 @@ const MagappAdmin: React.FC = () => {
   const [showAppModal, setShowAppModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [appToDelete, setAppToDelete] = useState<AppItem | null>(null);
+  const [filterPublished, setFilterPublished] = useState<'all' | 'oui' | 'non'>('all');
 
   const token = localStorage.getItem('token');
 
@@ -318,6 +319,7 @@ const MagappAdmin: React.FC = () => {
   };
 
   const filteredStats = showAllStats ? stats : stats.filter(s => s.today_clicks > 0);
+  const filteredApps = apps.filter(app => filterPublished === 'all' || app.present_magapp === filterPublished);
 
   return (
     <div className="magapp-admin-container animate-fade-in">
@@ -358,8 +360,29 @@ const MagappAdmin: React.FC = () => {
               <section className="workspace-section">
                 <div className="section-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                    <h2>Annuaire ({apps.length})</h2>
+                    <h2>Annuaire ({filteredApps.length})</h2>
                     <div className="header-icon-v2"><LayoutGrid size={20} /></div>
+                    
+                    <div className="filter-group-v2" style={{ marginLeft: '10px' }}>
+                      <button 
+                        className={`filter-btn-v2 ${filterPublished === 'all' ? 'active' : ''}`}
+                        onClick={() => setFilterPublished('all')}
+                      >
+                        Toutes
+                      </button>
+                      <button 
+                        className={`filter-btn-v2 ${filterPublished === 'oui' ? 'active' : ''}`}
+                        onClick={() => setFilterPublished('oui')}
+                      >
+                        Publiées
+                      </button>
+                      <button 
+                        className={`filter-btn-v2 ${filterPublished === 'non' ? 'active' : ''}`}
+                        onClick={() => setFilterPublished('non')}
+                      >
+                        Masquées
+                      </button>
+                    </div>
                   </div>
                   <button className="primary-btn-v2" onClick={() => { setEditingApp(null); setShowAppModal(true); }}>
                     <Plus size={18} /> Nouvelle Application
@@ -367,8 +390,8 @@ const MagappAdmin: React.FC = () => {
                 </div>
                 
                 <div className="apps-grid-v2">
-                  {apps.map(app => (
-                    <div key={app.id} className="app-card-v2">
+                  {filteredApps.map(app => (
+                    <div key={app.id} className={`app-card-v2 ${app.present_magapp === 'oui' ? 'is-published' : ''}`}>
                       <div className="app-card-inner-v2">
                         <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} />
                         <div className="app-details-v2">
@@ -378,6 +401,9 @@ const MagappAdmin: React.FC = () => {
                               {app.mercator_id && <div className="status-dot mercator" title={`Lié à Mercator : ${app.mercator_name}`}></div>}
                               {(!app.mercator_id && app.lien_mercator) && <div className="status-dot mercator" title="Lien Mercator renseigné (ancienne version)"></div>}
                               {app.email_createur && <div className="status-dot creator" title="Email créateur renseigné"></div>}
+                              {app.present_magapp === 'oui' && (
+                                <span className="published-badge">Publiée</span>
+                              )}
                             </div>
                           </div>
                           <p>{app.url}</p>
@@ -1011,6 +1037,21 @@ const MagappAdmin: React.FC = () => {
           box-shadow: 0 12px 20px -8px rgba(79, 70, 229, 0.2);
         }
 
+        .app-card-v2.is-published {
+          background: #f0f3ff;
+          border-color: #c7d2fe;
+        }
+
+        .published-badge {
+          font-size: 0.65rem;
+          font-weight: 800;
+          padding: 2px 6px;
+          background: #e0e7ff;
+          color: #4338ca;
+          border-radius: 6px;
+          text-transform: uppercase;
+        }
+
         .status-dot {
           width: 8px;
           height: 8px;
@@ -1213,6 +1254,28 @@ const MagappAdmin: React.FC = () => {
           background: #4f46e5;
           color: white;
           border-color: #4f46e5;
+        }
+
+        .filter-group-v2 {
+          display: flex;
+          background: #f1f5f9;
+          padding: 4px;
+          border-radius: 12px;
+          gap: 2px;
+        }
+
+        .filter-group-v2 .filter-btn-v2 {
+          padding: 6px 12px;
+          border: none;
+          background: none;
+          font-size: 0.75rem;
+          border-radius: 8px;
+        }
+
+        .filter-group-v2 .filter-btn-v2.active {
+          background: white;
+          color: #4f46e5;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
 
         .modal-overlay-v2 {
