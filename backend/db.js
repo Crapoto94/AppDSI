@@ -96,7 +96,8 @@ async function setupDb() {
             icon TEXT,
             description TEXT,
             url TEXT,
-            status TEXT DEFAULT 'active'
+            status TEXT DEFAULT 'active',
+            sort_order INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS budget_lines (

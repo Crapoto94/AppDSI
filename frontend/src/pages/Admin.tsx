@@ -495,7 +495,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   useEffect(() => {
     if (section === 'tiles') fetchTiles();
-    if (section === 'users') fetchUsers();
+    if (section === 'users') { fetchTiles(); fetchUsers(); }
     if (section === 'ad') fetchADSettings();
     if (section === 'azure-ad') fetchAzureSettings();
     if (section === 'glpi') fetchGLPISettings();

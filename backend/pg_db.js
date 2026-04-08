@@ -15,7 +15,7 @@ function convertSqliteToPostgres(sql) {
                     .replace(/magapp_clicks/gi, 'magapp.clicks')
                     .replace(/magapp_subscriptions/gi, 'magapp.subscriptions')
                     .replace(/magapp_settings/gi, 'magapp.settings')
-                    .replace(/\busers\b/gi, 'hub.users');
+                    .replace(/(?<!hub\.)\busers\b/gi, 'hub.users');
     
     newSql = newSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
     
@@ -43,7 +43,7 @@ const pgDb = {
     },
     run: async (sql, params = []) => {
         let query = convertSqliteToPostgres(sql);
-        if (query.toUpperCase().includes('INSERT')) {
+        if (query.toUpperCase().includes('INSERT') && !query.toUpperCase().includes('INTO HUB.USERS')) {
             query += ' RETURNING id';
         }
         const res = await pool.query(query, params);
@@ -195,7 +195,7 @@ async function setupPgDb() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.users (
         username VARCHAR(255) PRIMARY KEY,
-        password VARCHAR(255) NOT NULL,
+        password VARCHAR(255),
         role VARCHAR(50) DEFAULT 'user',
         displayName VARCHAR(255),
         email VARCHAR(255),

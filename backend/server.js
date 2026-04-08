@@ -439,15 +439,40 @@ const authenticateAdminOrFinances = (req, res, next) => {
 // Récupérer le profil utilisateur actuel (depuis la DB pour avoir le statut à jour)
 app.get('/api/auth/me', authenticateJWT, async (req, res) => {
     try {
-        const user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
+        let user = null;
+        let source = '';
+        
+        const origin = req.headers.origin || req.headers.referer || '';
+        const isMagApp = origin.includes(':5174') || origin.includes('magapp');
+
+        if (isMagApp) {
+            // Priority 1 for MagApp: PostgreSQL
+            user = await pgDb.get('SELECT username, role, is_approved FROM users WHERE username = ?', [req.user.username]);
+            if (user) {
+                source = 'postgres';
+            } else {
+                user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
+                if (user) source = 'sqlite';
+            }
+        } else {
+            // Priority 1 for Hub: SQLite
+            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
+            if (user) {
+                source = 'sqlite';
+            } else {
+                user = await pgDb.get('SELECT username, role, is_approved FROM users WHERE username = ?', [req.user.username]);
+                if (user) source = 'postgres';
+            }
+        }
+
         if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
 
         // Force l'approbation pour les admins
         if (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub') {
             user.is_approved = 1;
             user.authorized_urls = ['*'];
-        } else {
-            // Get URLs from the tiles the user is authorized for
+        } else if (source === 'sqlite') {
+            // Get URLs from the tiles the user is authorized for (Hub only)
             const authorizedTiles = await db.all(`
                 SELECT tl.url as link_url
                 FROM user_tiles ut
@@ -461,9 +486,12 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
                 if (row.link_url) urls.add(row.link_url);
             });
             user.authorized_urls = Array.from(urls);
+        } else {
+            // Utilisateur MagApp (PG) sans compte Hub SQLite
+            user.authorized_urls = ['/', '/profile']; // Accès minimal par défaut
         }
 
-        res.json(user);
+        res.json({ ...user, auth_source: source });
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la récupération du profil', error: error.message });
     }
@@ -491,53 +519,47 @@ app.post('/api/auth/magapp-login', async (req, res) => {
             return res.status(401).json({ message: 'Identifiants Active Directory incorrects' });
         }
 
-        // 2. Vérifier si l'utilisateur existe dans notre base locale
-        let user = await pgDb.get('SELECT username, role, service_code, service_complement FROM users WHERE username = ?', [username.toLowerCase()]);
+        // 2. Vérifier si l'utilisateur existe dans PostgreSQL (MagApp base)
+        let user = await pgDb.get('SELECT username, role, is_approved FROM users WHERE username = ?', [username.toLowerCase()]);
 
         if (!user) {
-            // Création automatique de l'utilisateur s'il est OK AD mais absent de la base locale
+            // Création automatique de l'utilisateur s'il est OK AD mais absent de PG
             try {
-                // Règle spéciale : admin et adminhub sont toujours approuvés et admins
                 const isAdminAccount = username.toLowerCase() === 'admin' || username.toLowerCase() === 'adminhub';
                 const role = isAdminAccount ? 'admin' : 'magapp';
-                const isApproved = isAdminAccount ? 1 : 0;
+                const isApproved = 1; // Tous les comptes AD vérifiés sont autorisés pour MagApp
 
                 await pgDb.run(
-                    'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
-                    [adUser.username.toLowerCase(), role, isApproved]
+                    'INSERT INTO users (username, role, is_approved, displayName, email) VALUES (?, ?, ?, ?, ?)',
+                    [adUser.username.toLowerCase(), role, isApproved, adUser.displayName, adUser.email]
                 );
-                // Récupérer l'utilisateur fraîchement créé
-                user = await pgDb.get('SELECT username, role, service_code, service_complement, is_approved FROM users WHERE username = ?', [adUser.username.toLowerCase()]);
-                console.log(`[AUTH] Nouvel utilisateur AD créé automatiquement via MagApp: ${adUser.username} (Role: ${role})`);
+                
+                user = await pgDb.get('SELECT username, role, is_approved FROM users WHERE username = ?', [username.toLowerCase()]);
+                console.log(`[AUTH PG] Nouvel utilisateur AD créé automatiquement dans PG: ${adUser.username} (Role: ${role})`);
             } catch (insertError) {
-                console.error(`[AUTH] Erreur lors de la création auto de l'utilisateur ${username}:`, insertError);
+                console.error(`[AUTH PG] Erreur lors de la création auto de l'utilisateur ${username} dans PG:`, insertError);
             }
         }
 
         if (user) {
+            // Pour MagApp, on utilise le username comme identifiant principal (PG uses username as PK)
             const accessToken = jwt.sign({
-                id: user.id,
                 username: user.username,
-                role: user.role,
-                service_code: user.service_code,
-                service_complement: user.service_complement
+                role: user.role
             }, SECRET_KEY);
 
             return res.json({
                 accessToken,
                 user: {
-                    id: user.id,
                     username: user.username,
                     role: user.role,
-                    service_code: user.service_code,
-                    service_complement: user.service_complement,
                     displayName: adUser.displayName,
                     email: adUser.email
                 }
             });
         }
 
-        // Cas de secours si l'utilisateur n'a pas pu être créé
+        // Cas de secours
         res.json({
             user: {
                 username: adUser.username,
@@ -548,8 +570,8 @@ app.post('/api/auth/magapp-login', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Erreur login MagApp:', error.message);
-        res.status(500).json({ message: 'Erreur lors de l\'authentification', error: error.message });
+        console.error('Erreur login MagApp (PG):', error.message);
+        res.status(500).json({ message: 'Erreur lors de l\'authentification (PG)', error: error.message });
     }
 });
 
@@ -697,14 +719,14 @@ app.get('/api/auth/azure/callback', async (req, res) => {
         const email = azureUser.mail || azureUser.userPrincipalName;
         const username = email.split('@')[0].toLowerCase();
 
-        // 3. Authentifier ou créer l'utilisateur localement
+        // 3. Authentifier ou créer l'utilisateur localement (SQLite pour Hub)
         let user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE LOWER(username) = LOWER(?)', [username]);
 
         if (!user) {
-            console.log(`[AZURE] Utilisateur ${username} non trouvé en base. Création automatique...`);
+            console.log(`[AZURE] Utilisateur ${username} non trouvé en SQLite. Création automatique...`);
             const isAdminAccount = username === 'admin' || username === 'adminhub';
             const role = isAdminAccount ? 'admin' : 'magapp';
-            const isApproved = isAdminAccount ? 1 : 0;
+            const isApproved = 1; // AD Verified
 
             const result = await db.run(
                 'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
@@ -712,6 +734,19 @@ app.get('/api/auth/azure/callback', async (req, res) => {
             );
             user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE id = ?', [result.lastID]);
         }
+
+        // 4. Également s'assurer qu'il existe dans PostgreSQL (MagApp base)
+        let pgUser = await pgDb.get('SELECT username, role, is_approved FROM users WHERE username = ?', [username]);
+        if (!pgUser) {
+            console.log(`[AZURE PG] Création automatique dans PostgreSQL pour ${username}`);
+            const isAdminAccount = username === 'admin' || username === 'adminhub';
+            const role = isAdminAccount ? 'admin' : 'magapp';
+            await pgDb.run(
+                'INSERT INTO users (username, role, is_approved, displayName, email) VALUES (?, ?, ?, ?, ?)',
+                [username, role, 1, azureUser.displayName, email]
+            );
+        }
+
 
         const accessToken = jwt.sign({
             id: user.id,
@@ -5095,16 +5130,34 @@ app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req
         if (!request) return res.status(404).json({ message: 'Demande non trouvée' });
 
         await db.run('BEGIN TRANSACTION');
-        // Approuver la demande
-        await db.run('UPDATE access_requests SET status = "approved" WHERE id = ?', [req.params.id]);
-        // Approuver l'utilisateur
-        await db.run('UPDATE users SET is_approved = 1 WHERE id = ?', [request.user_id]);
-        // Note: Ici on pourrait aussi associer les tuiles si nécessaire
-        await db.run('COMMIT');
+        try {
+            // Approuver la demande
+            await db.run('UPDATE access_requests SET status = "approved" WHERE id = ?', [req.params.id]);
+            // Approuver l'utilisateur
+            await db.run('UPDATE users SET is_approved = 1 WHERE id = ?', [request.user_id]);
+            
+            // Assigner les tuiles demandées
+            if (request.requested_tiles) {
+                // On suppose que requested_tiles est une liste d'IDs séparés par des virgules ou un tableau JSON
+                let tileIds = [];
+                try {
+                    tileIds = JSON.parse(request.requested_tiles);
+                } catch (e) {
+                    tileIds = request.requested_tiles.split(',').map(id => id.trim()).filter(id => id);
+                }
 
-        res.json({ message: 'Demande approuvée' });
+                for (const tileId of tileIds) {
+                    await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [request.user_id, tileId]);
+                }
+            }
+
+            await db.run('COMMIT');
+            res.json({ message: 'Demande approuvée et droits assignés' });
+        } catch (innerError) {
+            await db.run('ROLLBACK');
+            throw innerError;
+        }
     } catch (error) {
-        await db.run('ROLLBACK');
         res.status(500).json({ message: error.message });
     }
 });
