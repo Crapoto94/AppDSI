@@ -8,7 +8,15 @@ module.exports = function(app, db, authenticateAdmin) {
     app.get('/api/admin/sql/databases', authenticateAdmin, async (req, res) => {
         try {
             const databases = await db.all("PRAGMA database_list");
-            res.json(databases);
+            
+            // On convertit les chemins absolus en chemins relatifs/noms de fichiers
+            // pour éviter d'exposer la structure de l'hôte et rester cohérent en Docker
+            const sanitizedDatabases = databases.map(d => ({
+                ...d,
+                file: d.file ? require('path').basename(d.file) : d.file
+            }));
+            
+            res.json(sanitizedDatabases);
         } catch (error) {
             res.status(500).json({ message: error.message });
         }

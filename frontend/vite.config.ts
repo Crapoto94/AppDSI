@@ -10,31 +10,31 @@ export default defineConfig({
     allowedHosts: ['po22038', 'PO22038', 'dsihub.ivry.local', 'magapp.ivry.local'],
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://backend:3001',
         changeOrigin: true,
       },
       '/img': {
-        target: 'http://localhost:3001',
+        target: 'http://backend:3001',
         changeOrigin: true,
       },
       '/uploads': {
-        target: 'http://localhost:3001',
+        target: 'http://backend:3001',
         changeOrigin: true,
       },
       '/file_commandes': {
-        target: 'http://localhost:3001',
+        target: 'http://backend:3001',
         changeOrigin: true,
       },
       '/file_factures': {
-        target: 'http://localhost:3001',
+        target: 'http://backend:3001',
         changeOrigin: true,
       },
       '/file_certif': {
-        target: 'http://localhost:3001',
+        target: 'http://backend:3001',
         changeOrigin: true,
       },
       '/file_telecom': {
-        target: 'http://localhost:3001',
+        target: 'http://backend:3001',
         changeOrigin: true,
       }
     }

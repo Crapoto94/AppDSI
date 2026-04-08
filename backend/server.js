@@ -542,6 +542,17 @@ app.post('/api/auth/magapp-login', async (req, res) => {
         }
 
         if (user) {
+            // Mettre à jour les informations de l'utilisateur à chaque connexion
+            try {
+                const lastActivityDate = new Date().toISOString();
+                await pgDb.run(
+                    'UPDATE users SET last_activity = ?, displayname = ?, email = ? WHERE username = ?',
+                    [lastActivityDate, adUser.displayName, adUser.email, username.toLowerCase()]
+                );
+            } catch (updateError) {
+                console.error(`[AUTH PG] Erreur lors de la mise à jour de l'utilisateur ${username} dans PG:`, updateError);
+            }
+
             // Pour MagApp, on utilise le username comme identifiant principal (PG uses username as PK)
             const accessToken = jwt.sign({
                 username: user.username,
