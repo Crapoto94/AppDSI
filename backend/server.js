@@ -436,6 +436,33 @@ const authenticateAdminOrFinances = (req, res, next) => {
     });
 };
 
+// Middleware for Admin or Magapp Control (users with the specific tile)
+const authenticateMagappControl = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (req.user && (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin')) {
+            return next();
+        }
+        
+        try {
+            if (req.user && req.user.id) {
+                const authorized = await db.get(`
+                    SELECT 1 FROM user_tiles ut 
+                    JOIN tile_links tl ON ut.tile_id = tl.tile_id 
+                    WHERE ut.user_id = ? AND tl.url = '/admin/magapp'
+                `, [req.user.id]);
+                
+                if (authorized) {
+                    return next();
+                }
+            }
+        } catch (error) {
+            console.error('[AUTH MAGAPP] Error checking tile access:', error);
+        }
+        
+        res.status(403).json({ message: 'Accès refusé : administrateur ou accès Magasin d\'Apps requis' });
+    });
+};
+
 // Récupérer le profil utilisateur actuel (depuis la DB pour avoir le statut à jour)
 app.get('/api/auth/me', authenticateJWT, async (req, res) => {
     try {
@@ -4024,7 +4051,7 @@ app.delete('/api/magapp/user-subscriptions', async (req, res) => {
     }
 });
 
-app.get('/api/magapp/subscriptions', authenticateAdmin, async (req, res) => {
+app.get('/api/magapp/subscriptions', authenticateMagappControl, async (req, res) => {
     try {
         const subs = await pgDb.all(`
             SELECT s.*, a.name as app_name 
@@ -4146,7 +4173,7 @@ app.get('/api/magapp/stats', authenticateJWT, async (req, res) => {
 });
 
 // Admin endpoints for Magapp
-app.post('/api/magapp/categories', authenticateAdmin, async (req, res) => {
+app.post('/api/magapp/categories', authenticateMagappControl, async (req, res) => {
     const { name, icon, display_order } = req.body;
     try {
         const result = await pgDb.run('INSERT INTO magapp_categories (name, icon, display_order) VALUES (?, ?, ?)', [name, icon, display_order || 0]);
@@ -4156,7 +4183,7 @@ app.post('/api/magapp/categories', authenticateAdmin, async (req, res) => {
     }
 });
 
-app.put('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => {
+app.put('/api/magapp/categories/:id', authenticateMagappControl, async (req, res) => {
     const { name, icon, display_order } = req.body;
     try {
         await pgDb.run('UPDATE magapp_categories SET name = ?, icon = ?, display_order = ? WHERE id = ?', [name, icon, display_order || 0, req.params.id]);
@@ -4166,7 +4193,7 @@ app.put('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => {
     }
 });
 
-app.delete('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => {
+app.delete('/api/magapp/categories/:id', authenticateMagappControl, async (req, res) => {
     try {
         await pgDb.run('DELETE FROM magapp_categories WHERE id = ?', [req.params.id]);
         res.json({ message: 'Catégorie supprimée' });
@@ -4175,7 +4202,7 @@ app.delete('/api/magapp/categories/:id', authenticateAdmin, async (req, res) => 
     }
 });
 
-app.post('/api/magapp/upload-icon', authenticateAdmin, (req, res, next) => {
+app.post('/api/magapp/upload-icon', authenticateMagappControl, (req, res, next) => {
     upload.single('icon')(req, res, (err) => {
         if (err instanceof multer.MulterError) {
             console.error(`[MagApp] Multer Error: ${err.message}`);
@@ -4205,7 +4232,7 @@ app.post('/api/magapp/upload-icon', authenticateAdmin, (req, res, next) => {
     });
 });
 
-app.post('/api/magapp/apps', authenticateAdmin, async (req, res) => {
+app.post('/api/magapp/apps', authenticateMagappControl, async (req, res) => {
     const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator, mercator_id, mercator_name } = req.body;
     try {
         const result = await pgDb.run('INSERT INTO magapp_apps (category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator, mercator_id, mercator_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [category_id, name, description, url, icon, display_order || 0, is_maintenance ? 1 : 0, maintenance_start || null, maintenance_end || null, app_type || 'Web', present_magapp || 'oui', present_onboard || 'oui', email_createur || '', lien_mercator || '', mercator_id || null, mercator_name || '']);
@@ -4216,7 +4243,7 @@ app.post('/api/magapp/apps', authenticateAdmin, async (req, res) => {
     }
 });
 
-app.put('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
+app.put('/api/magapp/apps/:id', authenticateMagappControl, async (req, res) => {
     const { category_id, name, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, lien_mercator, mercator_id, mercator_name } = req.body;
     try {
         const oldApp = await pgDb.get('SELECT is_maintenance FROM magapp_apps WHERE id = ?', [req.params.id]);
@@ -4235,7 +4262,7 @@ app.put('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
     }
 });
 
-app.delete('/api/magapp/apps/:id', authenticateAdmin, async (req, res) => {
+app.delete('/api/magapp/apps/:id', authenticateMagappControl, async (req, res) => {
     const appId = parseInt(req.params.id);
     console.log(`[MagApp] Delete attempt: id=${appId}`);
     try {
@@ -4258,7 +4285,7 @@ app.get('/api/magapp/settings', async (req, res) => {
     }
 });
 
-app.post('/api/magapp/settings', authenticateAdmin, async (req, res) => {
+app.post('/api/magapp/settings', authenticateMagappControl, async (req, res) => {
     const { show_tickets, show_subscriptions, show_health_check } = req.body;
     try {
         // Postgres booleans require true/false, not 1/0
@@ -4284,7 +4311,7 @@ app.get('/api/magapp/versions', async (req, res) => {
 });
 
 // Admin CRUD pour les versions
-app.post('/api/admin/magapp/versions', authenticateAdmin, async (req, res) => {
+app.post('/api/admin/magapp/versions', authenticateMagappControl, async (req, res) => {
     const { version_number, release_notes_html } = req.body;
     try {
         const result = await pgDb.run(
@@ -4298,7 +4325,7 @@ app.post('/api/admin/magapp/versions', authenticateAdmin, async (req, res) => {
     }
 });
 
-app.put('/api/admin/magapp/versions/:id', authenticateAdmin, async (req, res) => {
+app.put('/api/admin/magapp/versions/:id', authenticateMagappControl, async (req, res) => {
     const { version_number, release_notes_html } = req.body;
     try {
         await pgDb.run(
@@ -4311,7 +4338,7 @@ app.put('/api/admin/magapp/versions/:id', authenticateAdmin, async (req, res) =>
     }
 });
 
-app.delete('/api/admin/magapp/versions/:id', authenticateAdmin, async (req, res) => {
+app.delete('/api/admin/magapp/versions/:id', authenticateMagappControl, async (req, res) => {
     try {
         const id = req.params.id;
         console.log(`[ADMIN] Suppression de la version ID: ${id} par ${req.user.username}`);
@@ -4330,7 +4357,7 @@ app.delete('/api/admin/magapp/versions/:id', authenticateAdmin, async (req, res)
     }
 });
 
-app.put('/api/admin/magapp/versions/:id/activate', authenticateAdmin, async (req, res) => {
+app.put('/api/admin/magapp/versions/:id/activate', authenticateMagappControl, async (req, res) => {
     try {
         // Only one version can be active at a time
         await pgDb.run('UPDATE magapp.versions SET is_active = FALSE');

@@ -11,11 +11,11 @@ export default defineConfig({
     allowedHosts: ['po22038', 'PO22038', 'magapp-dev.ivry.local', 'magapp.ivry.local'],
     proxy: {
       '/api': {
-        target: 'http://backend:3001',
+        target: 'http://127.0.0.1:3001',
         changeOrigin: true,
       },
       '/img': {
-        target: 'http://backend:3001',
+        target: 'http://127.0.0.1:3001',
         changeOrigin: true,
       }
     }
