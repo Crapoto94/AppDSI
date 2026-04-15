@@ -29,7 +29,18 @@ interface AppItem {
   lien_mercator: string;
   mercator_id: number | null;
   mercator_name: string;
+  user_count?: number;
 }
+
+interface AppUser {
+  id: number;
+  app_id: number;
+  username: string;
+  display_name: string;
+  last_connection: string;
+  source?: 'magapp' | 'admin';
+}
+
 
 interface ClickStats {
   id: number;
@@ -105,6 +116,14 @@ const MagappAdmin: React.FC = () => {
   const [appToDelete, setAppToDelete] = useState<AppItem | null>(null);
   const [filterPublished, setFilterPublished] = useState<'all' | 'oui' | 'non'>('all');
 
+  // User tracking states
+  const [appUsers, setAppUsers] = useState<AppUser[]>([]);
+  const [adSearchQuery, setAdSearchQuery] = useState('');
+  const [adResults, setAdResults] = useState<{username: string, displayName: string, email: string}[]>([]);
+  const [isSearchingAD, setIsSearchingAD] = useState(false);
+  const [modalTab, setModalTab] = useState<'general' | 'users'>('general');
+
+
   const token = localStorage.getItem('token');
 
   const fetchData = async () => {
@@ -144,7 +163,7 @@ const MagappAdmin: React.FC = () => {
 
   useEffect(() => { fetchData(); fetchVersions(); fetchSubscriptions(); }, []);
   useEffect(() => { if (activeTab === 'subscriptions') fetchSubscriptions(); if (activeTab === 'versions') fetchVersions(); }, [activeTab]);
-  
+
   // Set default category for "New App" when categories change
   useEffect(() => {
     if (categories.length > 0 && !newApp.category_id) {
@@ -318,6 +337,59 @@ const MagappAdmin: React.FC = () => {
     }
   };
 
+  const fetchAppUsers = async (appId: number) => {
+    try {
+      const response = await fetch(`/api/magapp/apps/${appId}/users`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) setAppUsers(await response.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const handleSearchAD = async () => {
+    if (adSearchQuery.length < 2) return;
+    setIsSearchingAD(true);
+    try {
+      const response = await fetch('/api/magapp/ad/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ query: adSearchQuery })
+      });
+      if (response.ok) setAdResults(await response.json());
+    } catch (e) { console.error(e); }
+    finally { setIsSearchingAD(false); }
+  };
+
+  const handleAddUserToApp = async (username: string, displayName: string) => {
+    if (!editingApp) return;
+    try {
+      const response = await fetch(`/api/magapp/apps/${editingApp.id}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ username, display_name: displayName })
+      });
+      if (response.ok) {
+        fetchAppUsers(editingApp.id);
+        setAdSearchQuery('');
+        setAdResults([]);
+        fetchData(); // refresh user count
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const handleRemoveUserFromApp = async (username: string) => {
+    if (!editingApp || !window.confirm(`Retirer ${username} de la liste ?`)) return;
+    try {
+      const response = await fetch(`/api/magapp/apps/${editingApp.id}/users/${username}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        fetchAppUsers(editingApp.id);
+        fetchData(); // refresh user count
+      }
+    } catch (e) { console.error(e); }
+  };
+
+
   const filteredStats = showAllStats ? stats : stats.filter(s => s.today_clicks > 0);
   const filteredApps = apps.filter(app => filterPublished === 'all' || app.present_magapp === filterPublished);
 
@@ -401,8 +473,12 @@ const MagappAdmin: React.FC = () => {
                               {app.mercator_id && <div className="status-dot mercator" title={`Lié à Mercator : ${app.mercator_name}`}></div>}
                               {(!app.mercator_id && app.lien_mercator) && <div className="status-dot mercator" title="Lien Mercator renseigné (ancienne version)"></div>}
                               {app.email_createur && <div className="status-dot creator" title="Email créateur renseigné"></div>}
-                              {app.present_magapp === 'oui' && (
-                                <span className="published-badge">Publiée</span>
+                              {app.present_magapp === 'oui' && <span className="published-badge">Publiée</span>}
+                              {app.user_count !== undefined && app.user_count > 0 && (
+                                <span className="user-count-badge" title={`${app.user_count} utilisateur(s)`}>
+                                  <Plus size={10} style={{ marginRight: '2px' }} />
+                                  {app.user_count}
+                                </span>
                               )}
                             </div>
                           </div>
@@ -418,6 +494,7 @@ const MagappAdmin: React.FC = () => {
                 </div>
               </section>
 
+
               {showAppModal && (
                 <div className="modal-overlay-v2">
                   <div className="modal-content-v2 animate-fade-in">
@@ -428,136 +505,255 @@ const MagappAdmin: React.FC = () => {
                       </div>
                       <button className="close-modal-btn" onClick={() => setShowAppModal(false)}><X size={20} /></button>
                     </div>
+
+                    <div className="modal-tabs">
+                      <button className={modalTab === 'general' ? 'active' : ''} onClick={() => setModalTab('general')}>Général</button>
+                      {editingApp && (
+                        <button className={modalTab === 'users' ? 'active' : ''} onClick={() => { setModalTab('users'); fetchAppUsers(editingApp.id); }}>
+                          Utilisateurs {editingApp.user_count ? `(${editingApp.user_count})` : ''}
+                        </button>
+                      )}
+                    </div>
                     
                     <div className="modal-body-v2">
-                      <div className="form-grid-v2">
-                        <div className="form-group-v2">
-                          <label>Nom</label>
-                          <input type="text" value={editingApp ? editingApp.name : newApp.name} onChange={e => editingApp ? setEditingApp({...editingApp, name: e.target.value}) : setNewApp({...newApp, name: e.target.value})} />
-                        </div>
-                        <div className="form-group-v2">
-                          <label>URL</label>
-                          <input type="text" value={editingApp ? editingApp.url : newApp.url} onChange={e => editingApp ? setEditingApp({...editingApp, url: e.target.value}) : setNewApp({...newApp, url: e.target.value})} />
-                        </div>
-                        <div className="form-group-v2">
-                          <label>Catégorie</label>
-                          <select value={editingApp ? editingApp.category_id : newApp.category_id} onChange={e => editingApp ? setEditingApp({...editingApp, category_id: parseInt(e.target.value)}) : setNewApp({...newApp, category_id: parseInt(e.target.value)})}>
-                            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
-                        </div>
-                        <div className="form-group-v2">
-                          <label>Type</label>
-                          <select value={editingApp ? editingApp.app_type : newApp.app_type} onChange={e => editingApp ? setEditingApp({...editingApp, app_type: e.target.value}) : setNewApp({...newApp, app_type: e.target.value})}>
-                            <option value="Web">Web</option>
-                            <option value="SAAS">SAAS</option>
-                            <option value="Client/serveur">Client/serveur</option>
-                            <option value="Monoposte">Monoposte</option>
-                          </select>
-                        </div>
-                        <div className="form-group-v2 full-width">
-                          <label>Description</label>
-                          <textarea rows={2} value={editingApp ? editingApp.description : newApp.description} onChange={e => editingApp ? setEditingApp({...editingApp, description: e.target.value}) : setNewApp({...newApp, description: e.target.value})} />
-                        </div>
-                        <div className="form-group-v2">
-                          <label>MagApp</label>
-                          <select value={editingApp ? editingApp.present_magapp : newApp.present_magapp} onChange={e => editingApp ? setEditingApp({...editingApp, present_magapp: e.target.value}) : setNewApp({...newApp, present_magapp: e.target.value})}>
-                            <option value="oui">Oui</option>
-                            <option value="non">Non</option>
-                          </select>
-                        </div>
-                        <div className="form-group-v2">
-                          <label>OnBoard</label>
-                          <select value={editingApp ? editingApp.present_onboard : newApp.present_onboard} onChange={e => editingApp ? setEditingApp({...editingApp, present_onboard: e.target.value}) : setNewApp({...newApp, present_onboard: e.target.value})}>
-                            <option value="oui">Oui</option>
-                            <option value="non">Non</option>
-                          </select>
-                        </div>
-                        <div className="form-group-v2">
-                          <label>Email Créateur</label>
-                          <input type="text" value={editingApp ? editingApp.email_createur : newApp.email_createur} onChange={e => editingApp ? setEditingApp({...editingApp, email_createur: e.target.value}) : setNewApp({...newApp, email_createur: e.target.value})} />
-                        </div>
+                      {modalTab === 'general' ? (
+                        <div className="form-grid-v2">
+                          <div className="form-group-v2">
+                            <label>Nom</label>
+                            <input type="text" value={editingApp ? editingApp.name : newApp.name} onChange={e => editingApp ? setEditingApp({...editingApp, name: e.target.value}) : setNewApp({...newApp, name: e.target.value})} />
+                          </div>
+                          <div className="form-group-v2">
+                            <label>URL</label>
+                            <input type="text" value={editingApp ? editingApp.url : newApp.url} onChange={e => editingApp ? setEditingApp({...editingApp, url: e.target.value}) : setNewApp({...newApp, url: e.target.value})} />
+                          </div>
+                          <div className="form-group-v2">
+                            <label>Catégorie</label>
+                            <select value={editingApp ? editingApp.category_id : newApp.category_id} onChange={e => editingApp ? setEditingApp({...editingApp, category_id: parseInt(e.target.value)}) : setNewApp({...newApp, category_id: parseInt(e.target.value)})}>
+                              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                          </div>
+                          <div className="form-group-v2">
+                            <label>Type</label>
+                            <select value={editingApp ? editingApp.app_type : newApp.app_type} onChange={e => editingApp ? setEditingApp({...editingApp, app_type: e.target.value}) : setNewApp({...newApp, app_type: e.target.value})}>
+                              <option value="Web">Web</option>
+                              <option value="SAAS">SAAS</option>
+                              <option value="Client/serveur">Client/serveur</option>
+                              <option value="Monoposte">Monoposte</option>
+                            </select>
+                          </div>
+                          <div className="form-group-v2 full-width">
+                            <label>Description</label>
+                            <textarea rows={2} value={editingApp ? editingApp.description : newApp.description} onChange={e => editingApp ? setEditingApp({...editingApp, description: e.target.value}) : setNewApp({...newApp, description: e.target.value})}></textarea>
+                          </div>
+                          <div className="form-group-v2">
+                            <label>MagApp</label>
+                            <select value={editingApp ? editingApp.present_magapp : newApp.present_magapp} onChange={e => editingApp ? setEditingApp({...editingApp, present_magapp: e.target.value}) : setNewApp({...newApp, present_magapp: e.target.value})}>
+                              <option value="oui">Oui</option>
+                              <option value="non">Non</option>
+                            </select>
+                          </div>
+                          <div className="form-group-v2">
+                            <label>OnBoard</label>
+                            <select value={editingApp ? editingApp.present_onboard : newApp.present_onboard} onChange={e => editingApp ? setEditingApp({...editingApp, present_onboard: e.target.value}) : setNewApp({...newApp, present_onboard: e.target.value})}>
+                              <option value="oui">Oui</option>
+                              <option value="non">Non</option>
+                            </select>
+                          </div>
+                          <div className="form-group-v2">
+                            <label>Email Créateur</label>
+                            <input type="text" value={editingApp ? editingApp.email_createur : newApp.email_createur} onChange={e => editingApp ? setEditingApp({...editingApp, email_createur: e.target.value}) : setNewApp({...newApp, email_createur: e.target.value})} />
+                          </div>
 
-                        <div className="form-group-v2">
-                          <label>Application Mercator</label>
-                          <select 
-                            value={editingApp ? (editingApp.mercator_id || '') : (newApp.mercator_id || '')} 
-                            onChange={e => {
-                                const val = e.target.value ? parseInt(e.target.value) : null;
-                                const name = e.target.value ? (mercatorApps.find(m => m.id === val)?.name || '') : '';
-                                if (editingApp) {
-                                    setEditingApp({...editingApp, mercator_id: val, mercator_name: name});
-                                } else {
-                                    setNewApp({...newApp, mercator_id: val, mercator_name: name});
+                          <div className="form-group-v2">
+                            <label>Application Mercator</label>
+                            <select 
+                              value={editingApp ? (editingApp.mercator_id || '') : (newApp.mercator_id || '')} 
+                              onChange={e => {
+                                  const val = e.target.value ? parseInt(e.target.value) : null;
+                                  const name = e.target.value ? (mercatorApps.find(m => m.id === val)?.name || '') : '';
+                                  if (editingApp) {
+                                      setEditingApp({...editingApp, mercator_id: val, mercator_name: name});
+                                  } else {
+                                      setNewApp({...newApp, mercator_id: val, mercator_name: name});
+                                  }
+                              }}>
+                              <option value="">Aucune</option>
+                              {mercatorApps.map(m => (
+                                  <option key={m.id} value={m.id}>{m.name}</option>
+                              ))}
+                            </select>
+                            {(() => {
+                                const currId = editingApp ? editingApp.mercator_id : newApp.mercator_id;
+                                const currMercator = currId ? mercatorApps.find(m => m.id === currId) : null;
+                                if (currMercator && currMercator.description) {
+                                    return (
+                                        <div style={{ marginTop: '10px', padding: '10px 15px', background: '#eef2ff', borderRadius: '8px', color: '#4338ca', fontSize: '0.85rem', lineHeight: '1.4' }}>
+                                            <strong>Description Mercator :</strong><br/>
+                                            <div dangerouslySetInnerHTML={{ __html: currMercator.description }} />
+                                        </div>
+                                    );
                                 }
-                            }}>
-                            <option value="">Aucune</option>
-                            {mercatorApps.map(m => (
-                                <option key={m.id} value={m.id}>{m.name}</option>
-                            ))}
-                          </select>
-                          {(() => {
-                              const currId = editingApp ? editingApp.mercator_id : newApp.mercator_id;
-                              const currMercator = currId ? mercatorApps.find(m => m.id === currId) : null;
-                              if (currMercator && currMercator.description) {
-                                  return (
-                                      <div style={{ marginTop: '10px', padding: '10px 15px', background: '#eef2ff', borderRadius: '8px', color: '#4338ca', fontSize: '0.85rem', lineHeight: '1.4' }}>
-                                          <strong>Description Mercator :</strong><br/>
-                                          <div dangerouslySetInnerHTML={{ __html: currMercator.description }} />
-                                      </div>
-                                  );
-                              }
-                              return null;
-                          })()}
-                        </div>
-                        
-                        <div className="form-group-v2 full-width" style={{ marginTop: '10px', padding: '15px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
-                          <label style={{ color: '#4f46e5' }}>Logo de l'application</label>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginTop: '10px' }}>
-                            <img 
-                              src={editingApp ? editingApp.icon : newApp.icon} 
-                              alt="Preview" 
-                              style={{ width: '60px', height: '60px', borderRadius: '12px', objectFit: 'contain', background: 'white', padding: '5px', border: '1px solid #e2e8f0' }} 
-                              onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }}
-                            />
-                            <div style={{ flex: 1 }}>
-                              <input 
-                                type="file" 
-                                id="icon-upload" 
-                                style={{ display: 'none' }} 
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) handleIconUpload(file);
-                                }}
+                                return null;
+                            })()}
+                          </div>
+                          
+                          <div className="form-group-v2 full-width" style={{ marginTop: '10px', padding: '15px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
+                            <label style={{ color: '#4f46e5' }}>Logo de l'application</label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginTop: '10px' }}>
+                              <img 
+                                src={editingApp ? editingApp.icon : newApp.icon} 
+                                alt="Preview" 
+                                style={{ width: '60px', height: '60px', borderRadius: '12px', objectFit: 'contain', background: 'white', padding: '5px', border: '1px solid #e2e8f0' }} 
+                                onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }}
                               />
-                              <label htmlFor="icon-upload" className="filter-btn-v2" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                <Globe size={16} /> Choisir un fichier
-                              </label>
-                              <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '5px' }}>Recommandé: PNG/WebP avec fond transparent.</p>
+                              <div style={{ flex: 1 }}>
+                                <input 
+                                  type="file" 
+                                  id="icon-upload" 
+                                  style={{ display: 'none' }} 
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleIconUpload(file);
+                                  }}
+                                />
+                                <label htmlFor="icon-upload" className="filter-btn-v2" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                  <Globe size={16} /> Choisir un fichier
+                                </label>
+                                <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '5px' }}>Recommandé: PNG/WebP avec fond transparent.</p>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="form-group-v2">
-                          <label>Maintenance</label>
-                          <select value={editingApp ? editingApp.is_maintenance : newApp.is_maintenance} onChange={e => editingApp ? setEditingApp({...editingApp, is_maintenance: parseInt(e.target.value)}) : setNewApp({...newApp, is_maintenance: parseInt(e.target.value)})}>
-                            <option value={0}>Non</option>
-                            <option value={1}>En cours</option>
-                          </select>
+                          <div className="form-group-v2">
+                            <label>Maintenance</label>
+                            <select value={editingApp ? editingApp.is_maintenance : newApp.is_maintenance} onChange={e => editingApp ? setEditingApp({...editingApp, is_maintenance: parseInt(e.target.value)}) : setNewApp({...newApp, is_maintenance: parseInt(e.target.value)})}>
+                              <option value={0}>Non</option>
+                              <option value={1}>En cours</option>
+                            </select>
+                          </div>
+                          <div className="form-group-v2">
+                            <label>Début Maintenance</label>
+                            <input type="datetime-local" value={editingApp ? (editingApp.maintenance_start ? new Date(editingApp.maintenance_start).toISOString().slice(0, 16) : '') : (newApp.maintenance_start || '')} onChange={e => editingApp ? setEditingApp({...editingApp, maintenance_start: e.target.value}) : setNewApp({...newApp, maintenance_start: e.target.value})} />
+                          </div>
+                          <div className="form-group-v2">
+                            <label>Fin Maintenance (estimée)</label>
+                            <input type="datetime-local" value={editingApp ? (editingApp.maintenance_end ? new Date(editingApp.maintenance_end).toISOString().slice(0, 16) : '') : (newApp.maintenance_end || '')} onChange={e => editingApp ? setEditingApp({...editingApp, maintenance_end: e.target.value}) : setNewApp({...newApp, maintenance_end: e.target.value})} />
+                          </div>
+                          <div className="form-group-v2">
+                            <label>Ordre</label>
+                            <input type="number" value={editingApp ? editingApp.display_order : newApp.display_order} onChange={e => editingApp ? setEditingApp({...editingApp, display_order: parseInt(e.target.value)}) : setNewApp({...newApp, display_order: parseInt(e.target.value)})} />
+                          </div>
                         </div>
-                        <div className="form-group-v2">
-                          <label>Début Maintenance</label>
-                          <input type="datetime-local" value={editingApp ? (editingApp.maintenance_start ? new Date(editingApp.maintenance_start).toISOString().slice(0, 16) : '') : (newApp.maintenance_start || '')} onChange={e => editingApp ? setEditingApp({...editingApp, maintenance_start: e.target.value}) : setNewApp({...newApp, maintenance_start: e.target.value})} />
+                      ) : (
+                        <div className="users-management">
+                            <div className="ad-search-box" style={{ padding: '0 5px' }}>
+                              <label style={{ fontWeight: 700, color: '#64748b', fontSize: '0.85rem' }}>Ajouter un agent (recherche AD)</label>
+                              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                                <input 
+                                  type="text" 
+                                  placeholder="Nom, login..." 
+                                  value={adSearchQuery} 
+                                  onChange={e => setAdSearchQuery(e.target.value)}
+                                  onKeyDown={e => e.key === 'Enter' && handleSearchAD()}
+                                  style={{ flex: 1, padding: '12px 16px', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '0.9rem' }}
+                                />
+                                <button 
+                                  className="primary-btn-v2" 
+                                  style={{ padding: '0 20px', fontSize: '0.9rem', boxShadow: 'none' }}
+                                  onClick={handleSearchAD} 
+                                  disabled={isSearchingAD}
+                                >
+                                  {isSearchingAD ? '...' : 'Rechercher'}
+                                </button>
+                              </div>
+                              
+                              {adResults.length > 0 && (
+                                <div className="ad-results" style={{ marginTop: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden' }}>
+                                  {adResults.map(res => (
+                                    <div key={res.username} className="ad-result-item" style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <div>
+                                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{res.displayName}</div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{res.username}</div>
+                                      </div>
+                                      <button 
+                                        onClick={() => handleAddUserToApp(res.username, res.displayName)}
+                                        style={{ padding: '6px 12px', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                                      >
+                                        Ajouter
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="app-users-list" style={{ marginTop: '32px', padding: '0 5px' }}>
+                              <label style={{ fontWeight: 700, color: '#64748b', fontSize: '0.85rem' }}>Agents ayant accès / connectés ({appUsers.length})</label>
+                              {appUsers.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8' }}>
+                                  <div style={{ marginBottom: '10px' }}><Users size={32} opacity={0.3} /></div>
+                                  <p style={{ fontStyle: 'italic', fontSize: '0.9rem' }}>Aucun utilisateur enregistré pour le moment.</p>
+                                </div>
+                              ) : (
+                                <div style={{ maxHeight: '350px', overflowY: 'auto', marginTop: '12px' }}>
+                                  <table className="modern-table-v2" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 8px' }}>
+                                    <thead>
+                                      <tr>
+                                        <th style={{ textAlign: 'left', padding: '0 12px', fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Agent</th>
+                                        <th style={{ textAlign: 'left', padding: '0 12px', fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Dernière connexion</th>
+                                        <th style={{ textAlign: 'left', padding: '0 12px', fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Source</th>
+                                        <th style={{ textAlign: 'right', padding: '0 12px', fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Action</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {appUsers.map(u => (
+                                        <tr key={u.id}>
+                                          <td style={{ background: '#f8fafc', padding: '12px', borderTopLeftRadius: '12px', borderBottomLeftRadius: '12px' }}>
+                                            <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{u.display_name}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{u.username}</div>
+                                          </td>
+                                          <td style={{ background: '#f8fafc', padding: '12px' }}>
+                                            <div style={{ fontSize: '0.85rem' }}>
+                                              {u.last_connection ? new Date(u.last_connection).toLocaleString('fr-FR', {
+                                                day: '2-digit', month: '2-digit', year: 'numeric',
+                                                hour: '2-digit', minute: '2-digit'
+                                              }) : 'Jamais'}
+                                            </div>
+                                          </td>
+                                          <td style={{ background: '#f8fafc', padding: '12px' }}>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>
+                                              <span style={{
+                                                padding: '4px 8px',
+                                                borderRadius: '6px',
+                                                background: u.source === 'admin' ? '#dbeafe' : '#e0f2fe',
+                                                color: u.source === 'admin' ? '#0c4a6e' : '#0c4a6e',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                display: 'inline-block'
+                                              }}>
+                                                {u.source === 'admin' ? 'Admin' : 'Magapp'}
+                                              </span>
+                                            </div>
+                                          </td>
+                                          <td style={{ background: '#f8fafc', padding: '12px', borderTopRightRadius: '12px', borderBottomRightRadius: '12px', textAlign: 'right' }}>
+                                            <button
+                                              onClick={() => handleRemoveUserFromApp(u.username)}
+                                              style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '5px' }}
+                                              title="Retirer l'accès"
+                                            >
+                                              <Trash2 size={16} />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
                         </div>
-                        <div className="form-group-v2">
-                          <label>Fin Maintenance (estimée)</label>
-                          <input type="datetime-local" value={editingApp ? (editingApp.maintenance_end ? new Date(editingApp.maintenance_end).toISOString().slice(0, 16) : '') : (newApp.maintenance_end || '')} onChange={e => editingApp ? setEditingApp({...editingApp, maintenance_end: e.target.value}) : setNewApp({...newApp, maintenance_end: e.target.value})} />
-                        </div>
-                        <div className="form-group-v2">
-                          <label>Ordre</label>
-                          <input type="number" value={editingApp ? editingApp.display_order : newApp.display_order} onChange={e => editingApp ? setEditingApp({...editingApp, display_order: parseInt(e.target.value)}) : setNewApp({...newApp, display_order: parseInt(e.target.value)})} />
-                        </div>
-                      </div>
+                      )}
                     </div>
 
                     <div className="modal-footer-v2">
@@ -1358,6 +1554,89 @@ const MagappAdmin: React.FC = () => {
           from { opacity: 0; transform: scale(0.9) translateY(20px); }
           to { opacity: 1; transform: scale(1) translateY(0); }
         }
+
+        .user-count-badge {
+          font-size: 0.65rem;
+          font-weight: 800;
+          padding: 2px 6px;
+          background: #f1f5f9;
+          color: #64748b;
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          border: 1px solid #e2e8f0;
+        }
+
+        .modal-tabs {
+          display: flex;
+          padding: 0 40px;
+          border-bottom: 1px solid #f1f5f9;
+          gap: 20px;
+        }
+
+        .modal-tabs button {
+          padding: 15px 5px;
+          background: none;
+          border: none;
+          border-bottom: 2px solid transparent;
+          font-weight: 700;
+          color: #64748b;
+          cursor: pointer;
+          font-size: 0.9rem;
+          transition: all 0.2s;
+        }
+
+        .modal-tabs button:hover { color: #4f46e5; }
+        .modal-tabs button.active {
+          color: #4f46e5;
+          border-bottom-color: #4f46e5;
+        }
+
+        .ad-search-box input {
+          flex: 1;
+          padding: 10px 14px;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+        }
+
+        .ad-results {
+          margin-top: 10px;
+          background: #f8fafc;
+          border-radius: 12px;
+          border: 1px solid #e2e8f0;
+          max-height: 200px;
+          overflow-y: auto;
+        }
+
+        .ad-result-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px 15px;
+          border-bottom: 1px solid #f1f5f9;
+        }
+
+        .ad-result-item:last-child { border-bottom: none; }
+        .ad-result-item strong { display: block; font-size: 0.9rem; }
+        .ad-result-item span { font-size: 0.75rem; color: #64748b; }
+        .ad-result-item button {
+          padding: 4px 10px;
+          background: #4f46e5;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          font-size: 0.75rem;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .empty-msg {
+          text-align: center;
+          color: #94a3b8;
+          font-style: italic;
+          padding: 20px;
+        }
+
 
         @media (max-width: 1024px) {
           .workspace-grid { grid-template-columns: 1fr; }

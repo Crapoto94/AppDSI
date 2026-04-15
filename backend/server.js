@@ -3973,6 +3973,23 @@ app.post('/api/magapp/clicks', async (req, res) => {
             'INSERT INTO magapp_clicks (app_id, username, ip_address, user_agent) VALUES (?, ?, ?, ?)',
             [app_id, username || 'Anonyme', ip_address, user_agent]
         );
+
+        if (username && username !== 'Anonyme') {
+            try {
+                const pgUser = await pgDb.get('SELECT displayName FROM users WHERE username = ?', [username.toLowerCase()]);
+                const displayName = pgUser ? pgUser.displayName : username;
+
+                await pgDb.run(`
+                    INSERT INTO magapp.app_users (app_id, username, display_name, last_connection, source)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'magapp')
+                    ON CONFLICT (app_id, username)
+                    DO UPDATE SET last_connection = EXCLUDED.last_connection, display_name = EXCLUDED.display_name
+                `, [app_id, username.toLowerCase(), displayName]);
+            } catch (trackErr) {
+                console.error('[MAGAPP TRACK] Error auto-tracking user:', trackErr.message);
+            }
+        }
+
         res.json({ message: 'Click recorded' });
     } catch (error) {
         res.status(500).json({ message: 'Error recording click', error: error.message });
@@ -4295,6 +4312,62 @@ app.post('/api/magapp/settings', authenticateMagappControl, async (req, res) => 
     } catch (error) {
         console.error('Erreur magapp_settings:', error);
         res.status(500).json({ message: 'Error updating MagApp settings', error: error.message });
+    }
+});
+
+// App Users Management
+app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res) => {
+    try {
+        const users = await pgDb.all('SELECT * FROM magapp.app_users WHERE app_id = ? ORDER BY last_connection DESC', [req.params.id]);
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la recuperation des utilisateurs', error: error.message });
+    }
+});
+
+app.post('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res) => {
+    const { username, display_name } = req.body;
+    if (!username) return res.status(400).json({ message: 'Username requis' });
+    try {
+        await pgDb.run(`
+            INSERT INTO magapp.app_users (app_id, username, display_name, last_connection, source)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'admin')
+            ON CONFLICT (app_id, username)
+            DO UPDATE SET last_connection = EXCLUDED.last_connection, display_name = EXCLUDED.display_name, source = EXCLUDED.source
+        `, [req.params.id, username.toLowerCase(), display_name || username]);
+        res.json({ message: 'Utilisateur ajoute/mis a jour' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de l\'ajout de l\'utilisateur', error: error.message });
+    }
+});
+
+app.delete('/api/magapp/apps/:id/users/:username', authenticateMagappControl, async (req, res) => {
+    try {
+        await pgDb.run('DELETE FROM magapp.app_users WHERE app_id = ? AND username = ?', [req.params.id, req.params.username.toLowerCase()]);
+        res.json({ message: 'Utilisateur retire' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la suppression', error: error.message });
+    }
+});
+
+// AD Search for Users
+app.post('/api/magapp/ad/search', authenticateMagappControl, async (req, res) => {
+    const { query } = req.body;
+    if (!query || query.length < 2) return res.json([]);
+    try {
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) {
+            return res.status(503).json({ message: 'AD Desactive' });
+        }
+        const results = await searchADUserByName(query, '', adSettings);
+        res.json(results.map(r => ({
+            username: r.sAMAccountName,
+            displayName: r.cn,
+            email: r.mail || ''
+        })));
+    } catch (error) {
+        console.error('[AD SEARCH] Error:', error.message);
+        res.status(500).json({ message: 'Erreur lors de la recherche AD' });
     }
 });
 

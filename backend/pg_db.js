@@ -208,6 +208,19 @@ async function setupPgDb() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.app_users (
+        id SERIAL PRIMARY KEY,
+        app_id INTEGER NOT NULL REFERENCES magapp.apps(id) ON DELETE CASCADE,
+        username VARCHAR(255) NOT NULL,
+        display_name VARCHAR(255),
+        last_connection TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        source VARCHAR(50) DEFAULT 'magapp',
+        UNIQUE(app_id, username)
+      );
+    `);
+
+
+    await client.query(`
       INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check)
       VALUES (1, true, true, true)
       ON CONFLICT (id) DO NOTHING;

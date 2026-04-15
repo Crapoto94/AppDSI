@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /c/dev/AppDSI/backend/*.js)",
+      "Bash(git add:*)",
+      "Bash(git commit -m 'feat\\(magapp\\): add user source tracking and admin management interface:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(node -c /c/dev/AppDSI/backend/server.js)",
+      "Bash(git checkout:*)",
+      "Bash(git reset:*)",
+      "Bash(git restore:*)",
+      "Bash(grep -r \"magapp.app_users\" /c/dev/AppDSI/backend/*.js)"
+    ]
+  }
+}
