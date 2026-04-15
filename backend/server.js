@@ -4365,36 +4365,41 @@ app.post('/api/magapp/ad/search', authenticateMagappControl, async (req, res) =>
         }
 
         const results = await new Promise((resolve, reject) => {
-            const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
-            client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
-                if (err) { client.destroy(); return reject(err); }
-
-                const filter = `(&(objectClass=user)(|(sAMAccountName=*${query}*)(displayName=*${query}*)(cn=*${query}*)))`;
-                const entries = [];
-                client.search(adSettings.base_dn, {
-                    filter,
-                    scope: 'sub',
-                    attributes: ['sAMAccountName', 'displayName', 'cn', 'mail'],
-                    sizeLimit: 20
-                }, (err, searchRes) => {
+            try {
+                const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
+                client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
                     if (err) { client.destroy(); return reject(err); }
-                    searchRes.on('searchEntry', (entry) => {
-                        const obj = flattenLDAPEntry(entry);
-                        if (obj && obj.sAMAccountName) {
-                            entries.push(obj);
-                        }
+
+                    const filter = `(&(objectClass=user)(|(sAMAccountName=*${query}*)(displayName=*${query}*)(cn=*${query}*)))`;
+                    const entries = [];
+                    client.search(adSettings.base_dn, {
+                        filter,
+                        scope: 'sub',
+                        attributes: ['sAMAccountName', 'displayName', 'cn', 'mail'],
+                        sizeLimit: 20
+                    }, (err, searchRes) => {
+                        if (err) { client.destroy(); return reject(err); }
+                        searchRes.on('searchEntry', (entry) => {
+                            const obj = flattenLDAPEntry(entry);
+                            if (obj && obj.sAMAccountName) {
+                                entries.push(obj);
+                            }
+                        });
+                        searchRes.on('end', () => { client.destroy(); resolve(entries); });
+                        searchRes.on('error', (err) => { client.destroy(); reject(err); });
                     });
-                    searchRes.on('end', () => { client.destroy(); resolve(entries); });
-                    searchRes.on('error', (err) => { client.destroy(); reject(err); });
                 });
-            });
+            } catch (e) {
+                reject(e);
+            }
         });
 
-        res.json(results.map(r => ({
+        const mappedResults = Array.isArray(results) ? results.map(r => ({
             username: r.sAMAccountName,
             displayName: r.displayName || r.cn || r.sAMAccountName,
             email: r.mail || ''
-        })));
+        })) : [];
+        res.json(mappedResults);
     } catch (error) {
         console.error('[AD SEARCH] Error:', error.message);
         res.status(500).json({ message: 'Erreur lors de la recherche AD', error: error.message });
