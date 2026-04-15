@@ -4333,14 +4333,17 @@ app.post('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, re
     const { username, display_name } = req.body;
     if (!username) return res.status(400).json({ message: 'Username requis' });
     try {
-        await pgDb.run(`
+        console.log('[ADD USER] Attempting to add user:', { app_id: req.params.id, username, display_name });
+        const result = await pgDb.run(`
             INSERT INTO magapp.app_users (app_id, username, display_name, last_connection, source)
             VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'admin')
             ON CONFLICT (app_id, username)
             DO UPDATE SET last_connection = EXCLUDED.last_connection, display_name = EXCLUDED.display_name, source = EXCLUDED.source
         `, [req.params.id, username.toLowerCase(), display_name || username]);
+        console.log('[ADD USER] Success:', result);
         res.json({ message: 'Utilisateur ajoute/mis a jour' });
     } catch (error) {
+        console.error('[ADD USER] Error:', error);
         res.status(500).json({ message: 'Erreur lors de l\'ajout de l\'utilisateur', error: error.message });
     }
 });

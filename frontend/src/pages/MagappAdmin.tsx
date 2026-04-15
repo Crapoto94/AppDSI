@@ -370,9 +370,15 @@ const MagappAdmin: React.FC = () => {
         fetchAppUsers(editingApp.id);
         setAdSearchQuery('');
         setAdResults([]);
-        fetchData(); // refresh user count
+        fetchData();
+      } else {
+        const errorData = await response.json();
+        alert(`Erreur: ${errorData.message || 'Impossible d\'ajouter l\'utilisateur'}`);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error('Add user error:', e);
+      alert(`Erreur: ${(e as Error).message}`);
+    }
   };
 
   const handleRemoveUserFromApp = async (username: string) => {
@@ -475,8 +481,23 @@ const MagappAdmin: React.FC = () => {
                               {app.email_createur && <div className="status-dot creator" title="Email créateur renseigné"></div>}
                               {app.present_magapp === 'oui' && <span className="published-badge">Publiée</span>}
                               {app.user_count !== undefined && app.user_count > 0 && (
-                                <span className="user-count-badge" title={`${app.user_count} utilisateur(s)`}>
-                                  <Plus size={10} style={{ marginRight: '2px' }} />
+                                <span
+                                  className="user-count-badge"
+                                  title={`${app.user_count} utilisateur(s)`}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '24px',
+                                    height: '24px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#ef4444',
+                                    color: 'white',
+                                    fontSize: '0.75rem',
+                                    fontWeight: '700',
+                                    minWidth: '24px'
+                                  }}
+                                >
                                   {app.user_count}
                                 </span>
                               )}

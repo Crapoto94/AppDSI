@@ -207,6 +207,19 @@ async function setupPgDb() {
       );
     `);
 
+    // Migration: Add source column if it doesn't exist
+    try {
+      await client.query(`
+        ALTER TABLE magapp.app_users
+        ADD COLUMN source VARCHAR(50) DEFAULT 'magapp';
+      `);
+    } catch (e) {
+      // Column already exists, ignore error
+      if (!e.message.includes('already exists')) {
+        console.warn('[PG DB] Migration warning:', e.message);
+      }
+    }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.app_users (
         id SERIAL PRIMARY KEY,
