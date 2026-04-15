@@ -4392,8 +4392,14 @@ app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res
             let formattedDate = null;
             if (user.last_connection) {
                 try {
-                    // Parse the timestamp (PostgreSQL returns ISO string in UTC)
-                    const date = new Date(user.last_connection);
+                    // Parse the timestamp - ensure it's treated as UTC
+                    // PostgreSQL returns timestamps without explicit timezone, so we add Z for UTC
+                    let isoString = user.last_connection;
+                    if (typeof isoString === 'string' && !isoString.endsWith('Z')) {
+                        isoString += 'Z';
+                    }
+                    const date = new Date(isoString);
+
                     // Format using Intl (server-side)
                     formattedDate = new Intl.DateTimeFormat('fr-FR', {
                         year: 'numeric',
