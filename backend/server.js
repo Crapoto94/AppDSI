@@ -3980,8 +3980,41 @@ app.post('/api/magapp/clicks', async (req, res) => {
 
         if (username && username !== 'Anonyme') {
             try {
-                const pgUser = await pgDb.get('SELECT displayName FROM users WHERE username = ?', [username.toLowerCase()]);
-                const displayName = pgUser ? pgUser.displayName : username;
+                // Try to get displayName from LDAP/AD
+                let displayName = username;
+                try {
+                    const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+                    if (adSettings && adSettings.is_enabled) {
+                        const ldapResult = await new Promise((resolve, reject) => {
+                            const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
+                            client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                                if (err) { client.destroy(); return reject(err); }
+
+                                const filter = `(sAMAccountName=${username})`;
+                                const entries = [];
+                                client.search(adSettings.base_dn, {
+                                    filter,
+                                    scope: 'sub',
+                                    attributes: ['displayName', 'cn'],
+                                    sizeLimit: 1
+                                }, (err, searchRes) => {
+                                    if (err) { client.destroy(); return reject(err); }
+                                    searchRes.on('searchEntry', (entry) => {
+                                        const obj = flattenLDAPEntry(entry);
+                                        if (obj) entries.push(obj);
+                                    });
+                                    searchRes.on('end', () => { client.destroy(); resolve(entries.length > 0 ? entries[0] : null); });
+                                    searchRes.on('error', (err) => { client.destroy(); reject(err); });
+                                });
+                            });
+                        });
+                        if (ldapResult && ldapResult.displayName) {
+                            displayName = ldapResult.displayName;
+                        }
+                    }
+                } catch (ldapErr) {
+                    console.warn('[MAGAPP TRACK] LDAP search failed, using username:', ldapErr.message);
+                }
 
                 await pgDb.run(`
                     INSERT INTO magapp.app_users (app_id, username, display_name, last_connection, source)
