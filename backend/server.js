@@ -4382,7 +4382,19 @@ app.post('/api/magapp/settings', authenticateMagappControl, async (req, res) => 
 app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res) => {
     console.log('[MAGAPP USERS API] Request received for app ID:', req.params.id);
     try {
-        // Fetch data - PostgreSQL will return timestamps with server timezone
+        // Debug: Check what PostgreSQL actually stores
+        const testResult = await pgDb.get(
+            `SELECT last_connection,
+                    last_connection AT TIME ZONE 'UTC' as utc_time,
+                    last_connection AT TIME ZONE 'Europe/Paris' as paris_time
+             FROM magapp.app_users
+             WHERE app_id = ?
+             LIMIT 1`,
+            [req.params.id]
+        );
+        console.log('[MAGAPP DEBUG] PostgreSQL timestamp types:', JSON.stringify(testResult));
+
+        // Fetch data
         const users = await pgDb.all(
             `SELECT id, app_id, username, display_name, source, last_connection
              FROM magapp.app_users
