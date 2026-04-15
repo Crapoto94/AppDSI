@@ -717,7 +717,7 @@ const MagappAdmin: React.FC = () => {
                                   <p style={{ fontStyle: 'italic', fontSize: '0.9rem' }}>Aucun utilisateur enregistré pour le moment.</p>
                                 </div>
                               ) : (
-                                <div style={{ maxHeight: '350px', overflowY: 'auto', marginTop: '12px' }}>
+                                <div className="users-table-scroll">
                                   <table className="modern-table-v2" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 8px' }}>
                                     <thead>
                                       <tr>
@@ -1516,11 +1516,11 @@ const MagappAdmin: React.FC = () => {
           width: 100%;
           max-width: 700px;
           max-height: 90vh;
-          overflow-y: auto;
           box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.3);
           display: flex;
           flex-direction: column;
           border: 1px solid rgba(255,255,255,0.8);
+          overflow: hidden;
         }
 
         .modal-header-v2 {
@@ -1529,6 +1529,7 @@ const MagappAdmin: React.FC = () => {
           justify-content: space-between;
           align-items: center;
           border-bottom: 1px solid #f1f5f9;
+          flex-shrink: 0;
         }
 
         .modal-header-v2 h3 {
@@ -1541,6 +1542,27 @@ const MagappAdmin: React.FC = () => {
 
         .modal-body-v2 {
           padding: 40px;
+          overflow-y: auto;
+          flex: 1;
+          min-height: 0;
+        }
+
+        /* Style des barres de défilement - webkit browsers */
+        .modal-body-v2::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .modal-body-v2::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .modal-body-v2::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 4px;
+        }
+
+        .modal-body-v2::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
         }
 
         .modal-footer-v2 {
@@ -1549,6 +1571,7 @@ const MagappAdmin: React.FC = () => {
           background: #f8fafc;
           border-bottom-left-radius: 32px;
           border-bottom-right-radius: 32px;
+          flex-shrink: 0;
         }
 
         .close-modal-btn {
@@ -1591,23 +1614,29 @@ const MagappAdmin: React.FC = () => {
         .modal-tabs {
           display: flex;
           padding: 0 40px;
-          border-bottom: 1px solid #f1f5f9;
+          border-bottom: 2px solid #f1f5f9;
           gap: 20px;
+          flex-shrink: 0;
+          background: white;
         }
 
         .modal-tabs button {
-          padding: 15px 5px;
+          padding: 16px 0;
           background: none;
           border: none;
-          border-bottom: 2px solid transparent;
+          border-bottom: 3px solid transparent;
           font-weight: 700;
           color: #64748b;
           cursor: pointer;
           font-size: 0.9rem;
-          transition: all 0.2s;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+          margin-bottom: -2px;
         }
 
-        .modal-tabs button:hover { color: #4f46e5; }
+        .modal-tabs button:hover {
+          color: #4f46e5;
+        }
+
         .modal-tabs button.active {
           color: #4f46e5;
           border-bottom-color: #4f46e5;
@@ -1621,34 +1650,65 @@ const MagappAdmin: React.FC = () => {
         }
 
         .ad-results {
-          margin-top: 10px;
+          margin-top: 12px;
           background: #f8fafc;
-          border-radius: 12px;
-          border: 1px solid #e2e8f0;
-          max-height: 200px;
+          border-radius: 16px;
+          border: 2px solid #e2e8f0;
+          max-height: 240px;
           overflow-y: auto;
+          transition: border-color 0.2s;
+        }
+
+        .ad-results::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .ad-results::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .ad-results::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 3px;
+        }
+
+        .ad-results::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
         }
 
         .ad-result-item {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 10px 15px;
-          border-bottom: 1px solid #f1f5f9;
+          padding: 12px 16px;
+          border-bottom: 1px solid #e2e8f0;
+          transition: background-color 0.15s;
+        }
+
+        .ad-result-item:hover {
+          background: #f1f5f9;
         }
 
         .ad-result-item:last-child { border-bottom: none; }
-        .ad-result-item strong { display: block; font-size: 0.9rem; }
+        .ad-result-item strong { display: block; font-size: 0.9rem; color: #0f172a; }
         .ad-result-item span { font-size: 0.75rem; color: #64748b; }
         .ad-result-item button {
-          padding: 4px 10px;
+          padding: 6px 12px;
           background: #4f46e5;
           color: white;
           border: none;
-          border-radius: 6px;
+          border-radius: 8px;
           font-size: 0.75rem;
           font-weight: 700;
           cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+
+        .ad-result-item button:hover {
+          background: #4338ca;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
         }
 
         .empty-msg {
@@ -1658,6 +1718,48 @@ const MagappAdmin: React.FC = () => {
           padding: 20px;
         }
 
+        .users-table-scroll {
+          max-height: 320px;
+          overflow-y: auto;
+          margin-top: 12px;
+          border-radius: 12px;
+          border: 1px solid #e2e8f0;
+          background: white;
+        }
+
+        .users-table-scroll::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .users-table-scroll::-webkit-scrollbar-track {
+          background: #f8fafc;
+          border-radius: 12px;
+        }
+
+        .users-table-scroll::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 4px;
+        }
+
+        .users-table-scroll::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
+        }
+
+        .users-management {
+          display: flex;
+          flex-direction: column;
+          gap: 32px;
+        }
+
+        .ad-search-box {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .app-users-list {
+          display: flex;
+          flex-direction: column;
+        }
 
         @media (max-width: 1024px) {
           .workspace-grid { grid-template-columns: 1fr; }
