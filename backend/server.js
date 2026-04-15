@@ -3306,6 +3306,7 @@ let glpiSyncProgress = {
 
 // Route : Statut de la synchronisation GLPI
 app.get('/api/glpi/sync-status', authenticateAdmin, (req, res) => {
+    console.log('[GLPI Status]', JSON.stringify(glpiSyncProgress));
     res.json(glpiSyncProgress);
 });
 

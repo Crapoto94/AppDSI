@@ -608,20 +608,22 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     setIsSyncingAll(true);
     setSyncStatus({ active: true, processed: 0, total: 0 });
 
-    // Lancer le polling
+    // Lancer le polling - vérifie toutes les secondes pour une meilleure réactivité
     const pollInterval = setInterval(async () => {
       try {
         const res = await axios.get('/api/glpi/sync-status', {
           headers: { Authorization: `Bearer ${token}` }
         });
+        console.log('[GLPI Polling]', res.data);
         setSyncStatus(res.data);
         if (!res.data.active) {
+            console.log('[GLPI Polling] Synchronisation terminée');
             clearInterval(pollInterval);
         }
       } catch (e) {
         console.error('Erreur polling status:', e);
       }
-    }, 2000);
+    }, 1000);
 
     try {
       const response = await axios.post('/api/glpi/sync-all-tickets', {}, {
