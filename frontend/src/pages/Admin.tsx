@@ -2221,16 +2221,34 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         {syncStatus.active && (
                             <div className="sync-progress-box">
                                 <div className="progress-header">
-                                    <div className="progress-label">Sync en cours...</div>
+                                    <div className="progress-label">
+                                        <span className="progress-spinner">⟳</span>
+                                        Synchronisation en cours...
+                                    </div>
                                     <div className="progress-percent">
                                         {syncStatus.total > 0 ? Math.round((syncStatus.processed / syncStatus.total) * 100) : 0}%
                                     </div>
                                 </div>
                                 <div className="progress-bar-container">
-                                    <div className="progress-bar-fill" style={{ width: `${syncStatus.total > 0 ? (syncStatus.processed / syncStatus.total) * 100 : 0}%` }}></div>
+                                    <div
+                                        className="progress-bar-fill"
+                                        style={{
+                                            width: `${syncStatus.total > 0 ? (syncStatus.processed / syncStatus.total) * 100 : 0}%`,
+                                            transition: 'width 0.3s ease'
+                                        }}
+                                    >
+                                        <div className="progress-bar-shimmer"></div>
+                                    </div>
                                 </div>
                                 <div className="progress-stats">
-                                    {syncStatus.processed.toLocaleString()} / {syncStatus.total.toLocaleString()}
+                                    <div className="stats-items">
+                                        <span className="stat-item">
+                                            <strong>{syncStatus.processed.toLocaleString()}</strong> / {syncStatus.total.toLocaleString()}
+                                        </span>
+                                        <span className="stat-item">
+                                            {syncStatus.total > 0 ? ((syncStatus.processed / syncStatus.total) * 100).toFixed(1) : '0'}% complété
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -2517,11 +2535,105 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         .btn-admin-outline:hover:not(:disabled) { border-color: #94a3b8; }
 
         /* Progress Bar */
-        .sync-progress-box { margin-top: 25px; padding-top: 20px; border-top: 1px solid #f1f5f9; }
-        .progress-header { display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 800; margin-bottom: 8px; }
-        .progress-bar-container { height: 10px; background: #e2e8f0; border-radius: 10px; overflow: hidden; }
-        .progress-bar-fill { height: 100%; background: linear-gradient(to right, #3b82f6, #6366f1); transition: width 0.5s; }
-        .progress-stats { font-size: 0.7rem; color: #64748b; text-align: right; margin-top: 5px; font-weight: 700; }
+        .sync-progress-box {
+            margin-top: 25px;
+            padding: 20px;
+            border: 2px solid #e0e7ff;
+            border-radius: 16px;
+            background: linear-gradient(135deg, #f0f4ff 0%, #f8fafc 100%);
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08);
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .progress-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .progress-spinner {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+            font-size: 1.2rem;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .progress-percent {
+            font-size: 1.1rem;
+            font-weight: 900;
+            color: #4f46e5;
+            min-width: 50px;
+            text-align: right;
+        }
+
+        .progress-bar-container {
+            height: 14px;
+            background: #e2e8f0;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+            margin-bottom: 12px;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6 0%, #4f46e5 50%, #7c3aed 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-bar-shimmer {
+            position: absolute;
+            top: 0;
+            left: -100%;
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .progress-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: #475569;
+        }
+
+        .stats-items {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .stat-item strong {
+            color: #4f46e5;
+            font-size: 1rem;
+        }
 
         /* History */
         .history-list { display: flex; flex-direction: column; gap: 12px; }
