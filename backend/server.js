@@ -3857,7 +3857,11 @@ app.get('/api/magapp/categories', async (req, res) => {
 
 app.get('/api/magapp/apps', async (req, res) => {
     try {
-        const apps = await pgDb.all('SELECT * FROM magapp_apps ORDER BY name ASC');
+        const apps = await pgDb.all(`
+            SELECT a.*, (SELECT COUNT(*) FROM magapp.app_users WHERE app_id = a.id) as user_count
+            FROM magapp_apps a
+            ORDER BY a.name ASC
+        `);
         res.json(apps);
     } catch (err) {
         res.status(500).json({ message: 'Error fetching apps' });
