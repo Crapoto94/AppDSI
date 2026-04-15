@@ -6,21 +6,21 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173,
-      "cwd": "frontend"
+      "cwd": "./frontend"
     },
     {
       "name": "magapp-frontend-5174",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5174,
-      "cwd": "magapp-frontend"
+      "cwd": "./magapp-frontend"
     },
     {
       "name": "backend-3001",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start"],
       "port": 3001,
-      "cwd": "backend"
+      "cwd": "./backend"
     }
   ]
 }
