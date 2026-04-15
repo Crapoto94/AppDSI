@@ -4397,8 +4397,6 @@ app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res
             let formattedDate = null;
             if (user.last_connection) {
                 try {
-                    console.log('[DEBUG] Raw timestamp:', user.last_connection, 'Type:', typeof user.last_connection);
-
                     // Handle both Date objects and ISO strings from PostgreSQL
                     let date;
                     if (user.last_connection instanceof Date) {
@@ -4406,7 +4404,6 @@ app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res
                     } else {
                         // It's a string - parse it
                         let isoString = String(user.last_connection);
-                        console.log('[DEBUG] ISO string:', isoString);
 
                         // Check if it has timezone info
                         if (isoString.includes('+') || isoString.includes('Z')) {
@@ -4418,19 +4415,21 @@ app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res
                         }
                     }
 
-                    console.log('[DEBUG] Parsed date (UTC):', date.toISOString());
+                    // Convert to Paris time by adding 2 hours (UTC+2 in summer, UTC+1 in winter)
+                    // For now, we'll add 2 hours (summer time in April)
+                    const utcDate = new Date(date.getTime());
+                    const parisDate = new Date(utcDate.getTime() + 2 * 60 * 60 * 1000);
 
-                    // Format using Intl (server-side)
-                    formattedDate = new Intl.DateTimeFormat('fr-FR', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        timeZone: 'Europe/Paris'
-                    }).format(date);
+                    // Format manually
+                    const day = String(parisDate.getUTCDate()).padStart(2, '0');
+                    const month = String(parisDate.getUTCMonth() + 1).padStart(2, '0');
+                    const year = parisDate.getUTCFullYear();
+                    const hours = String(parisDate.getUTCHours()).padStart(2, '0');
+                    const minutes = String(parisDate.getUTCMinutes()).padStart(2, '0');
 
-                    console.log('[DEBUG] Formatted:', formattedDate);
+                    formattedDate = `${day}/${month}/${year} ${hours}:${minutes}`;
+
+                    console.log('[DEBUG] UTC:', date.toISOString(), '-> Paris:', formattedDate);
                 } catch (e) {
                     console.error('[DEBUG] Error formatting:', e.message);
                     formattedDate = user.last_connection;
