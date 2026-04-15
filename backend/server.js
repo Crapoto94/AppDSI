@@ -4381,9 +4381,12 @@ app.post('/api/magapp/settings', authenticateMagappControl, async (req, res) => 
 // App Users Management
 app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res) => {
     try {
-        // Fetch raw data
+        // Fetch data - PostgreSQL will return timestamps with server timezone
         const users = await pgDb.all(
-            'SELECT * FROM magapp.app_users WHERE app_id = ? ORDER BY last_connection DESC NULLS LAST',
+            `SELECT id, app_id, username, display_name, source, last_connection
+             FROM magapp.app_users
+             WHERE app_id = ?
+             ORDER BY last_connection DESC NULLS LAST`,
             [req.params.id]
         );
 
@@ -4392,13 +4395,28 @@ app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res
             let formattedDate = null;
             if (user.last_connection) {
                 try {
-                    // Parse the timestamp - ensure it's treated as UTC
-                    // PostgreSQL returns timestamps without explicit timezone, so we add Z for UTC
-                    let isoString = user.last_connection;
-                    if (typeof isoString === 'string' && !isoString.endsWith('Z')) {
-                        isoString += 'Z';
+                    console.log('[DEBUG] Raw timestamp:', user.last_connection, 'Type:', typeof user.last_connection);
+
+                    // Handle both Date objects and ISO strings from PostgreSQL
+                    let date;
+                    if (user.last_connection instanceof Date) {
+                        date = user.last_connection;
+                    } else {
+                        // It's a string - parse it
+                        let isoString = String(user.last_connection);
+                        console.log('[DEBUG] ISO string:', isoString);
+
+                        // Check if it has timezone info
+                        if (isoString.includes('+') || isoString.includes('Z')) {
+                            // Already has timezone, parse as-is
+                            date = new Date(isoString);
+                        } else {
+                            // No timezone info - assume UTC and add Z
+                            date = new Date(isoString + 'Z');
+                        }
                     }
-                    const date = new Date(isoString);
+
+                    console.log('[DEBUG] Parsed date (UTC):', date.toISOString());
 
                     // Format using Intl (server-side)
                     formattedDate = new Intl.DateTimeFormat('fr-FR', {
@@ -4409,7 +4427,10 @@ app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res
                         minute: '2-digit',
                         timeZone: 'Europe/Paris'
                     }).format(date);
+
+                    console.log('[DEBUG] Formatted:', formattedDate);
                 } catch (e) {
+                    console.error('[DEBUG] Error formatting:', e.message);
                     formattedDate = user.last_connection;
                 }
             }
