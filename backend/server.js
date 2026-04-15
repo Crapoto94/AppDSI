@@ -1677,8 +1677,9 @@ function decodeLDAPString(str) {
 function formatDateToFrench(dateString) {
     if (!dateString) return null;
     try {
-        // Parse the ISO datetime string (UTC)
-        const date = new Date(dateString + 'Z'); // Add Z to ensure UTC parsing
+        // Remove 'Z' if it already exists, then add it to ensure UTC interpretation
+        let isoString = typeof dateString === 'string' ? dateString.replace('Z', '') : dateString.toString();
+        const date = new Date(isoString + 'Z');
 
         // Format in French timezone
         const formatter = new Intl.DateTimeFormat('fr-FR', {
@@ -1690,7 +1691,9 @@ function formatDateToFrench(dateString) {
             timeZone: 'Europe/Paris'
         });
 
-        return formatter.format(date);
+        const formatted = formatter.format(date);
+        // formatter.format returns something like "15/04/2026 10:34"
+        return formatted;
     } catch (e) {
         console.error('Error formatting date:', e.message);
         return dateString;
@@ -4381,10 +4384,14 @@ app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res
         const users = await pgDb.all('SELECT * FROM magapp.app_users WHERE app_id = ? ORDER BY last_connection DESC', [req.params.id]);
 
         // Format timestamps to French timezone
-        const formattedUsers = users.map(u => ({
-            ...u,
-            last_connection: u.last_connection ? formatDateToFrench(u.last_connection) : null
-        }));
+        const formattedUsers = users.map(u => {
+            const formatted = u.last_connection ? formatDateToFrench(u.last_connection) : null;
+            console.log('[DEBUG] Raw:', u.last_connection, 'Formatted:', formatted);
+            return {
+                ...u,
+                last_connection: formatted
+            };
+        });
 
         res.json(formattedUsers);
     } catch (error) {
