@@ -604,24 +604,27 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   const handleSyncAllTickets = async () => {
     if (!window.confirm("Attention : Vous allez synchroniser l'intégralité de la base GLPI (+36 000 tickets). Cette opération peut prendre quelques minutes. Souhaitez-vous continuer ?")) return;
-    
+
+    console.log('[GLPI Sync] Démarrage synchronisation totale');
     setIsSyncingAll(true);
     setSyncStatus({ active: true, processed: 0, total: 0 });
 
     // Lancer le polling - vérifie toutes les secondes pour une meilleure réactivité
+    console.log('[GLPI Sync] Lancement du polling');
     const pollInterval = setInterval(async () => {
+      console.log('[GLPI Polling] Interrogation du serveur...');
       try {
         const res = await axios.get('/api/glpi/sync-status', {
           headers: { Authorization: `Bearer ${token}` }
         });
-        console.log('[GLPI Polling]', res.data);
+        console.log('[GLPI Polling] Réponse reçue:', res.data);
         setSyncStatus(res.data);
         if (!res.data.active) {
             console.log('[GLPI Polling] Synchronisation terminée');
             clearInterval(pollInterval);
         }
       } catch (e) {
-        console.error('Erreur polling status:', e);
+        console.error('[GLPI Polling] Erreur:', e.response?.status, e.message);
       }
     }, 1000);
 
