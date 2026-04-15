@@ -1653,7 +1653,7 @@ function decodeLDAPString(str) {
     // Si c'est un buffer, on le convertit en string UTF-8
     if (Buffer.isBuffer(str)) return str.toString('utf8');
     if (typeof str !== 'string') return str;
-    
+
     try {
         // LDAP escape \xx handling
         if (str.includes('\\')) {
@@ -1671,6 +1671,29 @@ function decodeLDAPString(str) {
         return str.normalize('NFC');
     } catch (e) {
         return str;
+    }
+}
+
+function formatDateToFrench(dateString) {
+    if (!dateString) return null;
+    try {
+        // Parse the ISO datetime string (UTC)
+        const date = new Date(dateString + 'Z'); // Add Z to ensure UTC parsing
+
+        // Format in French timezone
+        const formatter = new Intl.DateTimeFormat('fr-FR', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: 'Europe/Paris'
+        });
+
+        return formatter.format(date);
+    } catch (e) {
+        console.error('Error formatting date:', e.message);
+        return dateString;
     }
 }
 
@@ -4356,7 +4379,14 @@ app.post('/api/magapp/settings', authenticateMagappControl, async (req, res) => 
 app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res) => {
     try {
         const users = await pgDb.all('SELECT * FROM magapp.app_users WHERE app_id = ? ORDER BY last_connection DESC', [req.params.id]);
-        res.json(users);
+
+        // Format timestamps to French timezone
+        const formattedUsers = users.map(u => ({
+            ...u,
+            last_connection: u.last_connection ? formatDateToFrench(u.last_connection) : null
+        }));
+
+        res.json(formattedUsers);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la recuperation des utilisateurs', error: error.message });
     }

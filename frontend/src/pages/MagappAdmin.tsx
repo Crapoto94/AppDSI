@@ -736,11 +736,7 @@ const MagappAdmin: React.FC = () => {
                                           </td>
                                           <td style={{ background: '#f8fafc', padding: '12px' }}>
                                             <div style={{ fontSize: '0.85rem' }}>
-                                              {u.last_connection ? new Date(u.last_connection).toLocaleString('fr-FR', {
-                                                day: '2-digit', month: '2-digit', year: 'numeric',
-                                                hour: '2-digit', minute: '2-digit',
-                                                timeZone: 'Europe/Paris'
-                                              }) : 'Jamais'}
+                                              {u.last_connection ? u.last_connection : 'Jamais'}
                                             </div>
                                           </td>
                                           <td style={{ background: '#f8fafc', padding: '12px' }}>
