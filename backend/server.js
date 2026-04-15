@@ -4380,6 +4380,7 @@ app.post('/api/magapp/settings', authenticateMagappControl, async (req, res) => 
 
 // App Users Management
 app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res) => {
+    console.log('[MAGAPP USERS API] Request received for app ID:', req.params.id);
     try {
         // Fetch data - PostgreSQL will return timestamps with server timezone
         const users = await pgDb.all(
@@ -4389,6 +4390,7 @@ app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res
              ORDER BY last_connection DESC NULLS LAST`,
             [req.params.id]
         );
+        console.log('[MAGAPP USERS API] Users found:', users.length);
 
         // Format timestamps to French timezone
         const formattedUsers = users.map(user => {
