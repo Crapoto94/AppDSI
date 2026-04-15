@@ -1196,37 +1196,45 @@ const MagappAdmin: React.FC = () => {
         .form-grid-v2 {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
-          gap: 16px;
+          gap: 24px;
         }
 
         .form-group-v2 {
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: 8px;
         }
 
         .form-group-v2.full-width { grid-column: span 2; }
 
         .form-group-v2 label {
-          font-size: 0.8rem;
-          font-weight: 700;
-          color: #64748b;
-          margin-left: 2px;
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #334155;
+          margin-left: 0;
         }
 
-        .form-group-v2 input, 
-        .form-group-v2 textarea, 
+        .form-group-v2 input,
+        .form-group-v2 textarea,
         .form-group-v2 select {
-          padding: 10px 14px;
-          border: 1px solid #e2e8f0;
+          padding: 12px 16px;
+          border: 2px solid #e2e8f0;
           border-radius: 12px;
-          background: white;
-          font-size: 0.9rem;
+          background: #fafbfc;
+          font-size: 0.95rem;
           transition: all 0.2s;
         }
 
-        .form-group-v2 input:focus {
+        .form-group-v2 input::placeholder,
+        .form-group-v2 textarea::placeholder {
+          color: #94a3b8;
+        }
+
+        .form-group-v2 input:focus,
+        .form-group-v2 textarea:focus,
+        .form-group-v2 select:focus {
           border-color: #4f46e5;
+          background: white;
           box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
           outline: none;
         }
@@ -1388,25 +1396,36 @@ const MagappAdmin: React.FC = () => {
         }
 
         .primary-btn-v2 {
-          background: linear-gradient(135deg, #4f46e5, #6366f1);
+          background: linear-gradient(135deg, #4f46e5 0%, #4f46e5 100%);
           color: white;
           border: none;
-          padding: 14px 28px;
-          border-radius: 14px;
-          font-weight: 800;
+          padding: 13px 28px;
+          border-radius: 12px;
+          font-weight: 700;
+          font-size: 0.95rem;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 12px;
-          box-shadow: 0 10px 20px -5px rgba(79, 70, 229, 0.3);
-          transition: all 0.3s;
+          gap: 10px;
+          box-shadow: 0 8px 16px -2px rgba(79, 70, 229, 0.3);
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .primary-btn-v2:hover {
           transform: translateY(-2px);
-          box-shadow: 0 15px 30px -10px rgba(79, 70, 229, 0.4);
-          filter: brightness(1.1);
+          box-shadow: 0 12px 24px -4px rgba(79, 70, 229, 0.4);
+          background: linear-gradient(135deg, #4338ca 0%, #4338ca 100%);
+        }
+
+        .primary-btn-v2:active {
+          transform: translateY(0);
+          box-shadow: 0 4px 8px -1px rgba(79, 70, 229, 0.3);
+        }
+
+        .primary-btn-v2:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         @keyframes fadeSlideUp {
@@ -1435,27 +1454,38 @@ const MagappAdmin: React.FC = () => {
         .modern-table-v2 {
           width: 100%;
           border-collapse: separate;
-          border-spacing: 0 8px;
+          border-spacing: 0 10px;
         }
 
         .modern-table-v2 th {
           text-align: left;
           padding: 12px 16px;
-          color: #64748b;
+          color: #94a3b8;
           font-weight: 700;
           font-size: 0.8rem;
           text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+
+        .modern-table-v2 tr {
+          background: white;
+          border-radius: 12px;
+          transition: all 0.2s;
+        }
+
+        .modern-table-v2 tbody tr:hover {
+          box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+          transform: translateY(-1px);
         }
 
         .modern-table-v2 td {
-          padding: 16px;
+          padding: 14px 16px;
           background: white;
-          border-top: 1px solid #f1f5f9;
-          border-bottom: 1px solid #f1f5f9;
+          border: none;
         }
 
-        .modern-table-v2 td:first-child { border-left: 1px solid #f1f5f9; border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
-        .modern-table-v2 td:last-child { border-right: 1px solid #f1f5f9; border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+        .modern-table-v2 td:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
+        .modern-table-v2 td:last-child { border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
 
         .filter-btn-v2 {
           padding: 8px 16px;
@@ -1512,53 +1542,67 @@ const MagappAdmin: React.FC = () => {
 
         .modal-content-v2 {
           background: white;
-          border-radius: 32px;
+          border-radius: 24px;
           width: 100%;
-          max-width: 700px;
-          max-height: 90vh;
-          box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.3);
+          max-width: 1000px;
+          max-height: 92vh;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 10px 25px -5px rgba(0, 0, 0, 0.1);
           display: flex;
           flex-direction: column;
-          border: 1px solid rgba(255,255,255,0.8);
+          border: 1px solid #e2e8f0;
           overflow: hidden;
         }
 
         .modal-header-v2 {
-          padding: 32px 40px;
+          padding: 28px 36px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          border-bottom: 1px solid #f1f5f9;
+          border-bottom: 2px solid #f1f5f9;
           flex-shrink: 0;
+          background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
         }
 
         .modal-header-v2 h3 {
           margin: 0;
-          font-size: 1.5rem;
-          font-weight: 900;
+          font-size: 1.6rem;
+          font-weight: 700;
           color: #0f172a;
-          letter-spacing: -0.02em;
+          letter-spacing: -0.025em;
+        }
+
+        .header-icon-v2 {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+          border-radius: 12px;
+          color: white;
         }
 
         .modal-body-v2 {
-          padding: 40px;
+          padding: 36px;
           overflow-y: auto;
           flex: 1;
           min-height: 0;
+          background: white;
         }
 
         /* Style des barres de défilement - webkit browsers */
         .modal-body-v2::-webkit-scrollbar {
-          width: 8px;
+          width: 10px;
         }
 
         .modal-body-v2::-webkit-scrollbar-track {
-          background: transparent;
+          background: #f8fafc;
+          border-radius: 10px;
         }
 
         .modal-body-v2::-webkit-scrollbar-thumb {
           background: #cbd5e1;
-          border-radius: 4px;
+          border-radius: 5px;
         }
 
         .modal-body-v2::-webkit-scrollbar-thumb:hover {
@@ -1566,11 +1610,11 @@ const MagappAdmin: React.FC = () => {
         }
 
         .modal-footer-v2 {
-          padding: 32px 40px;
-          border-top: 1px solid #f1f5f9;
-          background: #f8fafc;
-          border-bottom-left-radius: 32px;
-          border-bottom-right-radius: 32px;
+          padding: 24px 36px;
+          border-top: 2px solid #f1f5f9;
+          background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+          border-bottom-left-radius: 24px;
+          border-bottom-right-radius: 24px;
           flex-shrink: 0;
         }
 
@@ -1600,46 +1644,52 @@ const MagappAdmin: React.FC = () => {
         }
 
         .user-count-badge {
-          font-size: 0.65rem;
-          font-weight: 800;
-          padding: 2px 6px;
-          background: #f1f5f9;
-          color: #64748b;
-          border-radius: 6px;
-          display: flex;
+          display: inline-flex;
           align-items: center;
-          border: 1px solid #e2e8f0;
+          justify-content: center;
+          width: 24px;
+          height: 24px;
+          background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+          color: white;
+          border-radius: 50%;
+          font-size: 0.7rem;
+          font-weight: 800;
+          box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
         }
 
         .modal-tabs {
           display: flex;
-          padding: 0 40px;
-          border-bottom: 2px solid #f1f5f9;
-          gap: 20px;
+          padding: 0 36px;
+          border-bottom: none;
+          gap: 8px;
           flex-shrink: 0;
           background: white;
+          align-items: center;
         }
 
         .modal-tabs button {
-          padding: 16px 0;
-          background: none;
-          border: none;
-          border-bottom: 3px solid transparent;
-          font-weight: 700;
+          padding: 12px 20px;
+          background: transparent;
+          border: 2px solid transparent;
+          border-radius: 12px;
+          font-weight: 600;
           color: #64748b;
           cursor: pointer;
-          font-size: 0.9rem;
+          font-size: 0.95rem;
           transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-          margin-bottom: -2px;
+          position: relative;
         }
 
         .modal-tabs button:hover {
+          background: #f1f5f9;
           color: #4f46e5;
         }
 
         .modal-tabs button.active {
+          background: white;
           color: #4f46e5;
           border-bottom-color: #4f46e5;
+          box-shadow: 0 0 0 2px #dbeafe;
         }
 
         .ad-search-box input {
@@ -1651,16 +1701,16 @@ const MagappAdmin: React.FC = () => {
 
         .ad-results {
           margin-top: 12px;
-          background: #f8fafc;
-          border-radius: 16px;
+          background: white;
+          border-radius: 14px;
           border: 2px solid #e2e8f0;
-          max-height: 240px;
+          max-height: 260px;
           overflow-y: auto;
-          transition: border-color 0.2s;
+          transition: all 0.2s;
         }
 
         .ad-results::-webkit-scrollbar {
-          width: 6px;
+          width: 8px;
         }
 
         .ad-results::-webkit-scrollbar-track {
@@ -1669,7 +1719,7 @@ const MagappAdmin: React.FC = () => {
 
         .ad-results::-webkit-scrollbar-thumb {
           background: #cbd5e1;
-          border-radius: 3px;
+          border-radius: 4px;
         }
 
         .ad-results::-webkit-scrollbar-thumb:hover {
@@ -1680,26 +1730,26 @@ const MagappAdmin: React.FC = () => {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 12px 16px;
-          border-bottom: 1px solid #e2e8f0;
-          transition: background-color 0.15s;
+          padding: 14px 16px;
+          border-bottom: 1px solid #f1f5f9;
+          transition: all 0.15s;
         }
 
         .ad-result-item:hover {
-          background: #f1f5f9;
+          background: #f8fafc;
         }
 
         .ad-result-item:last-child { border-bottom: none; }
-        .ad-result-item strong { display: block; font-size: 0.9rem; color: #0f172a; }
-        .ad-result-item span { font-size: 0.75rem; color: #64748b; }
+        .ad-result-item strong { display: block; font-size: 0.9rem; color: #0f172a; font-weight: 600; }
+        .ad-result-item span { font-size: 0.8rem; color: #64748b; }
         .ad-result-item button {
-          padding: 6px 12px;
+          padding: 6px 14px;
           background: #4f46e5;
           color: white;
           border: none;
           border-radius: 8px;
-          font-size: 0.75rem;
-          font-weight: 700;
+          font-size: 0.8rem;
+          font-weight: 600;
           cursor: pointer;
           transition: all 0.2s;
           white-space: nowrap;
@@ -1719,26 +1769,26 @@ const MagappAdmin: React.FC = () => {
         }
 
         .users-table-scroll {
-          max-height: 320px;
+          max-height: 380px;
           overflow-y: auto;
-          margin-top: 12px;
-          border-radius: 12px;
-          border: 1px solid #e2e8f0;
+          margin-top: 16px;
+          border-radius: 14px;
+          border: 2px solid #e2e8f0;
           background: white;
         }
 
         .users-table-scroll::-webkit-scrollbar {
-          width: 8px;
+          width: 10px;
         }
 
         .users-table-scroll::-webkit-scrollbar-track {
           background: #f8fafc;
-          border-radius: 12px;
+          border-radius: 10px;
         }
 
         .users-table-scroll::-webkit-scrollbar-thumb {
           background: #cbd5e1;
-          border-radius: 4px;
+          border-radius: 5px;
         }
 
         .users-table-scroll::-webkit-scrollbar-thumb:hover {
@@ -1748,21 +1798,51 @@ const MagappAdmin: React.FC = () => {
         .users-management {
           display: flex;
           flex-direction: column;
-          gap: 32px;
+          gap: 40px;
         }
 
         .ad-search-box {
           display: flex;
           flex-direction: column;
+          gap: 12px;
+        }
+
+        .ad-search-box label {
+          font-weight: 600;
+          color: #334155;
+          font-size: 0.95rem;
         }
 
         .app-users-list {
           display: flex;
           flex-direction: column;
+          gap: 12px;
+        }
+
+        .app-users-list > label {
+          font-weight: 600;
+          color: #334155;
+          font-size: 0.95rem;
         }
 
         @media (max-width: 1024px) {
           .workspace-grid { grid-template-columns: 1fr; }
+          .form-grid-v2 { grid-template-columns: 1fr; }
+          .form-group-v2.full-width { grid-column: span 1; }
+          .modal-content-v2 { max-width: 95vw; }
+          .modal-header-v2, .modal-body-v2, .modal-footer-v2 { padding: 20px 24px; }
+          .modal-tabs { padding: 0 24px; }
+        }
+
+        @media (max-width: 640px) {
+          .modal-content-v2 { max-width: 100vw; border-radius: 16px; max-height: 95vh; }
+          .modal-header-v2 { padding: 16px 20px; }
+          .modal-header-v2 h3 { font-size: 1.3rem; }
+          .modal-body-v2 { padding: 20px; }
+          .modal-footer-v2 { padding: 16px 20px; }
+          .modal-tabs { padding: 0 20px; gap: 0; }
+          .modal-tabs button { padding: 12px 16px; font-size: 0.85rem; }
+          .form-grid-v2 { gap: 16px; }
         }
       `}</style>
     </div>
