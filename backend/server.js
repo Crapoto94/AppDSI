@@ -4381,19 +4381,16 @@ app.post('/api/magapp/settings', authenticateMagappControl, async (req, res) => 
 // App Users Management
 app.get('/api/magapp/apps/:id/users', authenticateMagappControl, async (req, res) => {
     try {
-        const users = await pgDb.all('SELECT * FROM magapp.app_users WHERE app_id = ? ORDER BY last_connection DESC', [req.params.id]);
+        // Format timestamps to French timezone at database level
+        const users = await pgDb.all(`
+            SELECT id, app_id, username, display_name, source,
+                   TO_CHAR(last_connection AT TIME ZONE 'Europe/Paris', 'DD/MM/YYYY HH24:MI') as last_connection
+            FROM magapp.app_users
+            WHERE app_id = ?
+            ORDER BY last_connection DESC
+        `, [req.params.id]);
 
-        // Format timestamps to French timezone
-        const formattedUsers = users.map(u => {
-            const formatted = u.last_connection ? formatDateToFrench(u.last_connection) : null;
-            console.log('[DEBUG] Raw:', u.last_connection, 'Formatted:', formatted);
-            return {
-                ...u,
-                last_connection: formatted
-            };
-        });
-
-        res.json(formattedUsers);
+        res.json(users);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la recuperation des utilisateurs', error: error.message });
     }
