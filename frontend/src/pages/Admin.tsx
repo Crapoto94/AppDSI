@@ -1601,9 +1601,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </button>
             </div>
 
-            {(isAddingUser || editingUser) && (
-              <div className="modal-overlay" onClick={() => { setIsAddingUser(false); setEditingUser(null); }}>
-                <div className="modal-container" style={{ maxWidth: '680px' }} onClick={e => e.stopPropagation()}>
+             {(isAddingUser || editingUser) && (
+               <div className="modal-overlay" onClick={() => { setIsAddingUser(false); setEditingUser(null); }}>
+                 <div className="modal-container" style={{ maxWidth: '680px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
                   <div className="form-header flex justify-between items-center">
                     <h3 className="flex items-center gap-3">
                       <span className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Edit2 size={20} /></span>
