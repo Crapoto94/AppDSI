@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -84,7 +84,7 @@ const MagappAdmin: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [stats, setStats] = useState<ClickStats[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [activeTab, setActiveTab] = useState<'apps' | 'categories' | 'versions' | 'subscriptions' | 'stats' | 'postgres' | 'settings'>('apps');
+  const [activeTab, setActiveTab] = useState<'apps' | 'categories' | 'versions' | 'subscriptions' | 'stats' | 'postgres' | 'settings' | 'ideas'>('apps');
   const [showAllStats, setShowAllStats] = useState(false);
   const [editingApp, setEditingApp] = useState<AppItem | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -106,7 +106,7 @@ const MagappAdmin: React.FC = () => {
     email_createur: '',
     lien_mercator: ''
   });
-  const [magappSettings, setMagappSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true });
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean}>({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true });
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
   const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
@@ -120,6 +120,9 @@ const MagappAdmin: React.FC = () => {
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
   const [adSearchQuery, setAdSearchQuery] = useState('');
   const [adResults, setAdResults] = useState<{username: string, displayName: string, email: string}[]>([]);
+
+  // Ideas states
+  const [allIdeas, setAllIdeas] = useState<{id: number, title: string, description: string, author_email: string, author_name: string, status: string, admin_response: string, created_at: string, attachments: any[]}[]>([]);
   const [isSearchingAD, setIsSearchingAD] = useState(false);
   const [modalTab, setModalTab] = useState<'general' | 'users'>('general');
 
@@ -142,7 +145,16 @@ const MagappAdmin: React.FC = () => {
       if (catsRes.ok) setCategories(await catsRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
       if (pgSettingsRes.ok) setPostgresSettings(await pgSettingsRes.json());
-      if (settingsRes.ok) setMagappSettings(await settingsRes.json());
+      if (settingsRes.ok) {
+        const data = await settingsRes.json();
+        setMagappSettings({
+          show_tickets: data.show_tickets ?? true,
+          show_subscriptions: data.show_subscriptions ?? true,
+          show_health_check: data.show_health_check ?? true,
+          show_create_buttons: data.show_create_buttons ?? true,
+          show_ideas: data.show_ideas ?? true
+        });
+      }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
     } catch (e) { console.error(e); }
   };
@@ -161,8 +173,34 @@ const MagappAdmin: React.FC = () => {
     } catch (e) { console.error(e); }
   };
 
-  useEffect(() => { fetchData(); fetchVersions(); fetchSubscriptions(); }, []);
-  useEffect(() => { if (activeTab === 'subscriptions') fetchSubscriptions(); if (activeTab === 'versions') fetchVersions(); }, [activeTab]);
+  const fetchIdeas = async () => {
+    try {
+      const response = await fetch('/api/admin/magapp/ideas', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) setAllIdeas(await response.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const handleUpdateIdeaStatus = async (id: number, status: string) => {
+    try {
+      await fetch(`/api/admin/magapp/ideas/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ status })
+      });
+      fetchIdeas();
+    } catch (e) { console.error(e); }
+  };
+
+  const handleDeleteIdea = async (id: number) => {
+    if (!window.confirm('Supprimer cette idée ?')) return;
+    try {
+      await fetch(`/api/admin/magapp/ideas/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      fetchIdeas();
+    } catch (e) { console.error(e); }
+  };
+
+  useEffect(() => { fetchData(); fetchVersions(); fetchSubscriptions(); fetchIdeas(); }, []);
+  useEffect(() => { if (activeTab === 'subscriptions') fetchSubscriptions(); if (activeTab === 'versions') fetchVersions(); if (activeTab === 'ideas') fetchIdeas(); }, [activeTab]);
 
   // Set default category for "New App" when categories change
   useEffect(() => {
@@ -416,6 +454,7 @@ const MagappAdmin: React.FC = () => {
               { id: 'categories', icon: <Tag size={18} />, label: 'Catégories' },
               { id: 'versions', icon: <Code size={18} />, label: 'Versions' },
               { id: 'subscriptions', icon: <Bell size={18} />, label: 'Abonnés' },
+              { id: 'ideas', icon: <Lightbulb size={18} />, label: 'Idées' },
               { id: 'stats', icon: <BarChart2 size={18} />, label: 'Stats' },
               { id: 'postgres', icon: <Globe size={18} />, label: 'DB' },
               { id: 'settings', icon: <Settings size={18} />, label: 'Paramètres' }
@@ -953,6 +992,101 @@ const MagappAdmin: React.FC = () => {
             </section>
           )}
 
+          {activeTab === 'ideas' && (
+            <section className="workspace-section">
+              <div className="section-header">
+                <h2>Idées Soumises ({allIdeas.length})</h2>
+                <div className="header-icon-v2"><Lightbulb size={20} /></div>
+              </div>
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {allIdeas.length === 0 ? (
+                  <p style={{ color: '#64748b', textAlign: 'center', padding: '40px' }}>Aucune idée soumise pour le moment.</p>
+                ) : (
+                  allIdeas.map(idea => (
+                    <div key={idea.id} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                            <h4 style={{ margin: 0 }}>{idea.title}</h4>
+                            <span style={{ 
+                              padding: '4px 10px', 
+                              borderRadius: '6px', 
+                              fontSize: '0.75rem', 
+                              fontWeight: 600,
+                              background: idea.status === 'new' ? '#fef3c7' : idea.status === 'in_progress' ? '#dbeafe' : idea.status === 'accepted' ? '#dcfce7' : '#fee2e2',
+                              color: idea.status === 'new' ? '#92400e' : idea.status === 'in_progress' ? '#1e40af' : idea.status === 'accepted' ? '#166534' : '#991b1b'
+                            }}>
+                              {idea.status === 'new' ? 'Nouvelle' : idea.status === 'in_progress' ? 'En cours' : idea.status === 'accepted' ? 'Acceptée' : idea.status === 'rejected' ? 'Refusée' : idea.status}
+                            </span>
+                          </div>
+                          <p style={{ margin: '0 0 8px 0', color: '#475569', fontSize: '0.9rem' }}>{idea.description}</p>
+                          <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                            <span>Par {idea.author_name || idea.author_email}</span>
+                            <span style={{ margin: '0 8px' }}>•</span>
+                            <span>{new Date(idea.created_at).toLocaleDateString('fr-FR')}</span>
+                            {idea.attachments && idea.attachments.length > 0 && (
+                              <>
+                                <span style={{ margin: '0 8px' }}>•</span>
+                                <span>{idea.attachments.length} pièce(s) jointe(s)</span>
+                              </>
+                            )}
+                          </div>
+                          {idea.admin_response && (
+                            <div style={{ marginTop: '12px', padding: '10px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                              <strong style={{ fontSize: '0.8rem', color: '#166534' }}>Réponse DSI :</strong>
+                              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#15803d' }}>{idea.admin_response}</p>
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginLeft: '16px' }}>
+                          <select 
+                            value={idea.status} 
+                            onChange={e => handleUpdateIdeaStatus(idea.id, e.target.value)}
+                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.85rem' }}
+                          >
+                            <option value="new">Nouvelle</option>
+                            <option value="in_progress">En cours</option>
+                            <option value="accepted">Acceptée</option>
+                            <option value="rejected">Refusée</option>
+                          </select>
+                          <button 
+                            onClick={() => handleDeleteIdea(idea.id)} 
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#ef4444', padding: '6px' }}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: '12px' }}>
+                        <textarea
+                          id={`response-${idea.id}`}
+                          placeholder="Réponse à l'utilisateur..."
+                          defaultValue={idea.admin_response || ''}
+                          style={{ width: '100%', minHeight: '60px', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.85rem', resize: 'vertical' }}
+                        />
+                        <button 
+                          className="primary-btn-v2"
+                          style={{ marginTop: '8px', padding: '6px 12px', fontSize: '0.8rem' }}
+                          onClick={async () => {
+                            const response = (document.getElementById(`response-${idea.id}`) as HTMLTextAreaElement).value;
+                            await fetch(`/api/admin/magapp/ideas/${idea.id}`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                              body: JSON.stringify({ status: idea.status, admin_response: response })
+                            });
+                            fetchIdeas();
+                          }}
+                        >
+                          <Save size={14} /> Enregistrer la réponse
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
+
           {activeTab === 'stats' && (
             <section className="workspace-section">
               <div className="section-header">
@@ -1050,6 +1184,30 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le badge d'état global du système (Health Check) en haut de la page.</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les boutons de création (Incident/Demande)</span>
+                    <input 
+                      type="checkbox" 
+                      checked={magappSettings.show_create_buttons} 
+                      onChange={e => setMagappSettings({...magappSettings, show_create_buttons: e.target.checked})} 
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche les boutons pour créer des incidents ou demandes GLPI.</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher la section Idées</span>
+                    <input 
+                      type="checkbox" 
+                      checked={magappSettings.show_ideas} 
+                      onChange={e => setMagappSettings({...magappSettings, show_ideas: e.target.checked})} 
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton "Mes Idées" et le formulaire de soumission.</p>
                 </div>
                 <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
                   <Save size={18} /> Mettre à jour les paramètres

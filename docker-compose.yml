@@ -9,9 +9,14 @@ services:
     ports:
       # Mappe le port 3001 du conteneur vers le port 3001 de l'hôte Proxmox
       - "3001:3001"
+    environment:
+      # PostgreSQL externe (10.103.130.106)
+      - POSTGRES_HOST=10.103.130.106
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=ivry_admin
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ivrypassword}
     volumes:
-      # Monte le volume pour persister la base de données SQLite
-      - ./backend/database.sqlite:/app/database.sqlite
       # Dossiers de fichiers persistés
       - ./backend/uploads:/app/uploads
       - ./backend/file_commandes:/app/file_commandes
@@ -53,10 +58,6 @@ services:
     networks:
       - app-network
     restart: unless-stopped
-
-volumes:
-  # Définit un volume nommé pour persister les données de la base de données SQLite
-  db_data:
 
 networks:
   # Définit un réseau commun pour que les conteneurs puissent communiquer entre eux

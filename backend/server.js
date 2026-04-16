@@ -5,7 +5,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const setupDb = require('./db');
-const { pgDb, setupPgDb } = require('./pg_db');
+const { pgDb, pool, setupPgDb } = require('./pg_db');
 const updateTierStats = require('./update_tier_stats');
 const multer = require('multer');
 const xlsx = require('xlsx');
@@ -423,6 +423,19 @@ const authenticateAdmin = (req, res, next) => {
             res.status(403).json({ message: 'Accès refusé : administrateur uniquement' });
         }
     });
+};
+
+// Middleware for Internal (scheduled syncs) or Admin
+const authenticateInternalOrAdmin = (req, res, next) => {
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Internal ')) {
+        const token = Buffer.from('scheduled-sync:internal').toString('base64');
+        if (auth === `Internal ${token}`) {
+            req.user = { username: 'scheduled-sync', role: 'admin' };
+            return next();
+        }
+    }
+    authenticateAdmin(req, res, next);
 };
 
 // Middleware for Admin or Finances or Compta
@@ -3184,7 +3197,7 @@ app.get('/api/glpi/recent-tickets', authenticateAdmin, async (req, res) => {
             }));
         }
 
-        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders });
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
         res.json({ tickets });
     } catch (error) {
         console.error('[GLPI] Erreur tickets récents:', error.message);
@@ -3192,8 +3205,122 @@ app.get('/api/glpi/recent-tickets', authenticateAdmin, async (req, res) => {
     }
 });
 
-// Route : Synchroniser les 100 derniers tickets (Date Création Desc)
-app.post('/api/glpi/sync-tickets', authenticateAdmin, async (req, res) => {
+// Route : Récupérer les tickets d'un utilisateur (créés + observés)
+app.get('/api/glpi/user-tickets/:username', authenticateJWT, async (req, res) => {
+    try {
+        const { username } = req.params;
+        if (!username) return res.status(400).json({ message: 'Username requis' });
+
+        // Récupérer l'utilisateur pour vérifier qu'il existe
+        const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+        if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
+
+        // Déterminer l'email de l'utilisateur pour recherche
+        // Format standard : prenom.nom@ivry94.fr ou username@ivry94.fr
+        const userEmail = `${username}@ivry94.fr`;
+
+        // 1. Tickets créés par l'utilisateur (par email)
+        const createdTickets = await db.all(
+            `SELECT id, glpi_id, title, status, priority, urgency, date_creation,
+                    date_mod, requester_name, requester_email, 'created' as ticket_type
+             FROM tickets
+             WHERE LOWER(requester_email) = LOWER(?)
+             ORDER BY date_mod DESC`,
+            [userEmail]
+        );
+
+         // 2. Tickets observés par l'utilisateur (join avec glpi.observers)
+        const observedTickets = await pgDb.all(
+            `SELECT t.id, t.glpi_id, t.title, t.status, t.priority, t.urgency,
+                    t.date_creation, t.date_mod, t.requester_name, t.requester_email, 'observed' as ticket_type
+             FROM tickets t
+             INNER JOIN glpi.observers go ON t.glpi_id = go.ticket_id
+             WHERE LOWER(go.login) = LOWER($1) OR LOWER(go.email) = LOWER($2)
+             ORDER BY t.date_mod DESC`,
+            [username, userEmail]
+        );
+
+        // Combiner et dédupliquer (un ticket peut être créé ET observé)
+        const allTickets = [...createdTickets];
+        const createdIds = new Set(createdTickets.map(t => t.glpi_id));
+
+        for (const ticket of observedTickets) {
+            if (!createdIds.has(ticket.glpi_id)) {
+                allTickets.push(ticket);
+            } else {
+                // Si le ticket est à la fois créé et observé, mettre à jour le type
+                const idx = allTickets.findIndex(t => t.glpi_id === ticket.glpi_id);
+                if (idx >= 0) {
+                    allTickets[idx].ticket_type = 'created_and_observed';
+                }
+            }
+        }
+
+        res.json({
+            username,
+            userEmail,
+            total: allTickets.length,
+            created_count: createdTickets.length,
+            observed_count: observedTickets.filter(t => !createdIds.has(t.glpi_id)).length,
+            tickets: allTickets
+        });
+
+    } catch (error) {
+        console.error('[GLPI] Erreur user-tickets:', error.message);
+        res.status(500).json({ message: 'Erreur lors de la récupération des tickets utilisateur' });
+    }
+});
+
+// État global pour le suivi de la synchronisation GLPI
+let glpiSyncProgress = {
+    active: false,
+    processed: 0,
+    total: 0,
+    startTime: null,
+    lastUpdate: null,
+    type: null
+};
+
+let glpiSyncCancelled = false;
+
+let observersSyncProgress = {
+    active: false,
+    processed: 0,
+    total: 0,
+    startTime: null,
+    lastUpdate: null
+};
+
+// Route : Statut de la synchronisation GLPI
+app.get('/api/glpi/sync-status', authenticateAdmin, (req, res) => {
+    res.json(glpiSyncProgress);
+});
+
+// Route : Annuler la synchronisation GLPI
+app.post('/api/glpi/sync-cancel', authenticateAdmin, (req, res) => {
+    console.log('[GLPI Cancel] Demande d\'annulation reçue');
+    glpiSyncCancelled = true;
+    res.json({ success: true, message: 'Annulation demandée' });
+});
+
+// Route : Statut de la synchronisation des observateurs
+app.get('/api/glpi/sync-observers-status', authenticateAdmin, (req, res) => {
+    res.json(observersSyncProgress);
+});
+
+// Route : Annuler la synchronisation des observateurs
+app.post('/api/glpi/sync-observers-cancel', authenticateAdmin, (req, res) => {
+    console.log('[GLPI Observers Cancel] Demande d\'annulation reçue');
+    observersSyncCancelled = true;
+    res.json({ success: true, message: 'Annulation demandée' });
+});
+
+// Route : Synchroniser les 500 derniers tickets GLPI
+app.post('/api/glpi/sync-recent', authenticateInternalOrAdmin, async (req, res) => {
+    console.log('[GLPI Sync] POST /api/glpi/sync-recent reçu');
+    const triggeredBy = req.user?.username || 'admin';
+    let syncLogId = null;
+    
     try {
         const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
         if (!settings || !settings.url) return res.status(400).json({ message: 'GLPI non configuré' });
@@ -3213,112 +3340,739 @@ app.post('/api/glpi/sync-tickets', authenticateAdmin, async (req, res) => {
             ? `Basic ${Buffer.from(`${login}:${password}`).toString('base64')}`
             : `user_token ${user_token}`;
 
-        // 1. Init & Activate Session
+        // Init session
         const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader } });
         const sessionToken = sessionRes.data?.session_token;
         if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        // Activer la session avec getMyProfiles et getFullSession
         await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
         await axios.get(`${url}/getFullSession?session_token=${sessionToken}`, { headers: commonHeaders });
 
-        // 2. Recherche des 100 derniers par DATE DE CRÉATION (Champ 15)
-        // Ajout du champ 22 (Email du demandeur) en plus du 34 car selon les versions GLPI, l'un ou l'autre est rempli
-        const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22];
-        const forcedStr = forcedFields.map((id, idx) => `forcedisplay[${idx}]=${id}`).join('&');
-        const searchUrl = `${url}/search/Ticket?session_token=${sessionToken}&range=0-100&sort=15&order=DESC&get_all_entities=1&${forcedStr}`;
-        const ticketsRes = await axios.get(searchUrl, { headers: commonHeaders });
+        // Synchroniser les statuts GLPI
+        const statuses = [
+            { id: 1, label: 'Nouveau' },
+            { id: 2, label: 'En cours (Attribué)' },
+            { id: 3, label: 'En cours (Planifié)' },
+            { id: 4, label: 'En attente' },
+            { id: 5, label: 'Résolu' },
+            { id: 6, label: 'Clos' }
+        ];
+        for (const status of statuses) {
+            await pgDb.run(`INSERT INTO glpi.ticket_status (id, label) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label`, [status.id, status.label]);
+        }
 
-        if (ticketsRes.data && Array.isArray(ticketsRes.data.data)) {
-            const tickets = ticketsRes.data.data;
-            let processedCount = 0;
+        // Récupérer les 500 derniers tickets par lots de 500
+        const batchSize = 500;
+        const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 62];
+        const forcedStr = forcedFields.map((id) => `forcedisplay[${id}]=${id}`).join('&');
+        const totalToFetch = 500;
 
-            // Initialisation du statut
-            glpiSyncProgress = {
-                active: true,
-                processed: 0,
-                total: tickets.length,
-                startTime: new Date().toISOString(),
-                lastUpdate: new Date().toISOString()
-            };
+        // Obtenir le count total pour savoir combien récupérer
+        const countRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=0-1&get_all_entities=1`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+        const totalAvailable = parseInt(countRes.data.totalcount, 10) || 0;
+        const startOffset = Math.max(0, totalAvailable - totalToFetch);
 
-            // 3. Insertion par lots (ou individuel avec INSERT OR REPLACE)
-            // Helper function to safely extract values from GLPI response, handling objects and nulls
-            const val = (t, id) => {
-                const v = t[id];
+        // Créer le log AVANT de traiter les données
+        const logResult = await pool.query(
+            `INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, total_tickets) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            ['tickets', 'recent', triggeredBy, 'running', Math.min(totalToFetch, totalAvailable)]
+        );
+        syncLogId = logResult.rows[0]?.id;
+
+        const val = (t, index) => {
+            const v = t[index];
+            if (v === undefined || v === null) return '';
+            if (typeof v === 'object' && v !== null) return v.name || v.id || JSON.stringify(v);
+            return String(v);
+        };
+
+        const valInt = (t, index) => {
+            const v = t[index];
+            if (v === undefined || v === null) return 0;
+            if (typeof v === 'object' && v !== null) {
+                if (v.id !== undefined && v.id !== null) return Number(v.id) || 0;
+                return Number(v.name) || 0;
+            }
+            const num = parseInt(String(v), 10);
+            return isNaN(num) ? 0 : num;
+        };
+
+        const normalizeEmail = (email) => {
+            if (!email || typeof email !== 'string') return '';
+            email = email.trim().toLowerCase();
+            if (!email) return '';
+            if (!email.includes('@')) email += '@ivry94.fr';
+            return email;
+        };
+
+        // Helper pour insertion lot PostgreSQL
+        const insertBatchToPg = async (tickets) => {
+            if (tickets.length === 0) return;
+            const cols = 'glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22';
+            const values = tickets.map((t, i) => {
+                const base = i * 20;
+                return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20})`;
+            }).join(', ');
+            const params = tickets.flatMap(t => [t.glpi_id, t.title, t.content || '', t.status, t.priority, t.urgency, t.impact, t.category, t.type, t.date_creation, t.date_mod, t.date_closed, t.date_solved, t.location, t.solution, t.source, t.entity, t.requester_name, t.email_alt, t.requester_email_22]);
+            await pool.query(`INSERT INTO glpi.tickets (${cols}) VALUES ${values} ON CONFLICT (glpi_id) DO UPDATE SET title = EXCLUDED.title, content = EXCLUDED.content, status = EXCLUDED.status, priority = EXCLUDED.priority, urgency = EXCLUDED.urgency, impact = EXCLUDED.impact, category = EXCLUDED.category, type = EXCLUDED.type, date_creation = EXCLUDED.date_creation, date_mod = EXCLUDED.date_mod, date_closed = EXCLUDED.date_closed, date_solved = EXCLUDED.date_solved, location = EXCLUDED.location, solution = EXCLUDED.solution, source = EXCLUDED.source, entity = EXCLUDED.entity, requester_name = EXCLUDED.requester_name, email_alt = EXCLUDED.email_alt, requester_email_22 = EXCLUDED.requester_email_22, last_sync = CURRENT_TIMESTAMP`, params);
+        };
+
+        let processedCount = 0;
+        let allTickets = [];
+
+        // Récupérer par lots de 500
+        for (let start = startOffset; start < totalAvailable; start += batchSize) {
+            const end = Math.min(start + batchSize, totalAvailable);
+            console.log(`[GLPI Sync] Récupération tickets ${start}-${end - 1}...`);
+            const ticketsRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${start}-${end - 1}&get_all_entities=1&${forcedStr}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+            if (ticketsRes.data && Array.isArray(ticketsRes.data.data)) {
+                for (const t of ticketsRes.data.data) {
+                    const ticketId = valInt(t, 2);
+                    if (!ticketId) continue;
+                    const email34 = normalizeEmail(val(t, 34));
+                    const email22 = normalizeEmail(val(t, 22));
+
+                    allTickets.push({
+                        glpi_id: ticketId, title: val(t, 1), content: val(t, 62), status: valInt(t, 12), priority: valInt(t, 3),
+                        urgency: valInt(t, 10), impact: valInt(t, 11), category: val(t, 7), type: val(t, 14),
+                        date_creation: val(t, 15), date_mod: val(t, 19) || val(t, 15), date_closed: val(t, 16) || null,
+                        date_solved: val(t, 17) || null, location: val(t, 83), solution: val(t, 24), source: val(t, 9),
+                        entity: val(t, 80), requester_name: val(t, 4) || 'Inconnu', email_alt: email34, requester_email_22: email22
+                    });
+                }
+            }
+        }
+
+        // Insertion en lot PostgreSQL
+        await insertBatchToPg(allTickets);
+        processedCount = allTickets.length;
+
+        // Mettre à jour le log en succès
+        if (syncLogId) {
+            await pool.query(
+                `UPDATE glpi.sync_logs SET status = $1, processed_tickets = $2, completed_at = CURRENT_TIMESTAMP WHERE id = $3`,
+                ['completed', processedCount, syncLogId]
+            );
+        }
+
+        console.log(`[GLPI Sync] Synchronisation terminée : ${processedCount} tickets synchronisés via batch.`);
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+        res.json({ success: true, count: processedCount, total: totalAvailable });
+    } catch (error) {
+        console.error('[GLPI] Erreur sync recent:', error.message);
+        // Mettre à jour le log en erreur
+        if (syncLogId) {
+            try {
+                await pool.query(
+                    `UPDATE glpi.sync_logs SET status = $1, error_message = $2, completed_at = CURRENT_TIMESTAMP WHERE id = $3`,
+                    ['error', error.message, syncLogId]
+                );
+            } catch (e) {
+                console.error('[GLPI] Erreur mise à jour log:', e.message);
+            }
+        }
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+// Route : Lister les logs de synchronisation
+app.get('/api/glpi/sync-logs', authenticateAdmin, async (req, res) => {
+    try {
+        const logs = await pgDb.all(
+            `SELECT * FROM glpi.sync_logs ORDER BY started_at DESC LIMIT 50`
+        );
+        res.json(logs);
+    } catch (error) {
+        console.error('[GLPI] Erreur logs:', error.message);
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+let observersSyncCancelled = false;
+
+// Route : Créer un ticket GLPI
+app.post('/api/glpi/tickets', authenticateJWT, async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) return res.status(400).json({ message: 'GLPI non configuré' });
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const { title, content, type, urgency, priority, category_id, requester_email } = req.body;
+        if (!title) return res.status(400).json({ message: 'Titre requis' });
+
+        const commonHeaders = {
+            'App-Token': (settings.app_token || '').trim(),
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        let authHeader = (settings.user_token || '').trim()
+            ? `user_token ${(settings.user_token || '').trim()}`
+            : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { ...commonHeaders, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+
+        const ticketData = {
+            input: {
+                name: title,
+                content: content || title,
+                type: type || 1,
+                urgency: urgency || 3,
+                priority: priority || 3,
+                itilcategories_id: category_id || 0
+            }
+        };
+
+        const createRes = await axios.post(`${url}/Ticket`, ticketData, {
+            headers: { ...commonHeaders, 'Session-Token': sessionToken },
+            timeout: 15000
+        });
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        res.json({ success: true, ticket: createRes.data });
+
+        // Déclencher une synchro des 50 derniers tickets en arrière-plan vers PostgreSQL
+        console.log(`[GLPI] Ticket créé, déclenchement sync recent...`);
+        setTimeout(async () => {
+            try {
+                const recentSettings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+                if (!recentSettings || !recentSettings.url) return;
+
+                let recentUrl = recentSettings.url.trim();
+                if (!recentUrl.includes('apirest.php')) {
+                    recentUrl = recentUrl.endsWith('/') ? `${recentUrl}apirest.php` : `${recentUrl}/apirest.php`;
+                }
+
+                const recentHeaders = { 'App-Token': (recentSettings.app_token || '').trim(), 'Content-Type': 'application/json' };
+                let recentAuth = (recentSettings.user_token || '').trim()
+                    ? `user_token ${(recentSettings.user_token || '').trim()}`
+                    : `Basic ${Buffer.from(`${(recentSettings.login || '').trim()}:${(recentSettings.password || '').trim()}`).toString('base64')}`;
+
+                // Créer un log pour la sync auto
+                const logResult = await pool.query(
+                    `INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, total_tickets) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+                    ['tickets', 'auto', 'magapp-user', 'running', 50]
+                );
+                const autoLogId = logResult.rows[0]?.id;
+
+                const session = await axios.get(`${recentUrl}/initSession`, { headers: { ...recentHeaders, 'Authorization': recentAuth } });
+                const sToken = session.data?.session_token;
+                if (!sToken) return;
+
+                // Activer la session
+                await axios.get(`${recentUrl}/getMyProfiles?session_token=${sToken}`, { headers: recentHeaders });
+                await axios.get(`${recentUrl}/getFullSession?session_token=${sToken}`, { headers: recentHeaders });
+
+                // Récupérer les 500 derniers tickets par lots
+                const fields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 62];
+                const str = fields.map(id => `forcedisplay[${id}]=${id}`).join('&');
+                const countRes = await axios.get(`${recentUrl}/search/Ticket?session_token=${sToken}&range=0-1&get_all_entities=1`, { headers: { ...recentHeaders, 'Session-Token': sToken } });
+                const totalAvailable = parseInt(countRes.data.totalcount, 10) || 0;
+                const startOffset = Math.max(0, totalAvailable - 500);
+
+                const val = (t, id) => t[id] !== undefined && t[id] !== null ? (typeof t[id] === 'object' ? t[id].name || t[id].id || '' : String(t[id])) : '';
+                const valInt = (t, id) => { const v = t[id]; if (v === undefined || v === null) return 0; if (typeof v === 'object' && v !== null) { if (v.id !== undefined && v.id !== null) return Number(v.id) || 0; return Number(v.name) || 0; } const num = parseInt(String(v), 10); return isNaN(num) ? 0 : num; };
+                const normEmail = (e) => { if (!e) return ''; e = e.trim().toLowerCase(); if (!e.includes('@')) e += '@ivry94.fr'; return e; };
+
+                const insertBatchToPg = async (tickets) => {
+                    if (tickets.length === 0) return;
+                    const cols = 'glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22';
+                    const values = tickets.map((t, i) => {
+                        const base = i * 20;
+                        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20})`;
+                    }).join(', ');
+                    const params = tickets.flatMap(t => [t.glpi_id, t.title, t.content || '', t.status, t.priority, t.urgency, t.impact, t.category, t.type, t.date_creation, t.date_mod, t.date_closed, t.date_solved, t.location, t.solution, t.source, t.entity, t.requester_name, t.email_alt, t.requester_email_22]);
+                    await pool.query(`INSERT INTO glpi.tickets (${cols}) VALUES ${values} ON CONFLICT (glpi_id) DO UPDATE SET title = EXCLUDED.title, content = EXCLUDED.content, status = EXCLUDED.status, priority = EXCLUDED.priority, urgency = EXCLUDED.urgency, impact = EXCLUDED.impact, category = EXCLUDED.category, type = EXCLUDED.type, date_creation = EXCLUDED.date_creation, date_mod = EXCLUDED.date_mod, date_closed = EXCLUDED.date_closed, date_solved = EXCLUDED.date_solved, location = EXCLUDED.location, solution = EXCLUDED.solution, source = EXCLUDED.source, entity = EXCLUDED.entity, requester_name = EXCLUDED.requester_name, email_alt = EXCLUDED.email_alt, requester_email_22 = EXCLUDED.requester_email_22, last_sync = CURRENT_TIMESTAMP`, params);
+                };
+
+                let processedCount = 0;
+                const batchSize = 500;
+                let allTickets = [];
+
+                for (let start = startOffset; start < totalAvailable; start += batchSize) {
+                    const end = Math.min(start + batchSize, totalAvailable);
+                    const batchRes = await axios.get(`${recentUrl}/search/Ticket?session_token=${sToken}&range=${start}-${end - 1}&get_all_entities=1&${str}`, { headers: { ...recentHeaders, 'Session-Token': sToken } });
+                    if (batchRes.data?.data && Array.isArray(batchRes.data.data)) {
+                        for (const t of batchRes.data.data) {
+                            const ticketId = valInt(t, 2);
+                            if (!ticketId) continue;
+                            allTickets.push({
+                                glpi_id: ticketId, title: val(t, 1), content: val(t, 62) || '', status: valInt(t, 12), priority: valInt(t, 3), urgency: valInt(t, 10), impact: valInt(t, 11),
+                                category: val(t, 7) || '', type: val(t, 14) || '', date_creation: val(t, 15) || '', date_mod: val(t, 19) || val(t, 15) || '',
+                                date_closed: val(t, 16) || '', date_solved: val(t, 17) || '', location: val(t, 83) || '', solution: val(t, 24) || '', source: val(t, 9) || '',
+                                entity: val(t, 80) || '', requester_name: val(t, 4) || 'Inconnu', email_alt: normEmail(val(t, 34)), requester_email_22: normEmail(val(t, 22))
+                            });
+                        }
+                    }
+                }
+
+                await insertBatchToPg(allTickets);
+                processedCount = allTickets.length;
+                console.log(`[GLPI] Sync recent: ${processedCount} tickets synchronisés vers PostgreSQL (batch)`);
+
+                // Mettre à jour le log
+                if (autoLogId) {
+                    await pool.query(
+                        `UPDATE glpi.sync_logs SET status = $1, processed_tickets = $2, completed_at = CURRENT_TIMESTAMP WHERE id = $3`,
+                        ['completed', processedCount, autoLogId]
+                    );
+                }
+
+                await axios.get(`${recentUrl}/killSession?session_token=${sToken}`, { headers: { ...recentHeaders, 'Session-Token': sToken } });
+            } catch (e) {
+                console.error('[GLPI] Erreur sync recent auto:', e.message);
+                // Log error if possible
+                try {
+                    if (autoLogId) {
+                        await pool.query(
+                            `UPDATE glpi.sync_logs SET status = $1, error_message = $2, completed_at = CURRENT_TIMESTAMP WHERE id = $3`,
+                            ['error', e.message, autoLogId]
+                        );
+                    }
+                } catch (logErr) {
+                    console.error('[GLPI] Erreur log:', logErr.message);
+                }
+            }
+        }, 2000);
+
+    } catch (error) {
+        console.error('[GLPI] Erreur création ticket:', error.message);
+        res.status(500).json({ message: `Erreur création ticket: ${error.message}` });
+    }
+});
+
+// Route : Clore un ticket GLPI
+app.put('/api/glpi/tickets/:id/close', authenticateJWT, async (req, res) => {
+    try {
+        const ticketId = req.params.id;
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) return res.status(400).json({ message: 'GLPI non configuré' });
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const commonHeaders = {
+            'App-Token': (settings.app_token || '').trim(),
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        let authHeader = (settings.user_token || '').trim()
+            ? `user_token ${(settings.user_token || '').trim()}`
+            : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { ...commonHeaders, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+
+        // Créer un log pour la sync clôture
+        const logResult = await pool.query(
+            `INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, total_tickets) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            ['ticket', 'close', 'magapp-user', 'running', 1]
+        );
+        const closeLogId = logResult.rows[0]?.id;
+
+        // Mettre à jour le ticket avec status = 6 (Clos)
+        const updateRes = await axios.put(`${url}/Ticket/${ticketId}`, {
+            input: {
+                id: parseInt(ticketId),
+                status: 6
+            }
+        }, {
+            headers: { ...commonHeaders, 'Session-Token': sessionToken },
+            timeout: 15000
+        });
+
+        // Récupérer le ticket mis à jour et synchroniser vers PostgreSQL
+        const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 62];
+        const forcedStr = forcedFields.map((id) => `forcedisplay[${id}]=${id}`).join('&');
+        const ticketRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&criteria[0][field]=2&criteria[0][searchtype]=equals&criteria[0][value]=${ticketId}&${forcedStr}`, { headers: commonHeaders, timeout: 10000 });
+
+        if (ticketRes.data?.data && ticketRes.data.data.length > 0) {
+            const t = ticketRes.data.data[0];
+const val = (field, id) => {
+                const v = field[id];
                 if (v === undefined || v === null) return '';
                 if (typeof v === 'object' && v !== null) return v.name || v.id || JSON.stringify(v);
                 return String(v);
             };
+            const valInt = (field, id) => {
+                const v = field[id];
+                if (v === undefined || v === null) return 0;
+                if (typeof v === 'object' && v !== null) {
+                    if (v.id !== undefined && v.id !== null) return Number(v.id) || 0;
+                    return Number(v.name) || 0;
+                }
+                const num = parseInt(String(v), 10);
+                return isNaN(num) ? 0 : num;
+            };
+            const normalizeEmail = (email) => {
+                if (!email || typeof email !== 'string') return '';
+                email = email.trim().toLowerCase();
+                if (!email) return '';
+                if (!email.includes('@')) email += '@ivry94.fr';
+                return email;
+            };
 
-            for (const t of tickets) {
-                // Email : priorité au champ 34, sinon 22
-                const email = val(t, 34) || val(t, 22);
+            const email34 = normalizeEmail(val(t, 34));
+            const email22 = normalizeEmail(val(t, 22));
 
-                await db.run(`INSERT OR REPLACE INTO tickets (
-                    glpi_id, title, status, priority, urgency, impact, 
-                    category, type, date_creation, date_mod, date_closed, date_solved, 
-                    location, solution, source, entity, requester_name, requester_email
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-                    t[2], // glpi_id
-                    val(t, 1), // title
-                    val(t, 12), // status
-                    val(t, 3) || 0, // priority
-                    val(t, 10) || 0, // urgency
-                    val(t, 11) || 0, // impact
-                    val(t, 7), // category
-                    val(t, 14), // type
-                    val(t, 15), // date_creation
-                    val(t, 19) || val(t, 15), // date_mod
-                    val(t, 16) || null, // date_closed
-                    val(t, 17) || null, // date_solved
-                    val(t, 83), // location
-                    val(t, 24), // solution
-                    val(t, 9), // source
-                    val(t, 80), // entity
-                    val(t, 4) || 'Inconnu', // requester_name
-                    email // requester_email
-                ]);
-                processedCount++;
-                glpiSyncProgress.processed = processedCount;
-                glpiSyncProgress.lastUpdate = new Date().toISOString();
-            }
-
-            await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders });
-            res.json({ success: true, count: tickets.length });
-        } else {
-            glpiSyncProgress.active = false;
-            res.json({ success: true, count: 0 });
+            await pgDb.run(
+                `INSERT INTO glpi.tickets (glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22, last_sync)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP)
+                 ON CONFLICT (glpi_id) DO UPDATE SET
+                   title = EXCLUDED.title, content = EXCLUDED.content, status = EXCLUDED.status, priority = EXCLUDED.priority,
+                   urgency = EXCLUDED.urgency, impact = EXCLUDED.impact, category = EXCLUDED.category, type = EXCLUDED.type,
+                   date_creation = EXCLUDED.date_creation, date_mod = EXCLUDED.date_mod, date_closed = EXCLUDED.date_closed, 
+                   date_solved = EXCLUDED.date_solved, location = EXCLUDED.location, solution = EXCLUDED.solution,
+                   source = EXCLUDED.source, entity = EXCLUDED.entity, requester_name = EXCLUDED.requester_name,
+                   email_alt = EXCLUDED.email_alt, requester_email_22 = EXCLUDED.requester_email_22, last_sync = CURRENT_TIMESTAMP`,
+                 [valInt(t, 2), val(t, 1), val(t, 62) || '', valInt(t, 12), valInt(t, 3), valInt(t, 11), valInt(t, 10),
+                  val(t, 7) || '', val(t, 14) || '', val(t, 15) || '', val(t, 16) || '',
+                  val(t, 17) || '', val(t, 19) || '', val(t, 83) || '', val(t, 24) || '',
+                  val(t, 9) || '', val(t, 80) || '', val(t, 4) || '', email34, email22]
+            );
+            console.log(`[GLPI] Ticket ${ticketId} sync après clôture`);
         }
+
+        // Mettre à jour le log
+        if (closeLogId) {
+            await pool.query(
+                `UPDATE glpi.sync_logs SET status = $1, processed_tickets = 1, completed_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                ['completed', closeLogId]
+            );
+        }
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        res.json({ success: true, ticket: updateRes.data });
     } catch (error) {
-        glpiSyncProgress.active = false;
-        console.error('[GLPI] Erreur Sync:', error.message);
-        res.status(500).json({ message: `Erreur Sync: ${error.message}` });
+        console.error('[GLPI] Erreur clôture ticket:', error.message);
+        res.status(500).json({ message: `Erreur clôture ticket: ${error.message}` });
     }
 });
 
-// État global pour le suivi de la synchronisation GLPI
-let glpiSyncProgress = {
-    active: false,
-    processed: 0,
-    total: 0,
-    startTime: null,
-    lastUpdate: null
-};
+// Route : Créer une idée
+app.post('/api/magapp/ideas', async (req, res) => {
+    try {
+        const { title, description, author_email, author_name } = req.body;
+        if (!title) return res.status(400).json({ message: 'Titre requis' });
+        
+        const result = await pgDb.run(
+            `INSERT INTO magapp.ideas (title, description, author_email, author_name, status) VALUES ($1, $2, $3, $4, 'new')`,
+            [title, description || '', author_email || '', author_name || '']
+        );
+        
+        res.json({ success: true, id: result.lastID, message: 'Idée créée avec succès' });
+    } catch (error) {
+        console.error('[Ideas] Erreur création idée:', error.message);
+        res.status(500).json({ message: `Erreur création idée: ${error.message}` });
+    }
+});
 
-// Route : Statut de la synchronisation GLPI
-app.get('/api/glpi/sync-status', authenticateAdmin, (req, res) => {
-    console.log('[GLPI Status]', JSON.stringify(glpiSyncProgress));
-    res.json(glpiSyncProgress);
+// Route : Lister les idées
+app.get('/api/magapp/ideas', async (req, res) => {
+    try {
+        const ideas = await pgDb.all('SELECT * FROM magapp.ideas ORDER BY created_at DESC');
+        res.json(ideas);
+    } catch (error) {
+        console.error('[Ideas] Erreur liste:', error.message);
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+// Route : Lister les idées d'un utilisateur
+app.get('/api/magapp/ideas/user', async (req, res) => {
+    try {
+        const email = req.query.email;
+        if (!email) return res.status(400).json({ message: 'Email requis' });
+        const ideas = await pgDb.all('SELECT * FROM magapp.ideas WHERE author_email = $1 ORDER BY created_at DESC', [email]);
+        res.json(ideas);
+    } catch (error) {
+        console.error('[Ideas] Erreur liste:', error.message);
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+// Route : Supprimer une idée
+app.delete('/api/magapp/ideas/:id', async (req, res) => {
+    try {
+        await pgDb.run('DELETE FROM magapp.ideas WHERE id = $1', [req.params.id]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Ideas] Erreur suppression:', error.message);
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+// Admin: Lister toutes les idées
+app.get('/api/admin/magapp/ideas', authenticateMagappControl, async (req, res) => {
+    try {
+        const ideas = await pgDb.all(`
+            SELECT i.*, 
+                   (SELECT json_agg(json_build_object('id', a.id, 'filename', a.original_name, 'file_path', a.file_path)) 
+                    FROM magapp.idea_attachments a WHERE a.idea_id = i.id) as attachments
+            FROM magapp.ideas i 
+            ORDER BY i.created_at DESC
+        `);
+        res.json(ideas);
+    } catch (error) {
+        console.error('[Ideas Admin] Erreur liste:', error.message);
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+// Admin: Mettre à jour le statut et réponse d'une idée
+app.put('/api/admin/magapp/ideas/:id', authenticateMagappControl, async (req, res) => {
+    try {
+        const { status, admin_response } = req.body;
+        await pgDb.run(
+            'UPDATE magapp.ideas SET status = $1, admin_response = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+            [status, admin_response || '', req.params.id]
+        );
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Ideas Admin] Erreur mise à jour:', error.message);
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+// Admin: Supprimer une idée
+app.delete('/api/admin/magapp/ideas/:id', authenticateMagappControl, async (req, res) => {
+    try {
+        await pgDb.run('DELETE FROM magapp.ideas WHERE id = $1', [req.params.id]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Ideas Admin] Erreur suppression:', error.message);
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+// Route : Upload de fichiers pour idées
+const ideasUploadDir = path.join(__dirname, 'ideas_attachments');
+if (!fs.existsSync(ideasUploadDir)) {
+    fs.mkdirSync(ideasUploadDir, { recursive: true });
+}
+
+const ideasStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, ideasUploadDir),
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + '-' + file.originalname);
+    }
+});
+const ideasUpload = multer({ storage: ideasStorage });
+
+app.post('/api/magapp/ideas/upload', ideasUpload.array('files', 5), async (req, res) => {
+    try {
+        const { idea_id } = req.body;
+        const files = req.files;
+        
+        if (!idea_id || !files || files.length === 0) {
+            return res.status(400).json({ message: 'Données invalides' });
+        }
+        
+        for (const file of files) {
+            await pgDb.run(
+                `INSERT INTO magapp.idea_attachments (idea_id, filename, original_name, file_path, file_size) VALUES ($1, $2, $3, $4, $5)`,
+                [idea_id, file.filename, file.originalname, file.path, file.size]
+            );
+        }
+        
+        res.json({ success: true, count: files.length });
+    } catch (error) {
+        console.error('[Ideas] Erreur upload:', error.message);
+        res.status(500).json({ message: `Erreur upload: ${error.message}` });
+    }
+});
+
+// Route : Upload de pièces jointes vers un ticket GLPI
+const glpiUploadDir = path.join(__dirname, 'glpi_attachments');
+if (!fs.existsSync(glpiUploadDir)) {
+    fs.mkdirSync(glpiUploadDir, { recursive: true });
+}
+
+const glpiUpload = multer({
+    storage: multer.diskStorage({
+        destination: (req, file, cb) => cb(null, glpiUploadDir),
+        filename: (req, file, cb) => {
+            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+            cb(null, uniqueSuffix + '-' + file.originalname);
+        }
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+});
+
+app.post('/api/glpi/tickets/:id/attachments', authenticateJWT, glpiUpload.array('files', 5), async (req, res) => {
+    try {
+        const ticketId = req.params.id;
+        const files = req.files;
+        
+        if (!files || files.length === 0) {
+            return res.status(400).json({ message: 'Aucun fichier' });
+        }
+        
+        console.log(`[GLPI Upload] Début upload ${files.length} fichier(s) pour ticket ${ticketId}`);
+        
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) return res.status(400).json({ message: 'GLPI non configuré' });
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const appToken = (settings.app_token || '').trim();
+        let authHeader = (settings.user_token || '').trim()
+            ? `user_token ${(settings.user_token || '').trim()}`
+            : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { 'App-Token': appToken, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        // Activer la session
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: { 'App-Token': appToken } });
+        await axios.get(`${url}/getFullSession?session_token=${sessionToken}`, { headers: { 'App-Token': appToken } });
+
+        let uploadedCount = 0;
+        
+        for (const file of files) {
+            try {
+                console.log(`[GLPI Upload] Traitement fichier: ${file.originalname} (${file.size} bytes)`);
+                
+                const FormData = require('form-data');
+                const form = new FormData();
+                
+                form.append('uploadManifest', JSON.stringify({
+                    input: {
+                        name: file.originalname,
+                        filename: file.originalname,
+                        mime: file.mimetype || 'application/octet-stream'
+                    }
+                }));
+                
+                form.append('filename', fs.createReadStream(file.path), {
+                    filename: file.originalname,
+                    contentType: file.mimetype || 'application/octet-stream'
+                });
+
+                console.log(`[GLPI Upload] Envoi vers ${url}/Document`);
+                
+                const docRes = await axios.post(`${url}/Document`, form, {
+                    headers: { 
+                        'App-Token': appToken,
+                        'Session-Token': sessionToken,
+                        ...form.getHeaders()
+                    },
+                    timeout: 30000
+                });
+
+                console.log(`[GLPI Upload] Réponse complète:`, JSON.stringify(docRes.data));
+
+                // GLPI peut retourner le document de différentes façons
+                let docId = null;
+                if (docRes.data?.id) {
+                    docId = docRes.data.id;
+                } else if (docRes.data && typeof docRes.data === 'object') {
+                    // Chercher l'ID dans différentes structures possibles
+                    docId = docRes.data.document_id || docRes.data.documents_id || docRes.data[0]?.id || docRes.data.id;
+                }
+
+                console.log(`[GLPI Upload] Document ID trouvé:`, docId);
+
+                if (docId) {
+                    // Vérifier les détails du document uploadé
+                    const docDetailRes = await axios.get(`${url}/Document/${docId}`, {
+                        headers: { 'App-Token': appToken, 'Session-Token': sessionToken }
+                    });
+                    console.log(`[GLPI Upload] Détails document ${docId}:`, JSON.stringify(docDetailRes.data));
+                    
+                    // Lier via Document_Item (itemtype=Ticket, items_id=ticketId)
+                    const itemRes = await axios.post(`${url}/Document_Item`, {
+                        input: {
+                            documents_id: docId,
+                            itemtype: 'Ticket',
+                            items_id: parseInt(ticketId)
+                        }
+                    }, {
+                        headers: { 
+                            'App-Token': appToken, 
+                            'Session-Token': sessionToken,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 10000
+                    });
+                    console.log(`[GLPI Upload] Document_Item créé:`, itemRes.data);
+                    
+                    uploadedCount++;
+                } else {
+                    console.log(`[GLPI Upload] Pas d'ID de document retourné, réponse:`, docRes.data);
+                }
+            } catch (e) {
+                console.error('[GLPI] Erreur upload fichier:', e.response?.data || e.message);
+            }
+
+            // Supprimer le fichier temporaire
+            fs.unlinkSync(file.path);
+        }
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { 
+            headers: { 'App-Token': appToken, 'Session-Token': sessionToken } 
+        });
+
+        res.json({ success: true, count: uploadedCount });
+    } catch (error) {
+        console.error('[GLPI] Erreur upload:', error.message);
+        res.status(500).json({ message: `Erreur upload: ${error.message}` });
+    }
 });
 
 // Route : Synchroniser TOUS les tickets GLPI (Pagination par 500)
-app.post('/api/glpi/sync-all-tickets', authenticateAdmin, async (req, res) => {
+app.post('/api/glpi/sync-all-tickets', authenticateInternalOrAdmin, async (req, res) => {
     let sessionToken = null;
     let url = null;
     let commonHeaders = null;
+    let processedCount = 0;
+    let syncLogId = null;
+    const triggeredBy = req.user?.username || 'admin';
+
+    glpiSyncCancelled = false;
+    glpiSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString(), type: 'full' };
 
     try {
         const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
-        if (!settings || !settings.url) return res.status(400).json({ message: 'GLPI non configuré' });
+        if (!settings || !settings.url) {
+            glpiSyncProgress.active = false;
+            return res.status(400).json({ message: 'GLPI non configuré' });
+        }
 
         url = settings.url.trim();
         if (!url.includes('apirest.php')) {
@@ -3342,102 +4096,129 @@ app.post('/api/glpi/sync-all-tickets', authenticateAdmin, async (req, res) => {
         await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
         await axios.get(`${url}/getFullSession?session_token=${sessionToken}`, { headers: commonHeaders });
 
+        // Synchroniser les statuts GLPI
+        const statuses = [
+            { id: 1, label: 'Nouveau' },
+            { id: 2, label: 'En cours (Attribué)' },
+            { id: 3, label: 'En cours (Planifié)' },
+            { id: 4, label: 'En attente' },
+            { id: 5, label: 'Résolu' },
+            { id: 6, label: 'Clos' }
+        ];
+        for (const status of statuses) {
+            await pgDb.run(`INSERT INTO glpi.ticket_status (id, label) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label`, [status.id, status.label]);
+        }
+        console.log('[GLPI Sync] Statuts synchronisés');
+
         // 2. Obtenir le compte total
         const countRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=0-1&get_all_entities=1`, { headers: commonHeaders });
         const totalCount = parseInt(countRes.data.totalcount, 10) || 0;
         console.log(`[GLPI Sync] Début synchronisation totale. Total estimé: ${totalCount}`);
+        glpiSyncProgress.total = totalCount;
 
-        // Initialisation du statut
-        glpiSyncProgress = {
-            active: true,
-            processed: 0,
-            total: totalCount,
-            startTime: new Date().toISOString(),
-            lastUpdate: new Date().toISOString()
-        };
+        // Créer le log de synchro
+        const logResult = await pool.query(
+            `INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, total_tickets) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            ['tickets', 'full', triggeredBy, 'running', totalCount]
+        );
+        syncLogId = logResult.rows[0]?.id;
 
         if (totalCount === 0) {
-            await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders });
+            await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
             return res.json({ success: true, count: 0, message: 'Aucun ticket à synchroniser.' });
         }
 
         const batchSize = 500;
         let processedCount = 0;
 
-        // Préparation insertion
-        const insertStmt = await db.prepare(`
-            INSERT OR REPLACE INTO tickets (
-                glpi_id, title, status, priority, urgency, impact, category, type, 
-                date_creation, date_mod, date_closed, date_solved, 
-                location, solution, source, entity, requester_name, requester_email
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
+        // Helper pour insertion lot PostgreSQL
+        const insertBatchToPg = async (tickets) => {
+            if (tickets.length === 0) return;
+            const cols = 'glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22';
+            const values = tickets.map((t, i) => {
+                const base = i * 20;
+                return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12}, $${base + 13}, $${base + 14}, $${base + 15}, $${base + 16}, $${base + 17}, $${base + 18}, $${base + 19}, $${base + 20})`;
+            }).join(', ');
+            const params = tickets.flatMap(t => [t.glpi_id, t.title, t.content || '', t.status, t.priority, t.urgency, t.impact, t.category, t.type, t.date_creation, t.date_mod, t.date_closed, t.date_solved, t.location, t.solution, t.source, t.entity, t.requester_name, t.email_alt, t.requester_email_22]);
+            await pool.query(`INSERT INTO glpi.tickets (${cols}) VALUES ${values} ON CONFLICT (glpi_id) DO UPDATE SET title = EXCLUDED.title, content = EXCLUDED.content, status = EXCLUDED.status, priority = EXCLUDED.priority, urgency = EXCLUDED.urgency, impact = EXCLUDED.impact, category = EXCLUDED.category, type = EXCLUDED.type, date_creation = EXCLUDED.date_creation, date_mod = EXCLUDED.date_mod, date_closed = EXCLUDED.date_closed, date_solved = EXCLUDED.date_solved, location = EXCLUDED.location, solution = EXCLUDED.solution, source = EXCLUDED.source, entity = EXCLUDED.entity, requester_name = EXCLUDED.requester_name, email_alt = EXCLUDED.email_alt, requester_email_22 = EXCLUDED.requester_email_22, last_sync = CURRENT_TIMESTAMP`, params);
+        };
 
-        // Utilisation d'une transaction pour la performance
-        await db.run('BEGIN TRANSACTION');
+        // Helper function to safely extract values from GLPI response, handling objects and nulls
+        const val = (t, id) => {
+            const v = t[id];
+            if (v === undefined || v === null) return '';
+            if (typeof v === 'object' && v !== null) return v.name || v.id || JSON.stringify(v);
+            return v;
+        };
 
-        try {
-            // Helper function to safely extract values from GLPI response, handling objects and nulls
-            const val = (t, id) => {
-                const v = t[id];
-                if (v === undefined || v === null) return '';
-                if (typeof v === 'object' && v !== null) return v.name || v.id || JSON.stringify(v);
-                return v;
-            };
-
-            for (let start = 0; start < totalCount; start += batchSize) {
-                const end = Math.min(start + batchSize, totalCount);
-                console.log(`[GLPI Sync] Récupération tickets ${start}-${end}...`);
-
-                // forcedisplay pour tous les champs requis. Ajout du 22 (Email) car le 34 est parfois vide.
-                const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22];
-                const forcedStr = forcedFields.map((id, idx) => `forcedisplay[${id}]=${id}`).join('&');
-                // GLPI Range est inclusif (0-499 = 500 items). On utilise donc start-${end-1}
-                const batchRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${start}-${end - 1}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
-
-                if (batchRes.data && Array.isArray(batchRes.data.data)) {
-                    for (const t of batchRes.data.data) {
-                        // Email : priorité au champ 34, sinon 22
-                        const email = val(t, 34) || val(t, 22);
-
-                        await insertStmt.run(
-                            t[2], // glpi_id
-                            val(t, 1), // title
-                            val(t, 12), // status
-                            val(t, 3) || 0, // priority
-                            val(t, 10) || 0, // urgency
-                            val(t, 11) || 0, // impact
-                            val(t, 7), // category
-                            val(t, 14), // type
-                            val(t, 15), // date_creation
-                            val(t, 19) || val(t, 15), // date_mod
-                            val(t, 16) || null, // date_closed
-                            val(t, 17) || null, // date_solved
-                            val(t, 83), // location
-                            val(t, 24), // solution
-                            val(t, 9), // source
-                            val(t, 80), // entity
-                            val(t, 4) || 'Inconnu', // requester_name
-                            email // requester_email
-                        );
-                        processedCount++;
-                        glpiSyncProgress.processed = processedCount;
-                        glpiSyncProgress.lastUpdate = new Date().toISOString();
-                    }
-                }
+        const valInt = (t, id) => {
+            const v = t[id];
+            if (v === undefined || v === null) return 0;
+            if (typeof v === 'object' && v !== null) {
+                if (v.id !== undefined && v.id !== null) return Number(v.id) || 0;
+                return Number(v.name) || 0;
             }
-            glpiSyncProgress.active = false;
-            await db.run('COMMIT');
-            console.log(`[GLPI Sync] Synchronisation terminée : ${processedCount} tickets.`);
-        } catch (error) {
-            await db.run('ROLLBACK');
-            throw error;
-        } finally {
-            await insertStmt.finalize();
-        }
+            const num = parseInt(String(v), 10);
+            return isNaN(num) ? 0 : num;
+        };
 
-        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders });
+        // Helper pour normaliser les emails (ajouter @ivry94.fr si pas de domaine)
+        const normalizeEmail = (email) => {
+            if (!email || typeof email !== 'string') return '';
+            email = email.trim().toLowerCase();
+            if (!email) return '';
+            if (!email.includes('@')) email += '@ivry94.fr';
+            return email;
+        };
+
+        for (let start = 0; start < totalCount; start += batchSize) {
+            if (glpiSyncCancelled) {
+                console.log('[GLPI Sync] Synchronisation annulée par l\'utilisateur.');
+                glpiSyncProgress.active = false;
+                glpiSyncCancelled = false;
+                return res.status(499).json({ message: 'Synchronisation annulée', count: processedCount, total: totalCount });
+            }
+
+            const end = Math.min(start + batchSize, totalCount);
+            console.log(`[GLPI Sync] Récupération tickets ${start}-${end}...`);
+
+            // forcedisplay pour tous les champs requis. Ajout du 22 (Email) car le 34 est parfois vide. 62 = content/description.
+            const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 62];
+            const forcedStr = forcedFields.map((id) => `forcedisplay[${id}]=${id}`).join('&');
+            // GLPI Range est inclusif (0-499 = 500 items). On utilise donc start-${end-1}
+            const batchRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${start}-${end - 1}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
+
+            if (batchRes.data && Array.isArray(batchRes.data.data)) {
+                const batchTickets = [];
+                for (const t of batchRes.data.data) {
+                    const ticketId = valInt(t, 2);
+                    if (!ticketId) {
+                        console.log('[GLPI Sync] Ticket sans ID ignoré dans le batch:', JSON.stringify(t).substring(0, 200));
+                        continue;
+                    }
+                    const email34 = normalizeEmail(val(t, 34));
+                    const email22 = normalizeEmail(val(t, 22));
+
+                    batchTickets.push({
+                        glpi_id: ticketId, title: val(t, 1), content: val(t, 62), status: valInt(t, 12), priority: valInt(t, 3),
+                        urgency: valInt(t, 10), impact: valInt(t, 11), category: val(t, 7), type: val(t, 14),
+                        date_creation: val(t, 15), date_mod: val(t, 19) || val(t, 15), date_closed: val(t, 16) || null,
+                        date_solved: val(t, 17) || null, location: val(t, 83), solution: val(t, 24), source: val(t, 9),
+                        entity: val(t, 80), requester_name: val(t, 4) || 'Inconnu', email_alt: email34, requester_email_22: email22
+                    });
+
+                    processedCount++;
+                    glpiSyncProgress.processed = processedCount;
+                    glpiSyncProgress.lastUpdate = new Date().toISOString();
+                }
+                // Insertion lot PostgreSQL
+                await insertBatchToPg(batchTickets);
+            }
+        }
+        glpiSyncProgress.active = false;
+        console.log(`[GLPI Sync] Synchronisation terminée : ${processedCount} tickets.`);
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
         res.json({ success: true, count: processedCount, total: totalCount });
 
     } catch (error) {
@@ -3447,6 +4228,551 @@ app.post('/api/glpi/sync-all-tickets', authenticateAdmin, async (req, res) => {
         }
         glpiSyncProgress.active = false;
         res.status(500).json({ message: `Erreur Synchronisation Totale: ${error.message}` });
+    }
+});
+
+// Route : Synchroniser les statuts GLPI
+app.post('/api/glpi/sync-statuses', authenticateAdmin, async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) return res.status(400).json({ message: 'GLPI non configuré' });
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const commonHeaders = {
+            'App-Token': (settings.app_token || '').trim(),
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        let authHeader = (settings.user_token || '').trim()
+            ? `user_token ${(settings.user_token || '').trim()}`
+            : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { ...commonHeaders, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+
+        const statuses = [
+            { id: 1, label: 'Nouveau' },
+            { id: 2, label: 'En cours (Attribué)' },
+            { id: 3, label: 'En cours (Planifié)' },
+            { id: 4, label: 'En attente' },
+            { id: 5, label: 'Résolu' },
+            { id: 6, label: 'Clos' }
+        ];
+
+        let count = 0;
+        for (const status of statuses) {
+            await pgDb.run(
+                `INSERT INTO glpi.ticket_status (id, label) VALUES ($1, $2)
+                 ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label`,
+                [status.id, status.label]
+            );
+            count++;
+        }
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        res.json({ success: true, count, message: `${count} statuts synchronisés` });
+    } catch (error) {
+        console.error('[GLPI] Erreur sync statuts:', error.message);
+        res.status(500).json({ message: `Erreur sync statuts: ${error.message}` });
+    }
+});
+
+// Route : Synchroniser les observateurs GLPI (par lots de tickets)
+app.post('/api/glpi/sync-observers', authenticateInternalOrAdmin, async (req, res) => {
+    observersSyncCancelled = false;
+    observersSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString() };
+
+    try {
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) {
+            observersSyncProgress.active = false;
+            return res.status(400).json({ message: 'GLPI non configuré' });
+        }
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const commonHeaders = {
+            'App-Token': (settings.app_token || '').trim(),
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        let authHeader = (settings.user_token || '').trim()
+            ? `user_token ${(settings.user_token || '').trim()}`
+            : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { ...commonHeaders, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+
+        // Récupérer les IDs des tickets depuis PostgreSQL
+        const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id');
+        console.log(`[GLPI Observers] Synchronisation de ${tickets.length} tickets...`);
+        console.log(`[GLPI Observers] Exemple de ticket:`, tickets[0]);
+        observersSyncProgress.total = tickets.length;
+
+        let observerCount = 0;
+        const batchSize = 500;
+        const observersToInsert = [];
+
+        for (let i = 0; i < tickets.length; i += batchSize) {
+            if (observersSyncCancelled) {
+                console.log('[GLPI Observers] Synchronisation annulée');
+                observersSyncProgress.active = false;
+                observersSyncCancelled = false;
+                return res.status(499).json({ message: 'Synchronisation annulée', count: observerCount });
+            }
+
+            const batch = tickets.slice(i, i + batchSize);
+            const promises = batch.map(ticket => 
+                axios.get(`${url}/Ticket/${ticket.glpi_id}/Ticket_User?session_token=${sessionToken}`, {
+                    headers: commonHeaders,
+                    timeout: 10000
+                }).catch(() => ({ data: [] }))
+            );
+            
+            const results = await Promise.all(promises);
+            
+            for (let j = 0; j < results.length; j++) {
+                const ticketId = batch[j].glpi_id;
+                const ticketUsers = results[j].data || [];
+                
+                // Filtrer uniquement les observateurs (type=3)
+                const observers = ticketUsers.filter(tu => tu.type === 3);
+                
+                for (const obs of observers) {
+                    observersToInsert.push({
+                        ticket_id: ticketId,
+                        user_id: obs.users_id,
+                        name: obs.users_id?.toString() || '',
+                        login: obs.users_id?.toString() || '',
+                        email: obs.alternative_email || ''
+                    });
+                }
+            }
+
+            observersSyncProgress.processed = Math.min(i + batchSize, tickets.length);
+            observersSyncProgress.lastUpdate = new Date().toISOString();
+
+            if ((i + batchSize) % 500 === 0 || i + batchSize >= tickets.length) {
+                console.log(`[GLPI Observers] Progression: ${Math.min(i + batchSize, tickets.length)}/${tickets.length}`);
+            }
+        }
+
+        // Insertion par lots dans PostgreSQL
+        if (observersToInsert.length > 0) {
+            const insertBatch = async (obs) => {
+                const values = obs.map((o, idx) => {
+                    const base = idx * 5;
+                    return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, CURRENT_TIMESTAMP)`;
+                }).join(', ');
+                const params = obs.flatMap(o => [o.ticket_id, o.user_id, o.name, o.login, o.email]);
+                await pool.query(`INSERT INTO glpi.observers (ticket_id, user_id, name, login, email, last_sync) VALUES ${values} ON CONFLICT (ticket_id, user_id) DO UPDATE SET name = EXCLUDED.name, login = EXCLUDED.login, email = EXCLUDED.email, last_sync = EXCLUDED.last_sync`, params);
+            };
+
+            const pgBatchSize = 500;
+            for (let i = 0; i < observersToInsert.length; i += pgBatchSize) {
+                await insertBatch(observersToInsert.slice(i, i + pgBatchSize));
+            }
+            observerCount = observersToInsert.length;
+        }
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        try {
+            await pool.query(`INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, total_tickets, processed_tickets) VALUES ($1, $2, $3, $4, $5, $6)`,
+                ['observers', 'full', req.user?.username || 'admin', 'completed', tickets.length, observerCount]);
+        } catch (logErr) {
+            console.error('[GLPI] Erreur log sync observateurs:', logErr.message);
+        }
+
+        observersSyncProgress.active = false;
+        res.json({ success: true, count: observerCount, message: `${observerCount} observateurs synchronisés` });
+    } catch (error) {
+        observersSyncProgress.active = false;
+        console.error('[GLPI] Erreur sync observateurs:', error.message);
+        res.status(500).json({ message: `Erreur sync observateurs: ${error.message}` });
+    }
+});
+
+// Route : Synchro observateurs pour tickets récents uniquement
+app.post('/api/glpi/sync-observers-recent', authenticateInternalOrAdmin, async (req, res) => {
+    observersSyncCancelled = false;
+    observersSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString() };
+
+    try {
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) {
+            observersSyncProgress.active = false;
+            return res.status(400).json({ message: 'GLPI non configuré' });
+        }
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const commonHeaders = {
+            'App-Token': (settings.app_token || '').trim(),
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        let authHeader = (settings.user_token || '').trim()
+            ? `user_token ${(settings.user_token || '').trim()}`
+            : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { ...commonHeaders, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+
+        // Récupérer uniquement les 50 derniers tickets
+        const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id DESC LIMIT 50');
+        console.log(`[GLPI Observers Recent] Synchronisation de ${tickets.length} tickets...`);
+        observersSyncProgress.total = tickets.length;
+
+        let observerCount = 0;
+        const observersToInsert = [];
+
+        const obsResults = await Promise.allSettled(tickets.map(async (ticket) => {
+            try {
+                const resUsers = await axios.get(`${url}/Ticket/${ticket.glpi_id}/Ticket_User?session_token=${sessionToken}`, {
+                    headers: commonHeaders,
+                    timeout: 5000
+                });
+                const ticketUsers = resUsers.data || [];
+                const observers = ticketUsers.filter(tu => tu.type === 3);
+                return observers.map(obs => ({
+                    ticket_id: ticket.glpi_id,
+                    user_id: obs.users_id,
+                    name: obs.users_id?.toString() || '',
+                    login: obs.users_id?.toString() || '',
+                    email: obs.alternative_email || ''
+                }));
+            } catch (e) {
+                return [];
+            }
+        }));
+
+        for (const result of obsResults) {
+            if (result.status === 'fulfilled') {
+                observersToInsert.push(...result.value);
+            }
+        }
+
+        observersSyncProgress.processed = tickets.length;
+        observersSyncProgress.lastUpdate = new Date().toISOString();
+
+        if (observersToInsert.length > 0) {
+            const insertBatch = async (obs) => {
+                const values = obs.map((o, idx) => {
+                    const base = idx * 5;
+                    return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, CURRENT_TIMESTAMP)`;
+                }).join(', ');
+                const params = obs.flatMap(o => [o.ticket_id, o.user_id, o.name, o.login, o.email]);
+                await pool.query(`INSERT INTO glpi.observers (ticket_id, user_id, name, login, email, last_sync) VALUES ${values} ON CONFLICT (ticket_id, user_id) DO UPDATE SET name = EXCLUDED.name, login = EXCLUDED.login, email = EXCLUDED.email, last_sync = EXCLUDED.last_sync`, params);
+            };
+
+            const pgBatchSize = 500;
+            for (let i = 0; i < observersToInsert.length; i += pgBatchSize) {
+                await insertBatch(observersToInsert.slice(i, i + pgBatchSize));
+            }
+            observerCount = observersToInsert.length;
+        }
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        try {
+            await pool.query(`INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, total_tickets, processed_tickets) VALUES ($1, $2, $3, $4, $5, $6)`,
+                ['observers', 'recent', req.user?.username || 'admin', 'completed', tickets.length, observerCount]);
+        } catch (logErr) {
+            console.error('[GLPI] Erreur log sync observateurs recent:', logErr.message);
+        }
+
+        observersSyncProgress.active = false;
+        res.json({ success: true, count: observerCount, message: `${observerCount} observateurs synchronisés pour les 50 derniers tickets` });
+    } catch (error) {
+        observersSyncProgress.active = false;
+        console.error('[GLPI] Erreur sync observateurs recent:', error.message);
+        res.status(500).json({ message: `Erreur sync observateurs: ${error.message}` });
+    }
+});
+
+let followupsSyncProgress = { active: false, processed: 0, total: 0 };
+let followupsSyncCancelled = false;
+
+app.get('/api/glpi/sync-followups-status', authenticateAdmin, (req, res) => {
+    res.json(followupsSyncProgress);
+});
+
+app.post('/api/glpi/sync-followups-cancel', authenticateAdmin, (req, res) => {
+    console.log('[GLPI Followups Cancel] Demande d\'annulation reçue');
+    followupsSyncCancelled = true;
+    res.json({ success: true });
+});
+
+app.post('/api/glpi/sync-followups', authenticateInternalOrAdmin, async (req, res) => {
+    followupsSyncCancelled = false;
+    followupsSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString() };
+
+    try {
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) {
+            followupsSyncProgress.active = false;
+            return res.status(400).json({ message: 'GLPI non configuré' });
+        }
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const commonHeaders = {
+            'App-Token': (settings.app_token || '').trim(),
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        let authHeader = (settings.user_token || '').trim()
+            ? `user_token ${(settings.user_token || '').trim()}`
+            : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { ...commonHeaders, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+
+        const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id DESC');
+        console.log(`[GLPI Followups] Synchronisation de ${tickets.length} tickets...`);
+        followupsSyncProgress.total = tickets.length;
+
+        let followupCount = 0;
+        const followupsToInsert = [];
+
+        const CONCURRENCY = 500;
+        for (let batch = 0; batch < tickets.length; batch += CONCURRENCY) {
+            if (followupsSyncCancelled) {
+                followupsSyncProgress.active = false;
+                followupsSyncCancelled = false;
+                return res.status(499).json({ message: 'Synchronisation annulée', count: followupCount });
+            }
+
+            const batchTickets = tickets.slice(batch, batch + CONCURRENCY);
+            const results = await Promise.allSettled(batchTickets.map(async (ticket) => {
+                try {
+                    const resFollowups = await axios.get(`${url}/Ticket/${ticket.glpi_id}/ITILFollowup?session_token=${sessionToken}`, {
+                        headers: commonHeaders,
+                        timeout: 5000
+                    });
+                    const followups = resFollowups.data || [];
+                    const items = [];
+                    for (const fu of followups) {
+                        if (fu.content) {
+                            items.push({
+                                ticket_id: ticket.glpi_id,
+                                content: fu.content,
+                                author_name: fu.users_id?.name || fu.users_id?.toString() || '',
+                                author_email: fu.users_id?.email || '',
+                                is_private: fu.is_private || 0,
+                                date_creation: fu.date || null
+                            });
+                        }
+                    }
+                    return items;
+                } catch (e) {
+                    return [];
+                }
+            }));
+
+            for (const result of results) {
+                if (result.status === 'fulfilled') {
+                    followupsToInsert.push(...result.value);
+                }
+            }
+
+            followupsSyncProgress.processed = Math.min(batch + CONCURRENCY, tickets.length);
+            followupsSyncProgress.lastUpdate = new Date().toISOString();
+            console.log(`[GLPI Followups] Progression: ${followupsSyncProgress.processed}/${tickets.length}`);
+        }
+
+        if (followupsToInsert.length > 0) {
+            const insertBatch = async (fus) => {
+                const values = fus.map((f, idx) => {
+                    const base = idx * 7;
+                    return `($${base + 1}, $${base + 2}, md5($${base + 2}), $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, CURRENT_TIMESTAMP)`;
+                }).join(', ');
+                const params = fus.flatMap(f => [f.ticket_id, f.content, f.author_name, f.author_email, f.is_private, f.date_creation]);
+                await pool.query(`INSERT INTO glpi.ticket_followups (ticket_id, content, content_hash, author_name, author_email, is_private, date_creation, last_sync) VALUES ${values} ON CONFLICT (ticket_id, content_hash, date_creation) DO NOTHING`, params);
+            };
+
+            const pgBatchSize = 500;
+            for (let i = 0; i < followupsToInsert.length; i += pgBatchSize) {
+                await insertBatch(followupsToInsert.slice(i, i + pgBatchSize));
+            }
+            followupCount = followupsToInsert.length;
+        }
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        try {
+            await pool.query(`INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, total_tickets, processed_tickets) VALUES ($1, $2, $3, $4, $5, $6)`,
+                ['followups', 'full', req.user?.username || 'admin', 'completed', tickets.length, followupCount]);
+        } catch (logErr) {
+            console.error('[GLPI] Erreur log sync followups:', logErr.message);
+        }
+
+        followupsSyncProgress.active = false;
+        res.json({ success: true, count: followupCount, message: `${followupCount} traitements synchronisés` });
+    } catch (error) {
+        followupsSyncProgress.active = false;
+        console.error('[GLPI] Erreur sync followups:', error.message);
+        res.status(500).json({ message: `Erreur sync followups: ${error.message}` });
+    }
+});
+
+app.post('/api/glpi/sync-followups-recent', authenticateInternalOrAdmin, async (req, res) => {
+    followupsSyncCancelled = false;
+    followupsSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString() };
+
+    try {
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) {
+            followupsSyncProgress.active = false;
+            return res.status(400).json({ message: 'GLPI non configuré' });
+        }
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const commonHeaders = {
+            'App-Token': (settings.app_token || '').trim(),
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        let authHeader = (settings.user_token || '').trim()
+            ? `user_token ${(settings.user_token || '').trim()}`
+            : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { ...commonHeaders, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+
+        const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id DESC LIMIT 50');
+        console.log(`[GLPI Followups Recent] Synchronisation de ${tickets.length} tickets...`);
+        followupsSyncProgress.total = tickets.length;
+
+        let followupCount = 0;
+        const followupsToInsert = [];
+
+        const results = await Promise.allSettled(tickets.map(async (ticket) => {
+            try {
+                const resFollowups = await axios.get(`${url}/Ticket/${ticket.glpi_id}/ITILFollowup?session_token=${sessionToken}`, {
+                    headers: commonHeaders,
+                    timeout: 5000
+                });
+                const followups = resFollowups.data || [];
+                const items = [];
+                for (const fu of followups) {
+                    if (fu.content) {
+                        items.push({
+                            ticket_id: ticket.glpi_id,
+                            content: fu.content,
+                            author_name: fu.users_id?.name || fu.users_id?.toString() || '',
+                            author_email: fu.users_id?.email || '',
+                            is_private: fu.is_private || 0,
+                            date_creation: fu.date || null
+                        });
+                    }
+                }
+                return items;
+            } catch (e) {
+                return [];
+            }
+        }));
+
+        for (const result of results) {
+            if (result.status === 'fulfilled') {
+                followupsToInsert.push(...result.value);
+            }
+        }
+
+        followupsSyncProgress.processed = tickets.length;
+        followupsSyncProgress.lastUpdate = new Date().toISOString();
+
+        if (followupsToInsert.length > 0) {
+            const insertBatch = async (fus) => {
+                const values = fus.map((f, idx) => {
+                    const base = idx * 7;
+                    return `($${base + 1}, $${base + 2}, md5($${base + 2}), $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, CURRENT_TIMESTAMP)`;
+                }).join(', ');
+                const params = fus.flatMap(f => [f.ticket_id, f.content, f.author_name, f.author_email, f.is_private, f.date_creation]);
+                await pool.query(`INSERT INTO glpi.ticket_followups (ticket_id, content, content_hash, author_name, author_email, is_private, date_creation, last_sync) VALUES ${values} ON CONFLICT (ticket_id, content_hash, date_creation) DO NOTHING`, params);
+            };
+
+            const pgBatchSize = 500;
+            for (let i = 0; i < followupsToInsert.length; i += pgBatchSize) {
+                await insertBatch(followupsToInsert.slice(i, i + pgBatchSize));
+            }
+            followupCount = followupsToInsert.length;
+        }
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        try {
+            await pool.query(`INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, total_tickets, processed_tickets) VALUES ($1, $2, $3, $4, $5, $6)`,
+                ['followups', 'recent', req.user?.username || 'admin', 'completed', tickets.length, followupCount]);
+        } catch (logErr) {
+            console.error('[GLPI] Erreur log sync followups recent:', logErr.message);
+        }
+
+        followupsSyncProgress.active = false;
+        res.json({ success: true, count: followupCount, message: `${followupCount} traitements synchronisés pour les 50 derniers tickets` });
+    } catch (error) {
+        followupsSyncProgress.active = false;
+        console.error('[GLPI] Erreur sync followups recent:', error.message);
+        res.status(500).json({ message: `Erreur sync followups: ${error.message}` });
     }
 });
 
@@ -3496,6 +4822,7 @@ app.get('/api/glpi/my-profile', authenticateAdmin, async (req, res) => {
         res.status(500).json({ message: `Erreur Get Profiles : ${msg}` });
     }
 });
+
 
 // Route de test de liaison Active Directory (Compte technique uniquement)
 app.post('/api/auth/ad-ping', authenticateAdmin, async (req, res) => {
@@ -3882,6 +5209,10 @@ app.get('/api/magapp/categories', async (req, res) => {
     }
 });
 
+app.get('/api/test-simple', (req, res) => {
+    res.json({ message: 'Simple test works!' });
+});
+
 app.get('/api/magapp/apps', async (req, res) => {
     try {
         const apps = await pgDb.all(`
@@ -4080,11 +5411,15 @@ app.get('/api/magapp/tickets', async (req, res) => {
     if (!email) return res.status(400).json({ message: 'Email requis' });
     try {
         const username = email.split('@')[0].toLowerCase();
-        const tickets = await db.all(`
-            SELECT glpi_id, title, status_label, date_creation, type, status
-            FROM v_tickets 
-            WHERE search_email = ? OR search_username = ?
-            ORDER BY glpi_id DESC
+        const tickets = await pgDb.all(`
+            SELECT t.glpi_id, t.title, t.content, s.label as status_label, t.date_creation, t.type, t.status, t.solution
+            FROM glpi.tickets t
+            LEFT JOIN glpi.ticket_status s ON t.status = s.id
+            WHERE LOWER(COALESCE(t.email_alt, '')) = $1
+               OR LOWER(COALESCE(t.requester_email_22, '')) = $1
+               OR LOWER(COALESCE(REPLACE(t.email_alt, '@ivry94.fr', ''), '')) = $2
+               OR LOWER(COALESCE(REPLACE(t.requester_email_22, '@ivry94.fr', ''), '')) = $2
+            ORDER BY t.glpi_id DESC
         `, [email.toLowerCase(), username]);
         res.json(tickets);
     } catch (err) {
@@ -4093,17 +5428,260 @@ app.get('/api/magapp/tickets', async (req, res) => {
     }
 });
 
+// Route : Récupérer un ticket spécifique depuis GLPI et le stocker dans PostgreSQL
+app.get('/api/glpi/tickets/:id', authenticateJWT, async (req, res) => {
+    const ticketId = req.params.id;
+    const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+    if (!settings || !settings.url) return res.status(400).json({ message: 'GLPI non configuré' });
+
+    let url = settings.url.trim();
+    if (!url.includes('apirest.php')) {
+        url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+    }
+
+    const commonHeaders = {
+        'App-Token': (settings.app_token || '').trim(),
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    };
+
+    let authHeader = (settings.user_token || '').trim()
+        ? `user_token ${(settings.user_token || '').trim()}`
+        : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+    try {
+        const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader } });
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        // Activer la session
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+        await axios.get(`${url}/getFullSession?session_token=${sessionToken}`, { headers: commonHeaders });
+
+        const fields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 62];
+        const str = fields.map(id => `forcedisplay[${id}]=${id}`).join('&');
+        const ticketRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&criteria[0][field]=2&criteria[0][searchtype]=equals&criteria[0][value]=${ticketId}&${str}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        if (ticketRes.data?.data && ticketRes.data.data.length > 0) {
+            const t = ticketRes.data.data[0];
+            const val = (field, id) => {
+                const v = field[id];
+                if (v === undefined || v === null) return '';
+                if (typeof v === 'object' && v !== null) return v.name || v.id || JSON.stringify(v);
+                return String(v);
+            };
+            const valInt = (field, id) => {
+                const v = field[id];
+                if (v === undefined || v === null) return 0;
+                if (typeof v === 'object' && v !== null) {
+                    if (v.id !== undefined && v.id !== null) return Number(v.id) || 0;
+                    return Number(v.name) || 0;
+                }
+                const num = parseInt(String(v), 10);
+                return isNaN(num) ? 0 : num;
+            };
+            const normalizeEmail = (email) => {
+                if (!email || typeof email !== 'string') return '';
+                email = email.trim().toLowerCase();
+                if (!email) return '';
+                if (!email.includes('@')) email += '@ivry94.fr';
+                return email;
+            };
+
+const ticketId = valInt(t, 2);
+                if (!ticketId) {
+                    console.log('[GLPI] Ticket sans ID ignoré:', JSON.stringify(t).substring(0, 200));
+                    return res.status(404).json({ message: 'Ticket non trouvé (ID manquant)' });
+                }
+                const email34 = normalizeEmail(val(t, 34));
+                const email22 = normalizeEmail(val(t, 22));
+
+                await pgDb.run(
+                    `INSERT INTO glpi.tickets (glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22, last_sync)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, CURRENT_TIMESTAMP)
+                     ON CONFLICT (glpi_id) DO UPDATE SET
+                       title = EXCLUDED.title, content = EXCLUDED.content, status = EXCLUDED.status, priority = EXCLUDED.priority,
+                       urgency = EXCLUDED.urgency, impact = EXCLUDED.impact, category = EXCLUDED.category,
+                       type = EXCLUDED.type, date_creation = EXCLUDED.date_creation, date_mod = EXCLUDED.date_mod,
+                       date_closed = EXCLUDED.date_closed, date_solved = EXCLUDED.date_solved, location = EXCLUDED.location,
+                       solution = EXCLUDED.solution, source = EXCLUDED.source, entity = EXCLUDED.entity,
+                       requester_name = EXCLUDED.requester_name, email_alt = EXCLUDED.email_alt,
+                       requester_email_22 = EXCLUDED.requester_email_22, last_sync = CURRENT_TIMESTAMP`,
+                    [
+                        ticketId, val(t, 1), val(t, 62) || '', valInt(t, 12), valInt(t, 3), valInt(t, 10), valInt(t, 11),
+                        val(t, 7) || '', val(t, 14) || '', val(t, 15) || '', val(t, 19) || '',
+                        val(t, 16) || '', val(t, 17) || '', val(t, 83) || '', val(t, 24) || '', val(t, 9) || '',
+                        val(t, 80) || '', val(t, 4) || 'Inconnu', email34, email22
+                    ]
+                );
+
+            res.json({ 
+                glpi_id: ticketId,
+                title: val(t, 1), 
+                status_label: '', 
+                date_creation: val(t, 15), 
+                type: val(t, 14), 
+                status: val(t, 12), 
+                solution: val(t, 24) 
+            });
+        } else {
+            res.status(404).json({ message: 'Ticket non trouvé' });
+        }
+    } catch (error) {
+        console.error('[GLPI] Erreur fetch ticket:', error.message);
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+// Route : Incidents haute priorité non résolus
+app.get('/api/magapp/high-priority-incidents', async (req, res) => {
+    try {
+        const tickets = await pgDb.all(`
+            SELECT t.glpi_id, t.title, s.label as status_label, t.date_creation
+            FROM glpi.tickets t
+            LEFT JOIN glpi.ticket_status s ON t.status = s.id
+            WHERE t.type = '1' AND (t.urgency >= 5 OR t.priority >= 5) AND t.status NOT IN (5, 6)
+            ORDER BY t.date_creation DESC
+            LIMIT 5
+        `);
+        res.json(tickets);
+    } catch (err) {
+        console.error('Erreur high priority incidents:', err);
+        res.status(500).json({ message: 'Erreur lecture incidents haute priorité' });
+    }
+});
+
+// Route : Ajouter un suivi à un ticket existant
+app.post('/api/glpi/tickets/:id/followup', authenticateJWT, async (req, res) => {
+    const ticketId = req.params.id;
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ message: 'Contenu requis' });
+
+    const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+    if (!settings || !settings.url) return res.status(400).json({ message: 'GLPI non configuré' });
+
+    let url = settings.url.trim();
+    if (!url.includes('apirest.php')) {
+        url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+    }
+
+    const commonHeaders = {
+        'App-Token': (settings.app_token || '').trim(),
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    };
+
+    let authHeader = (settings.user_token || '').trim()
+        ? `user_token ${(settings.user_token || '').trim()}`
+        : `Basic ${Buffer.from(`${(settings.login || '').trim()}:${(settings.password || '').trim()}`).toString('base64')}`;
+
+    try {
+        const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader } });
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) throw new Error('Session GLPI échouée');
+
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+        await axios.get(`${url}/getFullSession?session_token=${sessionToken}`, { headers: commonHeaders });
+
+        const followupRes = await axios.post(`${url}/Ticket/${ticketId}/ITILFollowup`, {
+            input: {
+                itemtype: 'Ticket',
+                items_id: parseInt(ticketId),
+                content: content,
+                is_private: 0
+            }
+        }, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+
+        res.json({ success: true, id: followupRes.data?.id });
+    } catch (error) {
+        console.error('[GLPI] Erreur followup:', error.message);
+        res.status(500).json({ message: `Erreur: ${error.message}` });
+    }
+});
+
+app.get('/api/magapp/observed-tickets', async (req, res) => {
+    const { email, showClosed } = req.query;
+    if (!email) return res.status(400).json({ message: 'Email requis' });
+    try {
+        const includeClosed = showClosed === 'true';
+        const whereClause = includeClosed 
+            ? `(LOWER(COALESCE(o.email, '')) = $1 OR LOWER(COALESCE(REPLACE(o.email, '@ivry94.fr', ''), '')) = $2)`
+            : `(LOWER(COALESCE(o.email, '')) = $1 OR LOWER(COALESCE(REPLACE(o.email, '@ivry94.fr', ''), '')) = $2) AND t.status NOT IN (5, 6)`;
+        
+        const tickets = await pool.query(`
+            SELECT t.glpi_id, t.title, t.content, s.label as status_label, t.date_creation, t.type, t.status, t.solution,
+                   COALESCE(NULLIF(t.requester_email_22, ''), LOWER(o.email)) as requester_email,
+                   COALESCE(NULLIF(t.requester_name, ''), t.requester_email_22, REPLACE(o.email, '@ivry94.fr', '')) as requester_name
+            FROM glpi.tickets t
+            INNER JOIN glpi.observers o ON t.glpi_id = o.ticket_id
+            LEFT JOIN glpi.ticket_status s ON t.status = s.id
+            WHERE ${whereClause}
+            ORDER BY t.glpi_id DESC
+        `, [email.toLowerCase(), email.toLowerCase().split('@')[0]]);
+
+        // Résoudre les noms via AD pour les identifiants/matricules
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (adSettings && adSettings.is_enabled) {
+            const uniqueIdentifiers = [...new Set(tickets.rows.map(t => t.requester_name).filter(n => n))];
+            const nameCache = {};
+            for (const identifier of uniqueIdentifiers) {
+                try {
+                    const sam = identifier.includes('@') ? identifier.split('@')[0] : identifier;
+                    const resolved = await new Promise((resolve) => {
+                        const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
+                        const timeout = setTimeout(() => { client.destroy(); resolve(null); }, 3000);
+                        client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                            if (err) { clearTimeout(timeout); client.destroy(); resolve(null); return; }
+                            client.search(adSettings.base_dn, { filter: `(|(sAMAccountName=${sam})(employeeID=${sam})(description=*${sam}*))`, scope: 'sub', attributes: ['displayName', 'cn'] }, (err, searchRes) => {
+                                if (err) { clearTimeout(timeout); client.destroy(); resolve(null); return; }
+                                let found = null;
+                                searchRes.on('searchEntry', (entry) => { if (!found) found = flattenLDAPEntry(entry); });
+                                searchRes.on('end', () => { clearTimeout(timeout); client.destroy(); resolve(found); });
+                                searchRes.on('error', () => { clearTimeout(timeout); client.destroy(); resolve(null); });
+                            });
+                        });
+                    });
+                    if (resolved) {
+                        nameCache[identifier] = decodeLDAPString(resolved.displayName || resolved.cn) || null;
+                    }
+                } catch (e) { /* ignore individual lookup failures */ }
+            }
+            tickets.rows.forEach(t => {
+                const resolved = nameCache[t.requester_name];
+                if (resolved) {
+                    t.requester_name = resolved;
+                } else if (/^\d+$/.test(t.requester_name) && t.requester_email) {
+                    // Si c'est un matricule (nombre pur) et qu'on n'a pas pu le résoudre via AD, préférer l'email
+                    t.requester_name = t.requester_email.split('@')[0];
+                }
+            });
+        }
+
+        res.json(tickets.rows);
+    } catch (err) {
+        console.error('Erreur observed tickets list:', err);
+        res.status(500).json({ message: 'Erreur lecture tickets observés' });
+    }
+});
+
 app.get('/api/magapp/tickets-count', async (req, res) => {
     const { email } = req.query;
     if (!email) return res.status(400).json({ message: 'Email requis' });
     try {
         const username = email.split('@')[0].toLowerCase();
-        const result = await db.get(`
+        const result = await pgDb.get(`
             SELECT COUNT(*) as count 
-            FROM v_tickets 
-            WHERE (search_email = ? OR search_username = ?) AND status != 6
+            FROM glpi.tickets t
+            WHERE (LOWER(COALESCE(t.email_alt, '')) = $1 
+               OR LOWER(COALESCE(t.requester_email_22, '')) = $1
+               OR LOWER(COALESCE(REPLACE(t.email_alt, '@ivry94.fr', ''), '')) = $2
+               OR LOWER(COALESCE(REPLACE(t.requester_email_22, '@ivry94.fr', ''), '')) = $2) AND t.status != 6
         `, [email.toLowerCase(), username]);
-        res.json({ count: result.count || 0 });
+        res.json({ count: result?.count || 0 });
     } catch (err) {
         console.error('Erreur tickets-count:', err);
         res.status(500).json({ message: 'Erreur lecture tickets' });
@@ -4359,19 +5937,70 @@ app.delete('/api/magapp/apps/:id', authenticateMagappControl, async (req, res) =
 // MagApp Settings (Feature flags in Postgres)
 app.get('/api/magapp/settings', async (req, res) => {
     try {
-        const settings = await pgDb.get('SELECT * FROM magapp_settings LIMIT 1');
-        res.json(settings || { show_tickets: true, show_subscriptions: true, show_health_check: true });
+        const rawSettings = await pgDb.get('SELECT * FROM magapp.settings LIMIT 1');
+        const result = { ...(rawSettings || { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true }) };
+        // Check if user is admin or has MagApp tile — bypass toggle settings for these buttons
+        let isSpecialUser = false;
+        try {
+            // Try JWT first
+            const authHeader = req.headers.authorization;
+            if (authHeader) {
+                const token = authHeader.split(' ')[1];
+                if (token) {
+                    const decoded = jwt.verify(token, SECRET_KEY);
+                    if (decoded && (decoded.role === 'admin' || decoded.username?.toLowerCase() === 'admin' || decoded.username?.toLowerCase() === 'adminhub')) {
+                        isSpecialUser = true;
+                    } else if (decoded && decoded.id) {
+                        const tileLink = await db.get(`SELECT 1 FROM user_tiles ut JOIN tile_links tl ON ut.tile_id = tl.tile_id WHERE ut.user_id = ? AND tl.url = '/admin/magapp'`, [decoded.id]);
+                        if (tileLink) isSpecialUser = true;
+                    }
+                }
+            }
+            // Fallback: check by username/email query param (for MagApp sessions without JWT)
+            if (!isSpecialUser) {
+                const { username, email } = req.query;
+                const identifier = (username || (email && email.split('@')[0]) || '').toLowerCase().trim();
+                console.log('[MAGAPP SETTINGS] Query params:', { username, email, identifier });
+                if (identifier) {
+                    const user = await db.get('SELECT id, role, username FROM users WHERE LOWER(username) = ?', [identifier]);
+                    console.log('[MAGAPP SETTINGS] User found:', user ? `${user.username} (id=${user.id}, role=${user.role})` : 'NOT FOUND');
+                    if (user) {
+                        if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+                            isSpecialUser = true;
+                        } else {
+                            const tileLink = await db.get(`SELECT 1 FROM user_tiles ut JOIN tile_links tl ON ut.tile_id = tl.tile_id WHERE ut.user_id = ? AND tl.url = '/admin/magapp'`, [user.id]);
+                            console.log('[MAGAPP SETTINGS] Tile link for /admin/magapp:', tileLink ? 'YES' : 'NO');
+                            if (tileLink) isSpecialUser = true;
+                        }
+                    }
+                }
+            }
+        } catch (e) { console.error('[MAGAPP SETTINGS] Beta check error:', e.message); }
+        if (isSpecialUser) {
+            result.show_tickets_original = result.show_tickets;
+            result.show_subscriptions_original = result.show_subscriptions;
+            result.show_health_check_original = result.show_health_check;
+            result.show_create_buttons_original = result.show_create_buttons;
+            result.show_ideas_original = result.show_ideas;
+            result.show_tickets = true;
+            result.show_subscriptions = true;
+            result.show_health_check = true;
+            result.show_create_buttons = true;
+            result.show_ideas = true;
+            result.is_beta_user = true;
+        }
+        console.log('[MAGAPP SETTINGS] Result:', JSON.stringify({ is_beta_user: result.is_beta_user, show_create_buttons: result.show_create_buttons, show_ideas: result.show_ideas }));
+        res.json(result);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching MagApp settings' });
     }
 });
 
 app.post('/api/magapp/settings', authenticateMagappControl, async (req, res) => {
-    const { show_tickets, show_subscriptions, show_health_check } = req.body;
+    const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas } = req.body;
     try {
-        // Postgres booleans require true/false, not 1/0
-        await pgDb.run('UPDATE magapp_settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ? WHERE id = 1', 
-            [!!show_tickets, !!show_subscriptions, !!show_health_check]);
+        await pgDb.run('UPDATE magapp.settings SET show_tickets = $1, show_subscriptions = $2, show_health_check = $3, show_create_buttons = $4, show_ideas = $5 WHERE id = 1', 
+            [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas]);
         res.json({ message: 'Settings updated' });
     } catch (error) {
         console.error('Erreur magapp_settings:', error);
@@ -4639,6 +6268,242 @@ app.post('/api/magapp/user-version', authenticateJWT, async (req, res) => {
     } catch (error) {
         console.error('Erreur maj user_version:', error);
         res.status(500).json({ message: 'Error updating user version pref', error: error.message });
+    }
+});
+
+// Endpoint pour vérifier les observateurs GLPI stockés
+app.get('/api/glpi/observers-list', async (req, res) => {
+    try {
+        // Vérifier si la table existe dans PostgreSQL
+        const tableCheck = await pgDb.get(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_schema = 'glpi'
+                AND table_name = 'observers'
+            ) as exists
+        `);
+
+        if (!tableCheck || !tableCheck.exists) {
+            return res.json({
+                status: 'missing',
+                message: 'Table glpi.observers n\'existe pas',
+                count: 0,
+                observers: []
+            });
+        }
+
+        // Table existe, récupérer les données
+        const count = await pgDb.get("SELECT COUNT(*) as count FROM glpi.observers");
+        const observers = await pgDb.all("SELECT * FROM glpi.observers ORDER BY name");
+
+        res.json({
+            status: 'exists',
+            count: count.count,
+            observers: observers
+        });
+
+    } catch (err) {
+        res.status(500).json({
+            error: err.message,
+            message: 'Erreur accès table glpi.observers'
+        });
+    }
+});
+
+// Test endpoint - Récupérer directement les observateurs depuis GLPI
+app.post('/api/glpi/test-fetch-observers', async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        console.log('[TEST] GLPI Settings:', { url: settings?.url, is_enabled: settings?.is_enabled });
+
+        if (!settings || !settings.url) {
+            return res.status(400).json({
+                message: 'GLPI non configuré',
+                configured: false
+            });
+        }
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const app_token = (settings.app_token || '').trim();
+        const user_token = (settings.user_token || '').trim();
+        const login = (settings.login || '').trim();
+        const password = (settings.password || '').trim();
+
+        const commonHeaders = {
+            'App-Token': app_token,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        let authHeader = login && password
+            ? `Basic ${Buffer.from(`${login}:${password}`).toString('base64')}`
+            : `user_token ${user_token}`;
+
+        // Init session
+        console.log('[TEST] Initializing GLPI session...');
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { ...commonHeaders, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) {
+            return res.status(401).json({ message: 'Impossible de créer session GLPI' });
+        }
+
+        console.log('[TEST] Session OK, fetching users...');
+
+        // Récupérer les users
+        const usersRes = await axios.get(
+            `${url}/search/User?session_token=${sessionToken}&get_all_entities=1&forcedisplay[1]=1&forcedisplay[2]=2&forcedisplay[14]=14&range=0-10000`,
+            { headers: commonHeaders, timeout: 30000 }
+        );
+
+        const totalUsers = usersRes.data.data.length;
+        console.log(`[TEST] Total users found: ${totalUsers}`);
+
+        // Filtrer observateurs
+        const potentialObservers = [];
+        for (const user of usersRes.data.data) {
+            if (user[1]) {
+                try {
+                    const userDetailsRes = await axios.get(`${url}/User/${user[2]}?session_token=${sessionToken}`, {
+                        headers: commonHeaders,
+                        timeout: 10000
+                    });
+
+                    const userDetails = userDetailsRes.data;
+                    const roles = userDetails._profiles || [];
+                    const isObserver = roles.some(role => role && (role.name === 'Observateur' || role === 'Observateur'));
+
+                    if (isObserver || userDetails.is_observer || userDetails.profile_name === 'Observateur') {
+                        potentialObservers.push({
+                            id: user[2],
+                            name: user[1],
+                            login: user[14] || '',
+                            roles: roles,
+                            is_observer: isObserver
+                        });
+                    }
+                } catch (e) {
+                    console.warn(`[TEST] Error getting user ${user[2]}:`, e.message);
+                }
+            }
+        }
+
+        // Kill session
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, {
+            headers: commonHeaders,
+            timeout: 10000
+        });
+
+        res.json({
+            success: true,
+            total_users: totalUsers,
+            observers_found: potentialObservers.length,
+            observers: potentialObservers
+        });
+
+    } catch (err) {
+        console.error('[TEST] Error:', err.message);
+        res.status(500).json({
+            error: err.message,
+            message: 'Erreur test récupération observateurs'
+        });
+    }
+});
+
+// Route : Récupérer les utilisateurs GLPI avec le rôle "Observateur"
+app.get('/api/glpi/observers', authenticateAdmin, async (req, res) => {
+    try {
+        if (!db) return res.status(503).json({ message: 'Base de données non initialisée' });
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) return res.status(400).json({ message: 'GLPI non configuré' });
+
+        let url = settings.url.trim();
+        const app_token = (settings.app_token || '').trim();
+        const user_token = (settings.user_token || '').trim();
+        const login = (settings.login || '').trim();
+        const password = (settings.password || '').trim();
+
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+
+        const commonHeaders = {
+            'App-Token': app_token,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        };
+
+        let authHeader = login && password
+            ? `Basic ${Buffer.from(`${login}:${password}`).toString('base64')}`
+            : `user_token ${user_token}`;
+
+        // Initialiser la session
+        const sessionRes = await axios.get(`${url}/initSession`, {
+            headers: { ...commonHeaders, 'Authorization': authHeader },
+            timeout: 10000
+        });
+
+        const sessionToken = sessionRes.data?.session_token;
+        if (!sessionToken) {
+            return res.status(401).json({ message: 'Echec initialisation session GLPI' });
+        }
+
+        // Récupérer les utilisateurs avec leurs profils
+        // En GLPI, les observateurs ont un niveau d'accès spécifique
+        const usersRes = await axios.get(`${url}/search/User?session_token=${sessionToken}&get_all_entities=1&forcedisplay[1]=1&forcedisplay[2]=2&forcedisplay[14]=14&range=0-10000`, {
+            headers: commonHeaders,
+            timeout: 30000
+        });
+
+        // Filtrer les utilisateurs avec le rôle "Observateur"
+        const observers = [];
+        if (usersRes.data.data && Array.isArray(usersRes.data.data)) {
+            for (const user of usersRes.data.data) {
+                if (user[1]) {
+                    try {
+                        const userDetailsRes = await axios.get(`${url}/User/${user[2]}?session_token=${sessionToken}`, {
+                            headers: commonHeaders,
+                            timeout: 10000
+                        });
+
+                        const userDetails = userDetailsRes.data;
+                        const roles = userDetails._profiles || [];
+                        const isObserver = roles.some(role => role && (role.name === 'Observateur' || role === 'Observateur'));
+
+                        if (isObserver || userDetails.is_observer || userDetails.profile_name === 'Observateur') {
+                            observers.push({
+                                id: user[2],
+                                name: user[1],
+                                login: user[14] || '',
+                                roles: roles,
+                                is_active: userDetails.is_active !== 0
+                            });
+                        }
+                    } catch (e) {
+                        console.warn(`[GLPI Observers] Erreur récupération détails utilisateur ${user[2]}:`, e.message);
+                    }
+                }
+            }
+        }
+
+        // Terminer la session
+        await axios.get(`${url}/killSession?session_token=${sessionToken}`, {
+            headers: commonHeaders,
+            timeout: 10000
+        });
+
+        res.json({ observers, count: observers.length });
+    } catch (e) {
+        const msg = e.response?.data?.[1] || e.response?.data?.message || e.message;
+        console.error('[GLPI Observers] Erreur:', msg);
+        res.status(500).json({ message: `Erreur récupération observateurs : ${msg}` });
     }
 });
 
@@ -5384,59 +7249,6 @@ app.post('/api/login', async (req, res) => {
 });
 
 // Admin Access Requests Management
-app.get('/api/admin/access-requests', authenticateAdmin, async (req, res) => {
-    try {
-        const requests = await db.all(`
-            SELECT ar.*, u.username 
-            FROM access_requests ar
-            JOIN users u ON ar.user_id = u.id
-            WHERE ar.status = 'pending'
-            ORDER BY ar.created_at DESC
-        `);
-        res.json(requests);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
-app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req, res) => {
-    try {
-        const request = await db.get('SELECT * FROM access_requests WHERE id = ?', [req.params.id]);
-        if (!request) return res.status(404).json({ message: 'Demande non trouvée' });
-
-        await db.run('BEGIN TRANSACTION');
-        try {
-            // Approuver la demande
-            await db.run('UPDATE access_requests SET status = "approved" WHERE id = ?', [req.params.id]);
-            // Approuver l'utilisateur
-            await db.run('UPDATE users SET is_approved = 1 WHERE id = ?', [request.user_id]);
-            
-            // Assigner les tuiles demandées
-            if (request.requested_tiles) {
-                // On suppose que requested_tiles est une liste d'IDs séparés par des virgules ou un tableau JSON
-                let tileIds = [];
-                try {
-                    tileIds = JSON.parse(request.requested_tiles);
-                } catch (e) {
-                    tileIds = request.requested_tiles.split(',').map(id => id.trim()).filter(id => id);
-                }
-
-                for (const tileId of tileIds) {
-                    await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [request.user_id, tileId]);
-                }
-            }
-
-            await db.run('COMMIT');
-            res.json({ message: 'Demande approuvée et droits assignés' });
-        } catch (innerError) {
-            await db.run('ROLLBACK');
-            throw innerError;
-        }
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
 app.post('/api/change-password', authenticateJWT, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     const userId = req.user.id;
@@ -6504,26 +8316,21 @@ app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req
         const request = await db.get('SELECT * FROM access_requests WHERE id = ?', [req.params.id]);
         if (!request) return res.status(404).json({ message: 'Demande non trouvée' });
 
-        await db.run('BEGIN TRANSACTION');
         await db.run('UPDATE access_requests SET status = "approved" WHERE id = ?', [req.params.id]);
         await db.run('UPDATE users SET is_approved = 1 WHERE id = ?', [request.user_id]);
 
         // Grant access to the specifically requested tiles
         if (request.requested_tiles) {
-            const tileIds = request.requested_tiles.split(',').map(id => id.trim()).filter(Boolean);
+            let tileIds = [];
+            try { tileIds = JSON.parse(request.requested_tiles); } catch (e) { tileIds = request.requested_tiles.split(',').map(id => id.trim()).filter(Boolean); }
             for (const tileId of tileIds) {
-                await db.run(
-                    'INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)',
-                    [request.user_id, tileId]
-                );
+                await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [request.user_id, tileId]);
             }
         }
 
-        await db.run('COMMIT');
-
         res.json({ message: 'Demande approuvée et accès accordés' });
     } catch (error) {
-        await db.run('ROLLBACK');
+        console.error('[ACCESS-REQUESTS] Approve error:', error);
         res.status(500).json({ message: 'Erreur lors de l\'approbation', error: error.message });
     }
 });
@@ -7374,3 +9181,334 @@ async function sendMaintenanceEmail(appId) {
         console.error('Error sending maintenance emails:', error);
     }
 }
+
+// =====================
+// SCHEDULED SYNCS AUTOMATION
+// =====================
+
+const cron = require('node-cron');
+
+pool.on('error', (err) => {
+    console.error('[PG POOL] Erreur inattendue:', err.message);
+});
+pool.on('connect', () => {
+    console.log('[PG POOL] Nouvelle connexion établie');
+});
+
+let currentRunningSync = null;
+let syncQueue = [];
+
+function getSyncStatus() {
+    return {
+        running: currentRunningSync,
+        queue: syncQueue,
+        queueLength: syncQueue.length
+    };
+}
+
+async function executeScheduledSync(scheduledSync) {
+    const syncKey = `${scheduledSync.sync_type}-${scheduledSync.sync_mode}`;
+    const { sync_type, sync_mode, execution_time } = scheduledSync;
+    console.log(`[SCHEDULED SYNC] Exécution: ${sync_type} - ${sync_mode}`);
+
+    try {
+        const syncRoutes = {
+            'tickets': {
+                'recent': '/api/glpi/sync-recent',
+                'full': '/api/glpi/sync-all-tickets'
+            },
+            'observers': {
+                'recent': '/api/glpi/sync-observers-recent',
+                'full': '/api/glpi/sync-observers'
+            },
+            'followups': {
+                'recent': '/api/glpi/sync-followups-recent',
+                'full': '/api/glpi/sync-followups'
+            }
+        };
+
+        const route = syncRoutes[sync_type]?.[sync_mode];
+        if (!route) {
+            console.error(`[SCHEDULED SYNC] Route non trouvée: ${sync_type} - ${sync_mode}`);
+            return;
+        }
+
+        const axios = require('axios');
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) {
+            console.error('[SCHEDULED SYNC] GLPI non configuré - URL:', settings?.url);
+            try {
+                await pool.query(
+                    `INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, error_message) VALUES ($1, $2, $3, $4, $5)`,
+                    [sync_type, sync_mode, 'scheduled-cron', 'error', 'GLPI non configuré']
+                );
+            } catch (logErr) {
+                console.error('[SCHEDULED SYNC] Erreur log:', logErr.message);
+            }
+            return;
+        }
+
+        const internalToken = Buffer.from('scheduled-sync:internal').toString('base64');
+
+        currentRunningSync = { sync_type, sync_mode, started_at: new Date().toISOString() };
+
+        console.log(`[SCHEDULED SYNC] Appel HTTP vers ${route}`);
+        const response = await axios.post(`http://localhost:${process.env.PORT || 3001}${route}`, {}, {
+            headers: {
+                'Authorization': `Internal ${internalToken}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 300000
+        });
+
+        currentRunningSync = null;
+        console.log(`[SCHEDULED SYNC] Terminé: ${sync_type} - ${sync_mode} (HTTP ${response?.status})`);
+    } catch (error) {
+        currentRunningSync = null;
+        const errorMsg = error.response ? `HTTP ${error.response.status}: ${error.response.statusText}` : error.message;
+        console.error(`[SCHEDULED SYNC] Erreur: ${errorMsg}`);
+        try {
+            await pool.query(
+                `INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, error_message) VALUES ($1, $2, $3, $4, $5)`,
+                [sync_type, sync_mode, 'scheduled-cron', 'error', errorMsg]
+            );
+        } catch (logErr) {
+            console.error('[SCHEDULED SYNC] Erreur log:', logErr.message);
+        }
+    }
+}
+
+async function processScheduledSyncs() {
+    console.log(`[SCHEDULED SYNC] Cron déclenché à ${new Date().toISOString()}`);
+    try {
+        const now = new Date();
+
+        console.log(`[SCHEDULED SYNC] Pool état: ${pool.totalCount} total, ${pool.idleCount} idle, ${pool.waitingCount} en attente`);
+
+        const dueSyncs = await pool.query(
+            `SELECT * FROM glpi.scheduled_syncs WHERE is_enabled = 1 AND (next_run IS NULL OR next_run <= $1)`,
+            [now.toISOString()]
+        );
+
+        console.log(`[SCHEDULED SYNC] Vérification: ${dueSyncs.rows.length} syncs dus (now=${now.toISOString()})`);
+
+        if (dueSyncs.rows.length > 0) {
+            console.log(`[SCHEDULED SYNC] Détail des syncs:`, JSON.stringify(dueSyncs.rows.map(s => ({ id: s.id, type: s.sync_type, mode: s.sync_mode, next_run: s.next_run, is_enabled: s.is_enabled }))));
+        }
+
+        for (const sync of dueSyncs.rows) {
+            console.log(`[SCHEDULED SYNC] Sync trouvé: ${sync.sync_type}-${sync.sync_mode}, next_run=${sync.next_run}`);
+            const syncKey = `${sync.sync_type}-${sync.sync_mode}`;
+
+            if (currentRunningSync && currentRunningSync.sync_type === syncKey) {
+                console.log(`[SCHEDULED SYNC] Déja en cours: ${sync.sync_type} - ${sync.sync_mode}. Ignoré.`);
+                continue;
+            }
+
+            console.log(`[SCHEDULED SYNC] Lancement de "${sync.sync_type} - ${sync.sync_mode}"`);
+            executeScheduledSync(sync);
+
+            const nextRun = new Date(now);
+            const execTime = sync.execution_time || '00:00';
+            const [targetHour, targetMin] = execTime.split(':').map(Number);
+
+            switch (sync.frequency_type) {
+                case 'minutes':
+                    nextRun.setMinutes(nextRun.getMinutes() + sync.frequency_value);
+                    break;
+                case 'hours':
+                    nextRun.setHours(nextRun.getHours() + sync.frequency_value);
+                    break;
+                case 'days':
+                    nextRun.setDate(nextRun.getDate() + sync.frequency_value);
+                    nextRun.setHours(targetHour, targetMin, 0, 0);
+                    break;
+            }
+
+            await pool.query(
+                `UPDATE glpi.scheduled_syncs SET last_run = $1, next_run = $2 WHERE id = $3`,
+                [now, nextRun, sync.id]
+            );
+        }
+    } catch (error) {
+        console.error(`[SCHEDULED SYNC] Erreur: ${error.message}`, error.stack);
+    }
+}
+
+console.log('[SCHEDULED SYNC] Initialisation du cron...');
+cron.schedule('* * * * *', () => {
+    processScheduledSyncs();
+});
+console.log('[SCHEDULED SYNC] Cron job enregistré');
+
+// =====================
+// SCHEDULED SYNCS API ROUTES
+// =====================
+
+app.post('/api/glpi/cron-test', authenticateAdmin, async (req, res) => {
+    console.log('[CRON-TEST] Déclenchement manuel du cron');
+    try {
+        await processScheduledSyncs();
+        res.json({ message: 'Cron exécuté, voir logs serveur' });
+    } catch (error) {
+        console.error('[CRON-TEST] Erreur:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Middleware pour authentification interne des syncs scheduled
+function authenticateInternal(req, res, next) {
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Internal ')) {
+        const token = Buffer.from('scheduled-sync:internal').toString('base64');
+        if (auth === `Internal ${token}`) {
+            req.user = { username: 'scheduled-sync' };
+            return next();
+        }
+    }
+    authenticateAdmin(req, res, next);
+}
+
+app.get('/api/glpi/scheduled-syncs', authenticateAdmin, async (req, res) => {
+    try {
+        const syncs = await pool.query('SELECT * FROM glpi.scheduled_syncs ORDER BY id');
+        res.json(syncs.rows);
+    } catch (error) {
+        console.error('Erreur lecture scheduled syncs:', error);
+        res.status(500).json({ message: 'Erreur lecture' });
+    }
+});
+
+app.get('/api/glpi/sync-status-global', authenticateAdmin, async (req, res) => {
+    res.json(getSyncStatus());
+});
+
+app.post('/api/glpi/scheduled-syncs', authenticateAdmin, async (req, res) => {
+    try {
+        const { sync_type, sync_mode, frequency_type, frequency_value, execution_time, is_enabled } = req.body;
+
+        if (!sync_type || !sync_mode || !frequency_type || !frequency_value) {
+            return res.status(400).json({ message: 'Données incomplètes' });
+        }
+
+        const validTypes = ['tickets', 'observers', 'followups'];
+        const validModes = {
+            'tickets': ['recent', 'full'],
+            'observers': ['recent', 'full'],
+            'followups': ['recent', 'full']
+        };
+        const validFreq = ['minutes', 'hours', 'days'];
+        const execTime = execution_time || '00:00';
+
+        if (!validTypes.includes(sync_type)) {
+            return res.status(400).json({ message: 'Type invalide' });
+        }
+        if (!validModes[sync_type]?.includes(sync_mode)) {
+            return res.status(400).json({ message: 'Mode invalide pour ce type' });
+        }
+        if (!validFreq.includes(frequency_type)) {
+            return res.status(400).json({ message: 'Fréquence invalide' });
+        }
+
+        const nextRun = new Date();
+        switch (frequency_type) {
+case 'minutes': nextRun.setMinutes(nextRun.getMinutes() + frequency_value); break;
+                case 'hours': nextRun.setHours(nextRun.getHours() + frequency_value); break;
+                case 'days': {
+                    nextRun.setDate(nextRun.getDate() + frequency_value);
+                    const [targetHour, targetMin] = execTime.split(':').map(Number);
+                    nextRun.setHours(targetHour, targetMin, 0, 0);
+                    break;
+                }
+        }
+
+        const result = await pool.query(
+            `INSERT INTO glpi.scheduled_syncs (sync_type, sync_mode, frequency_type, frequency_value, execution_time, is_enabled, next_run)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [sync_type, sync_mode, frequency_type, frequency_value, execTime, is_enabled !== false ? 1 : 0, nextRun]
+        );
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Erreur création scheduled sync:', error);
+        res.status(500).json({ message: 'Erreur création' });
+    }
+});
+
+app.put('/api/glpi/scheduled-syncs/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { frequency_type, frequency_value, execution_time, is_enabled } = req.body;
+
+        let nextRun = null;
+        const execTime = execution_time || '00:00';
+        if (frequency_type && frequency_value) {
+            nextRun = new Date();
+            switch (frequency_type) {
+                case 'minutes': nextRun.setMinutes(nextRun.getMinutes() + frequency_value); break;
+                case 'hours': nextRun.setHours(nextRun.getHours() + frequency_value); break;
+                case 'days': {
+                    nextRun.setDate(nextRun.getDate() + frequency_value);
+                    const [targetHour, targetMin] = execTime.split(':').map(Number);
+                    nextRun.setHours(targetHour, targetMin, 0, 0);
+                    break;
+                }
+            }
+        }
+
+        const updates = [];
+        const values = [];
+        let paramIndex = 1;
+
+        if (frequency_type) { updates.push(`frequency_type = $${paramIndex++}`); values.push(frequency_type); }
+        if (frequency_value) { updates.push(`frequency_value = $${paramIndex++}`); values.push(frequency_value); }
+        if (execution_time) { updates.push(`execution_time = $${paramIndex++}`); values.push(execution_time); }
+        if (is_enabled !== undefined) { updates.push(`is_enabled = $${paramIndex++}`); values.push(is_enabled ? 1 : 0); }
+        if (nextRun) { updates.push(`next_run = $${paramIndex++}`); values.push(nextRun); }
+
+        updates.push(`updated_at = CURRENT_TIMESTAMP`);
+
+        values.push(id);
+        const result = await pool.query(
+            `UPDATE glpi.scheduled_syncs SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+            values
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'Sync non trouvé' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Erreur mise à jour scheduled sync:', error);
+        res.status(500).json({ message: 'Erreur mise à jour' });
+    }
+});
+
+app.delete('/api/glpi/scheduled-syncs/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM glpi.scheduled_syncs WHERE id = $1', [id]);
+        res.json({ message: 'Supprimé avec succès' });
+    } catch (error) {
+        console.error('Erreur suppression scheduled sync:', error);
+        res.status(500).json({ message: 'Erreur suppression' });
+    }
+});
+
+app.post('/api/glpi/scheduled-syncs/:id/run', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const sync = await pool.query('SELECT * FROM glpi.scheduled_syncs WHERE id = $1', [id]);
+
+        if (sync.rows.length === 0) {
+            return res.status(404).json({ message: 'Sync non trouvé' });
+        }
+
+        await executeScheduledSync(sync.rows[0]);
+        res.json({ message: 'Sync lancé manuellement' });
+    } catch (error) {
+        console.error('Erreur exécution scheduled sync:', error);
+        res.status(500).json({ message: 'Erreur exécution' });
+    }
+});

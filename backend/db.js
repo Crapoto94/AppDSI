@@ -9,14 +9,31 @@ async function setupDb() {
         driver: sqlite3.Database
     });
 
+    // Set busy timeout to wait longer for database lock
+    await db.exec('PRAGMA busy_timeout = 30000');
+
     // Attach external databases
     const glpiDbPath = path.join(__dirname, 'glpi.sqlite');
     const gfDbPath = path.join(__dirname, 'oracle_gf.sqlite');
     const rhDbPath = path.join(__dirname, 'oracle_rh.sqlite');
 
-    await db.exec(`ATTACH DATABASE '${glpiDbPath}' AS glpi`);
-    await db.exec(`ATTACH DATABASE '${gfDbPath}' AS gf`);
-    await db.exec(`ATTACH DATABASE '${rhDbPath}' AS rh`);
+    try {
+        await db.exec(`ATTACH DATABASE '${glpiDbPath}' AS glpi`);
+    } catch (e) {
+        console.warn('[DB] Could not attach glpi database:', e.message);
+    }
+
+    try {
+        await db.exec(`ATTACH DATABASE '${gfDbPath}' AS gf`);
+    } catch (e) {
+        console.warn('[DB] Could not attach gf database:', e.message);
+    }
+
+    try {
+        await db.exec(`ATTACH DATABASE '${rhDbPath}' AS rh`);
+    } catch (e) {
+        console.warn('[DB] Could not attach rh database:', e.message);
+    }
 
     // Tables de base (kept in main DB)
     await db.exec(`
@@ -191,6 +208,18 @@ async function setupDb() {
             app_token TEXT,
             user_token TEXT,
             is_enabled INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS glpi_observers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            name TEXT,
+            login TEXT,
+            email TEXT,
+            is_active INTEGER DEFAULT 1,
+            last_sync DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(ticket_id, user_id)
         );
 
         CREATE TABLE IF NOT EXISTS email_templates (

@@ -14,6 +14,7 @@ import AdminSQL from './pages/AdminSQL';
 import AdminSettings from './pages/AdminSettings';
 import TelecomManagement from './pages/TelecomManagement';
 import AdminMessages from './pages/AdminMessages';
+import AdminIdeas from './pages/AdminIdeas';
 import AccessRequestPage from './pages/AccessRequestPage';
 import AdminAccessRequests from './pages/AdminAccessRequests';
 import AccessRequestOverlay from './components/AccessRequestOverlay';
@@ -84,6 +85,7 @@ function App() {
           <Route path="email-templates" element={<EmailTemplates />} />
           <Route path="sql" element={<AdminSQL />} />
           <Route path="settings" element={<AdminSettings />} />
+          <Route path="ideas" element={<AdminIdeas />} />
           <Route path="frizbi" element={<FrizbiSettings />} />
         </Route>
 

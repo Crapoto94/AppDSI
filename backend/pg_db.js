@@ -43,7 +43,7 @@ const pgDb = {
     },
     run: async (sql, params = []) => {
         let query = convertSqliteToPostgres(sql);
-        if (query.toUpperCase().includes('INSERT') && !query.toUpperCase().includes('INTO HUB.USERS')) {
+        if (query.toUpperCase().includes('INSERT') && !query.toUpperCase().includes('INTO HUB.USERS') && !query.toUpperCase().includes('INTO GLPI.')) {
             query += ' RETURNING id';
         }
         const res = await pool.query(query, params);
@@ -60,6 +60,7 @@ async function setupPgDb() {
     client = await pool.connect();
     await client.query('CREATE SCHEMA IF NOT EXISTS magapp;');
     await client.query('CREATE SCHEMA IF NOT EXISTS hub;');
+    await client.query('CREATE SCHEMA IF NOT EXISTS glpi;');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.categories (
@@ -207,6 +208,65 @@ async function setupPgDb() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.observers (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        name VARCHAR(255),
+        login VARCHAR(255),
+        email VARCHAR(255),
+        is_active INTEGER DEFAULT 1,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_id, user_id)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.ticket_status (
+        id INTEGER PRIMARY KEY,
+        label VARCHAR(255) NOT NULL
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.tickets (
+        glpi_id INTEGER PRIMARY KEY,
+        title TEXT,
+        content TEXT,
+        status INTEGER,
+        priority INTEGER DEFAULT 0,
+        urgency INTEGER DEFAULT 0,
+        impact INTEGER DEFAULT 0,
+        category TEXT,
+        type TEXT,
+        date_creation TEXT,
+        date_mod TEXT,
+        date_closed TEXT,
+        date_solved TEXT,
+        location TEXT,
+        solution TEXT,
+        source TEXT,
+        entity TEXT,
+        requester_name TEXT,
+        email_alt TEXT,
+        requester_email_22 TEXT,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Vue pour les tickets avec statut
+    await client.query(`DROP VIEW IF EXISTS glpi.v_tickets`);
+    await client.query(`
+      CREATE VIEW glpi.v_tickets AS
+      SELECT t.*,
+             s.label as status_label,
+             LOWER(COALESCE(t.requester_email_22, '')) as search_email,
+             LOWER(COALESCE(REPLACE(t.requester_email_22, '@ivry94.fr', ''), '')) as search_username
+      FROM glpi.tickets t
+      LEFT JOIN glpi.ticket_status s ON t.status = s.id
+    `);
+
     // Migration: Add source column if it doesn't exist
     try {
       await client.query(`
@@ -220,6 +280,58 @@ async function setupPgDb() {
       }
     }
 
+    // Migration: Add email columns to glpi.tickets if they don't exist
+    try {
+      await client.query(`ALTER TABLE glpi.tickets ADD COLUMN email_alt TEXT`);
+    } catch (e) {
+      if (!e.message.includes('already exists')) {
+        console.warn('[PG DB] Migration email_alt:', e.message);
+      }
+    }
+    try {
+      await client.query(`ALTER TABLE glpi.tickets ADD COLUMN requester_email_22 TEXT`);
+    } catch (e) {
+      if (!e.message.includes('already exists')) {
+        console.warn('[PG DB] Migration requester_email_22:', e.message);
+      }
+    }
+
+    // Table pour les idées
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.ideas (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        author_email TEXT,
+        author_name TEXT,
+        status VARCHAR(50) DEFAULT 'new',
+        admin_response TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    try {
+      await client.query(`ALTER TABLE magapp.ideas ADD COLUMN IF NOT EXISTS admin_response TEXT DEFAULT ''`);
+    } catch (e) {
+      if (!e.message.includes('already exists')) {
+        console.warn('[PG DB] Migration admin_response:', e.message);
+      }
+    }
+
+    // Table pour les pièces jointes des idées
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.idea_attachments (
+        id SERIAL PRIMARY KEY,
+        idea_id INTEGER REFERENCES magapp.ideas(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        file_size INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.app_users (
         id SERIAL PRIMARY KEY,
@@ -232,12 +344,101 @@ async function setupPgDb() {
       );
     `);
 
+    // Migration: Add show_create_buttons column if not exists
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_create_buttons BOOLEAN DEFAULT true`);
+    } catch (e) {
+      if (!e.message.includes('already exists')) {
+        console.warn('[PG DB] Migration show_create_buttons:', e.message);
+      }
+    }
+
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_ideas BOOLEAN DEFAULT true`);
+    } catch (e) {
+      if (!e.message.includes('already exists')) {
+        console.warn('[PG DB] Migration show_ideas:', e.message);
+      }
+    }
 
     await client.query(`
-      INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check)
-      VALUES (1, true, true, true)
+      INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas)
+      VALUES (1, true, true, true, true, true)
       ON CONFLICT (id) DO NOTHING;
     `);
+
+    // Table pour les logs de synchronisation GLPI
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.sync_logs (
+        id SERIAL PRIMARY KEY,
+        sync_type VARCHAR(50) NOT NULL,
+        sync_mode VARCHAR(20) NOT NULL,
+        triggered_by VARCHAR(255) DEFAULT 'system',
+        status VARCHAR(20) NOT NULL,
+        total_tickets INTEGER DEFAULT 0,
+        processed_tickets INTEGER DEFAULT 0,
+        error_message TEXT,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.ticket_followups (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL,
+        content TEXT,
+        content_hash VARCHAR(32),
+        author_name VARCHAR(255),
+        author_email VARCHAR(255),
+        is_private INTEGER DEFAULT 0,
+        date_creation TIMESTAMP,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_id, content_hash, date_creation)
+      );
+    `);
+
+    // Migration: ticket_followups - replace content with content_hash in unique constraint
+    try {
+      await client.query(`ALTER TABLE glpi.ticket_followups ADD COLUMN IF NOT EXISTS content_hash VARCHAR(32)`);
+      await client.query(`UPDATE glpi.ticket_followups SET content_hash = md5(content) WHERE content_hash IS NULL AND content IS NOT NULL`);
+      // Drop old constraint if it exists (name from the original UNIQUE definition)
+      await client.query(`ALTER TABLE glpi.ticket_followups DROP CONSTRAINT IF EXISTS ticket_followups_ticket_id_content_date_creation_key`);
+      // Add new constraint if not exists
+      await client.query(`
+        ALTER TABLE glpi.ticket_followups
+        ADD CONSTRAINT ticket_followups_ticket_id_content_hash_date_creation_key
+        UNIQUE (ticket_id, content_hash, date_creation)
+      `);
+    } catch (e) {
+      if (!e.message.includes('already exists')) {
+        console.warn('[PG DB] Migration ticket_followups content_hash:', e.message);
+      }
+    }
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.scheduled_syncs (
+        id SERIAL PRIMARY KEY,
+        sync_type VARCHAR(50) NOT NULL,
+        sync_mode VARCHAR(20) NOT NULL,
+        frequency_type VARCHAR(20) NOT NULL DEFAULT 'minutes',
+        frequency_value INTEGER NOT NULL DEFAULT 60,
+        execution_time VARCHAR(5) DEFAULT '00:00',
+        is_enabled INTEGER DEFAULT 1,
+        last_run TIMESTAMP,
+        next_run TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    try {
+      await client.query(`ALTER TABLE glpi.scheduled_syncs ADD COLUMN IF NOT EXISTS execution_time VARCHAR(5) DEFAULT '00:00'`);
+    } catch (e) {
+      if (!e.message.includes('already exists')) {
+        console.warn('[PG DB] Migration execution_time:', e.message);
+      }
+    }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

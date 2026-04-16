@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { 
   LayoutDashboard, Users, MessageSquare, ShieldCheck, 
   Mail, Settings, LayoutGrid, Activity, 
-  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -39,6 +39,7 @@ const AdminLayout: React.FC = () => {
     { title: "Modèles d'Emails", icon: Mail, path: "/admin/email-templates" },
     { title: "Serveur Mail", icon: Settings, path: "/admin/mail" },
     { title: "Configuration Hub", icon: LayoutGrid, path: "/admin/tiles" },
+    { title: "Idées MAGAPP", icon: Lightbulb, path: "/admin/ideas" },
     { title: "Paramètres", icon: Sliders, path: "/admin/settings" },
     { title: "SMS Frizbi", icon: MessageSquare, path: "/admin/frizbi" },
     { title: "Liaison AD", icon: Monitor, path: "/admin/ad" },

@@ -98,37 +98,37 @@ const Dashboard: React.FC = () => {
       </main>
 
       {!isApproved && (
-        <div className="restricted-overlay">
-          <div className="restricted-card animate-in zoom-in-95 duration-300">
-            <div className="restricted-icon-wrapper">
-              <div className="restricted-icon-bg">
-                <ShieldAlert size={48} className="text-amber-500" />
-              </div>
-              <div className="status-badge">
-                <Clock size={14} /> En attente
-              </div>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(12px)' }}>
+          <div style={{ background: 'white', borderRadius: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxWidth: '520px', width: '100%', padding: '48px 40px', textAlign: 'center' }}>
+            <div style={{ width: '80px', height: '80px', background: 'linear-gradient(135deg, #fef3c7, #fef9c3)', color: '#d97706', borderRadius: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', boxShadow: '0 8px 24px rgba(217, 119, 6, 0.15)' }}>
+              <ShieldAlert size={40} strokeWidth={1.8} />
+            </div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#fef3c7', color: '#92400e', padding: '4px 14px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 700, marginBottom: '24px' }}>
+              <Clock size={14} /> En attente
             </div>
             
-            <h2 className="restricted-title text-gray-900 font-extrabold text-2xl mb-4">Accès Restreint</h2>
+            <h2 style={{ fontSize: '1.75rem', fontWeight: 900, color: '#0f172a', marginBottom: '12px', letterSpacing: '-0.02em' }}>Accès restreint</h2>
             
-            <div className="restricted-message bg-amber-50 border border-amber-100 p-6 rounded-2xl mb-8">
-              <p className="text-amber-900 leading-relaxed italic">
-                "{restrictedMessage}"
-              </p>
+            <div style={{ background: '#f8fafc', borderRadius: '16px', padding: '24px 32px', marginBottom: '32px', color: '#475569', lineHeight: 1.7, fontSize: '0.95rem', whiteSpace: 'pre-wrap', textAlign: 'left', border: '1px solid #f1f5f9' }}>
+              "{restrictedMessage}"
             </div>
-            
-            <div className="flex flex-col gap-4 w-full mt-2">
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <button 
                 onClick={() => navigate('/request-access')}
-                className="bg-blue-600 text-white px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
+                style={{ width: '100%', background: '#2563eb', color: 'white', padding: '16px', borderRadius: '16px', fontWeight: 700, fontSize: '1.1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', cursor: 'pointer', border: 'none', boxShadow: '0 8px 24px rgba(37, 99, 235, 0.25)', transition: 'all 0.2s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#1d4ed8'}
+                onMouseLeave={e => e.currentTarget.style.background = '#2563eb'}
               >
                 <UserCheck size={22} /> Demander un accès
               </button>
               <button 
-                onClick={logout}
-                className="text-gray-500 hover:text-gray-700 px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-gray-100 transition-all border border-transparent hover:border-gray-200"
+                onClick={() => { logout(); navigate('/login'); }}
+                style={{ width: '100%', background: 'white', color: '#64748b', padding: '14px', borderRadius: '16px', fontWeight: 600, fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer', border: '1px solid #e2e8f0', transition: 'all 0.2s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.borderColor = '#fecaca'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'white'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
               >
-                <LogOut size={22} /> Se déconnecter
+                <LogOut size={18} /> Se déconnecter
               </button>
             </div>
           </div>

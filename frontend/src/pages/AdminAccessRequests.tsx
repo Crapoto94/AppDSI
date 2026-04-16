@@ -62,8 +62,9 @@ const AdminAccessRequests: React.FC = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             fetchRequests();
-        } catch (err) {
-            alert('Erreur lors de l\'action');
+        } catch (err: any) {
+            console.error('Access request action error:', err?.response?.data || err);
+            alert(`Erreur lors de l'action : ${err?.response?.data?.message || err?.message || 'Erreur inconnue'}`);
         }
     };
 

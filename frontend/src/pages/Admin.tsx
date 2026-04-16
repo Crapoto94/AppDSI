@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Plus, Trash2, X, UserPlus, Users, Edit2, 
+  Plus, Trash2, X, UserPlus, Users, Edit2, Edit3, 
   ChevronUp, ChevronDown, 
   Loader2, Search, ShieldCheck, Radio, Save,
   CheckCircle2, Activity, Database, Euro,
   ShieldAlert, Box, LayoutGrid,
   Globe, Key, Fingerprint, Check, AlertTriangle, BarChart3,
-  Zap, History as HistoryIcon, Hash, Lock, Download
+  Zap, History as HistoryIcon, Hash, Lock, Download, MessageSquare,
+  Clock, Play
 } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -89,14 +90,28 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   });
   const [glpiTestResult, setGlpiTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [ticketsCount, setTicketsCount] = useState<number | null>(null);
-  const [recentTickets, setRecentTickets] = useState<any[]>([]);
   const [isLoadingTickets, setIsLoadingTickets] = useState(false);
-  const [isLoadingRecent, setIsLoadingRecent] = useState(false);
-  const [profileResult, setProfileResult] = useState<any>(null);
-  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [isSyncingRecent, setIsSyncingRecent] = useState(false);
+  const [isSyncingObservers, setIsSyncingObservers] = useState(false);
+  const [isSyncingFollowups, setIsSyncingFollowups] = useState(false);
   const [syncStatus, setSyncStatus] = useState({ active: false, processed: 0, total: 0 });
+  const [observersSyncStatus, setObserversSyncStatus] = useState({ active: false, processed: 0, total: 0 });
+  const [followupsSyncStatus, setFollowupsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
+  const [syncLogs, setSyncLogs] = useState<any[]>([]);
+  const [syncLogsPage, setSyncLogsPage] = useState(1);
+  const syncLogsPerPage = 10;
+  const [scheduledSyncs, setScheduledSyncs] = useState<any[]>([]);
+  const [showScheduledModal, setShowScheduledModal] = useState(false);
+  const [editingScheduledSync, setEditingScheduledSync] = useState<any>(null);
+  const [newScheduledSync, setNewScheduledSync] = useState({
+    sync_type: 'tickets',
+    sync_mode: 'recent',
+    frequency_type: 'minutes',
+    frequency_value: 30,
+    execution_time: '00:00',
+    is_enabled: true
+  });
   
   const [oracleConfigs, setOracleConfigs] = useState<any[]>([
     { type: 'FINANCES', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
@@ -498,7 +513,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     if (section === 'users') { fetchTiles(); fetchUsers(); }
     if (section === 'ad') fetchADSettings();
     if (section === 'azure-ad') fetchAzureSettings();
-    if (section === 'glpi') fetchGLPISettings();
+    if (section === 'glpi') { fetchGLPISettings(); fetchSyncLogs(); fetchScheduledSyncs(); }
     if (section === 'oracle') fetchOracleSettings();
     if (section === 'mariadb') fetchMariaDBSettings();
     if (section === 'main') { fetchTiles(); fetchUsers(); }
@@ -559,74 +574,136 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   };
 
   const handleFetchRecentTickets = async () => {
-    setIsLoadingRecent(true);
+    setIsSyncingRecent(true);
     try {
-      const res = await axios.get('/api/glpi/recent-tickets', {
+      const res = await axios.post('/api/glpi/sync-recent', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setRecentTickets(res.data.tickets);
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Erreur lors de la récupération des tickets récents');
-    } finally {
-      setIsLoadingRecent(false);
-    }
-  };
-
-  const handleSyncTickets = async () => {
-    setIsSyncing(true);
-    setSyncStatus({ active: true, processed: 0, total: 0 });
-
-    const pollInterval = setInterval(async () => {
-      try {
-        const res = await axios.get('/api/glpi/sync-status', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setSyncStatus(res.data);
-        if (!res.data.active) clearInterval(pollInterval);
-      } catch (e) {
-        console.error('Erreur polling status:', e);
-      }
-    }, 1500);
-
-    try {
-      const response = await axios.post('/api/glpi/sync-tickets', {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      alert(`Synchronisation réussie : ${response.data.count} tickets importés dans la base locale.`);
+      alert(`Synchronisation réussie : ${res.data.count} tickets importés.`);
+      fetchSyncLogs();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Erreur lors de la synchronisation');
     } finally {
-      setIsSyncing(false);
-      setSyncStatus(prev => ({ ...prev, active: false }));
-      clearInterval(pollInterval);
+      setIsSyncingRecent(false);
+    }
+  };
+
+  const fetchSyncLogs = async () => {
+    try {
+      const res = await axios.get('/api/glpi/sync-logs', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSyncLogs(res.data);
+    } catch (e) {
+      console.error('Erreur chargement logs:', e);
+    }
+  };
+
+  const fetchScheduledSyncs = async () => {
+    try {
+      const res = await axios.get('/api/glpi/scheduled-syncs', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setScheduledSyncs(res.data);
+    } catch (e) {
+      console.error('Erreur chargement synchros programmées:', e);
+    }
+  };
+
+  const handleSaveScheduledSync = async () => {
+    try {
+      const payload = {
+        frequency_type: newScheduledSync.frequency_type,
+        frequency_value: newScheduledSync.frequency_value,
+        execution_time: newScheduledSync.frequency_type === 'days' ? newScheduledSync.execution_time : '00:00',
+        is_enabled: newScheduledSync.is_enabled
+      };
+      if (editingScheduledSync) {
+        await axios.put(`/api/glpi/scheduled-syncs/${editingScheduledSync.id}`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } else {
+        await axios.post('/api/glpi/scheduled-syncs', {
+          ...newScheduledSync,
+          execution_time: newScheduledSync.frequency_type === 'days' ? newScheduledSync.execution_time : '00:00'
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+      setShowScheduledModal(false);
+      setEditingScheduledSync(null);
+      setNewScheduledSync({ sync_type: 'tickets', sync_mode: 'recent', frequency_type: 'minutes', frequency_value: 30, execution_time: '00:00', is_enabled: true });
+      fetchScheduledSyncs();
+      fetchSyncLogs();
+    } catch (e) {
+      console.error('Erreur sauvegarde synchro programmée:', e);
+      alert('Erreur lors de la sauvegarde');
+    }
+  };
+
+  const handleDeleteScheduledSync = async (id: number) => {
+    if (!window.confirm('Supprimer cette synchro programmée ?')) return;
+    try {
+      await axios.delete(`/api/glpi/scheduled-syncs/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchScheduledSyncs();
+    } catch (e) {
+      console.error('Erreur suppression synchro programmée:', e);
+    }
+  };
+
+  const handleRunScheduledSync = async (id: number) => {
+    try {
+      await axios.post(`/api/glpi/scheduled-syncs/${id}/run`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchSyncLogs();
+    } catch (e) {
+      console.error('Erreur lancement synchro:', e);
+    }
+  };
+
+  const handleToggleScheduledSync = async (sync: any) => {
+    try {
+      await axios.put(`/api/glpi/scheduled-syncs/${sync.id}`, {
+        is_enabled: !sync.is_enabled
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      fetchScheduledSyncs();
+    } catch (e) {
+      console.error('Erreur toggle synchro:', e);
     }
   };
 
   const handleSyncAllTickets = async () => {
     if (!window.confirm("Attention : Vous allez synchroniser l'intégralité de la base GLPI (+36 000 tickets). Cette opération peut prendre quelques minutes. Souhaitez-vous continuer ?")) return;
 
-    console.log('[GLPI Sync] Démarrage synchronisation totale');
     setIsSyncingAll(true);
     setSyncStatus({ active: true, processed: 0, total: 0 });
 
-    // Lancer le polling - vérifie toutes les secondes pour une meilleure réactivité
-    console.log('[GLPI Sync] Lancement du polling');
-    const pollInterval = setInterval(async () => {
-      console.log('[GLPI Polling] Interrogation du serveur...');
-      try {
-        const res = await axios.get('/api/glpi/sync-status', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log('[GLPI Polling] Réponse reçue:', res.data);
-        setSyncStatus(res.data);
-        if (!res.data.active) {
-            console.log('[GLPI Polling] Synchronisation terminée');
-            clearInterval(pollInterval);
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    const startPolling = () => {
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await axios.get('/api/glpi/sync-status', {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setSyncStatus(res.data);
+          if (!res.data.active) {
+            clearInterval(pollInterval!);
+            setIsSyncingAll(false);
+          }
+        } catch (e: unknown) {
+          const err = e as { response?: { status: number }; message?: string };
+          console.error('[GLPI Polling] Erreur:', err.response?.status, err.message);
         }
-      } catch (e) {
-        console.error('[GLPI Polling] Erreur:', e.response?.status, e.message);
-      }
-    }, 1000);
+      }, 1000);
+    };
+
+    startPolling();
 
     try {
       const response = await axios.post('/api/glpi/sync-all-tickets', {}, {
@@ -634,30 +711,193 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       });
       alert(`Synchronisation totale réussie : ${response.data.count} / ${response.data.total} tickets importés.`);
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Erreur lors de la synchronisation totale');
-    } finally {
-      setIsSyncingAll(false);
+      if (pollInterval) clearInterval(pollInterval);
       setSyncStatus(prev => ({ ...prev, active: false }));
+      setIsSyncingAll(false);
+      alert(error.response?.data?.message || 'Erreur lors de la synchronisation totale');
+    }
+  };
+
+  const handleCancelSync = async () => {
+    if (!window.confirm('Voulez-vous vraiment annuler la synchronisation en cours ?')) return;
+    try {
+      await axios.post('/api/glpi/sync-cancel', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert('Annulation demandée. La synchronisation s\'arrêtera bientôt.');
+    } catch (e) {
+      console.error('Erreur lors de l\'annulation:', e);
+    }
+  };
+
+  const handleSyncObservers = async () => {
+    if (!window.confirm('Synchroniser les observateurs GLPI ? Cette opération peut prendre plusieurs minutes.')) return;
+    
+    setIsSyncingObservers(true);
+    setObserversSyncStatus({ active: true, processed: 0, total: 0 });
+
+    let pollInterval = setInterval(async () => {
+      try {
+        const res = await axios.get('/api/glpi/sync-observers-status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setObserversSyncStatus(res.data);
+        if (!res.data.active) clearInterval(pollInterval);
+      } catch (e) {
+        console.error('Erreur polling observers:', e);
+      }
+    }, 1500);
+
+    try {
+      const response = await axios.post('/api/glpi/sync-observers', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert(`Synchronisation des observateurs réussie : ${response.data.count} observateurs importés.`);
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Erreur lors de la synchronisation des observateurs');
+    } finally {
+      setIsSyncingObservers(false);
+      setObserversSyncStatus(prev => ({ ...prev, active: false }));
       clearInterval(pollInterval);
     }
   };
 
-  const handleGetProfile = async () => {
-    setIsLoadingProfile(true);
-    setProfileResult(null);
+  const handleCancelObserversSync = async () => {
+    if (!window.confirm('Voulez-vous vraiment annuler la synchronisation des observateurs ?')) return;
     try {
-      const res = await fetch('/api/glpi/my-profile', { headers: { 'Authorization': `Bearer ${token}` } });
-      if (res.ok) {
-        const data = await res.json();
-        setProfileResult({ success: true, profiles: data.profiles });
-      } else {
-        const data = await res.json();
-        setProfileResult({ success: false, message: data.message });
-      }
+      await axios.post('/api/glpi/sync-observers-cancel', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert('Annulation demandée. La synchronisation s\'arrêtera bientôt.');
     } catch (e) {
-      setProfileResult({ success: false, message: 'Erreur lors de la récupération du profil' });
+      console.error('Erreur lors de l\'annulation:', e);
+    }
+  };
+
+  const handleSyncObserversRecent = async () => {
+    setIsSyncingObservers(true);
+    setObserversSyncStatus({ active: true, processed: 0, total: 0 });
+
+    let pollInterval = setInterval(async () => {
+      try {
+        const res = await axios.get('/api/glpi/sync-observers-status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setObserversSyncStatus(res.data);
+        if (!res.data.active) clearInterval(pollInterval);
+      } catch (e) {
+        console.error('Erreur polling observers:', e);
+      }
+    }, 1500);
+
+    try {
+      const response = await axios.post('/api/glpi/sync-observers-recent', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert(`Synchronisation réussie : ${response.data.count} observateurs importés.`);
+      fetchSyncLogs();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Erreur lors de la synchronisation');
     } finally {
-      setIsLoadingProfile(false);
+      setIsSyncingObservers(false);
+      setObserversSyncStatus(prev => ({ ...prev, active: false }));
+      clearInterval(pollInterval);
+    }
+  };
+
+  const handleSyncFollowups = async () => {
+    if (!window.confirm('Synchroniser tous les traitements de tickets ? Cette opération peut prendre plusieurs minutes.')) return;
+    
+    setIsSyncingFollowups(true);
+    setFollowupsSyncStatus({ active: true, processed: 0, total: 0 });
+
+    let pollInterval = setInterval(async () => {
+      try {
+        const res = await axios.get('/api/glpi/sync-followups-status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setFollowupsSyncStatus(res.data);
+        if (!res.data.active) clearInterval(pollInterval);
+      } catch (e) {
+        console.error('Erreur polling followups:', e);
+      }
+    }, 1500);
+
+    try {
+      const response = await axios.post('/api/glpi/sync-followups', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert(`Synchronisation réussie : ${response.data.count} traitements importés.`);
+      fetchSyncLogs();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Erreur lors de la synchronisation des traitements');
+    } finally {
+      setIsSyncingFollowups(false);
+      setFollowupsSyncStatus(prev => ({ ...prev, active: false }));
+      clearInterval(pollInterval);
+    }
+  };
+
+  const handleSyncFollowupsRecent = async () => {
+    setIsSyncingFollowups(true);
+    setFollowupsSyncStatus({ active: true, processed: 0, total: 0 });
+
+    let pollInterval = setInterval(async () => {
+      try {
+        const res = await axios.get('/api/glpi/sync-followups-status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setFollowupsSyncStatus(res.data);
+        if (!res.data.active) clearInterval(pollInterval);
+      } catch (e) {
+        console.error('Erreur polling followups:', e);
+      }
+    }, 1500);
+
+    try {
+      const response = await axios.post('/api/glpi/sync-followups-recent', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert(`Synchronisation réussie : ${response.data.count} traitements importés.`);
+      fetchSyncLogs();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Erreur lors de la synchronisation');
+    } finally {
+      setIsSyncingFollowups(false);
+      setFollowupsSyncStatus(prev => ({ ...prev, active: false }));
+      clearInterval(pollInterval);
+    }
+  };
+
+  const handleCancelFollowupsSync = async () => {
+    try {
+      await axios.post('/api/glpi/sync-followups-cancel', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (e) {
+      console.error('Erreur annulation followups:', e);
+    }
+  };
+
+  const handleTestCreateTicket = async () => {
+    const title = prompt('Titre du ticket de test :');
+    if (!title) return;
+    const content = prompt('Description du ticket :') || title;
+    const typeStr = prompt('Type (1=Incident, 2=Demande) :') || '1';
+    const type = parseInt(typeStr) || 1;
+    
+    try {
+      const response = await axios.post('/api/glpi/tickets', {
+        title,
+        content,
+        type,
+        urgency: 3
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert(`Ticket créé avec succès ! ID: ${response.data.ticket?.id || 'N/A'}`);
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Erreur lors de la création du ticket');
     }
   };
 
@@ -915,18 +1155,18 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     e.preventDefault();
     if (!editingUser) return;
     try {
-      await axios.put(`/api/users/${editingUser.id}`, editingUser, {
+      const { role, is_approved, service_code, service_complement } = editingUser;
+      await axios.put(`/api/users/${editingUser.id}`, { role, is_approved, service_code, service_complement }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (editingUser.authorized_tiles) {
-        await axios.put(`/api/users/${editingUser.id}/tiles`, { tiles: editingUser.authorized_tiles }, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      }
+      await axios.put(`/api/users/${editingUser.id}/tiles`, { tiles: editingUser.authorized_tiles || [] }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setEditingUser(null);
       fetchUsers();
-    } catch (error) {
-      alert('Erreur lors de la mise à jour');
+    } catch (error: any) {
+      console.error('Erreur mise à jour utilisateur:', error?.response?.data || error);
+      alert(`Erreur lors de la mise à jour : ${error?.response?.data?.message || error?.message || 'Erreur inconnue'}`);
     }
   };
 
@@ -964,6 +1204,114 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   return (
     <div className="admin-page-content animate-in fade-in duration-500">
+        {/* Modal Synchro Programmée */}
+        {showScheduledModal && (
+          <div className="modal-overlay">
+            <div className="modal-container" style={{ maxWidth: '500px' }}>
+              <div className="modal-header">
+                <div className="modal-header-info">
+                  <div className="modal-icon-box emerald">
+                    <Clock size={24} />
+                  </div>
+                  <div>
+                    <h3 className="modal-title">{editingScheduledSync ? 'Modifier la synchro' : 'Nouvelle synchro programmée'}</h3>
+                    <p className="modal-subtitle">Configurez la fréquence d'exécution automatique</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowScheduledModal(false)} className="icon-btn">
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="modal-body padding">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+                  <div className="form-field">
+                    <label className="field-label">Type de synchronisation</label>
+                    <select 
+                      className="admin-input"
+                      value={newScheduledSync.sync_type}
+                      onChange={e => setNewScheduledSync({...newScheduledSync, sync_type: e.target.value})}
+                      disabled={!!editingScheduledSync}
+                      style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                    >
+                      <option value="tickets">Tickets</option>
+                      <option value="observers">Observateurs</option>
+                      <option value="followups">Traitements</option>
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label className="field-label">Mode de synchronisation</label>
+                    <select 
+                      className="admin-input"
+                      value={newScheduledSync.sync_mode}
+                      onChange={e => setNewScheduledSync({...newScheduledSync, sync_mode: e.target.value})}
+                      disabled={!!editingScheduledSync}
+                      style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                    >
+                      <option value="recent">Récents</option>
+                      <option value="full">Totale</option>
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label className="field-label">Fréquence</label>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <input
+                        type="number"
+                        className="admin-input"
+                        value={newScheduledSync.frequency_value}
+                        onChange={e => setNewScheduledSync({...newScheduledSync, frequency_value: parseInt(e.target.value) || 1})}
+                        min={1}
+                        style={{ width: '100px', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                      />
+                      <select 
+                        className="admin-input"
+                        value={newScheduledSync.frequency_type}
+                        onChange={e => setNewScheduledSync({...newScheduledSync, frequency_type: e.target.value})}
+                        style={{ flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                      >
+                        <option value="minutes">Minutes</option>
+                        <option value="hours">Heures</option>
+                        <option value="days">Jours</option>
+                      </select>
+                    </div>
+                  </div>
+                  {newScheduledSync.frequency_type === 'days' && (
+                    <div className="form-field">
+                      <label className="field-label">Heure d'exécution</label>
+                      <input
+                        type="time"
+                        className="admin-input"
+                        value={newScheduledSync.execution_time}
+                        onChange={e => setNewScheduledSync({...newScheduledSync, execution_time: e.target.value})}
+                        style={{ padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                      />
+                    </div>
+                  )}
+                  <div className="form-field">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={newScheduledSync.is_enabled}
+                        onChange={e => setNewScheduledSync({...newScheduledSync, is_enabled: e.target.checked})}
+                      />
+                      <span style={{ fontWeight: 600 }}>Activée</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <div></div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={() => setShowScheduledModal(false)} className="btn-admin-outline">Annuler</button>
+                  <button onClick={handleSaveScheduledSync} className="btn-admin-primary" style={{ background: '#059669' }}>
+                    <Save size={18} />
+                    {editingScheduledSync ? 'Modifier' : 'Créer'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Modal Substitutions Oracle Assistée */}
         {/* Modal Super-Configuration Oracle (Structure + Jointures + Preview) */}
         {activeSelectionModal && (
@@ -1254,90 +1602,93 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             </div>
 
             {(isAddingUser || editingUser) && (
-              <div className="edit-form-card animate-in zoom-in-95 duration-200">
-                <div className="form-header flex justify-between items-center">
-                  <h3 className="flex items-center gap-3">
-                    <span className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Edit2 size={20} /></span>
-                    {editingUser ? `Modifier le profil de ${editingUser.username}` : 'Nouvel utilisateur'}
-                  </h3>
-                  <button onClick={() => { setIsAddingUser(false); setEditingUser(null); }} className="icon-btn"><X size={20} /></button>
-                </div>
-                <form onSubmit={editingUser ? handleUpdateUser : handleAddUser} className="admin-form">
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label>Identifiant</label>
-                      <input disabled={!!editingUser} value={editingUser ? editingUser.username : newUser.username} onChange={e => editingUser ? setEditingUser({...editingUser, username: e.target.value}) : setNewUser({...newUser, username: e.target.value})} required />
-                    </div>
-                    <div className="form-group">
-                      <label>Rôle</label>
-                      <select value={editingUser ? editingUser.role : newUser.role} onChange={e => editingUser ? setEditingUser({...editingUser, role: e.target.value}) : setNewUser({...newUser, role: e.target.value})}>
-                        <option value="user">Utilisateur standard</option>
-                        <option value="finances">Direction Finances</option>
-                        <option value="compta">Comptabilité</option>
-                        <option value="magapp">Magasin d'Apps</option>
-                        <option value="admin">Administrateur</option>
-                      </select>
-                    </div>
-                    {!editingUser && (
+              <div className="modal-overlay" onClick={() => { setIsAddingUser(false); setEditingUser(null); }}>
+                <div className="modal-container" style={{ maxWidth: '680px' }} onClick={e => e.stopPropagation()}>
+                  <div className="form-header flex justify-between items-center">
+                    <h3 className="flex items-center gap-3">
+                      <span className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Edit2 size={20} /></span>
+                      {editingUser ? `Modifier le profil de ${editingUser.username}` : 'Nouvel utilisateur'}
+                    </h3>
+                    <button onClick={() => { setIsAddingUser(false); setEditingUser(null); }} className="icon-btn"><X size={20} /></button>
+                  </div>
+                  <form onSubmit={editingUser ? handleUpdateUser : handleAddUser} className="admin-form">
+                    <div className="form-grid">
                       <div className="form-group">
-                        <label>Mot de passe</label>
-                        <input type="password" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
+                        <label>Identifiant</label>
+                        <input disabled={!!editingUser} value={editingUser ? editingUser.username : newUser.username} onChange={e => editingUser ? setEditingUser({...editingUser, username: e.target.value}) : setNewUser({...newUser, username: e.target.value})} required />
                       </div>
-                    )}
-                    <div className="form-group">
-                      <label>Statut Approbation</label>
-                      <div className="approval-toggle flex gap-3">
-                        <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 1})} className={`toggle-btn approved ${editingUser?.is_approved === 1 ? 'active' : ''}`}>
-                          <CheckCircle2 size={16} /> Approuvé
-                        </button>
-                        <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 0})} className={`toggle-btn pending ${editingUser?.is_approved === 0 ? 'active' : ''}`}>
-                          <ShieldAlert size={16} /> En attente
-                        </button>
+                      <div className="form-group">
+                        <label>Rôle</label>
+                        <select value={editingUser ? editingUser.role : newUser.role} onChange={e => editingUser ? setEditingUser({...editingUser, role: e.target.value}) : setNewUser({...newUser, role: e.target.value})}>
+                          <option value="user">Utilisateur standard</option>
+                          <option value="finances">Direction Finances</option>
+                          <option value="compta">Comptabilité</option>
+                          <option value="magapp">Magasin d'Apps</option>
+                          <option value="admin">Administrateur</option>
+                        </select>
                       </div>
-                    </div>
-                    <div className="form-group">
-                      <label>Code Service</label>
-                      <input placeholder="ex: DSI" value={editingUser ? editingUser.service_code || '' : newUser.service_code} onChange={e => editingUser ? setEditingUser({...editingUser, service_code: e.target.value}) : setNewUser({...newUser, service_code: e.target.value})} />
-                    </div>
-                    <div className="form-group">
-                      <label>Complément Service</label>
-                      <input placeholder="Description longue..." value={editingUser ? editingUser.service_complement || '' : newUser.service_complement} onChange={e => editingUser ? setEditingUser({...editingUser, service_complement: e.target.value}) : setNewUser({...newUser, service_complement: e.target.value})} />
-                    </div>
-                    {editingUser && (
-                      <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                        <label>Tuiles Autorisées & Permissions</label>
-                        <div className="tiles-grid-compact grid grid-cols-2 lg:grid-cols-4 gap-3 mt-2">
-                          {tiles.map(tile => {
-                            const isAuth = editingUser?.authorized_tiles?.includes(tile.id);
-                            return (
-                              <label key={tile.id} className={isAuth ? 'selected' : ''}>
-                                <input 
-                                  type="checkbox" 
-                                  checked={!!isAuth}
-                                  onChange={(e) => {
-                                    if (!editingUser) return;
-                                    const currentTiles = editingUser.authorized_tiles || [];
-                                    if (e.target.checked) {
-                                      setEditingUser({...editingUser, authorized_tiles: [...currentTiles, tile.id]});
-                                    } else {
-                                      setEditingUser({...editingUser, authorized_tiles: currentTiles.filter(id => id !== tile.id)});
-                                    }
-                                  }}
-                                />
-                                <span>{tile.title}</span>
-                              </label>
-                            )
-                          })}
+                      {!editingUser && (
+                        <div className="form-group">
+                          <label>Mot de passe</label>
+                          <input type="password" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
+                        </div>
+                      )}
+                      <div className="form-group">
+                        <label>Statut Approbation</label>
+                        <div className="approval-toggle flex gap-3">
+                          <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 1})} className={`toggle-btn approved ${editingUser?.is_approved === 1 ? 'active' : ''}`}>
+                            <CheckCircle2 size={16} /> Approuvé
+                          </button>
+                          <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 0})} className={`toggle-btn pending ${editingUser?.is_approved === 0 ? 'active' : ''}`}>
+                            <ShieldAlert size={16} /> En attente
+                          </button>
                         </div>
                       </div>
-                    )}
-                  </div>
-                  <div className="form-footer mt-8 pt-6 border-t border-gray-100 flex justify-end">
-                    <button type="submit" className="btn btn-primary" style={{ borderRadius: '14px', padding: '12px 30px', fontWeight: '800',  boxShadow: '0 4px 12px rgba(227, 6, 19, 0.2)' }}>
-                      <Save size={18} className="mr-2 inline-block" /> {editingUser ? 'Sauvegarder le profil' : 'Créer le compte'}
-                    </button>
-                  </div>
-                </form>
+                      <div className="form-group">
+                        <label>Code Service</label>
+                        <input placeholder="ex: DSI" value={editingUser ? editingUser.service_code || '' : newUser.service_code} onChange={e => editingUser ? setEditingUser({...editingUser, service_code: e.target.value}) : setNewUser({...newUser, service_code: e.target.value})} />
+                      </div>
+                      <div className="form-group">
+                        <label>Complément Service</label>
+                        <input placeholder="Description longue..." value={editingUser ? editingUser.service_complement || '' : newUser.service_complement} onChange={e => editingUser ? setEditingUser({...editingUser, service_complement: e.target.value}) : setNewUser({...newUser, service_complement: e.target.value})} />
+                      </div>
+                      {editingUser && (
+                        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                          <label>Tuiles Autorisées & Permissions</label>
+                          <div className="tiles-grid-compact grid grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
+                            {tiles.map(tile => {
+                              const isAuth = editingUser?.authorized_tiles?.includes(tile.id);
+                              return (
+                                <label key={tile.id} className={`tile-checkbox-card ${isAuth ? 'selected' : ''}`}>
+                                  <input 
+                                    type="checkbox" 
+                                    checked={!!isAuth}
+                                    onChange={(e) => {
+                                      if (!editingUser) return;
+                                      const currentTiles = editingUser.authorized_tiles || [];
+                                      if (e.target.checked) {
+                                        setEditingUser({...editingUser, authorized_tiles: [...currentTiles, tile.id]});
+                                      } else {
+                                        setEditingUser({...editingUser, authorized_tiles: currentTiles.filter(id => id !== tile.id)});
+                                      }
+                                    }}
+                                  />
+                                  <span className="tile-checkbox-title">{tile.title}</span>
+                                  <span className="tile-checkbox-icon">{isAuth ? '✓' : ''}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="form-footer mt-8 pt-6 border-t border-gray-100 flex justify-end">
+                      <button type="submit" className="btn btn-primary" style={{ borderRadius: '14px', padding: '12px 30px', fontWeight: '800',  boxShadow: '0 4px 12px rgba(227, 6, 19, 0.2)' }}>
+                        <Save size={18} className="mr-2 inline-block" /> {editingUser ? 'Sauvegarder le profil' : 'Créer le compte'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </div>
             )}
 
@@ -1370,24 +1721,50 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           ) : (
                             <span className="status-badge pending self-start"><ShieldAlert size={12} /> ATTENTE</span>
                           )}
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1 max-w-[250px]">
+                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', marginTop: '4px', maxWidth: '260px' }}>
                             {user.role === 'admin' ? (
-                              <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-md text-[10px] font-black tracking-wide border border-purple-200">ACCÈS TOTAL</span>
+                              <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.05em', background: '#f3e8ff', color: '#7c3aed', border: '1px solid #c4b5fd' }}>ACCÈS TOTAL</span>
                             ) : (
-                              tiles.filter(t => user.authorized_tiles?.includes(t.id)).map(t => (
-                                <span key={t.id} className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold shadow-sm whitespace-nowrap" title={t.title}>
-                                  {t.title}
-                                </span>
-                              ))
+                              tiles.filter(t => user.authorized_tiles?.includes(t.id)).map(t => {
+                                const colors: Record<string, { bg: string; color: string; border: string }> = {
+                                  '1': { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
+                                  '2': { bg: '#fef3c7', color: '#92400e', border: '#fcd34d' },
+                                  '3': { bg: '#d1fae5', color: '#065f46', border: '#6ee7b7' },
+                                  '4': { bg: '#fce7f3', color: '#9d174d', border: '#f9a8d4' },
+                                  '5': { bg: '#e0e7ff', color: '#3730a3', border: '#a5b4fc' },
+                                  '6': { bg: '#fef9c3', color: '#854d0e', border: '#fde047' },
+                                  '7': { bg: '#cffafe', color: '#155e75', border: '#67e8f9' },
+                                  '8': { bg: '#f1f5f9', color: '#334155', border: '#cbd5e1' },
+                                  '9': { bg: '#fff7ed', color: '#9a3412', border: '#fdba74' },
+                                  '10': { bg: '#ede9fe', color: '#5b21b6', border: '#c4b5fd' },
+                                  '11': { bg: '#ecfdf5', color: '#065f46', border: '#a7f3d0' },
+                                  '12': { bg: '#fef2f2', color: '#991b1b', border: '#fca5a5' },
+                                  '13': { bg: '#f0f9ff', color: '#075985', border: '#7dd3fc' },
+                                  '14': { bg: '#fdf4ff', color: '#86198f', border: '#e879f9' },
+                                  '15': { bg: '#fffbeb', color: '#92400e', border: '#fcd34d' },
+                                  '16': { bg: '#ecfccb', color: '#3f6212', border: '#bef264' },
+                                  '17': { bg: '#f5f3ff', color: '#4c1d95', border: '#c4b5fd' },
+                                  '18': { bg: '#f0fdf4', color: '#166534', border: '#86efac' },
+                                  '19': { bg: '#fefce8', color: '#854d0e', border: '#fde047' },
+                                  '20': { bg: '#faf5ff', color: '#6b21a8', border: '#d8b4fe' },
+                                  '21': { bg: '#eef2ff', color: '#3730a3', border: '#a5b4fc' },
+                                };
+                                const c = colors[String(t.id)] || { bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' };
+                                return (
+                                  <span key={t.id} style={{ padding: '3px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}`, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                    {t.title}
+                                  </span>
+                                );
+                              })
                             )}
                           </div>
                         </div>
                       </td>
                       <td className="service-cell">
-                        <div className="service-code font-bold text-gray-700">{user.service_code || '-'}</div>
-                        <div className="service-full text-[10px] text-gray-400">{user.service_complement}</div>
+                        <div style={{ fontWeight: 700, color: '#334155' }}>{user.service_code || '-'}</div>
+                        <div style={{ fontSize: '10px', color: '#9ca3af' }}>{user.service_complement}</div>
                       </td>
-                      <td className="activity-cell text-xs text-gray-500">{formatActivityDate(user.last_activity)}</td>
+                      <td className="activity-cell" style={{ fontSize: '0.75rem', color: '#6b7280' }}>{formatActivityDate(user.last_activity)}</td>
                       <td className="actions">
                         <button className="icon-btn edit" onClick={() => setEditingUser(user)}><Edit2 size={16} /></button>
                         <button className="icon-btn delete" onClick={() => handleDeleteUser(user.id)} disabled={user.username === 'admin' || user.username === 'adminhub'}><Trash2 size={16} /></button>
@@ -2196,20 +2573,15 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             )}
                         </div>
 
-                        <div className="action-grid">
+                        <div className="action-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
                             <button onClick={handleCountTickets} className="action-tile" disabled={isLoadingTickets || !glpiConfig.is_enabled}>
                                 <Activity size={18} />
                                 <span>Actualiser</span>
                             </button>
                             
-                            <button onClick={handleFetchRecentTickets} className="action-tile" disabled={isLoadingRecent || !glpiConfig.is_enabled}>
+                            <button onClick={handleFetchRecentTickets} className="action-tile" disabled={isSyncingRecent || !glpiConfig.is_enabled}>
                                 <HistoryIcon size={18} />
-                                <span>Récents</span>
-                            </button>
-
-                            <button onClick={handleSyncTickets} className="action-tile warning" disabled={isSyncing || !glpiConfig.is_enabled}>
-                                <Box size={18} />
-                                <span>Partielle</span>
+                                <span>{isSyncingRecent ? '...' : 'Tickets Récents'}</span>
                             </button>
 
                             <button onClick={handleSyncAllTickets} className="action-tile danger" disabled={isSyncingAll || !glpiConfig.is_enabled}>
@@ -2217,11 +2589,92 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <span>Totale</span>
                             </button>
 
-                            <button onClick={handleGetProfile} className="action-tile info full-width" disabled={isLoadingProfile || !glpiConfig.is_enabled}>
-                                <UserPlus size={18} />
-                                <span>Vérifier mon profil GLPI</span>
+                            <button onClick={handleTestCreateTicket} className="action-tile success" disabled={!glpiConfig.is_enabled}>
+                                <Plus size={18} />
+                                <span>Créer Ticket</span>
                             </button>
+
+                            <button onClick={handleSyncObservers} className="action-tile info" disabled={isSyncingObservers || !glpiConfig.is_enabled}>
+                                <Users size={18} />
+                                <span>Obs. Total</span>
+                            </button>
+
+                            <button onClick={handleSyncObserversRecent} className="action-tile info" disabled={isSyncingObservers || !glpiConfig.is_enabled}>
+                                <Users size={18} />
+                                <span>Obs. Récents</span>
+                            </button>
+
+                            <button onClick={handleSyncFollowups} className="action-tile warning" disabled={isSyncingFollowups || !glpiConfig.is_enabled}>
+                                <MessageSquare size={18} />
+                                <span>Traitements</span>
+                            </button>
+
+                            <button onClick={handleSyncFollowupsRecent} className="action-tile warning" disabled={isSyncingFollowups || !glpiConfig.is_enabled}>
+                                <MessageSquare size={18} />
+                                <span>Trait. Récents</span>
+                            </button>
+
                         </div>
+
+                        {observersSyncStatus.active && (
+                            <div className="sync-progress-box" style={{ marginTop: '10px', borderColor: '#17a2b8' }}>
+                                <div className="progress-header">
+                                    <div className="progress-label">
+                                        <span className="progress-spinner">⟳</span>
+                                        Synchronisation observateurs...
+                                    </div>
+                                    <div className="progress-percent">
+                                        {observersSyncStatus.total > 0 ? Math.round((observersSyncStatus.processed / observersSyncStatus.total) * 100) : 0}%
+                                    </div>
+                                </div>
+                                <div className="progress-bar-container">
+                                    <div
+                                        className="progress-bar-fill"
+                                        style={{
+                                            width: `${observersSyncStatus.total > 0 ? (observersSyncStatus.processed / observersSyncStatus.total) * 100 : 0}%`,
+                                            transition: 'width 0.3s ease',
+                                            backgroundColor: '#17a2b8'
+                                        }}
+                                    >
+                                        <div className="progress-bar-shimmer"></div>
+                                    </div>
+                                </div>
+                                <div className="progress-stats">
+                                    <span>{observersSyncStatus.processed.toLocaleString()} / {observersSyncStatus.total.toLocaleString()}</span>
+                                        <button className="btn-cancel-sync" onClick={handleCancelObserversSync}>Annuler</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {followupsSyncStatus.active && (
+                            <div className="sync-progress-box" style={{ marginTop: '10px', borderColor: '#f59e0b' }}>
+                                <div className="progress-header">
+                                    <div className="progress-label">
+                                        <span className="progress-spinner">⟳</span>
+                                        Synchronisation traitements...
+                                    </div>
+                                    <div className="progress-percent">
+                                        {followupsSyncStatus.total > 0 ? Math.round((followupsSyncStatus.processed / followupsSyncStatus.total) * 100) : 0}%
+                                    </div>
+                                </div>
+                                <div className="progress-bar-container">
+                                    <div
+                                        className="progress-bar-fill"
+                                        style={{
+                                            width: `${followupsSyncStatus.total > 0 ? (followupsSyncStatus.processed / followupsSyncStatus.total) * 100 : 0}%`,
+                                            transition: 'width 0.3s ease',
+                                            backgroundColor: '#f59e0b'
+                                        }}
+                                    >
+                                        <div className="progress-bar-shimmer"></div>
+                                    </div>
+                                </div>
+                                <div className="progress-stats">
+                                    <span>{followupsSyncStatus.processed.toLocaleString()} / {followupsSyncStatus.total.toLocaleString()}</span>
+                                    <button className="btn-cancel-sync" onClick={handleCancelFollowupsSync}>Annuler</button>
+                                </div>
+                            </div>
+                        )}
 
                         {syncStatus.active && (
                             <div className="sync-progress-box">
@@ -2254,40 +2707,193 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                             {syncStatus.total > 0 ? ((syncStatus.processed / syncStatus.total) * 100).toFixed(1) : '0'}% complété
                                         </span>
                                     </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {recentTickets.length > 0 && (
-                            <div className="history-section">
-                                <h4 className="history-title">Historique Récent</h4>
-                                <div className="history-list">
-                                    {recentTickets.map(ticket => (
-                                        <div key={ticket.id} className="history-item">
-                                            <div className="item-header">
-                                                <span className="item-id">#{ticket.id}</span>
-                                                <span className="item-date">{ticket.date}</span>
-                                            </div>
-                                            <div className="item-title">{ticket.title}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {profileResult && (
-                            <div className="profile-debug-box">
-                                <h4 className="side-card-title">Données Profil</h4>
-                                <div className={`profile-content ${profileResult.success ? 'is-success' : 'is-error'}`}>
-                                    {profileResult.success ? (
-                                        <pre>{JSON.stringify(profileResult.profiles, null, 2)}</pre>
-                                    ) : (
-                                          profileResult.message
-                                    )}
+                                    <button className="btn-cancel-sync" onClick={handleCancelSync}>
+                                        Annuler
+                                    </button>
                                 </div>
                             </div>
                         )}
                     </div>
+                </div>
+
+                <div className="admin-card scheduled-syncs-card" style={{ marginTop: '20px' }}>
+                    <div className="card-banner" style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}>
+                        <div className="banner-info">
+                            <h3 className="banner-title" style={{ color: 'white' }}><Clock size={20} /> Synchronisations Programmées</h3>
+                            <p className="banner-subtitle" style={{ color: 'rgba(255,255,255,0.8)' }}>{scheduledSyncs.length} synchros actives</p>
+                        </div>
+                        <button 
+                            className="btn-schedule-add"
+                            onClick={() => { setEditingScheduledSync(null); setNewScheduledSync({ sync_type: 'tickets', sync_mode: 'recent', frequency_type: 'minutes', frequency_value: 30, execution_time: '00:00', is_enabled: true }); setShowScheduledModal(true); }}
+                            style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '8px', padding: '10px 16px', color: 'white', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+                        >
+                            <Plus size={16} /> Ajouter
+                        </button>
+                    </div>
+                    <div className="card-content">
+                        {scheduledSyncs.length === 0 ? (
+                            <p style={{ color: '#64748b', textAlign: 'center', padding: '20px' }}>Aucune synchro programmée</p>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {scheduledSyncs.map(sync => (
+                                    <div key={sync.id} style={{ 
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        justifyContent: 'space-between',
+                                        padding: '16px',
+                                        background: sync.is_enabled ? '#f0fdf4' : '#f1f5f9',
+                                        borderRadius: '12px',
+                                        border: '1px solid #e2e8f0'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                            <label className="switch">
+                                                <input type="checkbox" checked={sync.is_enabled === 1} onChange={() => handleToggleScheduledSync(sync)} />
+                                                <span className="slider round"></span>
+                                            </label>
+                                            <div>
+                                                <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                                    {sync.sync_type === 'tickets' ? 'Tickets' : sync.sync_type === 'observers' ? 'Observateurs' : 'Traitements'}
+                                                    {' - '}
+                                                    {sync.sync_mode === 'recent' ? 'Récents' : 'Totale'}
+                                                </div>
+                                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                    Toutes les {sync.frequency_value} {sync.frequency_type}
+                                                    {sync.next_run && ` • Prochain: ${new Date(sync.next_run).toLocaleString('fr-FR')}`}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button 
+                                                onClick={() => handleRunScheduledSync(sync.id)}
+                                                style={{ padding: '8px 12px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}
+                                                title="Lancer maintenant"
+                                            >
+                                                <Play size={14} />
+                                            </button>
+                                            <button 
+                                                onClick={() => { setEditingScheduledSync(sync); setNewScheduledSync({ sync_type: sync.sync_type, sync_mode: sync.sync_mode, frequency_type: sync.frequency_type, frequency_value: sync.frequency_value, execution_time: sync.execution_time || '00:00', is_enabled: sync.is_enabled === 1 }); setShowScheduledModal(true); }}
+                                                style={{ padding: '8px 12px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}
+                                                title="Modifier"
+                                            >
+                                                <Edit3 size={14} />
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDeleteScheduledSync(sync.id)}
+                                                style={{ padding: '8px 12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}
+                                                title="Supprimer"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <div className="admin-card" style={{ marginTop: '20px' }}>
+                <div className="card-banner" style={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)' }}>
+                    <div className="banner-info">
+                        <h3 className="banner-title" style={{ color: 'white' }}><HistoryIcon size={20} /> Historique des Synchronisations</h3>
+                        <p className="banner-subtitle" style={{ color: '#cbd5e1' }}>{syncLogs.length} entrées</p>
+                    </div>
+                    <button 
+                        onClick={fetchSyncLogs} 
+                        style={{ padding: '8px 16px', fontSize: '0.85rem', background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', cursor: 'pointer' }}
+                    >
+                        ↻ Rafraîchir
+                    </button>
+                </div>
+                
+                <div className="card-body" style={{ padding: '0' }}>
+                    {syncLogs.length === 0 ? (
+                        <div style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', padding: '40px' }}>
+                            Aucune synchronisation effectuée
+                        </div>
+                    ) : (
+                        <>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>TYPE</th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>STATUT</th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>DATE</th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>TICKETS</th>
+                                        <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>UTILISATEUR</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {syncLogs.slice((syncLogsPage - 1) * syncLogsPerPage, syncLogsPage * syncLogsPerPage).map(log => (
+                                        <tr key={log.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                            <td style={{ padding: '12px 16px', fontSize: '0.85rem' }}>
+                                                <span style={{ 
+                                                    padding: '4px 8px', 
+                                                    borderRadius: '4px', 
+                                                    fontSize: '0.75rem', 
+                                                    fontWeight: 600,
+                                                    background: log.sync_type === 'tickets' ? '#dbeafe' : log.sync_type === 'observers' ? '#dcfce7' : log.sync_type === 'followups' ? '#fef3c7' : '#f3e8ff',
+                                                    color: log.sync_type === 'tickets' ? '#1e40af' : log.sync_type === 'observers' ? '#166534' : log.sync_type === 'followups' ? '#92400e' : '#7c3aed'
+                                                }}>
+                                                    {(log.sync_type === 'tickets' ? 'Tickets' : log.sync_type === 'observers' ? 'Observateurs' : log.sync_type === 'followups' ? 'Traitements' : log.sync_type === 'ticket' ? 'Ticket' : log.sync_type) + ' - ' + (log.sync_mode === 'recent' ? 'Récents' : log.sync_mode === 'partial' ? 'Partielle' : log.sync_mode === 'full' ? 'Totale' : log.sync_mode === 'auto' ? 'Auto' : log.sync_mode === 'close' ? 'Clôture' : log.sync_mode)}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '12px 16px', fontSize: '0.85rem' }}>
+                                                <span style={{ 
+                                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                                    color: log.status === 'error' ? '#ef4444' : log.status === 'running' ? '#3b82f6' : '#22c55e'
+                                                }}>
+                                                    {log.status === 'error' ? '✗' : log.status === 'running' ? '⟳' : '✓'}
+                                                    {log.status === 'error' ? 'Erreur' : log.status === 'running' ? 'En cours' : 'Terminé'}
+                                                </span>
+                                                {log.status === 'error' && (
+                                                    <span style={{ fontSize: '0.75rem', color: '#ef4444', display: 'block', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        {log.error_message}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td style={{ padding: '12px 16px', fontSize: '0.85rem', color: '#64748b' }}>
+                                                {new Date(log.started_at).toLocaleString('fr-FR')}
+                                            </td>
+                                            <td style={{ padding: '12px 16px', fontSize: '0.85rem' }}>
+                                                {log.status === 'running' ? (
+                                                    <span>{log.processed_tickets}/{log.total_tickets}</span>
+                                                ) : (
+                                                    <span style={{ fontWeight: 600 }}>{log.processed_tickets || 0}</span>
+                                                )}
+                                            </td>
+                                            <td style={{ padding: '12px 16px', fontSize: '0.85rem', color: '#64748b' }}>
+                                                {log.triggered_by}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            
+                            {syncLogs.length > syncLogsPerPage && (
+                                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', padding: '16px', borderTop: '1px solid #e2e8f0' }}>
+                                    <button 
+                                        onClick={() => setSyncLogsPage(p => Math.max(1, p - 1))}
+                                        disabled={syncLogsPage === 1}
+                                        style={{ padding: '8px 12px', background: syncLogsPage === 1 ? '#f1f5f9' : '#e2e8f0', border: 'none', borderRadius: '6px', cursor: syncLogsPage === 1 ? 'not-allowed' : 'pointer', color: syncLogsPage === 1 ? '#94a3b8' : '#475569' }}
+                                    >
+                                        ← Précédent
+                                    </button>
+                                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                        Page {syncLogsPage} / {Math.ceil(syncLogs.length / syncLogsPerPage)}
+                                    </span>
+                                    <button 
+                                        onClick={() => setSyncLogsPage(p => Math.min(Math.ceil(syncLogs.length / syncLogsPerPage), p + 1))}
+                                        disabled={syncLogsPage >= Math.ceil(syncLogs.length / syncLogsPerPage)}
+                                        style={{ padding: '8px 12px', background: syncLogsPage >= Math.ceil(syncLogs.length / syncLogsPerPage) ? '#f1f5f9' : '#e2e8f0', border: 'none', borderRadius: '6px', cursor: syncLogsPage >= Math.ceil(syncLogs.length / syncLogsPerPage) ? 'not-allowed' : 'pointer', color: syncLogsPage >= Math.ceil(syncLogs.length / syncLogsPerPage) ? '#94a3b8' : '#475569' }}
+                                    >
+                                        Suivant →
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    )}
                 </div>
             </div>
           </div>
@@ -2475,15 +3081,21 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         .toggle-btn:not(.active) { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
         .toggle-btn:not(.active):hover { background: #f1f5f9; border-color: #cbd5e1; }
 
-        .tiles-grid-compact label { padding: 12px; border-radius: 16px; border: 2px solid transparent; transition: all 0.2s ease; background: #f8fafc; cursor: pointer; display: flex; align-items: center; gap: 10px; }
-        .tiles-grid-compact label:hover { background: #f1f5f9; transform: translateY(-2px); }
-        .tiles-grid-compact label.selected { background: #eff6ff; border-color: #bfdbfe; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.1); }
-        .tiles-grid-compact label.selected span { color: #1d4ed8; }
-        .tiles-grid-compact label input[type="checkbox"] { width: 18px; height: 18px; border-radius: 6px; cursor: pointer; accent-color: #2563eb; }
+        .tiles-grid-compact .tile-checkbox-card { padding: 14px 16px; border-radius: 16px; border: 2px solid #e2e8f0; transition: all 0.2s ease; background: #f8fafc; cursor: pointer; display: flex; align-items: center; gap: 10px; position: relative; overflow: hidden; }
+        .tiles-grid-compact .tile-checkbox-card:hover { background: #f1f5f9; border-color: #cbd5e1; transform: translateY(-1px); }
+        .tiles-grid-compact .tile-checkbox-card.selected { background: linear-gradient(135deg, #eff6ff, #dbeafe); border-color: #3b82f6; box-shadow: 0 4px 14px rgba(59, 130, 246, 0.15); }
+        .tiles-grid-compact .tile-checkbox-card.selected .tile-checkbox-title { color: #1d4ed8; font-weight: 700; }
+        .tiles-grid-compact .tile-checkbox-card input[type="checkbox"] { width: 18px; height: 18px; border-radius: 6px; cursor: pointer; accent-color: #2563eb; flex-shrink: 0; }
+        .tiles-grid-compact .tile-checkbox-title { font-size: 0.85rem; font-weight: 600; color: #475569; }
+        .tiles-grid-compact .tile-checkbox-icon { margin-left: auto; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; }
+        .tiles-grid-compact .tile-checkbox-card.selected .tile-checkbox-icon { background: #3b82f6; color: white; }
+        .tiles-grid-compact .tile-checkbox-card:not(.selected) .tile-checkbox-icon { display: none; }
         
         .admin-glpi-container { padding: 20px; color: #333; }
         .glpi-layout-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 30px; }
         @media (max-width: 1024px) { .glpi-layout-grid { grid-template-columns: 1fr; } }
+        .scheduled-syncs-card .card-content { padding: 0; }
+        .btn-schedule-add:hover { background: rgba(255,255,255,0.3) !important; }
 
         /* General Card Styles */
         .admin-card { background: white; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); overflow: hidden; }
@@ -2640,9 +3252,28 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             font-size: 1rem;
         }
 
+        .btn-cancel-sync {
+            margin-top: 12px;
+            width: 100%;
+            padding: 10px 16px;
+            background: #fee2e2;
+            color: #dc2626;
+            border: 1px solid #fca5a5;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-cancel-sync:hover {
+            background: #fecaca;
+        }
+
         /* History */
-        .history-list { display: flex; flex-direction: column; gap: 12px; }
-        .history-item { background: #f8fafc; padding: 12px; border-radius: 8px; border-left: 4px solid var(--secondary-color, #003366); }
+        .history-section { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
+        .history-section h4 { margin: 0 0 12px 0; font-size: 0.9rem; font-weight: 800; color: #334155; }
+        .history-list { display: flex; flex-direction: column; gap: 8px; }
+        .history-item { background: #f8fafc; padding: 10px 12px; border-radius: 8px; border-left: 4px solid var(--secondary-color, #003366); }
         .item-header { display: flex; justify-content: space-between; font-size: 0.7rem; font-weight: 800; margin-bottom: 4px; color: #94a3b8; }
         .item-title { font-size: 0.8rem; font-weight: 700; color: #334155; }
 
