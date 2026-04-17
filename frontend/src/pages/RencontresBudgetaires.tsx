@@ -308,7 +308,22 @@ const RencontresBudgetaires: React.FC = () => {
                       }}
                     >
                       <td style={styles.td}>{r.direction}</td>
-                      <td style={styles.td}>{r.titre.substring(0, 40)}</td>
+                      <td
+                        style={{
+                          ...styles.td,
+                          cursor: 'pointer',
+                          color: '#2563eb',
+                          textDecoration: 'underline',
+                          fontWeight: '500'
+                        }}
+                        onClick={() => {
+                          setSelectedRencontre(r);
+                          setShowDetailModal(true);
+                        }}
+                        title="Cliquer pour voir les détails"
+                      >
+                        {r.titre.substring(0, 60)}
+                      </td>
                       <td style={styles.td}>
                         {r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}
                       </td>
@@ -354,10 +369,10 @@ const RencontresBudgetaires: React.FC = () => {
           )}
         </div>
 
-        {/* Modal Détail */}
+        {/* Modal Détail - Complète avec tous les champs */}
         {showDetailModal && selectedRencontre && (
           <div style={styles.modalOverlay} onClick={() => setShowDetailModal(false)}>
-            <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={{...styles.modal, maxWidth: '800px', maxHeight: '90vh'}} onClick={(e) => e.stopPropagation()}>
               <div style={styles.modalHeader}>
                 <h3 style={styles.modalTitle}>{selectedRencontre.titre}</h3>
                 <button style={styles.modalCloseBtn} onClick={() => setShowDetailModal(false)}>
@@ -365,57 +380,129 @@ const RencontresBudgetaires: React.FC = () => {
                 </button>
               </div>
 
-              <div style={styles.modalContent}>
-                <div style={styles.detailGrid}>
-                  <div>
-                    <label style={styles.label}>Direction</label>
-                    <p style={styles.value}>{selectedRencontre.direction}</p>
-                  </div>
-                  <div>
-                    <label style={styles.label}>Date</label>
-                    <p style={styles.value}>
-                      {selectedRencontre.date_reunion ? new Date(selectedRencontre.date_reunion).toLocaleDateString('fr-FR') : '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <label style={styles.label}>Montant TTC</label>
-                    <p style={styles.value}>{selectedRencontre.cout_ttc?.toFixed(2) || 0}€</p>
-                  </div>
-                  <div>
-                    <label style={styles.label}>Arbitrage</label>
-                    <p style={{ ...styles.value, color: getArbitrageColor(selectedRencontre.arbitrage) }}>
-                      <strong>{selectedRencontre.arbitrage}</strong>
-                    </p>
+              <div style={{...styles.modalContent, overflowY: 'auto', maxHeight: 'calc(90vh - 180px)'}}>
+                {/* Première section - Informations principales */}
+                <div style={styles.modalSection}>
+                  <h4 style={styles.sectionTitle}>📋 Informations Principales</h4>
+                  <div style={styles.detailGrid2}>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Direction</label>
+                      <p style={styles.value}>{selectedRencontre.direction}</p>
+                    </div>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Date</label>
+                      <p style={styles.value}>
+                        {selectedRencontre.date_reunion ? new Date(selectedRencontre.date_reunion).toLocaleDateString('fr-FR') : '-'}
+                      </p>
+                    </div>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Année</label>
+                      <p style={styles.value}>{selectedRencontre.annee || '-'}</p>
+                    </div>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Type</label>
+                      <p style={styles.value}>{selectedRencontre.type || '-'}</p>
+                    </div>
                   </div>
                 </div>
 
-                {selectedRencontre.description && (
-                  <div>
-                    <label style={styles.label}>Description</label>
-                    <p style={styles.value}>{selectedRencontre.description}</p>
+                {/* Deuxième section - Finances */}
+                <div style={styles.modalSection}>
+                  <h4 style={styles.sectionTitle}>💰 Informations Financières</h4>
+                  <div style={styles.detailGrid2}>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Montant TTC</label>
+                      <p style={{...styles.value, fontSize: '18px', fontWeight: 'bold', color: '#10b981'}}>
+                        {selectedRencontre.cout_ttc?.toFixed(2) || 0}€
+                      </p>
+                    </div>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Arbitrage</label>
+                      <p style={{
+                        ...styles.value,
+                        color: getArbitrageColor(selectedRencontre.arbitrage),
+                        fontWeight: 'bold',
+                        fontSize: '16px'
+                      }}>
+                        {selectedRencontre.arbitrage || '-'}
+                      </p>
+                    </div>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Statut</label>
+                      <span style={{
+                        ...styles.badge,
+                        backgroundColor: getStatutColor(selectedRencontre.statut),
+                        color: 'white',
+                        display: 'inline-block'
+                      }}>
+                        {selectedRencontre.statut}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Troisième section - Description et Commentaires */}
+                <div style={styles.modalSection}>
+                  <h4 style={styles.sectionTitle}>📝 Description</h4>
+                  <div style={{...styles.detailField, marginBottom: '16px'}}>
+                    <label style={styles.label}>Détails de la demande</label>
+                    <p style={{...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
+                      {selectedRencontre.description || '-'}
+                    </p>
+                  </div>
+
+                  {selectedRencontre.commentaires && (
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Commentaires</label>
+                      <p style={{...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
+                        {selectedRencontre.commentaires}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quatrième section - Suivi et Responsabilité */}
+                <div style={styles.modalSection}>
+                  <h4 style={styles.sectionTitle}>👤 Responsabilité</h4>
+                  <div style={styles.detailGrid2}>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Responsable DSI</label>
+                      <p style={styles.value}>{selectedRencontre.responsable_dsi || '-'}</p>
+                    </div>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Ticket GLPI</label>
+                      <p style={{...styles.value, fontFamily: 'monospace'}}>
+                        {selectedRencontre.ticket_glpi || '-'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cinquième section - Références */}
+                {selectedRencontre.lien_reference && (
+                  <div style={styles.modalSection}>
+                    <h4 style={styles.sectionTitle}>🔗 Références</h4>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Lien</label>
+                      <p style={{...styles.value, fontFamily: 'monospace', fontSize: '13px'}}>
+                        {selectedRencontre.lien_reference}
+                      </p>
+                    </div>
                   </div>
                 )}
 
-                {selectedRencontre.commentaires && (
-                  <div>
-                    <label style={styles.label}>Commentaires</label>
-                    <p style={styles.value}>{selectedRencontre.commentaires}</p>
+                {/* Sixième section - Dates */}
+                <div style={styles.modalSection}>
+                  <h4 style={styles.sectionTitle}>📅 Dates</h4>
+                  <div style={styles.detailGrid2}>
+                    <div style={styles.detailField}>
+                      <label style={styles.label}>Créée le</label>
+                      <p style={{...styles.value, fontSize: '12px', color: '#6b7280'}}>
+                        {selectedRencontre.created_at ? new Date(selectedRencontre.created_at).toLocaleDateString('fr-FR') : '-'}
+                      </p>
+                    </div>
                   </div>
-                )}
-
-                {selectedRencontre.responsable_dsi && (
-                  <div>
-                    <label style={styles.label}>Responsable DSI</label>
-                    <p style={styles.value}>{selectedRencontre.responsable_dsi}</p>
-                  </div>
-                )}
-
-                {selectedRencontre.ticket_glpi && (
-                  <div>
-                    <label style={styles.label}>Ticket GLPI</label>
-                    <p style={styles.value}>{selectedRencontre.ticket_glpi}</p>
-                  </div>
-                )}
+                </div>
               </div>
 
               <div style={styles.modalFooter}>
@@ -425,7 +512,7 @@ const RencontresBudgetaires: React.FC = () => {
                     handleDeleteRencontre(selectedRencontre.id);
                   }}
                 >
-                  Supprimer
+                  🗑️ Supprimer
                 </button>
                 <button
                   style={styles.btn}
@@ -670,6 +757,31 @@ const styles = {
     backgroundColor: '#fecaca',
     color: '#991b1b',
     border: 'none',
+  } as React.CSSProperties,
+  modalSection: {
+    marginBottom: '24px',
+    paddingBottom: '16px',
+    borderBottom: '1px solid #e5e7eb',
+  } as React.CSSProperties,
+  sectionTitle: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#1f2937',
+    marginBottom: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  } as React.CSSProperties,
+  detailGrid2: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+    gap: '16px',
+  } as React.CSSProperties,
+  detailField: {
+    padding: '12px',
+    backgroundColor: '#f9fafb',
+    borderRadius: '6px',
+    border: '1px solid #e5e7eb',
   } as React.CSSProperties,
 };
 
