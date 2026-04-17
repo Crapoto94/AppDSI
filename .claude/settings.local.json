@@ -62,7 +62,8 @@
       "Bash(python3)",
       "Bash(node -e ':*)",
       "Bash(node -c server.js)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npm list:*)"
     ]
   }
 }

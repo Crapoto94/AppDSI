@@ -9514,9 +9514,24 @@ app.delete('/api/glpi/scheduled-syncs/:id', authenticateAdmin, async (req, res) 
 
 // Helper: Convert Excel serial date to ISO 8601
 function excelDateToISO(excelDate) {
-    if (!excelDate) return null;
+    if (!excelDate && excelDate !== 0) return null;
+
+    const dateNum = typeof excelDate === 'string' ? parseInt(excelDate) : excelDate;
+
+    // Excel serial number: days since 1899-12-30 (with 1900 leap year bug)
+    if (!isNaN(dateNum) && dateNum > 0) {
+        // Excel epoch is December 30, 1899
+        // But we need to account for the leap year bug in 1900
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+        const date = new Date(excelEpoch.getTime() + dateNum * 86400000);
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    // Try to parse as string DD/MM/YYYY or YYYY-MM-DD
     if (typeof excelDate === 'string') {
-        // Try to parse as DD/MM/YYYY or YYYY-MM-DD
         const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
         const yyyymmdd = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -9525,15 +9540,6 @@ function excelDateToISO(excelDate) {
 
         match = excelDate.match(yyyymmdd);
         if (match) return excelDate;
-
-        return null;
-    }
-
-    // Excel serial number: days since 1900-01-01 (with 1900 leap year bug)
-    if (typeof excelDate === 'number') {
-        const excelEpoch = new Date(1900, 0, 1);
-        const date = new Date(excelEpoch.getTime() + (excelDate - 1) * 86400 * 1000);
-        return date.toISOString().split('T')[0];
     }
 
     return null;
@@ -9596,9 +9602,23 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
             return res.status(400).json({ error: 'Aucun fichier fourni' });
         }
 
-        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        let workbook;
+        try {
+            workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        } catch (e) {
+            return res.status(400).json({ error: `Erreur lecture Excel: ${e.message}` });
+        }
+
+        if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+            return res.status(400).json({ error: 'Fichier Excel invalide ou vide' });
+        }
+
         const sheetName = workbook.SheetNames[0];
-        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+
+        if (!Array.isArray(data) || data.length === 0) {
+            return res.status(400).json({ error: 'Aucune donnée trouvée dans le fichier' });
+        }
 
         let imported = 0;
         let errors = [];
@@ -9608,38 +9628,45 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
                 const row = data[i];
 
                 // Vérifier les champs obligatoires
-                if (!row.Direction || !row.Date) {
-                    errors.push(`Ligne ${i + 2}: Direction ou Date manquante`);
+                if (!row.Direction) {
+                    errors.push(`Ligne ${i + 2}: Direction manquante`);
+                    continue;
+                }
+
+                if (row.Date === '' || row.Date === null || row.Date === undefined) {
+                    errors.push(`Ligne ${i + 2}: Date manquante`);
                     continue;
                 }
 
                 // Convertir la date
                 const dateReunion = excelDateToISO(row.Date);
                 if (!dateReunion) {
-                    errors.push(`Ligne ${i + 2}: Format de date invalide`);
+                    errors.push(`Ligne ${i + 2}: Format de date invalide (${row.Date})`);
                     continue;
                 }
 
                 // Extraire l'année de la date
                 const annee = parseInt(dateReunion.split('-')[0]);
 
-                // Parser le coût
+                // Parser le coût (accepte nombre ou string)
                 let coutTTC = 0;
-                if (row['Cout TTC']) {
+                if (row['Cout TTC'] && row['Cout TTC'] !== '') {
                     const coutStr = String(row['Cout TTC']).replace(/[^0-9,.]/g, '').replace(',', '.');
                     coutTTC = parseFloat(coutStr) || 0;
                 }
 
-                // Préparer les données
-                const titre = row['Quoi ?'] ? row['Quoi ?'].substring(0, 255) : '';
-                const direction = row['Direction'];
-                const type = row['Type'] || '';
-                const description = row['Quoi ?'] || '';
-                const arbitrage = row['Arbitrage '] || '';
-                const responsableDsi = row['DSI'] || '';
-                const ticketGlpi = row['TICKET'] || '';
-                const lienReference = row['LIEN'] || '';
-                const commentaires = row['Commentaire ?'] || '';
+                // Préparer les données (trim et limite de longueur)
+                const titre = row['Quoi ?']
+                    ? String(row['Quoi ?']).trim().substring(0, 255)
+                    : '';
+                const direction = String(row['Direction']).trim();
+                const type = row['Type'] ? String(row['Type']).trim() : '';
+                const description = row['Quoi ?'] ? String(row['Quoi ?']).trim() : '';
+                const arbitrage = row['Arbitrage '] ? String(row['Arbitrage ']).trim() : '';
+                const responsableDsi = row['DSI'] ? String(row['DSI']).trim() : '';
+                const ticketGlpi = row['TICKET'] ? String(row['TICKET']).trim() : '';
+                const lienReference = row['LIEN'] ? String(row['LIEN']).trim() : '';
+                const commentaires = row['Commentaire ?'] ? String(row['Commentaire ?']).trim() : '';
 
                 // INSERT OR REPLACE
                 await db.run(
