@@ -58,7 +58,11 @@
       "Bash(ls -lh /c/dev/AppDSI/backend/*.sqlite)",
       "Bash(grep -r \"timeout\\\\|busyTimeout\" /c/dev/AppDSI/backend/*.js)",
       "Bash(curl -s \"http://localhost:3001/api/debug/glpi-observers\")",
-      "Bash(tee /tmp/glpi_logs.log)"
+      "Bash(tee /tmp/glpi_logs.log)",
+      "Bash(python3)",
+      "Bash(node -e ':*)",
+      "Bash(node -c server.js)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

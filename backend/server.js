@@ -9590,7 +9590,7 @@ app.get('/api/rencontres-budgetaires/:id', authenticateJWT, async (req, res) => 
 });
 
 // POST: Import Excel des rencontres budgétaires
-app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, upload.single('file'), async (req, res) => {
+app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uploadMemory.single('file'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'Aucun fichier fourni' });
@@ -9668,7 +9668,6 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
             ['rencontres_budgetaires', req.user.username]);
 
         res.json({
-            success: true,
             imported,
             errors: errors.length > 0 ? errors : [],
             message: `${imported} rencontres importées${errors.length > 0 ? `, ${errors.length} erreurs` : ''}`
