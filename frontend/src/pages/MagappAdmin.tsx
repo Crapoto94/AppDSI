@@ -148,11 +148,11 @@ const MagappAdmin: React.FC = () => {
       if (settingsRes.ok) {
         const data = await settingsRes.json();
         setMagappSettings({
-          show_tickets: data.show_tickets ?? true,
-          show_subscriptions: data.show_subscriptions ?? true,
-          show_health_check: data.show_health_check ?? true,
-          show_create_buttons: data.show_create_buttons ?? true,
-          show_ideas: data.show_ideas ?? true
+          show_tickets: data.show_tickets_original ?? data.show_tickets ?? true,
+          show_subscriptions: data.show_subscriptions_original ?? data.show_subscriptions ?? true,
+          show_health_check: data.show_health_check_original ?? data.show_health_check ?? true,
+          show_create_buttons: data.show_create_buttons_original ?? data.show_create_buttons ?? true,
+          show_ideas: data.show_ideas_original ?? data.show_ideas ?? true
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
