@@ -352,8 +352,52 @@ async function setupDb() {
         );
 
         INSERT OR IGNORE INTO mariadb_settings (type, host, port, user, password, database, is_enabled)
-        VALUES 
+        VALUES
         ('MAIN', '', 3306, '', '', '', 0);
+
+        CREATE TABLE IF NOT EXISTS rencontres_budgetaires (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titre TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            date_reunion DATETIME,
+            annee INTEGER,
+            type TEXT,
+            description TEXT,
+            cout_ttc REAL,
+            arbitrage TEXT,
+            responsable_dsi TEXT,
+            ticket_glpi TEXT,
+            lien_reference TEXT,
+            statut TEXT DEFAULT 'planifiée',
+            commentaires TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS rencontres_participants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rencontre_id INTEGER NOT NULL,
+            nom TEXT,
+            role TEXT,
+            email TEXT,
+            statut TEXT DEFAULT 'en attente',
+            FOREIGN KEY (rencontre_id) REFERENCES rencontres_budgetaires (id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS rencontres_suivi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rencontre_id INTEGER NOT NULL,
+            action_item TEXT,
+            responsable TEXT,
+            date_echeance DATE,
+            statut TEXT DEFAULT 'en cours',
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (rencontre_id) REFERENCES rencontres_budgetaires (id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rencontres_direction ON rencontres_budgetaires(direction);
+        CREATE INDEX IF NOT EXISTS idx_rencontres_annee ON rencontres_budgetaires(annee);
+        CREATE INDEX IF NOT EXISTS idx_rencontres_statut ON rencontres_budgetaires(statut);
     `);
 
 

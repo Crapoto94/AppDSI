@@ -79,6 +79,34 @@ const Dashboard: React.FC = () => {
           <div className="loading">Chargement des services...</div>
         ) : (
           <div className="tiles-grid">
+            {/* Tuile Rencontres Budgétaires pour admins et finances */}
+            {(user?.role === 'admin' || user?.role === 'finances') && (
+              <div
+                onClick={() => navigate('/rencontres-budgetaires')}
+                style={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  borderRadius: '12px',
+                  padding: '24px',
+                  cursor: 'pointer',
+                  color: 'white',
+                  transition: 'transform 0.2s, box-shadow 0.2s',
+                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-4px)';
+                  e.currentTarget.style.boxShadow = '0 12px 24px rgba(0, 0, 0, 0.15)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+                }}
+              >
+                <div style={{ fontSize: '2rem', marginBottom: '12px' }}>📊</div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 'bold', marginBottom: '8px' }}>Rencontres Budgétaires</h3>
+                <p style={{ fontSize: '0.9rem', opacity: 0.9 }}>Gestion des réunions budgétaires par direction</p>
+              </div>
+            )}
+
             {tiles
               .filter(t => t.status === 'active')
               .map((tile) => (

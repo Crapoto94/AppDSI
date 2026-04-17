@@ -9508,6 +9508,360 @@ app.delete('/api/glpi/scheduled-syncs/:id', authenticateAdmin, async (req, res) 
     }
 });
 
+// ============================================
+// RENCONTRES BUDGÉTAIRES - Endpoints
+// ============================================
+
+// Helper: Convert Excel serial date to ISO 8601
+function excelDateToISO(excelDate) {
+    if (!excelDate) return null;
+    if (typeof excelDate === 'string') {
+        // Try to parse as DD/MM/YYYY or YYYY-MM-DD
+        const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+        const yyyymmdd = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+        let match = excelDate.match(ddmmyyyy);
+        if (match) return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+
+        match = excelDate.match(yyyymmdd);
+        if (match) return excelDate;
+
+        return null;
+    }
+
+    // Excel serial number: days since 1900-01-01 (with 1900 leap year bug)
+    if (typeof excelDate === 'number') {
+        const excelEpoch = new Date(1900, 0, 1);
+        const date = new Date(excelEpoch.getTime() + (excelDate - 1) * 86400 * 1000);
+        return date.toISOString().split('T')[0];
+    }
+
+    return null;
+}
+
+// GET: Liste des rencontres budgétaires
+app.get('/api/rencontres-budgetaires', authenticateJWT, async (req, res) => {
+    try {
+        const { direction, annee, statut } = req.query;
+        let sql = 'SELECT * FROM rencontres_budgetaires WHERE 1=1';
+        const params = [];
+
+        if (direction) {
+            sql += ' AND direction = ?';
+            params.push(direction);
+        }
+        if (annee) {
+            sql += ' AND annee = ?';
+            params.push(parseInt(annee));
+        }
+        if (statut) {
+            sql += ' AND statut = ?';
+            params.push(statut);
+        }
+
+        sql += ' ORDER BY date_reunion DESC';
+
+        const rencontres = await db.all(sql, params);
+        res.json(rencontres);
+    } catch (error) {
+        console.error('Erreur GET rencontres:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET: Détail d'une rencontre avec participants et suivi
+app.get('/api/rencontres-budgetaires/:id', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const rencontre = await db.get('SELECT * FROM rencontres_budgetaires WHERE id = ?', [id]);
+
+        if (!rencontre) {
+            return res.status(404).json({ error: 'Rencontre non trouvée' });
+        }
+
+        const participants = await db.all('SELECT * FROM rencontres_participants WHERE rencontre_id = ?', [id]);
+        const suivi = await db.all('SELECT * FROM rencontres_suivi WHERE rencontre_id = ?', [id]);
+
+        res.json({ ...rencontre, participants, suivi });
+    } catch (error) {
+        console.error('Erreur GET rencontre detail:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Import Excel des rencontres budgétaires
+app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'Aucun fichier fourni' });
+        }
+
+        const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        let imported = 0;
+        let errors = [];
+
+        for (let i = 0; i < data.length; i++) {
+            try {
+                const row = data[i];
+
+                // Vérifier les champs obligatoires
+                if (!row.Direction || !row.Date) {
+                    errors.push(`Ligne ${i + 2}: Direction ou Date manquante`);
+                    continue;
+                }
+
+                // Convertir la date
+                const dateReunion = excelDateToISO(row.Date);
+                if (!dateReunion) {
+                    errors.push(`Ligne ${i + 2}: Format de date invalide`);
+                    continue;
+                }
+
+                // Extraire l'année de la date
+                const annee = parseInt(dateReunion.split('-')[0]);
+
+                // Parser le coût
+                let coutTTC = 0;
+                if (row['Cout TTC']) {
+                    const coutStr = String(row['Cout TTC']).replace(/[^0-9,.]/g, '').replace(',', '.');
+                    coutTTC = parseFloat(coutStr) || 0;
+                }
+
+                // Préparer les données
+                const titre = row['Quoi ?'] ? row['Quoi ?'].substring(0, 255) : '';
+                const direction = row['Direction'];
+                const type = row['Type'] || '';
+                const description = row['Quoi ?'] || '';
+                const arbitrage = row['Arbitrage '] || '';
+                const responsableDsi = row['DSI'] || '';
+                const ticketGlpi = row['TICKET'] || '';
+                const lienReference = row['LIEN'] || '';
+                const commentaires = row['Commentaire ?'] || '';
+
+                // INSERT OR REPLACE
+                await db.run(
+                    `INSERT OR REPLACE INTO rencontres_budgetaires
+                    (direction, date_reunion, annee, type, titre, description, cout_ttc,
+                     arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'importée')`,
+                    [direction, dateReunion, annee, type, titre, description, coutTTC,
+                     arbitrage, responsableDsi, ticketGlpi, lienReference, commentaires]
+                );
+
+                imported++;
+            } catch (lineError) {
+                errors.push(`Ligne ${i + 2}: ${lineError.message}`);
+            }
+        }
+
+        // Log de l'import
+        const timestamp = new Date().toISOString();
+        fs.appendFileSync(
+            path.join(__dirname, 'logs', 'mouchard.log'),
+            `[${timestamp}] POST /api/rencontres-budgetaires/import - 200 - par ${req.user.username}: ${imported} importées, ${errors.length} erreurs\n`
+        );
+
+        await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)',
+            ['rencontres_budgetaires', req.user.username]);
+
+        res.json({
+            success: true,
+            imported,
+            errors: errors.length > 0 ? errors : [],
+            message: `${imported} rencontres importées${errors.length > 0 ? `, ${errors.length} erreurs` : ''}`
+        });
+    } catch (error) {
+        console.error('Erreur import rencontres:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Créer une rencontre manuelle
+app.post('/api/rencontres-budgetaires', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        const { titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires } = req.body;
+
+        if (!titre || !direction) {
+            return res.status(400).json({ error: 'Titre et Direction sont obligatoires' });
+        }
+
+        const result = await db.run(
+            `INSERT INTO rencontres_budgetaires
+            (titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
+            [titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires]
+        );
+
+        res.json({ id: result.lastID, message: 'Rencontre créée' });
+    } catch (error) {
+        console.error('Erreur POST rencontre:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT: Mettre à jour une rencontre
+app.put('/api/rencontres-budgetaires/:id', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut } = req.body;
+
+        await db.run(
+            `UPDATE rencontres_budgetaires SET
+            titre=?, direction=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?,
+            arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, commentaires=?, statut=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?`,
+            [titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut, id]
+        );
+
+        res.json({ message: 'Rencontre mise à jour' });
+    } catch (error) {
+        console.error('Erreur PUT rencontre:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer une rencontre
+app.delete('/api/rencontres-budgetaires/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Supprimer les participants et suivi (cascade)
+        await db.run('DELETE FROM rencontres_participants WHERE rencontre_id=?', [id]);
+        await db.run('DELETE FROM rencontres_suivi WHERE rencontre_id=?', [id]);
+        await db.run('DELETE FROM rencontres_budgetaires WHERE id=?', [id]);
+
+        fs.appendFileSync(
+            path.join(__dirname, 'logs', 'mouchard.log'),
+            `[${new Date().toISOString()}] DELETE /api/rencontres-budgetaires/${id} - 200 - par ${req.user.username}\n`
+        );
+
+        res.json({ message: 'Rencontre supprimée' });
+    } catch (error) {
+        console.error('Erreur DELETE rencontre:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET: Statistiques par direction
+app.get('/api/rencontres-budgetaires/stats/directions', authenticateJWT, async (req, res) => {
+    try {
+        const stats = await db.all(`
+            SELECT direction, COUNT(*) as count, SUM(cout_ttc) as montant_total
+            FROM rencontres_budgetaires
+            GROUP BY direction
+            ORDER BY count DESC
+        `);
+        res.json(stats);
+    } catch (error) {
+        console.error('Erreur stats directions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET: Statistiques par année
+app.get('/api/rencontres-budgetaires/stats/annees', authenticateJWT, async (req, res) => {
+    try {
+        const stats = await db.all(`
+            SELECT annee, COUNT(*) as count, SUM(cout_ttc) as montant_total
+            FROM rencontres_budgetaires
+            WHERE annee IS NOT NULL
+            GROUP BY annee
+            ORDER BY annee DESC
+        `);
+        res.json(stats);
+    } catch (error) {
+        console.error('Erreur stats annees:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Ajouter un participant
+app.post('/api/rencontres-budgetaires/:id/participants', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nom, role, email, statut } = req.body;
+
+        const result = await db.run(
+            `INSERT INTO rencontres_participants (rencontre_id, nom, role, email, statut)
+            VALUES (?, ?, ?, ?, ?)`,
+            [id, nom, role, email, statut || 'en attente']
+        );
+
+        res.json({ id: result.lastID, message: 'Participant ajouté' });
+    } catch (error) {
+        console.error('Erreur POST participant:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer un participant
+app.delete('/api/rencontres-participants/:id', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.run('DELETE FROM rencontres_participants WHERE id=?', [id]);
+        res.json({ message: 'Participant supprimé' });
+    } catch (error) {
+        console.error('Erreur DELETE participant:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Ajouter un suivi
+app.post('/api/rencontres-budgetaires/:id/suivi', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action_item, responsable, date_echeance, statut } = req.body;
+
+        const result = await db.run(
+            `INSERT INTO rencontres_suivi (rencontre_id, action_item, responsable, date_echeance, statut)
+            VALUES (?, ?, ?, ?, ?)`,
+            [id, action_item, responsable, date_echeance, statut || 'en cours']
+        );
+
+        res.json({ id: result.lastID, message: 'Action ajoutée' });
+    } catch (error) {
+        console.error('Erreur POST suivi:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT: Mettre à jour un suivi
+app.put('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action_item, responsable, date_echeance, statut } = req.body;
+
+        await db.run(
+            `UPDATE rencontres_suivi SET action_item=?, responsable=?, date_echeance=?, statut=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+            [action_item, responsable, date_echeance, statut, id]
+        );
+
+        res.json({ message: 'Suivi mis à jour' });
+    } catch (error) {
+        console.error('Erreur PUT suivi:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer un suivi
+app.delete('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.run('DELETE FROM rencontres_suivi WHERE id=?', [id]);
+        res.json({ message: 'Suivi supprimé' });
+    } catch (error) {
+        console.error('Erreur DELETE suivi:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// FIN RENCONTRES BUDGÉTAIRES
+// ============================================
+
 app.post('/api/glpi/scheduled-syncs/:id/run', authenticateAdmin, async (req, res) => {
     try {
         const { id } = req.params;

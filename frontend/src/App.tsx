@@ -21,6 +21,7 @@ import AccessRequestOverlay from './components/AccessRequestOverlay';
 import AdminLayout from './components/AdminLayout';
 import StudioRH from './pages/StudioRH';
 import FrizbiSettings from './pages/FrizbiSettings';
+import RencontresBudgetaires from './pages/RencontresBudgetaires';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -61,6 +62,7 @@ function App() {
         <Route path="/profile" element={<PrivateRoute path="/profile"><Profile /></PrivateRoute>} />
         <Route path="/certif" element={<PrivateRoute path="/certif"><Certif /></PrivateRoute>} />
         <Route path="/telecom" element={<PrivateRoute path="/telecom"><TelecomManagement /></PrivateRoute>} />
+        <Route path="/rencontres-budgetaires" element={<PrivateRoute path="/rencontres-budgetaires"><RencontresBudgetaires /></PrivateRoute>} />
 
         {/* Admin Routes with Sidebar Layout */}
         <Route 
