@@ -49,9 +49,15 @@ const RencontresBudgetaires: React.FC = () => {
   // Detail modal
   const [selectedRencontre, setSelectedRencontre] = useState<Rencontre | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editedData, setEditedData] = useState<Partial<Rencontre> | null>(null);
+  const [isEditSaving, setIsEditSaving] = useState(false);
 
   const directions = [...new Set(rencontres.map(r => r.direction))].sort();
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
+  const statuts = ['importée', 'planifiée', 'effectuée'];
+  const arbitrages = ['OK DSI', 'En attente', 'Refusé', 'À discuter'];
+  const types = [...new Set(rencontres.map(r => r.type).filter(t => t))].sort();
 
   useEffect(() => {
     if (token) {
@@ -160,6 +166,56 @@ const RencontresBudgetaires: React.FC = () => {
       }
     } catch (err) {
       console.error('Error:', err);
+    }
+  };
+
+  const handleEditClick = () => {
+    if (selectedRencontre) {
+      setEditedData({ ...selectedRencontre });
+      setIsEditMode(true);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditMode(false);
+    setEditedData(null);
+  };
+
+  const handleEditFieldChange = (field: keyof Rencontre, value: any) => {
+    if (editedData) {
+      setEditedData({ ...editedData, [field]: value });
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedRencontre || !editedData) return;
+
+    try {
+      setIsEditSaving(true);
+      const res = await fetch(`/api/rencontres-budgetaires/${selectedRencontre.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(editedData)
+      });
+
+      if (res.ok) {
+        alert('Enregistrée avec succès');
+        setIsEditMode(false);
+        setEditedData(null);
+        fetchRencontres();
+        setSelectedRencontre(editedData as Rencontre);
+      } else {
+        const error = await res.json();
+        alert(`Erreur : ${error.error || 'Erreur lors de la sauvegarde'}`);
+      }
+    } catch (err) {
+      console.error('Error:', err);
+      alert('Erreur lors de la sauvegarde');
+    } finally {
+      setIsEditSaving(false);
     }
   };
 
@@ -374,10 +430,29 @@ const RencontresBudgetaires: React.FC = () => {
           <div style={styles.modalOverlay} onClick={() => setShowDetailModal(false)}>
             <div style={{...styles.modal, maxWidth: '800px', maxHeight: '90vh'}} onClick={(e) => e.stopPropagation()}>
               <div style={styles.modalHeader}>
-                <h3 style={styles.modalTitle}>{selectedRencontre.titre}</h3>
-                <button style={styles.modalCloseBtn} onClick={() => setShowDetailModal(false)}>
-                  <X size={24} />
-                </button>
+                <h3 style={styles.modalTitle}>
+                  {isEditMode ? '✏️ Édition' : selectedRencontre.titre}
+                </h3>
+                <div style={{display: 'flex', gap: '8px'}}>
+                  {!isEditMode && (
+                    <button
+                      style={{...styles.modalCloseBtn, padding: '8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer'}}
+                      onClick={handleEditClick}
+                      title="Éditer"
+                    >
+                      ✏️ Éditer
+                    </button>
+                  )}
+                  <button style={styles.modalCloseBtn} onClick={() => {
+                    if (isEditMode) {
+                      handleCancelEdit();
+                    } else {
+                      setShowDetailModal(false);
+                    }
+                  }}>
+                    <X size={24} />
+                  </button>
+                </div>
               </div>
 
               <div style={{...styles.modalContent, overflowY: 'auto', maxHeight: 'calc(90vh - 180px)'}}>
@@ -387,21 +462,67 @@ const RencontresBudgetaires: React.FC = () => {
                   <div style={styles.detailGrid2}>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Direction</label>
-                      <p style={styles.value}>{selectedRencontre.direction}</p>
+                      {isEditMode ? (
+                        <select
+                          style={styles.editInput}
+                          value={editedData?.direction || ''}
+                          onChange={(e) => handleEditFieldChange('direction', e.target.value)}
+                        >
+                          <option value="">-- Sélectionner --</option>
+                          {directions.map(d => (
+                            <option key={d} value={d}>{d}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p style={styles.value}>{selectedRencontre.direction}</p>
+                      )}
                     </div>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Date</label>
-                      <p style={styles.value}>
-                        {selectedRencontre.date_reunion ? new Date(selectedRencontre.date_reunion).toLocaleDateString('fr-FR') : '-'}
-                      </p>
+                      {isEditMode ? (
+                        <input
+                          type="date"
+                          style={styles.editInput}
+                          value={editedData?.date_reunion ? editedData.date_reunion.split('T')[0] : ''}
+                          onChange={(e) => handleEditFieldChange('date_reunion', e.target.value)}
+                        />
+                      ) : (
+                        <p style={styles.value}>
+                          {selectedRencontre.date_reunion ? new Date(selectedRencontre.date_reunion).toLocaleDateString('fr-FR') : '-'}
+                        </p>
+                      )}
                     </div>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Année</label>
-                      <p style={styles.value}>{selectedRencontre.annee || '-'}</p>
+                      {isEditMode ? (
+                        <input
+                          type="number"
+                          style={styles.editInput}
+                          value={editedData?.annee || ''}
+                          onChange={(e) => handleEditFieldChange('annee', parseInt(e.target.value))}
+                        />
+                      ) : (
+                        <p style={styles.value}>{selectedRencontre.annee || '-'}</p>
+                      )}
                     </div>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Type</label>
-                      <p style={styles.value}>{selectedRencontre.type || '-'}</p>
+                      {isEditMode ? (
+                        <select
+                          style={styles.editInput}
+                          value={editedData?.type || ''}
+                          onChange={(e) => handleEditFieldChange('type', e.target.value)}
+                        >
+                          <option value="">-- Sélectionner --</option>
+                          {types.map(t => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                          <option value="Demande">Demande</option>
+                          <option value="Investissement">Investissement</option>
+                        </select>
+                      ) : (
+                        <p style={styles.value}>{selectedRencontre.type || '-'}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -412,31 +533,67 @@ const RencontresBudgetaires: React.FC = () => {
                   <div style={styles.detailGrid2}>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Montant TTC</label>
-                      <p style={{...styles.value, fontSize: '18px', fontWeight: 'bold', color: '#10b981'}}>
-                        {selectedRencontre.cout_ttc?.toFixed(2) || 0}€
-                      </p>
+                      {isEditMode ? (
+                        <input
+                          type="number"
+                          step="0.01"
+                          style={styles.editInput}
+                          value={editedData?.cout_ttc || ''}
+                          onChange={(e) => handleEditFieldChange('cout_ttc', parseFloat(e.target.value))}
+                        />
+                      ) : (
+                        <p style={{...styles.value, fontSize: '18px', fontWeight: 'bold', color: '#10b981'}}>
+                          {selectedRencontre.cout_ttc?.toFixed(2) || 0}€
+                        </p>
+                      )}
                     </div>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Arbitrage</label>
-                      <p style={{
-                        ...styles.value,
-                        color: getArbitrageColor(selectedRencontre.arbitrage),
-                        fontWeight: 'bold',
-                        fontSize: '16px'
-                      }}>
-                        {selectedRencontre.arbitrage || '-'}
-                      </p>
+                      {isEditMode ? (
+                        <select
+                          style={styles.editInput}
+                          value={editedData?.arbitrage || ''}
+                          onChange={(e) => handleEditFieldChange('arbitrage', e.target.value)}
+                        >
+                          <option value="">-- Sélectionner --</option>
+                          {arbitrages.map(a => (
+                            <option key={a} value={a}>{a}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p style={{
+                          ...styles.value,
+                          color: getArbitrageColor(selectedRencontre.arbitrage),
+                          fontWeight: 'bold',
+                          fontSize: '16px'
+                        }}>
+                          {selectedRencontre.arbitrage || '-'}
+                        </p>
+                      )}
                     </div>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Statut</label>
-                      <span style={{
-                        ...styles.badge,
-                        backgroundColor: getStatutColor(selectedRencontre.statut),
-                        color: 'white',
-                        display: 'inline-block'
-                      }}>
-                        {selectedRencontre.statut}
-                      </span>
+                      {isEditMode ? (
+                        <select
+                          style={styles.editInput}
+                          value={editedData?.statut || ''}
+                          onChange={(e) => handleEditFieldChange('statut', e.target.value)}
+                        >
+                          <option value="">-- Sélectionner --</option>
+                          {statuts.map(s => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span style={{
+                          ...styles.badge,
+                          backgroundColor: getStatutColor(selectedRencontre.statut),
+                          color: 'white',
+                          display: 'inline-block'
+                        }}>
+                          {selectedRencontre.statut}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -446,19 +603,33 @@ const RencontresBudgetaires: React.FC = () => {
                   <h4 style={styles.sectionTitle}>📝 Description</h4>
                   <div style={{...styles.detailField, marginBottom: '16px'}}>
                     <label style={styles.label}>Détails de la demande</label>
-                    <p style={{...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
-                      {selectedRencontre.description || '-'}
-                    </p>
+                    {isEditMode ? (
+                      <textarea
+                        style={{...styles.editInput, minHeight: '100px', fontFamily: 'monospace'}}
+                        value={editedData?.description || ''}
+                        onChange={(e) => handleEditFieldChange('description', e.target.value)}
+                      />
+                    ) : (
+                      <p style={{...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
+                        {selectedRencontre.description || '-'}
+                      </p>
+                    )}
                   </div>
 
-                  {selectedRencontre.commentaires && (
-                    <div style={styles.detailField}>
-                      <label style={styles.label}>Commentaires</label>
+                  <div style={styles.detailField}>
+                    <label style={styles.label}>Commentaires</label>
+                    {isEditMode ? (
+                      <textarea
+                        style={{...styles.editInput, minHeight: '80px', fontFamily: 'monospace'}}
+                        value={editedData?.commentaires || ''}
+                        onChange={(e) => handleEditFieldChange('commentaires', e.target.value)}
+                      />
+                    ) : (
                       <p style={{...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
-                        {selectedRencontre.commentaires}
+                        {selectedRencontre.commentaires || '-'}
                       </p>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 {/* Quatrième section - Suivi et Responsabilité */}
@@ -467,26 +638,56 @@ const RencontresBudgetaires: React.FC = () => {
                   <div style={styles.detailGrid2}>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Responsable DSI</label>
-                      <p style={styles.value}>{selectedRencontre.responsable_dsi || '-'}</p>
+                      {isEditMode ? (
+                        <input
+                          type="text"
+                          style={styles.editInput}
+                          value={editedData?.responsable_dsi || ''}
+                          onChange={(e) => handleEditFieldChange('responsable_dsi', e.target.value)}
+                          placeholder="ex: IRS, SSD"
+                        />
+                      ) : (
+                        <p style={styles.value}>{selectedRencontre.responsable_dsi || '-'}</p>
+                      )}
                     </div>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Ticket GLPI</label>
-                      <p style={{...styles.value, fontFamily: 'monospace'}}>
-                        {selectedRencontre.ticket_glpi || '-'}
-                      </p>
+                      {isEditMode ? (
+                        <input
+                          type="text"
+                          style={styles.editInput}
+                          value={editedData?.ticket_glpi || ''}
+                          onChange={(e) => handleEditFieldChange('ticket_glpi', e.target.value)}
+                          placeholder="ex: 43093"
+                        />
+                      ) : (
+                        <p style={{...styles.value, fontFamily: 'monospace'}}>
+                          {selectedRencontre.ticket_glpi || '-'}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* Cinquième section - Références */}
-                {selectedRencontre.lien_reference && (
+                {(selectedRencontre.lien_reference || isEditMode) && (
                   <div style={styles.modalSection}>
                     <h4 style={styles.sectionTitle}>🔗 Références</h4>
                     <div style={styles.detailField}>
                       <label style={styles.label}>Lien</label>
-                      <p style={{...styles.value, fontFamily: 'monospace', fontSize: '13px'}}>
-                        {selectedRencontre.lien_reference}
-                      </p>
+                      {isEditMode ? (
+                        <input
+                          type="text"
+                          style={styles.editInput}
+                          value={editedData?.lien_reference || ''}
+                          onChange={(e) => handleEditFieldChange('lien_reference', e.target.value)}
+                          placeholder="ex: https://..."
+                        />
+                      ) : (
+                        <p style={{...styles.value, fontFamily: 'monospace', fontSize: '13px'}}>
+                          {selectedRencontre.lien_reference || '-'}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -506,20 +707,41 @@ const RencontresBudgetaires: React.FC = () => {
               </div>
 
               <div style={styles.modalFooter}>
-                <button
-                  style={{ ...styles.btn, ...styles.btnDanger }}
-                  onClick={() => {
-                    handleDeleteRencontre(selectedRencontre.id);
-                  }}
-                >
-                  🗑️ Supprimer
-                </button>
-                <button
-                  style={styles.btn}
-                  onClick={() => setShowDetailModal(false)}
-                >
-                  Fermer
-                </button>
+                {isEditMode ? (
+                  <>
+                    <button
+                      style={{ ...styles.btn, backgroundColor: '#ef4444', color: 'white', border: 'none' }}
+                      onClick={handleCancelEdit}
+                      disabled={isEditSaving}
+                    >
+                      ❌ Annuler
+                    </button>
+                    <button
+                      style={{ ...styles.btn, backgroundColor: '#10b981', color: 'white', border: 'none' }}
+                      onClick={handleSaveEdit}
+                      disabled={isEditSaving}
+                    >
+                      {isEditSaving ? '💾 Enregistrement...' : '💾 Enregistrer'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      style={{ ...styles.btn, ...styles.btnDanger }}
+                      onClick={() => {
+                        handleDeleteRencontre(selectedRencontre.id);
+                      }}
+                    >
+                      🗑️ Supprimer
+                    </button>
+                    <button
+                      style={styles.btn}
+                      onClick={() => setShowDetailModal(false)}
+                    >
+                      Fermer
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -782,6 +1004,16 @@ const styles = {
     backgroundColor: '#f9fafb',
     borderRadius: '6px',
     border: '1px solid #e5e7eb',
+  } as React.CSSProperties,
+  editInput: {
+    width: '100%',
+    padding: '8px 12px',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    fontSize: '14px',
+    fontFamily: 'inherit',
+    backgroundColor: '#ffffff',
+    boxSizing: 'border-box',
   } as React.CSSProperties,
 };
 
