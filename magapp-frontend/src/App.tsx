@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3 } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, CheckSquare } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -84,6 +84,8 @@ function App() {
   const [showRencontres, setShowRencontres] = useState(false);
   const [rencontres, setRencontres] = useState<any[]>([]);
   const [hoveredRencontreIdx, setHoveredRencontreIdx] = useState<number | null>(null);
+  const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
+  const [suiviList, setSuiviList] = useState<any[]>([]);
   const [tiles, setTiles] = useState<any[]>([]);
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaDescription, setIdeaDescription] = useState('');
@@ -246,7 +248,18 @@ function App() {
               Authorization: `Bearer ${token}`
             }
           });
-          setRencontres(res.data || []);
+          const rencontresData = res.data || [];
+          for (const r of encountersData) {
+            try {
+              const suiviRes = await axios.get(`${apiBase}/rencontres-budgetaires/${r.id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+              r.suivi_count = suiviRes.data?.suivi?.length || 0;
+            } catch {
+              r.suivi_count = 0;
+            }
+          }
+          setRencontres(rencontresData);
         } catch (e) {
           console.error('Erreur chargement rencontres:', e);
           setRencontres([]);
@@ -255,6 +268,28 @@ function App() {
       loadRencontres();
     }
   }, [showRencontres]);
+
+  // Load suivi when clicking on suivi button
+  useEffect(() => {
+    if (rencontreSuiviIdx !== null && rencontres[rencontreSuiviIdx]) {
+      const loadSuivi = async () => {
+        try {
+          const token = localStorage.getItem('token');
+          const rencontreId = encounters[rencontreSuiviIdx].id;
+          const res = await axios.get(`${apiBase}/rencontres-budgetaires/${rencontreId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setSuiviList(res.data?.suivi || []);
+        } catch (e) {
+          console.error('Erreur chargement suivi:', e);
+          setSuiviList([]);
+        }
+      };
+      loadSuivi();
+    } else {
+      setSuiviList([]);
+    }
+  }, [rencontreSuiviIdx]);
 
   const toggleFavorite = async (e: React.MouseEvent, appId: number) => {
     e.preventDefault();
@@ -1092,6 +1127,7 @@ function App() {
                     <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
                       <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Direction</th>
                       <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Demande</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Suivi</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1104,6 +1140,27 @@ function App() {
                       >
                         <td style={{ padding: '12px', color: '#1e293b' }}>{r.direction}</td>
                         <td style={{ padding: '12px', color: '#1e293b' }}>{r.titre || r.description}</td>
+                        <td style={{ padding: '12px' }}>
+                          <button
+                            onClick={() => setRencontreSuiviIdx(rencontreSuiviIdx === idx ? null : idx)}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '8px',
+                              border: 'none',
+                              background: r.suivi_count > 0 ? '#fef3c7' : '#f1f5f9',
+                              color: r.suivi_count > 0 ? '#92400e' : '#64748b',
+                              cursor: 'pointer',
+                              fontWeight: 600,
+                              fontSize: '0.8rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <CheckSquare size={14} />
+                            {r.suivi_count || 0}
+                          </button>
+                        </td>
                         {hoveredRencontreIdx === idx && r.commentaires?.trim() && (
                           <div style={{
                             position: 'absolute',
@@ -1156,6 +1213,51 @@ function App() {
                 Fermer
               </button>
             </div>
+
+            {rencontreSuiviIdx !== null && (
+              <div style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                background: 'white',
+                borderRadius: '16px',
+                padding: '24px',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+                zIndex: 2100,
+                maxWidth: '500px',
+                width: '90%',
+                maxHeight: '60vh',
+                overflowY: 'auto'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>Suivi - {rencontres[rencontreSuiviIdx]?.direction}</h3>
+                  <button
+                    onClick={() => setRencontreSuiviIdx(null)}
+                    style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <p style={{ margin: '0 0 16px', fontSize: '0.9rem', color: '#64748b' }}>{rencontres[rencontreSuiviIdx]?.titre || rencontres[rencontreSuiviIdx]?.description}</p>
+                {suiviList.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {suiviList.map((s: any) => (
+                      <div key={s.id} style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>{s.action_item}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', gap: '12px' }}>
+                          <span>Responsable: {s.responsable || '-'}</span>
+                          <span>Échéance: {s.date_echeance ? new Date(s.date_echeance).toLocaleDateString('fr-FR') : '-'}</span>
+                          <span style={{ color: s.statut === 'terminé' ? '#16a34a' : '#d97706' }}>{s.statut}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ color: '#64748b', fontSize: '0.9rem' }}>Aucun suivi enregistré</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
