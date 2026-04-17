@@ -106,7 +106,7 @@ const MagappAdmin: React.FC = () => {
     email_createur: '',
     lien_mercator: ''
   });
-  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean}>({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true });
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean}>({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true });
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
   const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
@@ -152,7 +152,8 @@ const MagappAdmin: React.FC = () => {
           show_subscriptions: data.show_subscriptions_original ?? data.show_subscriptions ?? true,
           show_health_check: data.show_health_check_original ?? data.show_health_check ?? true,
           show_create_buttons: data.show_create_buttons_original ?? data.show_create_buttons ?? true,
-          show_ideas: data.show_ideas_original ?? data.show_ideas ?? true
+          show_ideas: data.show_ideas_original ?? data.show_ideas ?? true,
+          show_rencontres: data.show_rencontres_original ?? data.show_rencontres ?? true
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
@@ -1200,14 +1201,26 @@ const MagappAdmin: React.FC = () => {
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher la section Idées</span>
-                    <input 
-                      type="checkbox" 
-                      checked={magappSettings.show_ideas} 
-                      onChange={e => setMagappSettings({...magappSettings, show_ideas: e.target.checked})} 
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_ideas}
+                      onChange={e => setMagappSettings({...magappSettings, show_ideas: e.target.checked})}
                       style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton "Mes Idées" et le formulaire de soumission.</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: '#fffbeb', border: '2px solid #fbbf24', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem', color: '#92400e' }}>Afficher les Rencontres Budgétaires</span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_rencontres}
+                      onChange={e => setMagappSettings({...magappSettings, show_rencontres: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#b45309' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#92400e' }}>Affiche le bouton "Rencontres Budgétaires" pour consulter les demandes de directions.</p>
                 </div>
                 <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
                   <Save size={18} /> Mettre à jour les paramètres

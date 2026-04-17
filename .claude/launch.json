@@ -6,6 +6,7 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173,
+      "autoPort": true,
       "cwd": "./frontend"
     },
     {
@@ -13,6 +14,7 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5174,
+      "autoPort": true,
       "cwd": "./magapp-frontend"
     },
     {

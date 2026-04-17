@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Header from '../components/Header';
 import {
   Upload, Search, X, Columns, Eye, EyeOff, Plus, Trash2, Edit2, Save,
-  ChevronDown, ChevronUp, Info, Filter
+  ChevronDown, ChevronUp, Info, Filter, Mail, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -10,6 +10,7 @@ interface Rencontre {
   id: number;
   titre: string;
   direction: string;
+  service?: string;
   date_reunion: string;
   annee: number;
   type: string;
@@ -21,9 +22,16 @@ interface Rencontre {
   lien_reference: string;
   statut: string;
   commentaires: string;
+  suivi?: string;
   created_at: string;
   participants?: any[];
-  suivi?: any[];
+}
+
+interface DirectionEmail {
+  id: number;
+  direction: string;
+  email: string;
+  created_at: string;
 }
 
 const RencontresBudgetaires: React.FC = () => {
@@ -53,11 +61,20 @@ const RencontresBudgetaires: React.FC = () => {
   const [editedData, setEditedData] = useState<Partial<Rencontre> | null>(null);
   const [isEditSaving, setIsEditSaving] = useState(false);
 
+  // Direction emails modal
+  const [showEmailsModal, setShowEmailsModal] = useState(false);
+  const [directionEmails, setDirectionEmails] = useState<DirectionEmail[]>([]);
+  const [emailsLoading, setEmailsLoading] = useState(false);
+  const [selectedEmailDirection, setSelectedEmailDirection] = useState<string>('');
+  const [newEmail, setNewEmail] = useState<string>('');
+  const [isAddingEmail, setIsAddingEmail] = useState(false);
+
   const directions = [...new Set(rencontres.map(r => r.direction))].sort();
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
   const statuts = ['importée', 'planifiée', 'effectuée'];
   const arbitrages = ['OK DSI', 'En attente', 'Refusé', 'À discuter'];
   const types = [...new Set(rencontres.map(r => r.type).filter(t => t))].sort();
+  const services = [...new Set(rencontres.map(r => r.service).filter(s => s))].sort();
 
   useEffect(() => {
     if (token) {
@@ -226,6 +243,116 @@ const RencontresBudgetaires: React.FC = () => {
     }));
   };
 
+  // Fonctions pour gérer les emails des directions
+  const fetchDirectionEmails = async () => {
+    try {
+      setEmailsLoading(true);
+      const response = await fetch('/api/direction-emails', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      setDirectionEmails(data || []);
+    } catch (error) {
+      console.error('Erreur chargement emails:', error);
+      alert('Erreur lors du chargement des emails');
+    } finally {
+      setEmailsLoading(false);
+    }
+  };
+
+  const handleAddEmail = async () => {
+    if (!selectedEmailDirection || !newEmail) {
+      alert('Direction et email sont obligatoires');
+      return;
+    }
+
+    try {
+      setIsAddingEmail(true);
+      const res = await fetch('/api/direction-emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          direction: selectedEmailDirection,
+          email: newEmail
+        })
+      });
+
+      if (res.ok) {
+        alert('Email ajouté avec succès');
+        setNewEmail('');
+        fetchDirectionEmails();
+      } else {
+        const error = await res.json();
+        alert(`Erreur : ${error.error}`);
+      }
+    } catch (err) {
+      console.error('Error:', err);
+      alert('Erreur lors de l\'ajout de l\'email');
+    } finally {
+      setIsAddingEmail(false);
+    }
+  };
+
+  const handleDeleteEmail = async (id: number) => {
+    if (!window.confirm('Supprimer cet email ?')) return;
+
+    try {
+      const res = await fetch(`/api/direction-emails/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        alert('Email supprimé');
+        fetchDirectionEmails();
+      } else {
+        alert('Erreur suppression');
+      }
+    } catch (err) {
+      console.error('Error:', err);
+    }
+  };
+
+  const openEmailsModal = () => {
+    fetchDirectionEmails();
+    setShowEmailsModal(true);
+  };
+
+  const handleDeleteAll = async () => {
+    // Confirmation unique
+    if (!window.confirm('⚠️ Êtes-vous sûr de vouloir supprimer TOUTES les demandes?\n\nCette action est irréversible!')) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/rencontres-budgetaires/delete-all', {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          confirm: 'DELETE_ALL_RENCONTRES'
+        })
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        alert(`✅ ${result.deleted} demandes supprimées`);
+        fetchRencontres();
+      } else {
+        const error = await res.json();
+        alert(`Erreur : ${error.error}`);
+      }
+    } catch (err) {
+      console.error('Error:', err);
+      alert('Erreur lors de la suppression');
+    }
+  };
+
   const getStatutColor = (statut: string) => {
     switch (statut) {
       case 'importée': return '#3b82f6';
@@ -262,10 +389,26 @@ const RencontresBudgetaires: React.FC = () => {
             </button>
             <button
               style={styles.toolbarBtn}
+              onClick={openEmailsModal}
+              title="Gérer les emails par direction"
+            >
+              <Mail size={18} />
+              <span>Emails</span>
+            </button>
+            <button
+              style={styles.toolbarBtn}
               onClick={() => setShowColumnConfig(!showColumnConfig)}
               title="Paramètres colonnes"
             >
               <Columns size={18} />
+            </button>
+            <button
+              style={{...styles.toolbarBtn, backgroundColor: '#ef4444'}}
+              onClick={handleDeleteAll}
+              title="Supprimer TOUTES les demandes (Admin only)"
+            >
+              <AlertCircle size={18} />
+              <span>Supprimer tout</span>
             </button>
           </div>
         </div>
@@ -478,6 +621,23 @@ const RencontresBudgetaires: React.FC = () => {
                       )}
                     </div>
                     <div style={styles.detailField}>
+                      <label style={styles.label}>Service</label>
+                      {isEditMode ? (
+                        <select
+                          style={styles.editInput}
+                          value={editedData?.service || ''}
+                          onChange={(e) => handleEditFieldChange('service', e.target.value)}
+                        >
+                          <option value="">-- Sélectionner --</option>
+                          {services.map(s => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p style={styles.value}>{selectedRencontre.service || '-'}</p>
+                      )}
+                    </div>
+                    <div style={styles.detailField}>
                       <label style={styles.label}>Date</label>
                       {isEditMode ? (
                         <input
@@ -630,6 +790,21 @@ const RencontresBudgetaires: React.FC = () => {
                       </p>
                     )}
                   </div>
+
+                  <div style={styles.detailField}>
+                    <label style={styles.label}>Suivi</label>
+                    {isEditMode ? (
+                      <textarea
+                        style={{...styles.editInput, minHeight: '80px', fontFamily: 'monospace'}}
+                        value={editedData?.suivi || ''}
+                        onChange={(e) => handleEditFieldChange('suivi', e.target.value)}
+                      />
+                    ) : (
+                      <p style={{...styles.value, whiteSpace: 'pre-wrap', lineHeight: '1.6'}}>
+                        {selectedRencontre.suivi || '-'}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Quatrième section - Suivi et Responsabilité */}
@@ -742,6 +917,153 @@ const RencontresBudgetaires: React.FC = () => {
                     </button>
                   </>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Gestion des emails - Nouveau Design */}
+        {showEmailsModal && (
+          <div style={{...styles.modalOverlay, zIndex: 50}}>
+            <div style={{...styles.modalDialog, maxWidth: '750px', background: '#ffffff'}}>
+              {/* Header Gradient */}
+              <div style={{background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)', padding: '30px', color: 'white', borderRadius: '12px 12px 0 0', position: 'relative'}}>
+                <button
+                  onClick={() => setShowEmailsModal(false)}
+                  style={{position: 'absolute', top: '15px', right: '15px', background: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', color: 'white', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'}}
+                  onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.3)'}
+                  onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.2)'}
+                >
+                  <X size={20} />
+                </button>
+                <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px'}}>
+                  <div style={{width: '48px', height: '48px', background: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                    <Mail size={28} />
+                  </div>
+                  <div>
+                    <h2 style={{margin: 0, fontSize: '24px', fontWeight: '700'}}>Affectation des emails</h2>
+                    <p style={{margin: '4px 0 0 0', fontSize: '14px', opacity: 0.9}}>Gérez les adresses email par direction</p>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{padding: '30px', overflowY: 'auto', maxHeight: 'calc(85vh - 280px)'}}>
+                {/* Formulaire d'ajout */}
+                <div style={{background: '#f8fafc', border: '2px dashed #2563eb', borderRadius: '12px', padding: '24px', marginBottom: '30px'}}>
+                  <h3 style={{margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600', color: '#1e293b'}}>➕ Ajouter un nouvel email</h3>
+                  <div style={{display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 0.8fr', gap: '12px'}}>
+                    <div>
+                      <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>DIRECTION</label>
+                      <select
+                        style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', fontFamily: 'inherit', background: 'white', cursor: 'pointer'}}
+                        value={selectedEmailDirection}
+                        onChange={(e) => setSelectedEmailDirection(e.target.value)}
+                      >
+                        <option value="">Sélectionner...</option>
+                        {directions.map(d => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>ADRESSE EMAIL</label>
+                      <input
+                        type="email"
+                        placeholder="exemple@domain.com"
+                        style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}}
+                        value={newEmail}
+                        onChange={(e) => setNewEmail(e.target.value)}
+                      />
+                    </div>
+                    <div style={{display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'}}>
+                      <button
+                        style={{padding: '10px 16px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'}}
+                        onClick={handleAddEmail}
+                        disabled={isAddingEmail}
+                        onMouseEnter={(e) => !isAddingEmail && ((e.currentTarget as HTMLElement).style.backgroundColor = '#1d4ed8')}
+                        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.backgroundColor = '#2563eb')}
+                      >
+                        {isAddingEmail ? '⏳' : '➕'} Ajouter
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Liste des emails */}
+                {emailsLoading ? (
+                  <div style={{textAlign: 'center', padding: '40px', color: '#94a3b8'}}>
+                    <div style={{fontSize: '32px', marginBottom: '12px'}}>⏳</div>
+                    <p>Chargement en cours...</p>
+                  </div>
+                ) : directionEmails.length === 0 ? (
+                  <div style={{textAlign: 'center', padding: '40px', color: '#94a3b8'}}>
+                    <div style={{fontSize: '48px', marginBottom: '12px', opacity: 0.5}}>📭</div>
+                    <p style={{fontSize: '15px', margin: 0}}>Aucun email attribué pour le moment</p>
+                    <p style={{fontSize: '13px', margin: '4px 0 0 0', color: '#cbd5e1'}}>Commencez par en ajouter un ci-dessus</p>
+                  </div>
+                ) : (
+                  <div>
+                    {directions.map(direction => {
+                      const dirEmails = directionEmails.filter(e => e.direction === direction);
+                      if (dirEmails.length === 0) return null;
+                      return (
+                        <div key={direction} style={{marginBottom: '20px'}}>
+                          <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px'}}>
+                            <div style={{width: '4px', height: '24px', background: '#2563eb', borderRadius: '2px'}}></div>
+                            <h4 style={{margin: 0, fontSize: '15px', fontWeight: '700', color: '#1e293b'}}>{direction}</h4>
+                            <span style={{background: '#dbeafe', color: '#0c4a6e', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600'}}>{dirEmails.length}</span>
+                          </div>
+                          <div style={{display: 'grid', gap: '8px'}}>
+                            {dirEmails.map(de => (
+                              <div
+                                key={de.id}
+                                style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', transition: 'all 0.2s'}}
+                                onMouseEnter={(e) => {
+                                  (e.currentTarget as HTMLElement).style.background = '#f1f5f9';
+                                  (e.currentTarget as HTMLElement).style.borderColor = '#cbd5e1';
+                                }}
+                                onMouseLeave={(e) => {
+                                  (e.currentTarget as HTMLElement).style.background = '#f8fafc';
+                                  (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0';
+                                }}
+                              >
+                                <div style={{display: 'flex', alignItems: 'center', gap: '10px', flex: 1}}>
+                                  <div style={{width: '32px', height: '32px', background: '#e0e7ff', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                                    <Mail size={16} color="#2563eb" />
+                                  </div>
+                                  <span style={{fontFamily: 'monospace', color: '#475569', fontSize: '14px'}}>{de.email}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  style={{background: '#fee2e2', border: 'none', color: '#dc2626', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.2s'}}
+                                  onClick={() => handleDeleteEmail(de.id)}
+                                  onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.background = '#fecaca'}
+                                  onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.background = '#fee2e2'}
+                                  title="Supprimer cet email"
+                                >
+                                  <Trash2 size={13} />
+                                  Supprimer
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div style={{padding: '16px 30px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', borderRadius: '0 0 12px 12px', display: 'flex', justifyContent: 'flex-end'}}>
+                <button
+                  style={{padding: '10px 24px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'}}
+                  onClick={() => setShowEmailsModal(false)}
+                  onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = '#1d4ed8'}
+                  onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = '#2563eb'}
+                >
+                  ✓ Fermer
+                </button>
               </div>
             </div>
           </div>
@@ -903,7 +1225,7 @@ const styles = {
   modalOverlay: {
     position: 'fixed',
     inset: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

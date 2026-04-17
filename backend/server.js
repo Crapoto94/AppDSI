@@ -5945,7 +5945,7 @@ app.delete('/api/magapp/apps/:id', authenticateMagappControl, async (req, res) =
 app.get('/api/magapp/settings', async (req, res) => {
     try {
         const rawSettings = await pgDb.get('SELECT * FROM magapp.settings LIMIT 1');
-        const result = { ...(rawSettings || { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true }) };
+        const result = { ...(rawSettings || { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true }) };
         // Check if user is admin or has MagApp tile — bypass toggle settings for these buttons
         let isSpecialUser = false;
         try {
@@ -5989,14 +5989,31 @@ app.get('/api/magapp/settings', async (req, res) => {
             result.show_health_check_original = result.show_health_check;
             result.show_create_buttons_original = result.show_create_buttons;
             result.show_ideas_original = result.show_ideas;
+            result.show_rencontres_original = result.show_rencontres;
             result.show_tickets = true;
             result.show_subscriptions = true;
             result.show_health_check = true;
             result.show_create_buttons = true;
             result.show_ideas = true;
+            result.show_rencontres = true;
             result.is_beta_user = true;
         }
-        console.log('[MAGAPP SETTINGS] Result:', JSON.stringify({ is_beta_user: result.is_beta_user, show_create_buttons: result.show_create_buttons, show_ideas: result.show_ideas }));
+
+        // Vérifier si l'utilisateur a un email dans direction_emails pour les Rencontres Budgétaires
+        let hasRencontresAccess = false;
+        try {
+            const { username, email } = req.query;
+            const identifier = (username || (email && email.split('@')[0]) || '').toLowerCase().trim();
+            if (identifier) {
+                const directionEmail = await db.get('SELECT 1 FROM direction_emails WHERE email LIKE ? OR email LIKE ?', [`${identifier}@%`, `${identifier}%`]);
+                hasRencontresAccess = !!directionEmail;
+            }
+        } catch (e) {
+            console.error('[MAGAPP SETTINGS] Rencontres access check error:', e.message);
+        }
+        result.has_rencontres_access = hasRencontresAccess;
+
+        console.log('[MAGAPP SETTINGS] Result:', JSON.stringify({ is_beta_user: result.is_beta_user, show_create_buttons: result.show_create_buttons, show_ideas: result.show_ideas, has_rencontres_access: hasRencontresAccess }));
         res.json(result);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching MagApp settings' });
@@ -6004,10 +6021,10 @@ app.get('/api/magapp/settings', async (req, res) => {
 });
 
 app.post('/api/magapp/settings', authenticateMagappControl, async (req, res) => {
-    const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas } = req.body;
+    const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres } = req.body;
     try {
-        await pgDb.run('UPDATE magapp.settings SET show_tickets = $1, show_subscriptions = $2, show_health_check = $3, show_create_buttons = $4, show_ideas = $5 WHERE id = 1', 
-            [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas]);
+        await pgDb.run('UPDATE magapp.settings SET show_tickets = $1, show_subscriptions = $2, show_health_check = $3, show_create_buttons = $4, show_ideas = $5, show_rencontres = $6 WHERE id = 1',
+            [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres]);
         res.json({ message: 'Settings updated' });
     } catch (error) {
         console.error('Erreur magapp_settings:', error);
@@ -7273,7 +7290,24 @@ app.post('/api/change-password', authenticateJWT, async (req, res) => {
 });
 
 // Tiles Routes
-app.get('/api/tiles', authenticateJWT, async (req, res) => {
+// Public endpoint for magapp to fetch tiles with links
+app.get('/api/tiles', async (req, res) => {
+    try {
+        const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
+
+        // Load links for all tiles
+        for (const tile of tiles) {
+            tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
+        }
+
+        res.json(tiles);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des tuiles', error: error.message });
+    }
+});
+
+// Authenticated endpoint for admin to get authorized tiles
+app.get('/api/tiles-auth', authenticateJWT, async (req, res) => {
     try {
         const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
 
@@ -8280,6 +8314,12 @@ app.delete('/api/messages/:id', authenticateAdmin, async (req, res) => {
 app.get('/api/tiles-all', async (req, res) => {
     try {
         const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order ASC');
+
+        // Charger les liens pour chaque tuile
+        for (const tile of tiles) {
+            tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ? ORDER BY id', [tile.id]);
+        }
+
         res.json(tiles);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la récupération des tuiles', error: error.message });
@@ -9548,14 +9588,48 @@ function excelDateToISO(excelDate) {
 // GET: Liste des rencontres budgétaires
 app.get('/api/rencontres-budgetaires', authenticateJWT, async (req, res) => {
     try {
-        const { direction, annee, statut } = req.query;
+        const { direction, annee, statut, directions } = req.query;
         let sql = 'SELECT * FROM rencontres_budgetaires WHERE 1=1';
         const params = [];
 
-        if (direction) {
+        // Si 'directions' est passé (liste de directions séparées par virgule), filtrer par ces directions
+        if (directions && typeof directions === 'string') {
+            const dirList = directions.split(',').map(d => d.trim()).filter(d => d);
+            if (dirList.length > 0) {
+                sql += ` AND direction IN (${dirList.map(() => '?').join(',')})`;
+                params.push(...dirList);
+            }
+        }
+        // Sinon, récupérer les directions de l'utilisateur connecté depuis direction_emails
+        else if (!direction) {
+            try {
+                // Utiliser le username du token JWT
+                const username = req.user.username;
+                console.log(`[RENCONTRES] Utilisateur: ${username}`);
+                if (username) {
+                    // Chercher les directions associées à cet username
+                    // Le username peut être trouvé au début de l'email (ex: "machevalier" dans "machevalier@ivry94.fr")
+                    const userDirections = await db.all('SELECT direction FROM direction_emails WHERE email LIKE ? OR email LIKE ?', [`${username}@%`, `${username}%`]);
+                    console.log(`[RENCONTRES] Directions trouvées pour ${username}:`, userDirections);
+                    if (userDirections && userDirections.length > 0) {
+                        const dirList = userDirections.map(d => d.direction);
+                        console.log(`[RENCONTRES] Filtre appliqué pour directions:`, dirList);
+                        sql += ` AND direction IN (${dirList.map(() => '?').join(',')})`;
+                        params.push(...dirList);
+                    } else {
+                        console.warn(`Aucune direction trouvée pour l'utilisateur ${username}`);
+                    }
+                }
+            } catch (e) {
+                console.warn('Impossible de récupérer les directions de l\'utilisateur:', e.message);
+            }
+        }
+        // Utiliser le filtre 'direction' si spécifié
+        else if (direction) {
             sql += ' AND direction = ?';
             params.push(direction);
         }
+
         if (annee) {
             sql += ' AND annee = ?';
             params.push(parseInt(annee));
@@ -9567,7 +9641,10 @@ app.get('/api/rencontres-budgetaires', authenticateJWT, async (req, res) => {
 
         sql += ' ORDER BY date_reunion DESC';
 
+        console.log(`[RENCONTRES] SQL Query:`, sql);
+        console.log(`[RENCONTRES] Params:`, params);
         const rencontres = await db.all(sql, params);
+        console.log(`[RENCONTRES] Résultat: ${rencontres.length} rencontres`);
         res.json(rencontres);
     } catch (error) {
         console.error('Erreur GET rencontres:', error);
@@ -9602,19 +9679,108 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
             return res.status(400).json({ error: 'Aucun fichier fourni' });
         }
 
-        let workbook;
+        const fileName = req.file.originalname || '';
+        let rows = [];
+
+        // DEBUG: Log filename
+        let debugLog = `Filename: "${fileName}"\n`;
+
+        // FORCE CSV parsing regardless of filename
+        if (true) { // Force CSV parsing
+            const content = req.file.buffer.toString('utf-8');
+            const lines = content.split('\n').filter(l => l.trim().length > 0);
+
+            if (lines.length < 2) {
+                return res.status(400).json({ error: 'Fichier CSV vide' });
+            }
+
+            // Parse headers
+            const headerLine = lines[0];
+            debugLog += `RawHeaderLine: "${headerLine}"\n`;
+            const headers = headerLine.split(';').map(h => h.trim().replace(/^"|"$/g, ''));
+
+            // Find Suivi column index
+            const suiviIndex = headers.findIndex(h => h.toLowerCase() === 'suivi');
+
+            // DEBUG: Append to existing debug log
+            debugLog += `Headers: ${JSON.stringify(headers)}\nSuiviIndex: ${suiviIndex}\n`;
+            debugLog += `Header[${suiviIndex}]: "${headers[suiviIndex]}"\n\n`;
+
+            // Parse data rows
+            for (let i = 1; i < lines.length; i++) {
+                const rawLine = lines[i];
+                const values = rawLine.split(';').map(v => v.trim().replace(/^"|"$/g, ''));
+                const row = {};
+
+                // Map all columns
+                headers.forEach((header, idx) => {
+                    row[header] = values[idx] || '';
+                });
+
+                // Store suivi separately for reliability
+                const rawSuiviValue = suiviIndex >= 0 ? (values[suiviIndex] || '') : '';
+                row['__suivi'] = rawSuiviValue;
+                row['__rawSuiviValue'] = rawSuiviValue;
+
+                // DEBUG: First 5 rows - very detailed
+                if (i <= 5) {
+                    debugLog += `Row${i}:\n`;
+                    debugLog += `  RawLine: "${rawLine.substring(0, 150)}..."\n`;
+                    debugLog += `  Split count: ${values.length}, HeaderCount: ${headers.length}\n`;
+                    debugLog += `  values[${suiviIndex}]: "${values[suiviIndex]}"\n`;
+                    debugLog += `  rawSuiviValue: "${rawSuiviValue}"\n`;
+                    debugLog += `  row['__suivi']: "${row['__suivi']}"\n`;
+                    debugLog += `  row['Suivi']: "${row['Suivi']}"\n`;
+                    debugLog += `  row['suivi']: "${row['suivi']}"\n`;
+                    debugLog += `  Keys in row: ${Object.keys(row).join(', ')}\n\n`;
+                }
+
+                rows.push(row);
+            }
+
+            // Write debug
+            try {
+                fs.writeFileSync(path.join(__dirname, 'CSV_PARSE_DEBUG.txt'), debugLog);
+            } catch (e) {}
+        } else {
+            // Excel fallback
+            const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rawData = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+            if (rawData.length < 2) {
+                return res.status(400).json({ error: 'Aucune donnée' });
+            }
+
+            const headers = rawData[0];
+            for (let i = 1; i < rawData.length; i++) {
+                const row = {};
+                headers.forEach((h, idx) => {
+                    if (h) row[h.toString().trim()] = rawData[i][idx] || '';
+                });
+                row['__suivi'] = rawData[i][10] || '';
+                rows.push(row);
+            }
+        }
+
+        // Write debug log
         try {
-            workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+            fs.writeFileSync(path.join(__dirname, 'IMPORT_DEBUG_FINAL.txt'), debugLog);
+            console.log('DEBUG: Written debug log to IMPORT_DEBUG_FINAL.txt');
         } catch (e) {
-            return res.status(400).json({ error: `Erreur lecture Excel: ${e.message}` });
+            console.error('DEBUG: Failed to write debug log:', e.message);
         }
 
-        if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
-            return res.status(400).json({ error: 'Fichier Excel invalide ou vide' });
-        }
+        // Also write to mouchard log so we can see it
+        try {
+            const timestamp = new Date().toISOString();
+            fs.appendFileSync(
+                path.join(__dirname, 'logs', 'mouchard.log'),
+                `[${timestamp}] DEBUG: Import debug info:\n${debugLog}\n`
+            );
+        } catch (e) {}
 
-        const sheetName = workbook.SheetNames[0];
-        const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+        const data = rows.filter(r => r.Direction || r.Date);
 
         if (!Array.isArray(data) || data.length === 0) {
             return res.status(400).json({ error: 'Aucune donnée trouvée dans le fichier' });
@@ -9660,22 +9826,50 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
                     ? String(row['Quoi ?']).trim().substring(0, 255)
                     : '';
                 const direction = String(row['Direction']).trim();
+                // Service peut être dans différentes colonnes (Service, SERVICE, service_code, etc.)
+                const service = (row['Service'] || row['SERVICE'] || row['service_code'] || row['Service code'])
+                    ? String(row['Service'] || row['SERVICE'] || row['service_code'] || row['Service code']).trim()
+                    : '';
                 const type = row['Type'] ? String(row['Type']).trim() : '';
                 const description = row['Quoi ?'] ? String(row['Quoi ?']).trim() : '';
                 const arbitrage = row['Arbitrage '] ? String(row['Arbitrage ']).trim() : '';
-                const responsableDsi = row['DSI'] ? String(row['DSI']).trim() : '';
-                const ticketGlpi = row['TICKET'] ? String(row['TICKET']).trim() : '';
-                const lienReference = row['LIEN'] ? String(row['LIEN']).trim() : '';
-                const commentaires = row['Commentaire ?'] ? String(row['Commentaire ?']).trim() : '';
+                const responsableDsi = row['DSI'] && String(row['DSI']).trim() !== '' ? String(row['DSI']).trim() : '';
+                const ticketGlpi = row['TICKET'] && String(row['TICKET']).trim() !== '' ? String(row['TICKET']).trim() : '';
+                const lienReference = row['LIEN'] && String(row['LIEN']).trim() !== '' ? String(row['LIEN']).trim() : '';
+                const commentaires = row['Commentaire ?'] && String(row['Commentaire ?']).trim() !== '' ? String(row['Commentaire ?']).trim() : '';
+
+                // Suivi: Utiliser la valeur stockée lors du parsing
+                const suiviRaw = row['__suivi'] ? String(row['__suivi']).trim() : '';
+                const suivi = suiviRaw && suiviRaw.toLowerCase() !== 'undefined' && suiviRaw.toLowerCase() !== 'null' && suiviRaw !== '' ? suiviRaw : '';
+
+                // DEBUG: Very detailed logging for first 5 rows
+                if (i < 5) {
+                    const debugMsg = `DEBUG_ROW${i}: __suivi="${row['__suivi']}" | suiviRaw="${suiviRaw}" | final_suivi="${suivi}" | len=${suivi.length}`;
+                    try {
+                        await db.run(
+                            'INSERT INTO import_logs (type, username) VALUES (?, ?)',
+                            [debugMsg, 'debug']
+                        );
+                    } catch (e) {}
+                }
+
+                // DEBUG: Log the exact values going into INSERT
+                if (i < 3) {
+                    debugLog += `\nBEFORE INSERT Row${i}:\n`;
+                    debugLog += `  row['__suivi']: "${row['__suivi']}" (type: ${typeof row['__suivi']}, len: ${String(row['__suivi']).length})\n`;
+                    debugLog += `  suiviRaw: "${suiviRaw}" (type: ${typeof suiviRaw}, len: ${suiviRaw.length})\n`;
+                    debugLog += `  suivi final: "${suivi}" (type: ${typeof suivi}, len: ${suivi.length})\n`;
+                    debugLog += `  Will insert: direction="${direction}" | suivi="${suivi}"\n`;
+                }
 
                 // INSERT OR REPLACE
                 await db.run(
                     `INSERT OR REPLACE INTO rencontres_budgetaires
-                    (direction, date_reunion, annee, type, titre, description, cout_ttc,
-                     arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'importée')`,
-                    [direction, dateReunion, annee, type, titre, description, coutTTC,
-                     arbitrage, responsableDsi, ticketGlpi, lienReference, commentaires]
+                    (direction, service, date_reunion, annee, type, titre, description, cout_ttc,
+                     arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, suivi, statut)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'importée')`,
+                    [direction, service, dateReunion, annee, type, titre, description, coutTTC,
+                     arbitrage, responsableDsi, ticketGlpi, lienReference, commentaires, suivi]
                 );
 
                 imported++;
@@ -9732,19 +9926,57 @@ app.post('/api/rencontres-budgetaires', authenticateAdminOrFinances, async (req,
 app.put('/api/rencontres-budgetaires/:id', authenticateAdminOrFinances, async (req, res) => {
     try {
         const { id } = req.params;
-        const { titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut } = req.body;
+        const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut } = req.body;
 
         await db.run(
             `UPDATE rencontres_budgetaires SET
-            titre=?, direction=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?,
+            titre=?, direction=?, service=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?,
             arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, commentaires=?, statut=?, updated_at=CURRENT_TIMESTAMP
             WHERE id=?`,
-            [titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut, id]
+            [titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut, id]
         );
 
         res.json({ message: 'Rencontre mise à jour' });
     } catch (error) {
         console.error('Erreur PUT rencontre:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer TOUTES les rencontres (Admin only) - AVANT :id pour priorité
+app.delete('/api/rencontres-budgetaires/delete-all', authenticateAdmin, async (req, res) => {
+    try {
+        const { confirm } = req.body;
+
+        // Vérifier la confirmation
+        if (confirm !== 'DELETE_ALL_RENCONTRES') {
+            return res.status(400).json({ error: 'Confirmation manquante ou incorrecte' });
+        }
+
+        // Compter les demandes avant suppression
+        const countResults = await db.all('SELECT COUNT(*) as count FROM rencontres_budgetaires');
+        const totalCount = countResults?.[0]?.count || 0;
+
+        // Supprimer les participants et suivi en cascade
+        await db.run('DELETE FROM rencontres_participants');
+        await db.run('DELETE FROM rencontres_suivi');
+
+        // Supprimer toutes les rencontres
+        await db.run('DELETE FROM rencontres_budgetaires');
+
+        // Log
+        const timestamp = new Date().toISOString();
+        fs.appendFileSync(
+            path.join(__dirname, 'logs', 'mouchard.log'),
+            `[${timestamp}] DELETE /api/rencontres-budgetaires/delete-all - 200 - par ${req.user.username}: ${totalCount} demandes supprimées\n`
+        );
+
+        res.json({
+            message: `${totalCount} demandes supprimées`,
+            deleted: totalCount
+        });
+    } catch (error) {
+        console.error('Erreur DELETE all rencontres:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -9880,6 +10112,139 @@ app.delete('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
         res.json({ message: 'Suivi supprimé' });
     } catch (error) {
         console.error('Erreur DELETE suivi:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// GESTION DES EMAILS PAR DIRECTION
+// ============================================
+
+// GET: Lister tous les emails par direction
+app.get('/api/direction-emails', authenticateJWT, async (req, res) => {
+    try {
+        const data = await db.all('SELECT id, direction, email, created_at FROM direction_emails ORDER BY direction, email');
+        res.json(data || []);
+    } catch (error) {
+        console.error('Erreur GET direction-emails:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET: Lister les emails d'une direction spécifique
+app.get('/api/direction-emails/:direction', authenticateJWT, async (req, res) => {
+    try {
+        const { direction } = req.params;
+        const data = await db.all(
+            'SELECT id, direction, email FROM direction_emails WHERE direction = ? ORDER BY email',
+            [direction]
+        );
+        res.json(data || []);
+    } catch (error) {
+        console.error('Erreur GET direction-emails/:direction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Ajouter un email à une direction
+app.post('/api/direction-emails', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        const { direction, email } = req.body;
+
+        if (!direction || !email) {
+            return res.status(400).json({ error: 'Direction et email sont obligatoires' });
+        }
+
+        // Validation basique du format email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ error: 'Format email invalide' });
+        }
+
+        await db.run(
+            'INSERT INTO direction_emails (direction, email) VALUES (?, ?)',
+            [direction.trim(), email.trim().toLowerCase()]
+        );
+
+        res.json({ message: 'Email ajouté avec succès', direction, email });
+    } catch (error) {
+        if (error.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ error: 'Cet email est déjà attribué' });
+        }
+        console.error('Erreur POST direction-emails:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Attribuer plusieurs emails à une direction (en une requête)
+app.post('/api/direction-emails/batch/:direction', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        const { direction } = req.params;
+        const { emails } = req.body;
+
+        if (!direction || !Array.isArray(emails) || emails.length === 0) {
+            return res.status(400).json({ error: 'Direction et liste d\'emails sont obligatoires' });
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const invalidEmails = emails.filter(e => !emailRegex.test(e));
+
+        if (invalidEmails.length > 0) {
+            return res.status(400).json({
+                error: 'Emails invalides: ' + invalidEmails.join(', ')
+            });
+        }
+
+        // D'abord, supprimer les anciens emails pour cette direction
+        await db.run('DELETE FROM direction_emails WHERE direction = ?', [direction.trim()]);
+
+        // Ensuite, insérer les nouveaux
+        const uniqueEmails = [...new Set(emails.map(e => e.trim().toLowerCase()))];
+        let inserted = 0;
+        let skipped = 0;
+
+        for (const email of uniqueEmails) {
+            try {
+                await db.run(
+                    'INSERT INTO direction_emails (direction, email) VALUES (?, ?)',
+                    [direction.trim(), email]
+                );
+                inserted++;
+            } catch (error) {
+                if (error.message.includes('UNIQUE constraint failed')) {
+                    skipped++;
+                } else {
+                    throw error;
+                }
+            }
+        }
+
+        res.json({
+            message: `Emails attribués à ${direction}`,
+            inserted,
+            skipped,
+            total: uniqueEmails.length
+        });
+    } catch (error) {
+        console.error('Erreur POST direction-emails/batch:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer un email d'une direction
+app.delete('/api/direction-emails/:id', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const result = await db.run('DELETE FROM direction_emails WHERE id = ?', [id]);
+
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Email non trouvé' });
+        }
+
+        res.json({ message: 'Email supprimé avec succès' });
+    } catch (error) {
+        console.error('Erreur DELETE direction-emails/:id:', error);
         res.status(500).json({ error: error.message });
     }
 });

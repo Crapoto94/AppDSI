@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3 } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -64,7 +64,8 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true });
+  const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
   const [allVersions, setAllVersions] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string; is_active: boolean }[]>([]);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
@@ -80,6 +81,10 @@ function App() {
   const [showObservedTickets, setShowObservedTickets] = useState(false);
   const [observedTickets, setObservedTickets] = useState<{glpi_id: number, title: string, status_label: string, date_creation: string, type: string, status: string, solution: string, content: string, requester_name: string, requester_email: string}[]>([]);
   const [showClosedObserved, setShowClosedObserved] = useState(false);
+  const [showRencontres, setShowRencontres] = useState(false);
+  const [rencontres, setRencontres] = useState<any[]>([]);
+  const [hoveredRencontreIdx, setHoveredRencontreIdx] = useState<number | null>(null);
+  const [tiles, setTiles] = useState<any[]>([]);
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaDescription, setIdeaDescription] = useState('');
   const [ideaAttachments, setIdeaAttachments] = useState<File[]>([]);
@@ -156,14 +161,15 @@ function App() {
         }
       };
 
-      const [cats, appsData, favs, subs, tickets, ticketsList, settingsData] = await Promise.all([
+      const [cats, appsData, favs, subs, tickets, ticketsList, settingsData, tilesData] = await Promise.all([
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
         email ? fetchSafe(`${apiBase}/magapp/user-subscriptions?email=${email}`, []) : Promise.resolve([]),
         email ? fetchSafe(`${apiBase}/magapp/tickets-count?email=${email}`, { count: 0 }) : Promise.resolve({ count: 0 }),
         email ? fetchSafe(`${apiBase}/magapp/tickets?email=${email}`, []) : Promise.resolve([]),
-        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true })
+        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true }),
+        fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
       setCategories(cats.sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
@@ -172,7 +178,9 @@ function App() {
       setSubscriptions(subs);
       setTicketCount(tickets.count || 0);
       setUserTickets(ticketsList);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres});
+      setHasRencontresAccess(settingsData.has_rencontres_access || false);
+      setTiles(tilesData.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
     } catch (error) {
       console.error("Erreur globale de chargement des données", error);
     } finally {
@@ -226,6 +234,27 @@ function App() {
       }
     }
   };
+
+  // Load rencontres when modal opens
+  useEffect(() => {
+    if (showRencontres) {
+      const loadRencontres = async () => {
+        try {
+          const token = localStorage.getItem('token');
+          const res = await axios.get(`${apiBase}/rencontres-budgetaires`, {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          });
+          setRencontres(res.data || []);
+        } catch (e) {
+          console.error('Erreur chargement rencontres:', e);
+          setRencontres([]);
+        }
+      };
+      loadRencontres();
+    }
+  }, [showRencontres]);
 
   const toggleFavorite = async (e: React.MouseEvent, appId: number) => {
     e.preventDefault();
@@ -937,16 +966,43 @@ function App() {
               </div>
             </div>
 
+            {((settings.show_rencontres && hasRencontresAccess) || settings.is_beta_user) && (
+              <button
+                onClick={() => setShowRencontres(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: 'white',
+                  border: '1px solid #cbd5e1',
+                  padding: '10px 18px',
+                  borderRadius: '10px',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  color: '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                  position: 'relative'
+                }}
+                title="Mes demandes budgétaires"
+              >
+                <BarChart3 size={18} />
+                Rencontres
+                {settings.is_beta_user && !((settings.show_rencontres_original ?? settings.show_rencontres) && hasRencontresAccess) && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+              </button>
+            )}
+
             {(settings.show_tickets || settings.is_beta_user) && (
-              <button 
+              <button
                 onClick={() => setShowTickets(true)}
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '8px', 
-                  background: 'white', 
-                  border: '1px solid #cbd5e1', 
-                  padding: '10px 18px', 
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: 'white',
+                  border: '1px solid #cbd5e1',
+                  padding: '10px 18px',
                   borderRadius: '10px',
                   fontSize: '0.9rem',
                   fontWeight: 600,
@@ -989,12 +1045,12 @@ function App() {
               </button>
             )}
 
-            <button 
+            <button
               onClick={handleLogout}
-              style={{ 
-                background: '#fff1f2', 
-                border: '1px solid #fecdd3', 
-                padding: '10px', 
+              style={{
+                background: '#fff1f2',
+                border: '1px solid #fecdd3',
+                padding: '10px',
                 borderRadius: '10px',
                 color: '#e11d48',
                 cursor: 'pointer',
@@ -1007,6 +1063,102 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* Modal Rencontres */}
+      {showRencontres && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: 'white', maxWidth: '900px', width: '100%', borderRadius: '24px', padding: '40px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <button
+              onClick={() => setShowRencontres(false)}
+              style={{ position: 'absolute', top: '25px', right: '25px', background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <X size={20} />
+            </button>
+
+            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+              <div style={{ width: '60px', height: '60px', background: '#dbeafe', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                <BarChart3 size={32} color="#0284c7" />
+              </div>
+              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>Rencontres Budgétaires</h2>
+              <p style={{ color: '#64748b', fontSize: '1rem', marginTop: '10px' }}>
+                Demandes associées à vos directions
+              </p>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', paddingTop: '20px', paddingBottom: '20px' }}>
+              {rencontres && rencontres.length > 0 ? (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Direction</th>
+                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Demande</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rencontres.map((r: any, idx: number) => (
+                      <tr
+                        key={idx}
+                        style={{ borderBottom: '1px solid #e2e8f0', position: 'relative', cursor: r.commentaires?.trim() ? 'help' : 'default' }}
+                        onMouseEnter={() => r.commentaires?.trim() && setHoveredRencontreIdx(idx)}
+                        onMouseLeave={() => setHoveredRencontreIdx(null)}
+                      >
+                        <td style={{ padding: '12px', color: '#1e293b' }}>{r.direction}</td>
+                        <td style={{ padding: '12px', color: '#1e293b' }}>{r.titre || r.description}</td>
+                        {hoveredRencontreIdx === idx && r.commentaires?.trim() && (
+                          <div style={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: '12px',
+                            right: '12px',
+                            background: '#1e293b',
+                            color: 'white',
+                            padding: '12px',
+                            borderRadius: '8px',
+                            fontSize: '0.8rem',
+                            lineHeight: '1.5',
+                            zIndex: 1000,
+                            marginTop: '8px',
+                            boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            border: '1px solid #475569',
+                            maxWidth: '400px'
+                          }}>
+                            {r.commentaires}
+                            <div style={{
+                              position: 'absolute',
+                              bottom: '100%',
+                              left: '20px',
+                              width: '0',
+                              height: '0',
+                              borderLeft: '6px solid transparent',
+                              borderRight: '6px solid transparent',
+                              borderBottom: '6px solid #1e293b'
+                            }} />
+                          </div>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
+                  <p>Aucune demande trouvée pour vos directions</p>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button
+                onClick={() => setShowRencontres(false)}
+                style={{ padding: '10px 20px', background: '#e2e8f0', border: 'none', borderRadius: '12px', cursor: 'pointer', fontWeight: 600, color: '#475569' }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal What's New */}
       {showWhatsNew && activeVersion && (

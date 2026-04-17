@@ -359,6 +359,7 @@ async function setupDb() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             titre TEXT NOT NULL,
             direction TEXT NOT NULL,
+            service TEXT,
             date_reunion DATETIME,
             annee INTEGER,
             type TEXT,
@@ -395,11 +396,57 @@ async function setupDb() {
             FOREIGN KEY (rencontre_id) REFERENCES rencontres_budgetaires (id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS direction_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            direction TEXT NOT NULL,
+            email TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(direction, email)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_rencontres_direction ON rencontres_budgetaires(direction);
         CREATE INDEX IF NOT EXISTS idx_rencontres_annee ON rencontres_budgetaires(annee);
         CREATE INDEX IF NOT EXISTS idx_rencontres_statut ON rencontres_budgetaires(statut);
+        CREATE INDEX IF NOT EXISTS idx_direction_emails ON direction_emails(direction);
+        CREATE INDEX IF NOT EXISTS idx_direction_emails_email ON direction_emails(email);
     `);
 
+    // Migration: Ajouter la colonne service si elle n'existe pas
+    try {
+        const result = await db.all("PRAGMA table_info(rencontres_budgetaires)");
+        const hasServiceColumn = result.some(col => col.name === 'service');
+        if (!hasServiceColumn) {
+            await db.exec('ALTER TABLE rencontres_budgetaires ADD COLUMN service TEXT');
+            console.log('[DB Migration] Colonne service ajoutée à rencontres_budgetaires');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur ajout colonne service:', e.message);
+    }
+
+    try {
+        const result = await db.all("PRAGMA table_info(rencontres_budgetaires)");
+        const hasSuiviColumn = result.some(col => col.name === 'suivi');
+        if (!hasSuiviColumn) {
+            await db.exec('ALTER TABLE rencontres_budgetaires ADD COLUMN suivi TEXT');
+            console.log('[DB Migration] Colonne suivi ajoutée à rencontres_budgetaires');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur ajout colonne suivi:', e.message);
+    }
+
+    // Migration: Créer la tuile Rencontres si elle n'existe pas
+    try {
+        const existingTile = await db.get("SELECT id FROM tiles WHERE title = 'Rencontres Budgétaires'");
+        if (!existingTile) {
+            await db.run(
+                "INSERT INTO tiles (title, icon, description, status, sort_order) VALUES (?, ?, ?, ?, ?)",
+                ['Rencontres Budgétaires', 'BarChart3', 'Demandes associées à votre direction', 'active', 999]
+            );
+            console.log('[DB Migration] Tuile Rencontres Budgétaires créée');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur création tuile Rencontres:', e.message);
+    }
 
     // Note: Tables moved to external DBs (gf, rh) are not created here anymore.
     // They are accessed via their attached aliases (e.g. gf.oracle_commande).

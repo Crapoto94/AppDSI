@@ -51,6 +51,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [users, setUsers] = useState<UserData[]>([]);
   const [newTile, setNewTile] = useState({ title: '', icon: 'Box', description: '', status: 'active' as any });
   const [editingTile, setEditingTile] = useState<TileData | null>(null);
+  const [editingLinks, setEditingLinks] = useState<any[]>([]);
+  const [originalLinks, setOriginalLinks] = useState<any[]>([]);
+  const [newLink, setNewLink] = useState<Partial<TileLink>>({ label: '', url: '', is_internal: 0 });
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
@@ -1145,6 +1148,82 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newTiles[i], sort_order: i })
       });
+    }
+  };
+
+  const handleSaveTile = async () => {
+    try {
+      let tileId: number;
+      if (editingTile) {
+        // Édition d'une tuile existante
+        tileId = editingTile.id;
+        const response = await fetch(`/api/tiles/${editingTile.id}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: editingTile.title,
+            icon: editingTile.icon || 'Box',
+            description: editingTile.description || '',
+            status: editingTile.status || 'active'
+          })
+        });
+        if (!response.ok) throw new Error(`Erreur ${response.status}`);
+      } else if (newTile.title) {
+        // Création d'une nouvelle tuile
+        const response = await fetch('/api/tiles', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: newTile.title,
+            icon: newTile.icon || 'Box',
+            description: newTile.description || '',
+            status: newTile.status || 'active',
+            sort_order: tiles.length
+          })
+        });
+        if (!response.ok) throw new Error(`Erreur ${response.status}`);
+        const result = await response.json();
+        tileId = result.id;
+      } else {
+        throw new Error('Le titre de la tuile est requis');
+      }
+
+      // Sauvegarder les liens
+      // Ajouter les nouveaux liens
+      for (const link of editingLinks) {
+        if (link.isNew) {
+          await fetch(`/api/tiles/${tileId}/links`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              label: link.label,
+              url: link.url,
+              is_internal: link.is_internal
+            })
+          });
+        }
+      }
+
+      // Supprimer les liens qui ont été retirés
+      for (const originalLink of originalLinks) {
+        const stillExists = editingLinks.some(l => l.id === originalLink.id);
+        if (!stillExists && originalLink.id && typeof originalLink.id === 'number') {
+          await fetch(`/api/links/${originalLink.id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+        }
+      }
+
+      setEditingTile(null);
+      setEditingLinks([]);
+      setOriginalLinks([]);
+      setNewLink({ label: '', url: '', is_internal: 0 });
+      setNewTile({ title: '', icon: 'Box', description: '', status: 'active' });
+      fetchTiles();
+    } catch (error) {
+      console.error('Erreur lors de la sauvegarde:', error);
+      alert('Erreur lors de la sauvegarde de la tuile');
     }
   };
 
@@ -2943,8 +3022,347 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             </div>
 
             {(editingTile || newTile.title !== '') && (
-              <div className="p-4 bg-blue-50 border-b border-blue-100 text-xs text-blue-600 italic">
-                Mode édition activé pour : {editingTile?.title || 'Nouvelle brique'}
+              <div className="modal-overlay" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active' }); }}>
+                <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+                  <div className="modal-header">
+                    <div className="modal-header-info">
+                      <div className="modal-icon-box blue"><Box size={24} /></div>
+                      <div>
+                        <h3 className="modal-title">{editingTile ? 'Éditer la brique' : 'Créer une brique'}</h3>
+                        <p className="modal-subtitle">{editingTile?.title || 'Nouvelle brique'}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active' }); }} className="icon-btn" style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer' }}>
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  <div className="modal-body padding">
+                    {/* Section principale de la tuile */}
+                    <div style={{ background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)', borderRadius: '16px', padding: '24px', marginBottom: '24px', border: '2px solid #bfdbfe' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+                        {/* Colonne 1: Titre */}
+                        <div>
+                          <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Titre de la brique</label>
+                          <input
+                            type="text"
+                            value={editingTile?.title || newTile.title}
+                            onChange={(e) => {
+                              if (editingTile) {
+                                setEditingTile({ ...editingTile, title: e.target.value });
+                              } else {
+                                setNewTile({ ...newTile, title: e.target.value });
+                              }
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '12px 14px',
+                              border: '2px solid #7dd3fc',
+                              borderRadius: '10px',
+                              fontSize: '1rem',
+                              fontWeight: '600',
+                              color: '#0c4a6e',
+                              boxSizing: 'border-box',
+                              transition: 'all 0.2s',
+                              background: 'white'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#0284c7';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#7dd3fc';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                            placeholder="ex: Gestion Budgétaire"
+                          />
+                        </div>
+
+                        {/* Colonne 2: Statut */}
+                        <div>
+                          <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Statut</label>
+                          <select
+                            value={editingTile?.status || newTile.status}
+                            onChange={(e) => {
+                              if (editingTile) {
+                                setEditingTile({ ...editingTile, status: e.target.value as any });
+                              } else {
+                                setNewTile({ ...newTile, status: e.target.value as any });
+                              }
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '12px 14px',
+                              border: '2px solid #7dd3fc',
+                              borderRadius: '10px',
+                              fontSize: '0.95rem',
+                              fontWeight: '600',
+                              color: editingTile?.status === 'active' || newTile.status === 'active' ? '#059669' : '#dc2626',
+                              boxSizing: 'border-box',
+                              background: 'white',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#0284c7';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#7dd3fc';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          >
+                            <option value="active">✓ Actif</option>
+                            <option value="inactive">✗ Inactif</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Description */}
+                      <div>
+                        <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Description</label>
+                        <textarea
+                          value={editingTile?.description || newTile.description}
+                          onChange={(e) => {
+                            if (editingTile) {
+                              setEditingTile({ ...editingTile, description: e.target.value });
+                            } else {
+                              setNewTile({ ...newTile, description: e.target.value });
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '12px 14px',
+                            border: '2px solid #7dd3fc',
+                            borderRadius: '10px',
+                            fontSize: '0.95rem',
+                            color: '#0c4a6e',
+                            boxSizing: 'border-box',
+                            resize: 'vertical',
+                            minHeight: '80px',
+                            fontFamily: 'inherit',
+                            transition: 'all 0.2s',
+                            background: 'white'
+                          }}
+                          onFocus={(e) => {
+                            e.target.style.borderColor = '#0284c7';
+                            e.target.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.1)';
+                          }}
+                          onBlur={(e) => {
+                            e.target.style.borderColor = '#7dd3fc';
+                            e.target.style.boxShadow = 'none';
+                          }}
+                          placeholder="Description courte de la brique (ex: Suivi des budgets et engagements)"
+                          rows={3}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '20px', marginTop: '20px' }}>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 'bold', color: '#1e293b', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>Liens associés à cette tuile</span>
+                        <span style={{ fontSize: '0.85rem', background: '#dbeafe', color: '#1e40af', padding: '4px 8px', borderRadius: '4px', fontWeight: '600' }}>{editingLinks.length} lien{editingLinks.length !== 1 ? 's' : ''}</span>
+                      </h3>
+
+                      {/* Liste des liens existants */}
+                      {editingLinks.length > 0 && (
+                        <div style={{ marginBottom: '20px', background: '#f0f9ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '0', overflow: 'hidden' }}>
+                          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                            {editingLinks.map((link, idx) => (
+                              <div key={idx} style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '12px 16px',
+                                borderBottom: idx < editingLinks.length - 1 ? '1px solid #bfdbfe' : 'none',
+                                backgroundColor: link.isNew ? '#fef3c7' : 'transparent',
+                                transition: 'background-color 0.2s'
+                              }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: '0.95rem', fontWeight: '600', color: '#1e293b', marginBottom: '4px', wordBreak: 'break-word' }}>
+                                    {link.label}
+                                    {link.isNew && <span style={{ marginLeft: '8px', fontSize: '0.7rem', background: '#fbbf24', color: '#78350f', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>NOUVEAU</span>}
+                                  </div>
+                                  <div style={{ fontSize: '0.8rem', color: '#64748b', wordBreak: 'break-all', marginBottom: '4px' }}>{link.url}</div>
+                                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', gap: '12px' }}>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: link.is_internal ? '#10b981' : '#f97316' }}></span>
+                                      {link.is_internal ? 'Interne' : 'Externe'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => setEditingLinks(editingLinks.filter((_, i) => i !== idx))}
+                                  style={{
+                                    marginLeft: '12px',
+                                    padding: '8px 10px',
+                                    background: '#fee2e2',
+                                    color: '#dc2626',
+                                    border: 'none',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '600',
+                                    transition: 'all 0.2s',
+                                    flexShrink: 0
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = '#fca5a5';
+                                    e.currentTarget.style.color = '#991b1b';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = '#fee2e2';
+                                    e.currentTarget.style.color = '#dc2626';
+                                  }}
+                                  title="Supprimer ce lien"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Formulaire pour ajouter un lien */}
+                      <div style={{ background: 'white', border: '2px dashed #3b82f6', borderRadius: '12px', padding: '20px' }}>
+                        <h4 style={{ fontSize: '0.95rem', fontWeight: '700', color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Plus size={18} color="#3b82f6" />
+                          Ajouter un nouveau lien
+                        </h4>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                          <div>
+                            <label style={{ fontSize: '0.85rem', fontWeight: '600', color: '#475569', display: 'block', marginBottom: '6px' }}>Libellé du lien *</label>
+                            <input
+                              type="text"
+                              placeholder="ex: Gérer le parc"
+                              value={newLink.label || ''}
+                              onChange={(e) => setNewLink({ ...newLink, label: e.target.value })}
+                              style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '8px',
+                                fontSize: '0.9rem',
+                                fontFamily: 'inherit',
+                                boxSizing: 'border-box',
+                                transition: 'border-color 0.2s',
+                              }}
+                              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                              onBlur={(e) => e.target.style.borderColor = '#cbd5e1'}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.85rem', fontWeight: '600', color: '#475569', display: 'block', marginBottom: '6px' }}>URL du lien *</label>
+                            <input
+                              type="text"
+                              placeholder="ex: /telecom ou https://..."
+                              value={newLink.url || ''}
+                              onChange={(e) => setNewLink({ ...newLink, url: e.target.value })}
+                              style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '8px',
+                                fontSize: '0.9rem',
+                                fontFamily: 'inherit',
+                                boxSizing: 'border-box',
+                                transition: 'border-color 0.2s',
+                              }}
+                              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                              onBlur={(e) => e.target.style.borderColor = '#cbd5e1'}
+                            />
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', background: '#f3f4f6', borderRadius: '8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={newLink.is_internal === 1}
+                            onChange={(e) => setNewLink({ ...newLink, is_internal: e.target.checked ? 1 : 0 })}
+                            id="is-internal-checkbox"
+                            style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#3b82f6' }}
+                          />
+                          <label htmlFor="is-internal-checkbox" style={{ fontSize: '0.9rem', color: '#1e293b', cursor: 'pointer', margin: 0, fontWeight: '500' }}>
+                            ✓ Lien interne (application interne)
+                          </label>
+                          <span style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: 'auto' }}>
+                            {newLink.is_internal ? 'Ouverture interne' : 'Ouverture dans un nouvel onglet'}
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            if (newLink.label && newLink.url) {
+                              setEditingLinks([...editingLinks, { id: Math.random(), tile_id: editingTile?.id || 0, label: newLink.label, url: newLink.url, is_internal: newLink.is_internal || 0, isNew: true }]);
+                              setNewLink({ label: '', url: '', is_internal: 0 });
+                            }
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '12px 16px',
+                            background: newLink.label && newLink.url ? '#3b82f6' : '#cbd5e1',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: newLink.label && newLink.url ? 'pointer' : 'not-allowed',
+                            fontWeight: '600',
+                            fontSize: '0.95rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (newLink.label && newLink.url) {
+                              e.currentTarget.style.background = '#2563eb';
+                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (newLink.label && newLink.url) {
+                              e.currentTarget.style.background = '#3b82f6';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }
+                          }}
+                          disabled={!newLink.label || !newLink.url}
+                        >
+                          <Plus size={18} />
+                          Ajouter ce lien à la tuile
+                        </button>
+
+                        {(!newLink.label || !newLink.url) && (
+                          <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#ea580c', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <AlertTriangle size={14} />
+                            Remplissez le libellé et l'URL pour ajouter un lien
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="modal-footer">
+                    <button
+                      onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active' }); }}
+                      className="btn btn-secondary"
+                      style={{ background: '#e2e8f0', color: '#1e293b', border: 'none', cursor: 'pointer', padding: '10px 20px', borderRadius: '8px', fontWeight: '700' }}
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      onClick={handleSaveTile}
+                      className="btn btn-primary"
+                      style={{ background: '#2563eb', color: 'white', border: 'none', cursor: 'pointer', padding: '10px 20px', borderRadius: '8px', fontWeight: '700' }}
+                    >
+                      {editingTile ? 'Mettre à jour' : 'Créer'}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -2956,6 +3374,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             <th style={{ width: '60px' }}>Icône</th>
                             <th>Service</th>
                             <th>Description</th>
+                            <th>Liens</th>
                             <th>Statut</th>
                             <th className="actions">Actions</th>
                         </tr>
@@ -2972,9 +3391,28 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <td><div className="avatar bg-gray-100"><Box size={18} /></div></td>
                                 <td><span className="font-bold text-gray-900">{tile.title}</span></td>
                                 <td><span className="text-sm text-gray-500 line-clamp-1">{tile.description}</span></td>
+                                <td>
+                                  {tile.links && tile.links.length > 0 ? (
+                                    <div style={{ fontSize: '0.85rem' }}>
+                                      <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '4px 10px', borderRadius: '6px', fontWeight: '600', display: 'inline-block' }}>
+                                        {tile.links.length} lien{tile.links.length > 1 ? 's' : ''}
+                                      </span>
+                                      <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#64748b' }}>
+                                        {tile.links.slice(0, 2).map((link, idx) => (
+                                          <div key={idx} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            • {link.label}
+                                          </div>
+                                        ))}
+                                        {tile.links.length > 2 && <div>+{tile.links.length - 2} plus</div>}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Aucun lien</span>
+                                  )}
+                                </td>
                                 <td><span className={`status-tag ${tile.status}`}>{tile.status}</span></td>
                                 <td className="actions">
-                                    <button className="icon-btn edit" onClick={() => setEditingTile(tile)}><Edit2 size={16} /></button>
+                                    <button className="icon-btn edit" onClick={() => { setEditingTile(tile); setEditingLinks(tile.links || []); setOriginalLinks(tile.links || []); setNewLink({ label: '', url: '', is_internal: 0 }); }}><Edit2 size={16} /></button>
                                     <button className="icon-btn delete" onClick={() => handleDeleteTile(tile.id)}><Trash2 size={16} /></button>
                                 </td>
                             </tr>

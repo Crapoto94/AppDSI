@@ -361,9 +361,17 @@ async function setupPgDb() {
       }
     }
 
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_rencontres BOOLEAN DEFAULT true`);
+    } catch (e) {
+      if (!e.message.includes('already exists')) {
+        console.warn('[PG DB] Migration show_rencontres:', e.message);
+      }
+    }
+
     await client.query(`
-      INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas)
-      VALUES (1, true, true, true, true, true)
+      INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres)
+      VALUES (1, true, true, true, true, true, true)
       ON CONFLICT (id) DO NOTHING;
     `);
 

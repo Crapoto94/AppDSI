@@ -3,9 +3,9 @@ import { NavLink, useLocation, Outlet } from 'react-router-dom';
 import Header from './Header';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { 
-  LayoutDashboard, Users, MessageSquare, ShieldCheck, 
-  Mail, Settings, LayoutGrid, Activity, 
+import {
+  LayoutDashboard, Users, MessageSquare, ShieldCheck,
+  Mail, Settings, LayoutGrid, Activity,
   Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb
 } from 'lucide-react';
 
