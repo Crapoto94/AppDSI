@@ -101,6 +101,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [syncLogs, setSyncLogs] = useState<any[]>([]);
   const [syncLogsPage, setSyncLogsPage] = useState(1);
   const syncLogsPerPage = 10;
+  const [syncLogFilters, setSyncLogFilters] = useState({ type: '', status: '', dateFrom: '', dateTo: '' });
   const [scheduledSyncs, setScheduledSyncs] = useState<any[]>([]);
   const [showScheduledModal, setShowScheduledModal] = useState(false);
   const [editingScheduledSync, setEditingScheduledSync] = useState<any>(null);
@@ -590,7 +591,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   const fetchSyncLogs = async () => {
     try {
-      const res = await axios.get('/api/glpi/sync-logs', {
+      const params = new URLSearchParams();
+      if (syncLogFilters.type) params.set('type', syncLogFilters.type);
+      if (syncLogFilters.status) params.set('status', syncLogFilters.status);
+      if (syncLogFilters.dateFrom) params.set('date_from', syncLogFilters.dateFrom);
+      if (syncLogFilters.dateTo) params.set('date_to', syncLogFilters.dateTo);
+      const res = await axios.get(`/api/glpi/sync-logs?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSyncLogs(res.data);
@@ -598,6 +604,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       console.error('Erreur chargement logs:', e);
     }
   };
+
+  useEffect(() => {
+    fetchSyncLogs();
+    setSyncLogsPage(1);
+  }, [syncLogFilters]);
 
   const fetchScheduledSyncs = async () => {
     try {
@@ -2805,6 +2816,26 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     >
                         ↻ Rafraîchir
                     </button>
+                </div>
+                <div style={{ display: 'flex', gap: '12px', padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <select value={syncLogFilters.type} onChange={e => setSyncLogFilters(f => ({ ...f, type: e.target.value }))} style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', background: 'white', color: '#475569' }}>
+                        <option value="">Tous les types</option>
+                        <option value="tickets">Tickets</option>
+                        <option value="observers">Observateurs</option>
+                        <option value="followups">Traitements</option>
+                        <option value="ticket">Ticket unique</option>
+                    </select>
+                    <select value={syncLogFilters.status} onChange={e => setSyncLogFilters(f => ({ ...f, status: e.target.value }))} style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', background: 'white', color: '#475569' }}>
+                        <option value="">Tous les statuts</option>
+                        <option value="completed">Terminé</option>
+                        <option value="running">En cours</option>
+                        <option value="error">Erreur</option>
+                    </select>
+                    <input type="date" value={syncLogFilters.dateFrom} onChange={e => setSyncLogFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', color: '#475569' }} placeholder="Du" />
+                    <input type="date" value={syncLogFilters.dateTo} onChange={e => setSyncLogFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', color: '#475569' }} placeholder="Au" />
+                    {(syncLogFilters.type || syncLogFilters.status || syncLogFilters.dateFrom || syncLogFilters.dateTo) && (
+                        <button onClick={() => setSyncLogFilters({ type: '', status: '', dateFrom: '', dateTo: '' })} style={{ padding: '6px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>✕ Réinitialiser</button>
+                    )}
                 </div>
                 
                 <div className="card-body" style={{ padding: '0' }}>

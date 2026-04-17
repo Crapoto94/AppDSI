@@ -13,15 +13,8 @@ async function setupDb() {
     await db.exec('PRAGMA busy_timeout = 30000');
 
     // Attach external databases
-    const glpiDbPath = path.join(__dirname, 'glpi.sqlite');
     const gfDbPath = path.join(__dirname, 'oracle_gf.sqlite');
     const rhDbPath = path.join(__dirname, 'oracle_rh.sqlite');
-
-    try {
-        await db.exec(`ATTACH DATABASE '${glpiDbPath}' AS glpi`);
-    } catch (e) {
-        console.warn('[DB] Could not attach glpi database:', e.message);
-    }
 
     try {
         await db.exec(`ATTACH DATABASE '${gfDbPath}' AS gf`);
@@ -364,23 +357,10 @@ async function setupDb() {
     `);
 
 
-    // Note: Tables moved to external DBs (glpi, gf, rh) are not created here anymore.
-    // They are accessed via their attached aliases (e.g. glpi.tickets, gf.oracle_commande).
-    // However, views that were migrated (v_tickets, v_orders) need to be recreated in the main DB
+    // Note: Tables moved to external DBs (gf, rh) are not created here anymore.
+    // They are accessed via their attached aliases (e.g. gf.oracle_commande).
+    // However, views that were migrated (v_orders) need to be recreated in the main DB
     // so that code querying them directly doesn't break. These views will query the attached DBs.
-
-    // --- VUES ---
-    // Recreate v_tickets in the main DB as TEMP view, querying from glpi.tickets and glpi.ticket_statuses
-    try { await db.exec(`DROP VIEW IF EXISTS main.v_tickets`); } catch(e) {}
-    await db.exec(`DROP VIEW IF EXISTS temp.v_tickets`);
-    await db.exec(`
-        CREATE TEMP VIEW v_tickets AS
-        SELECT t.*, s.label as status_label,
-        LOWER(COALESCE(t.requester_email, '')) as search_email,
-        LOWER(COALESCE(REPLACE(t.requester_email, '@ivry94.fr', ''), '')) as search_username
-        FROM glpi.tickets t
-        LEFT JOIN glpi.ticket_statuses s ON t.status = s.id
-    `);
 
     // Recreate v_orders in the main DB as TEMP view, querying from gf.oracle_commande and gf.oracle_links
     try {

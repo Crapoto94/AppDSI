@@ -3362,11 +3362,11 @@ app.post('/api/glpi/sync-recent', authenticateInternalOrAdmin, async (req, res) 
             await pgDb.run(`INSERT INTO glpi.ticket_status (id, label) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label`, [status.id, status.label]);
         }
 
-        // Récupérer les 500 derniers tickets par lots de 500
-        const batchSize = 500;
+        // Récupérer les 50 derniers tickets
+        const batchSize = 50;
         const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 62];
         const forcedStr = forcedFields.map((id) => `forcedisplay[${id}]=${id}`).join('&');
-        const totalToFetch = 500;
+        const totalToFetch = 50;
 
         // Obtenir le count total pour savoir combien récupérer
         const countRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=0-1&get_all_entities=1`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
@@ -3480,9 +3480,16 @@ app.post('/api/glpi/sync-recent', authenticateInternalOrAdmin, async (req, res) 
 // Route : Lister les logs de synchronisation
 app.get('/api/glpi/sync-logs', authenticateAdmin, async (req, res) => {
     try {
-        const logs = await pgDb.all(
-            `SELECT * FROM glpi.sync_logs ORDER BY started_at DESC LIMIT 50`
-        );
+        const { type, status, date_from, date_to } = req.query;
+        let sql = 'SELECT * FROM glpi.sync_logs WHERE 1=1';
+        const params = [];
+        let idx = 1;
+        if (type) { sql += ` AND sync_type = $${idx++}`; params.push(type); }
+        if (status) { sql += ` AND status = $${idx++}`; params.push(status); }
+        if (date_from) { sql += ` AND started_at >= $${idx++}`; params.push(date_from); }
+        if (date_to) { sql += ` AND started_at <= $${idx++}`; params.push(date_to + ' 23:59:59'); }
+        sql += ' ORDER BY started_at DESC LIMIT 500';
+        const logs = await pgDb.all(sql, params);
         res.json(logs);
     } catch (error) {
         console.error('[GLPI] Erreur logs:', error.message);
@@ -4631,7 +4638,7 @@ app.post('/api/glpi/sync-followups', authenticateInternalOrAdmin, async (req, re
         if (followupsToInsert.length > 0) {
             const insertBatch = async (fus) => {
                 const values = fus.map((f, idx) => {
-                    const base = idx * 7;
+                    const base = idx * 6;
                     return `($${base + 1}, $${base + 2}, md5($${base + 2}), $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, CURRENT_TIMESTAMP)`;
                 }).join(', ');
                 const params = fus.flatMap(f => [f.ticket_id, f.content, f.author_name, f.author_email, f.is_private, f.date_creation]);
@@ -4744,7 +4751,7 @@ app.post('/api/glpi/sync-followups-recent', authenticateInternalOrAdmin, async (
         if (followupsToInsert.length > 0) {
             const insertBatch = async (fus) => {
                 const values = fus.map((f, idx) => {
-                    const base = idx * 7;
+                    const base = idx * 6;
                     return `($${base + 1}, $${base + 2}, md5($${base + 2}), $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, CURRENT_TIMESTAMP)`;
                 }).join(', ');
                 const params = fus.flatMap(f => [f.ticket_id, f.content, f.author_name, f.author_email, f.is_private, f.date_creation]);
@@ -8321,8 +8328,13 @@ app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req
 
         // Grant access to the specifically requested tiles
         if (request.requested_tiles) {
-            let tileIds = [];
-            try { tileIds = JSON.parse(request.requested_tiles); } catch (e) { tileIds = request.requested_tiles.split(',').map(id => id.trim()).filter(Boolean); }
+            let parsed;
+            try {
+                parsed = JSON.parse(request.requested_tiles);
+            } catch (e) {
+                parsed = request.requested_tiles.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+            }
+            const tileIds = Array.isArray(parsed) ? parsed : [parsed];
             for (const tileId of tileIds) {
                 await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [request.user_id, tileId]);
             }
