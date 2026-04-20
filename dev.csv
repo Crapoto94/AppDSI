@@ -1,0 +1,416 @@
+﻿Direction;emailDIR;Date;Quoi ?;Type;Service;EmailSER;Cout TTC;Arbitrage ;Priorité;Suivi;Commentaire ?;TICKET;LIEN;DSI;SUIVI2;GRU
+DIRCOM;;09/09/2025;"Wifi – Espaces à équiper :
+- CAT Saint-Just (partiel)
+- Coutant
+- Pablo";Demande;DIRCOM;;500;OK DSI;;;"Pour le Wifi public, décision est prise de focaliser 
+l’installation des bornes aux accueils CAT, pole famille, 
+service habitat, coutant, pablo, salles de réunions internes";43093;Lien;IRS;;
+DAC;;04/11/2025;Matériels écrans d'affichages ou vidéoprojecteurs;Demande;CM;;6000;OK DSI;;2026;Besoin Ecrans à salle Marat(2 salles) ou plutôt videoprojecteur: Créer ticket (Conservatoire) et relancer Mourad;;;;Manque 1 ENI avec Chariot;
+DDAC;;05/11/2025;ENI;Demande;DDAC;;2000;OK DSI ;;2026;ENI pour salle de réunion direction DDAC (ticket 39023);;;SSD;Manque 1 ENI avec Chariot;
+DIRCOM;;09/092025;Accès serveur en télétravail (MAC);Demande;INFO;;0;OK DSI;;Fait;"Problème d’accès persistant depuis 1 an pour certains utilisateurs.
+Les anciens Mac accèdent correctement, blocage sur d’autres configurations.";;;IRS;;
+DDAC;;05/11/2025;Ordinateurs;Demande;PLCI;;0;OK DSI ;; réconditionnement;2 PC fixes au sous-sol de Cachin pour rediger CR et echanges mails entre ASVP, accès internet déjà OK;;;SSD;;
+DIRCOM;;09/09/2025;Abonnements logiciels (Autocad/Alternatives);Demande;RPI;;;NOK DSI;;;Demande initiale d’abonnement Autocad (Vanina BIENVENU). Cahier des charges à affiner. Licences flottantes gérées par Emmanuel MAUGEAIS. Possibilité d’utiliser un logiciel alternatif pour les plans simples (ex. Sketchup). Contact utilisateur référent : Amli ADJALLAH (RPI).;;;MCH;;
+DIRCOM;;09/09/2025;Traduction (Teams);Demande;RPI;;;;;;"Demande d’intégration de traducteurs anglais / arabe.
+Vérification de l’existence de la fonctionnalité ? tests à prévoir.";;;DSI;Selon Lucas, il faut une licence particulière pour l'arabe et elle utilise l'IA et il faut un arbitrage de la Dg;
+DIRCOM;;09/09/2025;Ligne téléphonique internationale;Demande;RPI;;0;OK DSI;;Fait (fixe);"Nécessité d’un poste fixe + smartphone pour appels à l’international.
+Référente : Caroline BIOTEAU.";;;IRS;;
+DIRCOM;;09/09/2025;Gestion des salles AGORA;Projet;RPI;;7500;DSI;;NOK - Pas de besoin, vu avec ACL;"Compatibilité avec Elise : analyse commencée mais arrêtée ? à reprendre. Mise à jour nécessaire vers une version plus récente d’Agora.
+Objectif : affichage des disponibilités. Démonstration prévue par C. LAFFRAT avec Pesqueira DVA InfoCOM.
+Fonctionnalités disponibles, pré-demande, réservation complète et paiement en ligne possible";;;CLA;;Oui
+DIRCOM;;09/09/2025;Gestion des stocks Astech;Projet;RPI;;2800;OK DSI;;;"Suivi des magasins via Astech (demande de GUILLOU). Passage en CST prévu en novembre. Référent : Samir Ben Slimane.
+3 magasins GUILLOU WesterMeyer et autre donc 4 PDA a acheté";;;NCH;;
+DIRCOM;;09/09/2025;Projet GRU;Projet;GRU;;?;OK DSI;;AMO Schéma Directeur avec volet GRU;"Élaboration d’un cahier des charges (CDC) pour un déploiement prévu en 2026. Mise en œuvre effective de la GRU envisagée en 2027.
+AMOA prévue en 2025, avec budget à arbitrer (proposition de Marc CHEVALIER).Priorisation actuelle : projet Elise.
+DSI : prise en compte dans le schéma directeur SI (sous réserve d’arbitrage budgétaire).
+DIRCOM : travail spécifique à prévoir, en lien avec l’ouverture de Jeanne Hachette.
+Priorité Élise : intégration de la signature électronique (élément sortant + parapheur).";;;CLA;;Oui
+DIRCOM;;09/09/2025;Borne Wifi Salle du conseil;Demande;GRU;;1000;OK DSI;; Fait;Besoin identifié pour les salles du Conseil municipal. Suivi confié à Sandie HERNANDO, en lien avec Pierre POILEVET (action semaine prochaine).;;;IRS;;
+DIRCOM;;09/09/2025;Téléphonie;Projet;GRU;;?;OK DSI;;;Outils à définir, Statistiques du standard réalisées actuellement manuellement. Étude à mener : mise en place éventuelle d’un logiciel statistique + réflexion sur un centre d’appel si nécessaire. Réunion de cadrage à planifier : Pierre – Youcef.;;;IRS;;Oui
+DDU;;26/11/2025;ENI Ecran de la salle de réunion accompagnement;Demande;DDU;;0;OK DSI ;;à organiser;"L’écran est installé et jugé pratique. Toutefois, tous les agents ne sont pas encore familiarisés avec son utilisation.
+Un accompagnement serait souhaité pour optimiser les Visio, le partage de documents, etc.";;;SSD;;
+DIRCOM;;09/09/2025;Accessibilité Langues des signes;Demande;GRU;;?;OK DSI;;;Etude de la solution ACCEO (traduction de la langue des signes);;;BDP;;
+DIRCOM;;09/09/2025;Infocom numérique Refonte du site internet;Projet;SICN;;0;OK DSI;;En cours;Accompagnement en cours. Marché ouvert. Candidature prévue fin septembre. Engagement BP 2025 : 1?? tranche estimée à 100 k€.;;;DIRCOM;;
+DEP;;07/10/2025;Copieurs;Demande;DEP;;3500;OK DSI;;"Changement Lamand
+Autre : Maintenance
+";"Dysfonctionnements fréquents :
+Gutenberg 5 – 3? étage : temps de réponse lent, bourrages fréquents.
+Marcel Lamant : 2 appareils hors service (ont pris l’eau).
+Rigaud : 1 photocopieur à l’étage, celui du RDC (Frantz) présente des bourrages papier.
+Magasin (Franck) : appareil vieillissant.
+Décision : étude de renouvellement à prévoir dans le cadre des demandes 2024.";;;SSD;;
+DDAC;;05/11/2025;Vidéoprojecteur;Demande;SEGP;;?;?;;Déclaration de perte ?;Besoin 1 pico-projecteur pour les référents de quartier, suite disparition de l’ancien;;;SSD;;
+DIRCOM;;09/09/2025;Projet changement logiciel CINDOC;Projet;SAP;;30000;DG 2026;1;En cours;"Arrivée d’un nouvel archiviste. Réunion de lancement (CL) à organiser pour cadrer le projet. 
+Logiciel actuel CINDOC jugé obsolète ? souhait de changement. Élaboration d’un cahier des charges (CDC). Étude de l’offre existante sur le marché (pistes : Avenio, etc.). Réunion à prévoir pour arbitrages.";;;CLA;;
+DIRCOM;;09/09/2025;Projet archives numériques et SAE;Projet;SAP;;20000;DG 2026;3;Projet Global;"Le service archive et patrimoine organise avec C LAFFRAT et Farouk BOUATOU une réunion
+ pré cahier des charges sur le futur système de SAE";;;CLA;;
+DDAC;;05/11/2025;Vidéoprojecteur correspond à la demande DDAC;Demande;SVDQ;;-;-;;Doublon;"Besoin de renouveler 4 vidéoprojecteurs pour les 4 maisons de quartier (pour projeter cours , PPT) 
+(achetés sur budget du service DDAC) + 1 pour DDAC";;;SSD;;
+DRH;;11/09/2025;Dématerialisation des bulletins de salaires;Projet;RDC;;0;DG 2027;2;On peut porter le projet;RDC n’aura pas la capacité de porter le projet (M Martial LUIT);;;BDP;;
+DRH;;11/09/2025;Business Objects;Projet;SIRH;;18000;OK DSI;;En cours;bonne installation mais les requêtes pointent sur le SIIM94 donc le SIRH doit les modifier ou reconstruire. Le couût est celui des licences avec maintenance selon Eléna;;;EKR;;
+DRH;;11/09/2025;Environnement IvryDeci;Demande;SIRH;;0;OK DSI;;En cours;Remmettre en place avec une réplication quotidienne;;;EKR;;
+DRH;;11/09/2025;Outils décisionnels;Projet;SIRH;;?;OK DSI;;En cours;Il manque des états comme : Livraison des arrêté (NBI, arrêtés de demi-traitement etc...) ... Ne fonctionnent plus.;;;EKR;;
+DRH;;11/09/2025;Outils décisionnels;Demande;SIRH;;0;OK DSI;;;"Manque des accès aux traitements et éditions à Daniel COTE, Samia (médecine pro) et Stéphanie GATABIN 
+donc il faut donner des droits sur les serveurs. Eléna KRON a organisé un point avec Djamel GAUTHIER sur ce sujet";;;EKR;;
+DRH;;11/09/2025;Extractions;Incident;SIRH;;;;;En cours;"Extractions Excel volumineuses, elles ont fonctionné début juillet puis ne fonctionnent plus (à nouveau à plat)
+Ce problème d’erreur (504 Gateway Time-out) n’est toujours pas résolu à ce jour.
+Selon le SIIB et BL pb viendrait de chez nous, Eléna doit voir avec Marwin pour diag";;;EKR;;
+DRH;;11/09/2025;Adelyce : Prospectives et préparation budgétaires;Projet;SIRH;;90000;DG NOK;2;On abandonne ?;"Logiciel en Saas Adelyce acheté pour 3 ans, il est utilisé mais pas à 100%.
+Evolutions, possibilité de remplacer Adelyce mais ils auraient besoin d'un spécialiste Sql pour refaire fonctionner leur outil de préparation budgétaire avec des scripts sur IvryDeci. Et dans ce cas Adelyce pourrait ne pas être reconduit fin 2026.
+Mais ils voudront garder la partie observatoire d'Adelyce pour la prospective RH et budgétaire";;;EKR;Suite arbitage DG :Utilisation de BO pour la préparation;
+DRH;;11/09/2025;Collaboratif;Projet;EDC;;0;OK DSI;;;Teams, ils en sont très satisfaits mais il y a un sujet d'appropriation des outils collaboratifs Teams;;;LR;budgétaire;
+DRH;;11/09/2025;Wink;Projet;EDC;;?;OK DSI;;En cours;Wink manque statistiques donc il faudra voir comment ajouter les fonctionnalités manquantes;;;YTA;;
+DRH;;11/09/2025;Dématérialisation des CREP;Projet;EDC;;24 000;DG 2027;2;;Evolution à étudier, Inser propose un module de dématérialisation des CREP avec des workflows et reprises des souhaits de formations ;;;EKR;Suite arbitage DG : Mobiliser le service de Crystelle PETIT;
+DRH;;11/09/2025;Dématérialisation des inscriptions aux formations CNFPT;Projet;EDC;;0;DG 2027;2;;"Souhait d'automatisation des inscriptions formation IEL du CNFPT avec Inser et eSedit RH, 
+Eléna KRON a initialisé un groupe de travail pour étudier la mise en œuvre
+Objectifs, automatisation des mises à jour des agents dans Inser en respectant les caractéristiques IEL du CNFPT et INSER";;;EKR;Suite arbitrage DG : Nécessite au préalable une base;
+DRH;;11/09/2025;Inser;Projet;EDC;;?;OK DSI;;;Par la suite mettre en œuvre un calcul de FSO (formations statutaires obligatoires) des agents de manière globale;;;EKR;dans Sedit RH avec le N Plus 1;
+DRH;;11/09/2025;Portail agent RH / Inser;Projet;EDC;;18000;DG 2027;2;;Volonté d’étudier le déploiement du portail agent Inser;;;EKR;;
+DRH;;11/09/2025;Inser;Projet;EDC;;4000;OK DSI;;à organiser;Question de l’épuration de la base Inser (actuellement génère des éléments bloquants) sur l’historiques et les stages obsolètes;;;EKR;;
+DDAC;;05/11/2025;Imprimante;Incident;SEGP;;;;;Doublon;Imprimante des référents des quartiers : souvent en panne;;;SSD;;
+DRH;;11/09/2025;Dématerialisations;Projet;EDC;;?;DG 2027;2;Voir module portail agent ?;Des ordres de missions, demandes de remboursements des frais professionnels et formations sans lien obligatoirement avec la paie et Sedit RH ;;;EKR;;
+DSF;;15/09/2025;Coriolis;Incident;DSF;;;;;;Problème de lenteur constaté;;;EKR;;
+DSF;;15/09/2025;Bysness Objects;Projet;DSF;;0;OK DSI;;Projet BO en cours;Vérifier la connexion entre univers et BO Point à revoir entre Edwige SERRE et Elena. Problème de rapatriement des requêtes.;;;EKR;;
+DSF;;15/09/2025;Chaine de facturation;Projet;DSF;;0;OK DSI;;En cours;Processus trop long. Problème côté éditeur et Millésime : outil peu fluide. Astech : problème avec pièces complémentaires.;;;NCH;;
+DSF;;15/09/2025;Totem;Demande;DSF;;0;OK DSI;;Fait;Mise en client serveur;;;NCH;;
+DSALE;;18/11/2025;ENI;Demande;ATSL;;1500;OK DSI ;;E/ENI ?;Besoin d'un ENI dans salle de réunion ATSL;;;SSD;Manque 1 ENI avec Chariot;
+DSF;;15/09/2025;Polyfac SIIM;Demande;DSF;;0;OK DSI;;;Relances multiples de M. MOUGIN concernant la récupération Polyfact.;;;DSI;;
+DSF;;15/09/2025;Sedit GF;Projet;DSF;;7000;DG 2026;1;;"Développement à envisager d’une comptabilité analytique dans Sedit.
+Coût de paramétrage formation et d'étude avec BL 6 jours de prestations";;;NCH;;
+PF;;16/12/2025;Concerto et pointage MQ et Jeunesse;Projet;PF;;;DSI;;En cours;"Les outils de pointages des services sont actuellement autonomes mais au niveau
+des maisons de quartiers et la jeunesse, ils veulent qu'ils soient autonomes
+sur le pointages, licences achetés paramétrages des activités faites, manque
+les tablettes et le paramétrage des tablettes sur le serveur en cours par Nadir 
+et Sédina ils doivent récupérer les tablettes des élections";;;NCH/SSD;;
+DJEUN;;01/10/2025;Concerto;Projet;DJEUN;;?;OK DSI;;En cours;"Sept grands types d’activités recensés. Suivi assuré avec Sedina.
+Inscriptions réalisées via la Maison de la Jeunesse. Question : possible de s’inscrire à Concerto depuis un téléphone portable ?
+Suivre aussi la liste des inscrits sur mobile.";;;NCH;;
+DJEUN;;01/10/2025;Astech magasin;Projet;DJEUN;;1440;OK DSI;;;"Inventaire en cours, suivi par Florence Benoist. Recensement du matériel à la Manufacture des Œillets et Impasse Dufour.
+Note d’opportunités à rédiger. Stock de matériel pédagogique et consommable à évaluer. Billetterie suivie dans Excel. 2 PDA";;;NCH;;
+DJEUN;;01/10/2025;Borne tactile IJ BOX;Projet;DJEUN;;2500;DG 2026;1;Quel usage ?;NEOS à relancer. Enjeu : labellisation. Point complet à refaire. Fiche d’opportunité à rédiger. IJ BOX;;;NCH;;Oui
+DSF;;15/09/2025;Copieurs;Demande;DSF;;3500;OK DSI;;En cours;"Demande : remplacement de deux photocopieurs (marchés publics et DSF). Installer un seul photocopieur couleur à la place.
+Attention : copie couleur coûte 10x plus cher ? par défaut en noir et blanc.
+Liste des personnes autorisées à imprimer en couleur (via Papercut).
+";43075;;SSD;;
+DJEUN;;01/10/2025;Projet Bureau Mobile;Projet;DJEUN;;3000;OK DSI;;En cours;"Démarrage prévu début 2026. Déploiement pour le service Information Jeunesse. Besoins : Imprimante compacte.
+1 ordinateur par agent 3 agents (accès mail + droits étendus). 3 tablettes (à définir selon taille et besoins). Wi-Fi avec puces 5G.";;;NCH;;
+DAC;;04/11/2025;Copieurs;Demande;DAC;;100;OK DSI;;En cours;Copieurs à déplacer de Jean Jacques ROUSSEAU à déplacer au CMPP changement de locaux.;;;SSD;;
+DAC;;04/11/2025;Affichage sans fil;Demande;LUXY;;3000;OK DSI ;;En cours;Affichage sans fil: non installé dans salle 2 et pas de son salle 1;;;SSD;;
+DDAC;;05/11/2025;Copieur;Demande;SEGP;;3000;OK DSI ;;En cours;Copieur en attente, car imprimante actuelle date de 2009;43074 ;;SSD;;
+DDAC;;05/11/2025;Ordinateurs;Projet;DDAC;;2400;OK DSI;;Etudier la demande;"4 ordinateurs portables pour les cours de français assurés par des bénévoles, ou bien
+des vidéoprojecteurs compatibles pour diffuser avec smartphone type Chrome Cast (Powerpoint, vidéo, etc..)
+donc relié à la demande service vie de quartiers.";;;SSD;;
+DEP;;07/10/2025;GEODP Sogelink;Projet;SDS;;0;OK DSI;;Poursuite du projet;"Points réguliers à instaurer avec Sogelink (toutes les deux semaines).
+Tests en cours : Fiabilité et pertinence de la solution à réévaluer.
+Problèmes de facturation (TLPE, droits de voirie) à corriger.
+Utilisation du tableau de suivi de Marc, réflexion sur un éventuel changement d’outil.
+Tablettes : Accès réseau à autoriser pour consultation des fichiers Word (sans modification).
+Enjeu : les recettes TLPE et droits de voirie représentent une source financière importante.";;;NCH;;Oui
+DIRCOM;;09/09/2025;Renouvellement matériel mobile, iphone 11 et Ipad (obsolescence constatée);Demande;DIRCOM;;600;OK DSI;;Fait;Action : remplacement à prévoir, non prioritaire (pas urgent);;;SSD;;
+DEP;;07/10/2025;GIR boite à clé;Projet;PARC;;;OK DSI;;Fait;Parking Marrat : installation physique OK, mise en service en attente.;;;NCH;;
+DEP;;07/10/2025;Suvi des chantiers et retours usagers;Demande;MTV;;0;OK DSI;;;"Demande d’adresse mail générique pour recueillir les ressentis des riverains. Étude du canal de traitement : via Neocity ou Elise Courrier.
+5. Service MTV – Maintenance et Travaux Voirie
+Outil PROTYS
+•	Logiciel de suivi des chantiers pour les concessionnaires.
+•	Deux agents concernés (Maryse PLOMHAUSE et Toni RISPAL).
+•	DSI non impliquée dans la gestion actuelle.
+•	Questions à clarifier :
+o	Application ou navigateur web ?
+o	Paiement de crédits tous les 3 à 4 ans.
+o	Contact : Nora DJAROUANE / Christine GAUTHIER.
+";;;NCH/LRI;;
+DEP;;07/10/2025;Pièges photos;Projet;MTV;;?;DG 2027;2;A étudier;"utilisés pour identifier les dépôts sauvages, en pause – à redéployer.
+Rencontre prévue avec une société (Gwenn Adam) pour solution conforme.";;;NCH;"Suite arbitrage DG : Associer Catherine MARTIN plutôt 2027 pas financer en 2026 mais y travailler en 2026 
+pour priorité en 2027";Oui
+DEP;;07/10/2025;Outils de suivi des fluides (eau, électricité);Projet;MTV;;15000;"DG Etude 
+2026";2;;"75 compteurs d’eau, 100 compteurs d’électricité. Lancement d’un projet global à étudier (eau, électricité, téléphonie).
+Astech propose déjà une solution partielle. Benchmark à conduire pour déterminer la pertinence d’un outil commun.";;;NCH;Suite arbitrage DG : A étudier;
+DIRCOM;;09/092025;Ordinateurs MAC 2 postes manquants;Demande;INFO;;1600;OK DSI;;Fait;;;;SSD;;
+DEP;;07/10/2025;Balayeuse et laveuse outils d'optimisation des trajets ;Projet;MTV;;?;DG 2027;2;Geoloc ?;réflexion sur un outil d’aide à la décision en temps réel.;;;NCH;Suite arbitrage DG : Dialogue social donc projet long et il manque un chef de service;
+DIRCOM;;09/092025;Demande Ipad Pro;Demande;INFO;;2500;OK DSI;;Fait;Demande réitérée (non obtenue l’année dernière). Validation par la DSI pour 2026 (avec stylet et protection).;;;SSD;;
+DAJCP;;09/10/2025;Vote électronique;Projet;SCC;;40000;DG 2027;2;Sur boitier ou tablette ?;"à installer pour le début de mandat en juin (au plus tard octobre 2026), via un boîtier électronique, 
+solution souple qui permette de passer du vote électronique au vote à mains levée. 
+Gestion du processus en CM à déterminer avec SCC. Organiser un test avec plusieurs élus (tous confondus).";;;CLA;;
+DAJCP;;09/10/2025;Airdelib V7;Projet;SCC;;6426;OK DSI;;;demander documentation sur les nouvelles fonctionnalités, montée de version à planifier après le CM de juin;;;CLA;;
+DAJCP;;09/10/2025;Parapheur;Incident;SCC;;;OK;;Fait;pb des notifications, pas reçues, relancer support Libriciel;;;CLA;;
+DAJCP;;09/10/2025;Airdelib V6;Demande;SCC;;0;OK DSI;;Fait;Diffuser le tuto et la vidéo sur Intranet (DSI et DAJCP) : voir avec Arsène Tighrine(Dircom);;;CLA;;
+DIRCOM;;09/09/2025;Nouvelle demandes de Smartphones;Demande;SICN;;1500;OK DSI;;Fait;Demande d’un iPhone 16 pour le community manager. Retour de 2 Samsung (qualité photo/vidéo jugée insuffisante). Possibilité d’opter pour les modèles haut de gamme pour les réseaux sociaux.;41240;Lien;SSD;;
+DAJCP;;09/10/2025;Alto;Projet;AFFCIV;;?;OK DSI;;;"trouver une alternative pour le suivi des demandes de CNI et Passeport en 2026
+Benchmark à faire par Christophe Laffrat (BDP)";;;CLA;;Oui
+DAJCP;;09/10/2025;ADAGIO V7;Projet;AFFCV;;9080;OK DSI;;Voir planning;montée de version avant les élections si possible, à arbitrer avec Marc Chevalier;;;CLA;;Oui
+DAJCP;;09/10/2025;Mélodie;Demande;AFFCV;;0;OK DSI;;Fait;"pour Ivry ma ville, besoin de stats, utiliser un jeton Arpege pour avoir une requête mensuelle 
+sur naissances, décès, mariages";;;CLA;;
+DRH;;11/09/2025;Copieurs;Demande;DRH;;0;OK DSI;;Fait;Switch copieurs entre le 1 er et 2 étages un ticket est ouvert depuis l'année dernière;;;SSD;;
+DRH;;11/09/2025;Salles de Formations;Demande;EDC;;0;OK DSI;;Fait;ils souhaiteraient une mise à jour de Windows;42207;Lien;SSD;Mise à jour ok;
+DEP;;07/10/2025;Salle de réunion CAT (DEP/DAJCP/DBC)  Ecran et Wifi ;Demande;DEP;;2000;OK DSI;;Fait;"Installation de l’écran ENI à confirmer (commande validée par Marc). Besoin identifié : Projection sur écran ou rétroprojecteur.
+Retroprojecteur existant vieillissant.";;;SSD;;
+DAJCP;;09/10/2025;Besoin d’un nouvel IPAD pour SCC (Urgent avant le 17/10);Demande;SCC;;0;OK DSI;;Fait;;41901;Lien;SSD;;
+DAJCP;;09/10/2025;eSedit GF;Demande;SMP;;?;OK DSI;;;"Consommation sur les seuils des marchés sur les nomenclatures d'achats fixés, 
+seuils numérotation à 4 chiffres, les seuils ne sont pas réinitialisés au début 
+de chaque année : ouvrir un ticket chez BERGER LEVRAULT > Nadir Chemame
+Ces n° de nomenclature ne sont pas réinitialisés et donc le montant max du marché augmente d’une année sur l’autre.
+Nadir : se rapprocher de Filippini puis Ouvrir un ticket chez Berger Levraut pour réinitialiser au 1er janvier ";;;NCH;;
+DAJCP;;09/10/2025;Bysness Objects Droits;Demande;SA;;0;OK DSI;;;"Droits Business Objects Stilianos PAPASTATIS : projet de requêtes sur usage des nomenclatures,
+alerte sur seuils marchés >20k€, Partie hors marché Elena doit faire un retour à Stilianos
+Marchés : suivi des échéances : pas exportable sur sedit GF, uniquement sur BO
+Besoin d’ une alerte mensuelle";;;EKR;;
+DAJCP;;09/10/2025;Imprimante Etat-Civil;Demande;AFFCV;;500;OK DSI;;Fait;1 imprimante à changer car plus de pièces détachées;;;SSD;;
+CCAS;;04/11/2025;Millésime MAD problèmes de Facturation;Projet;CCAS;;;OK DSI;;En cours;"Les problèmes sont la correction de deux balises et un problème lié aux accents.
+Yassine TARAKI précise qu’il reste une action manuelle à réaliser par le prestataire Arche-MC2 pour corriger ces anomalies.
+Une correction définitive est en attente de mise en oeuvre par le prestataire.";;;YTA;"Yassine a contacté Arche-MC2 pour obtenir de la visibilité sur le correctif et vérifier si une action liée
+aux accents est également prévue.";Oui
+CCAS;;04/11/2025;Parc de smatphones Millésime DOMATEL mobile;Demande;SPPAAVQ;;10000;?;;Voir la problématique;Michel TESTA rappelle que le parc actuel de smartphones date d’avril-mai 2022 et interroge sur un éventuel renouvellement.;;;YTA;Yassine a envoyé une fiche d'opportunité attente retour;
+CCAS;;04/11/2025;Difficultés de badgeages;Incident;SPPAAVQ;;;;;;"Des problèmes de badges ont été signalés, l’origine n’est pas encore identifiée.
+Il pourrait s’agir d’un mélange entre problème technique et mauvaises pratiques.
+Ce souci n’est pas bloquant, mais impose un traitement manuel des informations censées être automatiques.";;;YTA;;
+CCAS;;04/11/2025;Résidences autonomies;Projet;SALCI;;2500;DG 2026;3;Etude;"Abla KHOUDER demande s’il est possible d’installer des écrans d'affichage dynamique à l'accueil dans les
+résidences Croizat et Chevalret pour diffuser des informations, photos et activités. Sujet relevant du service communication.";;;YTA;"Yassine TARAKI enverra à Abla KHOUDER une fiche d’opportunité 
+pour préciser le nombre de matériels souhaités, indiquer la présence de réseau,définir le contenu envisagé ";Oui
+CCAS;;04/11/2025;Copieurs;Demande;SALCI;;3500;DG;;;"Abla KHOUADER a échangé avec Marc CHEVALIER sur le sujet du copieur.
+Farouk BOUATOU rappelle qu’il ne faut pas hésiter à recontacter le prestataire en cas de panne.
+Le service souhaite un copieur fonctionnel et au moins un modèle couleur pour la direction.";;;YTA;Présicer l'usage;
+CCAS;;04/11/2025;Millésime facturation SAAD;Projet;SPPAAVQ;;;OK DSI;;En cours;"Michel TESTA a signalé une erreur lors de la génération des factures de juin 2025.
+Yassine TARAKI a relancé le prestataire dès le 4 novembre 2025 pour corriger le problème et éviter tout retard.";;;YTA;;Oui
+CCAS;;04/11/2025;Synbird;Projet;SPPAAVQ;;0;OK DSI;;Licences déjà acquises;"Michel TESTA rappelle la nécessité d’intégrer Synbird dans le fonctionnement global. Le sujet a été reporté
+faute de disponibilité, mais reste à planifier.";;;YTA;;Oui
+CCAS;;04/11/2025;Millésime Attestations fiscales;Projet;SPPAAVQ;;?;OK DSI;;;Il est (potentiellement) prévu de paramétrer prochainement le modèle d’attestation fiscale sur l’application.;;;YTA;;
+DAC;;04/11/2025;Planno;Projet;DAC;;?;OK DSI;;Voir l'expérimentation Congés/DAC;"Planno: Demande de mise en place de l’outil de planning dans tous les services pour agents annualisés.
+Besoin d’un module congés: payant, diminuerait le temps passé à faire les plannings.
+Réunion avec Vanessa Centonze-DRH-DAC-DSI à prévoir pour gestion des congés";;;CLA;;
+DAC;;04/11/2025;CANVA Pro licence supplémentaire;Demande;;;0;OK DSI;;Distribuer les licences actuelles;"Remplacement Canva Pro par Adobe : demande 2024 plus d’actualité. La Direction reste avec Canev Pro.
+par contre culture scientifique a besoin d’une license supplémentaire caneva pro (Francesca Asceto)";;;CLA;;
+DAJCP;;09/10/2025;Imprimante démarches citoyennes;Demande;AFFCV;;500;OK DSI;;Fait;A remplacer car plus de pièces détachées;;;SSD;;
+DAJCP;;09/10/2025;Pb imprimante sur feuille de registre;Incident;AFFCV;;;;;Fait;"imprimante quasi neuve mais bcp utilisée, faire venir un technicien
+du prestataire Cohesio pour voir si pièces défectueuses : voir avec SSD";;;SSD;;
+DAC;;04/11/2025;Dispositif Microfolies;Incident;DAC;;;;;;"Musée numérique dispositif mobile quand il déplace le dispositif, parfois cela fonctionne bien et parfois pas bien.
+Voir au niveau du réseau si la connexion n'est pas stable.  Voir si besoin de mise à disposition d'un boîtier 5G";;;BDP;;
+DAJCP;;09/10/2025;Ecran ENI salle de réunion CAT même demande que DBC;Demande;DAJCP;;2000;OK DSI;;Fait;Mourad doit se déplacer pour voir la dimension, et le meuble avant le 17/10;;;SSD;;
+DAC;;04/11/2025;Teams pour les gardiens;Demande;DAC;;0;OK DSI;;Fait;"Installation de Teams sur ordinateurs des gardiens de la manufacture + calendrier partagé.
+avec autres entités de la Manufacture (Credac, TQI)";;;SSD;;
+DAC;;04/11/2025;Outil de billeterie;Projet;CM;;1500;OK DSI;; En complément du hagar;"Organise évènements hors les murs, besoin d'un outil de billetterie.
+Voir avec soTicket";;;CLA;;Oui
+DAC;;04/11/2025;Formations Imuse ;Demande;CM;;2000;DG;;Voir DRH;Nouvelle formation à organiser pour le Hangar, et Galerie F. Léger (250 élèves) et une partie du Conservatoire;;;CLA;Préciser l'usage;
+DAC;;04/11/2025;Interface Imuse/Concerto;Projet;CM;;5000;DSI;;En cours étude;interopérabilité entre les 2 logiciels : études en cours pour facturation commune par le Pôle Famille;;;CLA/NCH;Interface Concerto Imuse plus maintenu dans concerto V7 selon Marc donc étudier besoin;
+SPE;;16/12/2025;Accès réseau Madeleine BRES;Demande;SPE;;;DSI;;Fait;Crèche Madeleine BRES elles ont rapporté l'ordinateur portable à la DSI dans la salle du personnelle en accès libre mais il n'y avait pas de réseau donc il l'ont rendu mais souhaiterait un ordinateur portable et un accès au réseau;;;SSD/IRS;;
+DAC;;04/11/2025;Imuse Extranet ;Projet;DAC;;?;?;;Voir la problématique;"Extranet (pour familles et enseignants) ok pour le conservatoire, est-ce qu'on élargit son usage aux autres services.
+Hangar et Galerie Fernand Léger.";;;CLA;;
+DAC;;04/11/2025;Imprimante couleur Salle multimédia;Demande;MED;;?;DSI;;Fait;imprimante couleur à changer car l'actuelle est compliquée à changer les cartouches (1 mois sans toner);;;SSD;;
+DAC;;04/11/2025;Wifi;Demande;CM;;500;OK DSI;;;Borne wifi;43094;Lien;IRS;;
+DAC;;04/11/2025;Onduleurs;Demande;AP-GLF;;0;NOK DSI;;Car déménagement;Mise en place d'onduleurs (relancer ticket 38966 en cours);;;IRS;;
+DAC;;04/11/2025;Autocad;Demande;AP-GLF;;4000;DSI;;Motiver;Autocad, besoin de motiver ce besoin;;;DSI;;
+DAC;;04/11/2025;Téléphonie;Demande;AP-GLF;;?;DSI;;;Demande d'amélioration de la téléphonie;43096;Lien;IRS;;
+DAC;;04/11/2025;Ecran tactile;Demande;HANGAR;;?;OK DSI ;;Fait;"Hangar écran tactile commandé mais pas le bon écran, ticket 38976, remplacer l'écran reçu
+car ne correspond pas au besoin et peut etre voir si convient pour le conservatoire";;;SSD;Echanfe fait écran Hangar régie- Pas de ticket;
+DAC;;04/11/2025;MacBook;Demande;HANGAR;;1000;OK DSI ;;Fait;Demande d'un MacBook (ticket 38977) en cours;;;SSD;;
+DAC;;04/11/2025;Nouvel espace atelier Photo;Demande;AP-GLF;;?;DSI;;Etudier la demande;besoin d'une borne wifi, d'un IMac, étude à demander;;;IRS;;
+DDAC;;05/11/2025;Ordinateur;Demande;SEGP;;500;OK DSI ;;Fait;Espace débat: changement ordinateur fixe;;;SSD;;
+VAC;;16/12/2025;Centre de vacances Tablettes prêt de 10;Demande;VAC;;;DSI;;Fait;Ils empruntent des tablettes au nombre de 10 tablettes du 20 février au 7 mars  comme en été pour les questionnaires de satisfactions aux enfants lors des colonies. Ok Si ils s'engagent à les rendre le 7 ou 8 mars OK Selon Marc. Ouvrir ticket et demander.;;;SSD;Besoin de faire une réunion globale sur le centre des vacances avec Marc pour affiner les besoins.;
+DAC;;04/11/2025;Automates;Incident;MED;;;;;;Automates: vigilance sur le support technique, pb réseaux;43097;Lien;IRS;;
+DAC;;04/11/2025;Syracuse;Projet;MED;;?;DSI;;;"Syracuse: SI de la bibliothèque, portail des bibliothèques. 
+Ne semble pas conforme aux normes RGAA, quelles mesures à prendre pour être en conformité ? Voir avec éditeur, Cf référent ";;;CLA;;
+DAC;;04/11/2025;Neos;Projet;MED;;?;OK DSI;;En cours;Demande de passage à Neos depuis Edutice CPI NCH;;;NCH;;
+DAC;;04/11/2025;Wifi;Demande;MED;;500;OK DSI;;;besoin d'une borne au 3è étage de la médiathèque;43098;Lien;IRS;;
+DAC;;04/11/2025;Wifi;Demande;MED;;1000;OK DSI;;;Besoin d'une borne Salle Marat et site St Just(Rez de chaussée), ticket à créer;43100;Lien;IRS;;
+DAC;;04/11/2025;Téléphonie;Demande;MED;;0;OK DSI;;VAA;"Passage au TOIP, fournir liste agents ayant besoin d'une ligne, directe ou non
+Message filtrant: renouvellement du msg des horaires d'ouverture";;;IRS;;
+DAC;;04/11/2025;Copieur;Demande;HANGAR;;?;?;;Tous les copieurs ont la même taille;Changer le copieur au tremplin car trop volumineux;;;ISA;;
+DBC;;05/11/2025;Besoin matériel récupérer le traceur;Demande;BE;;;DSI;;Fait;;;;SSD;;
+DAC;;04/11/2025;Tablettes;Demande;HANGAR;;16000;DG NOK;;;Demande de 20 tablettes avec des pieds pour des ateliers avec des classes avec du wifi foyers bars;;;;Suite arbitrage DG : Marc propose prêt de tablettes;
+DAJCP;;09/10/2025;Copieur couleur cimetière;Demande;AFFCV;;;DG;;Fait Multifontion Couleur OK;Car le leur est en panne;;;SSD;Préciser l'usage;
+DEP;;07/10/2025;Balayeuse et laveuse;Demande;MTV;;5000;OK DSI;;Kiosquer les Smartphones;"10 à 20 véhicules concernés, besoin de moyens de communication (talkie-walkie ou smartphones).
+Objectifs : Faciliter la coordination entre agents (éviter les temps morts au SYCTOM).
+Transmission d’informations en temps réel et signalements Neocity. Prise de photos pour dépôts sauvages.";;;SSD;travailler en 2026 pour en proirité en 2027;
+DAC;;04/11/2025;Wifi;Demande;LUXY;;1000;OK DSI ;;En cours ?;Bornes wifi à installer: en cours;43101;Lien;IRS;;
+DAC;;04/11/2025;Tablettes;Demande;LUXY;;16000;DG NOK;;Mêmes que Hangar ?;Demande 20 tablettes avec pied pour ateliers scolaires;;;SSD;Suite arbitrage DG : Marc propose prêt de tablettes;
+DAC;;04/11/2025;Billeterie;Demande;LUXY;;0;OK DSI ;;A étudier avec MS;Pose la question de la mise en place d'une solution alternative en cas de panne serveur de la billeterie.;;;CLA/IRS;;
+DSALE;;18/11/2025;Remise à niveau du parc informatique ;Demande;ATSL;;?;DG ;;On ne leur avait pas déjà fourni des portabbles ?;"Resp de site doté d'ordinateurs mais qui ne disposent pas de caméras(pas de visio possible), 
+demande remise à niveau du parc informatique: Etat des lieux à faire par DSALE";;;SSD;;
+DEP;;07/10/2025;Demandes de grands écrans (suivi par Sonia DULIN);Demande;MTV;;;OK DSI;;Point en cours Mourad;;;;SSD;;
+DJEUN;;01/10/2025;Ordinateurs portables Formation des collègues;Demande;DJEUN;;8000;DG 2026;1;Point en cours Mourad, pc ok, à voir switch et écrans;Demande de 8 ordinateurs portables. Conserver les portables actuels. Écrans et switchs à prévoir.;;;SSD;"Nadir a demandé à Mourad : Néanmoins sur les retours de Mourad il semble que les agents 
+de la Djeun utilisent peu voire pas du tout les Pc";
+DAC;;04/11/2025;Imac;Demande;AP-GLF;;?;DSI;;Pour qui ?;Imac de la prod graphique à changer avec Adobe;;;SSD;;
+DDAC;;05/11/2025;Neos filtrage internet EPI;Projet;SVDQ;;?;OK DSI;;En cours;"Espace public internet EPI passage d'une grande salle à une autre organiser
+réunion sur sujet du passage  à Neos sur les maisons de quartiers";;;NCH;;
+DAC;;04/11/2025;Macmini;Demande;AP-GLF;;?;DSI;;Pour qui ?;Macmini à remplacer et réinstaller logiciels son et video;;;SSD;;
+DSALE;;18/11/2025;Materiel;Demande;SE;;;DSI;;Pour quoi faire ?;Demande d'un micro connectable à un I-Phone;;;SSD;;
+DEP;;07/10/2025;Wifi Pierre RIGAUD ;Demande;DEP;;800;OK DSI;;Rigaut, Point en cours Mourad.;L’ENI peut faire office de point de connexion. Manque d’une souris à remplacer. Formation souhaitée à l’usage de l’ENI;;;SSD;Possible voir avec Viewsonic ????;
+DDAC;;05/11/2025;Projet Vidéoverbalisation;Projet;PLCI;;20000;OK DSI;;En cours;Projet de vidéoverbalisation;;;EKR;;Oui
+DDAC;;05/11/2025;Connexion réseau ou switch;Demande;SEGP;;500;OK DSI ;;Voir abec SMPPB;Bureau de Jim SCHEERS: 2ème entrée Internet ou switch car disposition du bureau a changé;;;SSD;;
+DDAC;;05/11/2025;ENI;Demande;PLCI;;2000;DSI;;Voir besoin;Salle de réunion du service à jeanne Hachette : besoin d'un ENI, envoyer fiche d'opportunité à Gwen pour justifier la demande;;;SSD;;
+DDAC;;05/11/2025;Wifi;Demande;SEGP;;500;OK DSI ;;Y'en a pas ??;Espace débat: besoin borne wifi ;;;IRS;;
+DDAC;;05/11/2025;Vidéoprojecteur;Demande;DDAC;;600;?;;Voir l'usage ?;Un vidéoprojecteur pour la salle de réunion de la Direction pour faire des formations mobiles;;;SSD;;
+DIRCOM;;09/09/2025;Affichage dynamique IPOVIEW;Projet;GRU;;;OK DSI;;Voir taille/format;Projet de déploiement des écrans IPOVIEW dans les 4 maisons de quartier. Étape attendue : rédaction d’une fiche projet.;;;YT/SSD;pas au courant du projet- Frank;Oui
+DIRCOM;;09/09/2025;Outils numériques;Demande;SICN;;300;OK DSI;;;Canva Pro : demande de 2 licences pour Aymeric et Adèle.;43081 ;Lien;SSD;;
+DDAC;;05/11/2025;OpenSub;Projet;PVA;;4100;OK DSI;;;Filien pour les mandats à finaliser + montée de version: voir avec Lantéas quoi faire en premier;;;CLA;;Oui
+DDAC;;05/11/2025;OpenSub;Projet;PVA;;?;DG 2026;1;Arbitrage de l'articulation avec la DCOM;"Fédération d'identités (comptes) du portail de la Com et celui d'OpenSub pour avoir un seul compte
+pour les associations pour se connecter.";;;CLA;;Oui
+DDAC;;05/11/2025;Agora;Projet;PVA;;?;OK DSI;;MCO;Agora : montée de version pour 2026;;;CLA;;Oui
+DSALE;;18/11/2025;Logiciel de planification et de gestion des temps annualisés;Projet;ATSL;;?;DG 2026;1;;Car PLANNO non satisfaisant;;;CLA;;
+DSALE;;18/11/2025;Groupe de travail communication interne ATSL;Projet;ATSL;;?;OK DSI ;;;"Groupe de travail (CLA, MCH et LDA) avec DSI sur la communication interne au sein du service ATSL: Identifier le besoin précisément afin de pourvoir chaque agent d'un 
+moyen de communication(adresse mail pour chaque agent évoqué)";;;CLA;;
+DJEUN;;01/10/2025;Sedit GF;Demande;DJEUN;;0;OK DSI;;;Problème de Wi-Fi. Difficulté de projection sur ENI.Trop d’appels pour assistance. Nécessité de refaire une formation.;;;SSD;Possible voir avec Viewsonic ????;
+DSALE;;18/11/2025;Nomadisme;Projet;ATSL;;?;OK DSI ;;Etudier le comment;Renforcer nomadisme des agents: pb de connexion au wifi ou à la 4G, voir install wifi dans salle des profs;43102;Lien;IRS;;
+DSALE;;18/11/2025;Manque réseau informatique;Demande;ATSL;;?;OK DSI ;;Etudier le comment;Le service a besoin de pouvoir travailler et avoir du réseau dans chaque école;;;IRS;;
+DJEUN;;01/10/2025;Copieurs;Demande;DJEUN;;0;OK DSI;;;"Référente : Laurence Botrel – KOESIO. Copieur du 2e étage dysfonctionne (3 fois sur 4).
+Processus d’appel au constructeur à revoir (numéro 08 inaccessible).Suivi de l’encre à vérifier.
+Copieur dans l’armoire électrique : ne fonctionne plus.";;;SSD;;
+DSALE;;18/11/2025;Wifi;Demande;ATSL;;500;OK DSI ;;pb utilisation;Besoin de borne wifi dans salle de réunion DSALE et dans bureau de L. Dauty;;;IRS;;
+DEP;;07/10/2025;Relance du marché stationnement;Projet;SDS;;0;OK DSI;;;Renouvellement du marché PaybyPhone à venir. Aspects techniques suivis par Franck P.;;;SSD;??????????;Oui
+DSALE;;18/11/2025;Pieuvre;Demande;ATSL;;500;OK DSI ;;Voir pierre;Besoin d'une pieuvre pour salle de réunion afin de faciliter les échanges;;;IRS;;
+DSALE;;18/11/2025;Divers problèmes;Incident;SE;;0;OK DSI ;;Organisation à mettre en place;"Voici les pbs rencontrés :
+•Convention: problème de conventionnement (convention perdue à l'éducation nationale)
+•Marché à groupement de commande: Benelux School pour maternelles
+•Améliorer la qualité du travail avec la DSI (Reda et Marc), instaurer un comité de suivi numérique régulier 
+avec dimension politique (réécriture du PEDT) et technique.
+Manque d'infos sur le matériel disponible dans les classes, audit à faire ; 
+suppression des salles informatiques remplacé par tablettes, pas très efficient.";;;RG;;
+DSALE;;18/11/2025;Interoperabilités Concerto;Projet;SE;;?;OK DSI;;;"Quid de l'interopérabilité entre Concerto et Ondes (Educ Nat)? faire une réunion avec Nadir, RGPD, Julie Frances(pole familles)
+Interopérabilité entre Concerto et CAF à étudier";;;NCH;;
+DSALE;;18/11/2025;Maintenance dans les écoles et Astech;Projet;SE;;0;OK DSI;;;Amélioration du processus de demande de travaux pour les gardiens d'école;;;NCH;;
+DSALE;;18/11/2025;Logiciels IA;Demande;SE;;?;DG ;;A définir;"sur IA, demande de sites de référence que les agents peuvent utiliser, Besoin d'un référentiel
+Demande pour acquérir un logiciel de retranscription de réunion entre autres";;;DSI;;
+DAC;;04/11/2025;Photocopieur couleur;Demande;CM;;3500;DG;;;"Photocopieur couleur car imprime sa propre communication, et récupérer le copieur.
+de la maison d'accueil JJ Rousseau au CMPP: ticket à créer";;;SSD;Préciser l'usage;
+DSALE;;18/11/2025;Hotline;Demande;SE;;;"DG 2026 
+Expérimentation";;;Amplitude horaire de la hotline devrait être élargie le soir à 18h30;;;MCH;Suite arbitrage DG : Expérimenter roulement hotline;
+DSALE;;18/11/2025;Formation Teams;Demande;SE;;0;OK DSI ;;à organiser;Besoin formation Teams et outils collaboratifs;;;DSI;;
+DSALE;;18/11/2025;Données et Archivages;Projet;SE;;?;OK DSI;;Gouvernance des données / Archives;"Urgence de lutter contre la redondance des données, pb d'archivage, uniformiser le traitement des données dans la ville
+Besoin d'un groupe de travail sur l’archivage.";;;DSI;;
+DAC;;04/11/2025;Photocopieur couleur;Demande;MED;;3500;DG;;;Besoin d’un copieur couleur pour outils de com internes + animation ateliers enfants;;;SSD;Préciser l'usage;
+DDU;;26/11/2025;Formations Pelehas et Esabora;Demande;SHAB;;?;DG 2026;;;"Demande de formation effectuée fin 2023 pour monter en compétences.
+Des devis avaient été réalisés, mais la nouvelle responsable arrivée en mars n’a pu répondre dans les délais.
+Prochaine disponibilité en décembre 2025, mais la date du 12 décembre 2025 n’est pas possible. 
+Question : comment gérer ce besoin pour 2026 ?";;;DSI;;
+DDU;;26/11/2025;Aménagement du bureau SCSH ticket #41469;Demande;SHAB;;1000;OK DSI ;;Voir avec SMPPB;"Pas d’ordinateur installé, le réseau longe le bureau mais aucun point informatique n’a été mis en place.
+Une étude devait être réalisée par la DSI (visite effectuée à l’automne).
+Ticket a été ouvert #41469, la demande est passée par la RH et tardivement à la DSI.
+Situation délicate pour accueillir la nouvelle personne.
+Le futur bureau sera disposé différemment : prévoir alimentation électrique, réseau informatique et téléphonique.";41469;Lien;IRS;;
+DDU;;26/11/2025;ESABORA;Projet;SHAB;;?;OK DSI ;;En cours;Mise à jour ESABORA et formation pour 2027;;;YTA;;Oui
+DDU;;26/11/2025;ESABORA Tablettes;Demande;SHAB;;?;OK DSI ;;Affinier l'usage;"Demande de tablettes pour l’usage terrain ESABORA et accès aux ressources type X et application ESABORA.
+Farouk rappelle les difficultés actuelles de connexion réseau via tablettes, Franck PILCHART travaille sur une solution.";;;YTA;;
+DDU;;26/11/2025;Cart@DS (investissement annuel);Projet;SUR;;20000;OK DSI;;;Planification prévue en mars 2026;;;FB;;Oui
+DDU;;26/11/2025;PLUi;Projet;SUR;;6000;OK DSI;;Vu avec SUR;En attente d’informations supplémentaires, un point dédié sera prévu.;;;FB;;Oui
+DDAC;;05/11/2025;Ordinateurs;Demande;DDAC;;3000;OK DSI ;;;Besoin de 4 PC (2 fixes et 2 portables) sur Jeanne Hachette suite aux travaux;;;SSD;;
+DDU;;26/11/2025;ENI Formations et accompagnements;Demande;SUR;;0;doublon 160;;;Demande d'accompagnement pour l’utilisation optimale de l’écran de la salle de réunion.;;;DSI;;
+DDU;;26/11/2025;Envoi de fichiers volumineux;Demande;SUR;;0;OK DSI ;;à organiser;Muriel utilise WeTransfer. Farouk indique qu’Outlook Web permet d’envoyer de gros fichiers et va demander à Lucas RUGOULAT s'il dispose d'un tutoriel. Réponse Lucas oui mais attente validation du document par Marc.;;;DSI;;
+DDU;;26/11/2025;ASTECH  ;Projet;AFLD;;?;OK DSI;;Amélioration du projet;"Le logiciel de gestion locative ASTECH ne fonctionne pas entièrement : Problèmes connus (ex. transfert des pièces jointes).
+Nadir est informé, plusieurs manipulations sont encore nécessaires. Logiciel jugé peu ergonomique.";;;NCH;;Oui
+DDU;;26/11/2025;ASTECH pas de gestion du patrimoine;Projet;AFLD;;?;OK DSI;;Etudier le projet;"Pas de logiciel de gestion du patrimoine ex : entretien des logements sur les résiliations en lien avec le patrimoine.
+et le retour sur les travaux fait ou pas, envoi de prise en charges de travaux. Ils n'ont pas de retour sur les travaux.
+Ils vont nous envoyer le topo et/ou dossier pour que nous puissions voir avec Astech les possibilités en fonction. Johan SALVAT";;;NCH;"Farouk demande une clarification actualisée des besoins (la dernière analyse date de 3 ans).
+Historique : échanges initiaux avec ASTECH en 2013. Alain doit transmettre les éléments à Nadir et mettre Farouk en copie.";
+DDU;;26/11/2025;Parapheur électronique;Projet;SUR;;?;OK DSI;;Etudier lien CARTADS/iparapheur;"Dématérialisation : Nécessité d’un système d’archivage compatible DDC ou CartADS.
+Mise en place visée : 2026 ou 2027. À intégrer au projet CartADS si possible en 2026, sinon ultérieurement.";;;BDP;;
+Transverse;;03/12/2025;Renouvellement NEOCITY / 3 ans;Projet;;;40000;DG 2026;1;En cours;;;;LR;"Suite arbitrage DG: JF LORES va demander un bilan aux services il serait
+intéressant de renouveller sur un an. Benjamin va voir avec
+la com si ils sont satisfaits on passe sur 3 ans en
+ investissement ou bien on reste sur un an. Réponse BADIA
+Ok 3 ans";Oui
+DBC;;05/11/2025;Cablage réseau CAT;Projet;DBC;;40000;OK DSI ;;En cours;;;;IRS;intéressant de renouveller sur un an. Benjamin va voir avec;
+DBC;;05/11/2025;portail ASTECH pour chefs établissements;Projet;DBC;;0;OK DSI;;A étudier;Astech les chefs d'établissements puissent faire des demandes de travaux via un portail;;;NCH;la com si ils sont satisfaits on passe sur 3 ans en;
+DBC;;05/11/2025;Acrobat PRO;Demande;;;1000;OK DSI;;;"Marc demande un tableau des usages et besoin en matière d'outils Adobe
+Aujourd'hui 3 licences accordées Mariza Photoshop, Mario Photoshop et il reste 
+une pour Sensia AcrobatPro et  Photoshop mais attribué à ETB par erreur.
+Demande Acrobat Pro 2 licences pour Morad KADIRI et Yannick BANNIER";;;DSI;;
+DBC ;;05/11/2025;SAFE FME (BE);Projet;;;12000;DG 2026;2;;Demande de logiciel FME produit pas Safe projection de plan DWG à 9500 euros ht un peu chère;;;MCH;;
+DBC;;05/11/2025;MS  Project;Demande;;;1000;OK DSI;;;;;;DSI;;
+DSALE;;18/11/2025;ENI;Incident;ATSL;;0;OK DSI ;;;Pb de connexion à l'ENI dans salle de réunion Direction de la DSALE;;;SSD;Manque des tutos sur possibilités;
+DSPORTS;;27/11/2025;Logiciel de planification SKELLO (3 ans);Projet;SIS & SEN;;15000;DG 2026;1;;"Laurence CHAUVIN projet planification, gros besoin au niveau du service installation sportives,
+service équipements nautiques, Skello ferait l'unanimité (utilisé dans les piscines privé)
+5500 euros par an Skello pour 80 agents. Celia connait UBEE Planning";;;CLA;;
+Transverse;;;Usage de l'IA;Projet;;;?;DG;;;;;;DSI;;
+DDU;;26/11/2025;Tablettes avec Cart@DS;Demande;SUR;;800;OK DSI ;;;"Muriel exprime un besoin : utiliser les tablettes comme véritable outil de travail terrain.
+Besoin : accéder au logiciel depuis tablette comme depuis PC.
+Farouk demande une quantification : 2 tablettes seraient idéales.";;;SSD;;
+DBC;;05/11/2025;Poste CAO Fixe / Roxane;Demande;;;2000;OK DSI;;;"voudrait un poste fixe car sa carte graphique sur son portable plante avec 8 Go 
+de GPU pour la suite logiciel Twin motion au moins carte graphique de 32 Go";;;SSD;;
+DSPORTS;;27/11/2025;Astreinte DSI Weekend;Demande;;;-;DG;;;;;;DSI;;
+DSPORTS;;27/11/2025;Billetterie en ligne Piscine;Projet;SEN;;?;DG 2027;;;"Voir tarif de vente en lignes de place ou de remplir sa carte en ligne
+demande devis à Vivaticket et organiser réunion avec le commercial";;;CLA;;Oui
+DBC;;05/11/2025;Astech AWO passage à Symphonie version full web;Projet;BE;;15000;DG 2026;2;;Prestations d'accompagenement et de formations, faire étude de faisabilité sur compatibilité avec la gestion locative;;;NCH;;
+DSPORTS;;27/11/2025;OpenSub Extraire les données DSPORT;Demande;DDS;;;DSI;;;"Extraire les documents données de la DSPORT car ils doivent ressaisir  les données
+Elles ne sont pas exploitables. Voir avec Lanteas comment exploiter les données,
+ils souhaitent de l'IA pour les traiter.";;;CLA;;
+DSPORTS;;27/11/2025;Evolution téléphonie - fixe/portable - 43 agents - 10 installations;Projet;SIS;;30000;DG 2026;1;;Voir avec DRH / Travailleurs Isolés;;;SSD;Suite arbitrage DG : Ok sur le process mais à affiner sur les usages et solutions possibles;
+DSPORTS;;27/11/2025;Numérisation des cartes adhérents;Projet;SASM;;;DSI;;;Faire fiche opportunité  (possible en 2025);;;CLA;En attente du retour de la fiche d'opportunité envoyé par Fatima;Oui
+DSPORTS;;27/11/2025;Logiciel montage vidéo;Projet;SASM;;;OK DSI;;;"besoin d’un logiciel basique (du type movie maker) /fiche opportunité -  Pour qui ? Sur quel ordi ? Changement d'ordi ?
+Service doit remplir une fiche d'opportunité";;;CLA;;
+DSPORTS;;27/11/2025;Logiciel stock/matériel inventaire;Projet;SASM;;;DSI;;;"Besoin d’un logiciel inventaire pour l’ensemble de la direction 
+à As-tech (GMAO / patrimoine) ou planitech (idéalement) 
+/ Faire fiche opportunité";;;CLA/NCH;;
+DSPORTS;;27/11/2025;IA;Projet;SASM;;;;;;Quid de l'IA comment on le met en place et nous sommes accompagnés;;;DSI;;
+CMS;;09/12/2025;Galaxie administratif;Demande;AFL;;;DSI;;;"Au niveau du cadrage des ordonnances possibilité d'avoir le modèle Word pour éviter le cadrage 
+mais le papier à en-tête est de couleurs. Voir avec Galaxie si ils peuvent mettre un modèle Word 
+pour éviter le papier à en-tête pré-imprimé avec en-tête et colonne sur droite avec les secteurs.
+Logo Adresse Finness etc..";;;YT;;
+CMS;;09/12/2025;Wifi;Demande;DS;;;DSI;;;"Continuité du déploiement du WIFI dans le CMS, Grégory va envoyer un plan ou schéma 
+des endroits ayant besoin de Wifi";;;IRS;;
+DSPORTS;;27/11/2025;3 imprimantes A3 par secteur pour planning;Demande;SIS;;1000;DSI;;;"Possibilité d'avoir 3 imprimantes A3 couleurs par secteur pour les impressions soit des plannings
+soit des plans d'installations, d'affiches car aujourd'hui ils doivent venir à la direction..";;;SSD;Affiner les besoins;
+CMS;;09/12/2025;Lecteurs carte vitales en mobilités;Demande;SCMS;;;DSI;;;"Demandes des lecteurs cartes vitales et cartes vitales dématérialisées. Demander à XtremSanté 
+comment cela fonctionne. Car actuellement les infirmière en mobilitées sont en mode dégradées car elle note le numéro de carte vitale  
+puis les ressaisisent au CMS et cela ne respecte pas l'accord national";;;YT;;
+DSPORTS;;27/11/2025;Imprimante A3;Demande;SEN;;;DSI;;;"Problème d'impressions des plannings pour les maitres-nageurs donc demande
+d'une imprimante A3 couleurs ou changer le photocopieur par un photocopieur couleur";;;SSD;Affiner les besoins;
+CMS;;09/12/2025;Tablette Remarkble;Demande;DS;;;;;;Demande tablette REMARKBLE pour Grégory;;;SSD;;
+CMS;;09/12/2025;Logiciel métier CMPP;Projet;CMPP;;20 675;DSI;;En cours étude;"Remplacement Logiciel métier Faure par IMAGO ou autre, Catherine MARTIN a demandé 
+si il y avait un cahier des charges Un partie des actes devront être facturé et ne pas passer 
+par le CEPOM donc le logiciel devra être interopérable avec un logiciel de facturation
+comme Galaxie ou autre avec la norme HL7 donc affiner le besoin.
+De plus, souhait de mutualiser le même logiciel pour le CMPP et 
+le CMS pour faire un seul pôle facturation de la Direction";;;YTA;Chiffrage 20675 euros est sur 3 ans en investissement;
+CMS;;09/12/2025;Lecture des scanners avec logiciel;Demande;SCMS;;;DSI;;;"Pour lire des CD ou DVD de scanners IRM cela ne fonctionne pas sur les ordinateurs portables et
+ordinateurs fixes donc ouvrir ticket hotline pour voir si il faut installer un logiciel particulier pouvant lire les scanners";;;SSD;;
+CMS;;09/12/2025;Stockage vidéos;Demande;CMPP;;;DSI;;;"Sujet avec Catherine Martin sur le stockage des vidéos des enfants car actuellement 
+elles sont stockées sur des cartes SD. Les volumes sont très importants en stockage.
+Monter une réunion avec Catherine MARTIN & MARTIAL SOLAGNE";;;DSI;;
+CMS;;09/12/2025;Borne d'accueil pour paiements;Projet;AFL;;;DG 2027;;;"Demande de borne d'accueil avec Galaxie pour les actes en série pour payer les consultations
+ à cause de la queue, évite erreur de saisie des factures";;;YTA;;Oui
+CMS;;09/12/2025;Photocopieur couleurs;Demande;CMPP;;;DG;;;"Demande d'un photocopieur couleurs en remplacement du noir et blanc quand ils rencontrent des 
+enfants faire des activité et imprimer des documents. Et avoir des impressions par défaut 
+en noir et blanc car actuellement ils doivent passer par Grégory. Martial doit nous envoyer
+des éléments sur la volumétrie des impressions couleurs. Le photocopieur actuel fonctionne bien
+mais il y a eu 3 interventions cette année";;;SSD;Préciser l'usage;
+DAC;;04/11/2025;Dispositif Microfolies;Demande;DAC;;1000;OK DSI;;;Demande Imprimante 3D: pour activités pédagogiques;;;CLA/SSD;;
+PF;;16/12/2025;Concerto passage en V7;Projet;PF;;;DSI;;;"Concerto quand ils font des recherches de personne de la famille ils ont 
+des difficultés à retrouver le père quand il ne fait plus partie de la
+famille en contact, alors que avec la version 7 plus belles ergonomie 
+demander démonstration et devis. Pas de plateforme avec Onde et Imuse.
+Possibilité de demander des subventions de la CNAF";;;NCH;;Oui
+PF;;16/12/2025;Téléphonie;Demande;PF;;;DSI;;En cours;Téléphonie des soucis au niveau des licences ticket 39035 manque quelques licences voir Pierre;;;IRS;;
+PF;;16/12/2025;Interface Imuse/Concerto;Projet;PF;;;DSI;;;"Interface Concerto et Imuse, dans Concerto QF individuel alors que dans Imuse tarification 
+par prix donc pour Julie FRANCES trop compliqué à mettre en place. Voir étude Nadir et Christophe";;;NCH;;
+SPE;;16/12/2025;Octopus dans les 5 structures;Projet;SPE;;3000;OK DSI;;En cours;"Octopus accompagnement par Christophe Ok sur Rosa Bonheur. Ils souhaiteraient
+mettre en place Octopus sur les 5 structures env 600 euros  par an
+structure 3 à minima pour 2026 par appareil pour les raisons avoir une 
+fiabilité des données pour les contrôles vétérinaires HACP liaisons froides 
+accompagné de tablettes pas possible de mettre des ordinateurs dans les cuisines.";;;CLA;;
+SPE;;16/12/2025;Fibre optique dans les crèches;Demande;SPE;;;DSI;;;Toutes les crèches ne sont pas équipés de fibres optiques donc problèmes de lenteurs;;;IRS;;
+CMS;;09/12/2025;Tablette;Demande;SSP;;;DSI;;;"Demande une tablette actions or les murs pour Doctolib avec accès internet 
+le plus rapidement possible au premier trimestre (semaine après les
+élections car nous allons récupérer les tablettes des élections en avril)  
+et un PC portable pour des réunions en remplacement d'un ordinateur vieillissant.";;;SSD;;
+SPE;;16/12/2025;Téléphonie;Demande;SPE;;;DSI;;;"Le numéro de la structure en 09 sur les appels sortants et quand ils appellent la structure ils passent
+par le poste 25 50";;;IRS;Crée ticket;
+DAC;;04/11/2025;Dispositif Microfolies;Demande;DAC;;1000;OK DSI;;;Demande Casques de VR: dotation de 2 casques;;;CLA/SSD;;
+CMS;;09/12/2025;Lecture Carte vitales;Incident;CMPP;;;;;;"On ne peut plus lire les cartes vitales depuis plus un an au CMPP car le 
+logiciel VITALEC ne fonctionne plus mais le problème est que le logiciel 
+est géré directement par FAURE donc voir avec FAURE comment faire fonctionner
+le logiciel mais nous n'avons pas de contrat de maintenance avec FAURE. Voir avec FAURE.";;;YTA/SSD;;
+VAC;;16/12/2025;Concerto formulaire fiche sanitaire;Projet;VAC;;;DSI;;;"Concerto les familles puissent remplir la fiche sanitaires dématérialisée avec les certificats 
+médicaux droits à l'image, vaccins etc.. Sedina commence à travailler dessus.";;;NCH;;Oui
+SPE;;16/12/2025;Photocopieur;Demande;SPE;;;DG;;;"Photocopieur Noir et Blanc fatigué pas de pb avec la hotline il est capricieux parfois ne 
+fonctionne pas bien il est ancien.";;;SSD;Préciser l'usage;
+VAC;;16/12/2025;Photocopieur;Demande;VAC;;;DG;;;"Demande de photocopieur Noir et blanc très vieillissant des messages d'erreurs, problèmes 
+chargeur à moitié froissé. D'ailleurs ils disent que ils devraient y avoir une maintenance préventive
+dans les 6 mois selon le contrat.";;;SSD;Préciser l'usage;
+VAC;;16/12/2025;Centre Mathes et Héry fibre et Ecrans interactifs pour classes;Demande;VAC;;;DSI;;;"La fibre optique sur le centre Les Mathes elle arrive dans le bureau du directeur 
+mais pas dans les salles de classes au nombre de 4 et un ENI dans une classe.
+Sur le centre Héry sur Egine un écran voir avec Réda type d'écran dans les 
+classes d'écoles, ils veulent la même chose.";;;SSD;Organiser réunion avec service Vacances Marc pour les projets et demandes services vacances;
+VAC;;16/12/2025;Demande de 2 grands doubles écrans par poste;Demande;VAC;;;DSI;;;"Au niveau du service Vacances, ils veulent pour 5 agents au lieu de 1 grand écran et petit 
+écran d'ordinateur 2 grands écrans.";;;SSD;Besoin de faire une réunion globale sur le centre des vacances avec Marc pour affiner les besoins.;
+VAC;;16/12/2025;Vidéoprojecteurs;Demande;VAC;;;DSI;;;"Demande de vidéoprojecteur au nombre de 2 pour Les Vignes pas de classes et 
+pour Héry (si pas de ENI attribué plus haut)";;;SSD;Besoin de faire une réunion globale sur le centre des vacances avec Marc pour affiner les besoins.;
+DBC;;05/11/2025;Astech remettre les points tous les mois avec EM, NC , FB MC,;Demande;BE;;;DSI;;Fait;;;;NCH;;

@@ -9556,30 +9556,26 @@ app.delete('/api/glpi/scheduled-syncs/:id', authenticateAdmin, async (req, res) 
 function excelDateToISO(excelDate) {
     if (!excelDate && excelDate !== 0) return null;
 
-    const dateNum = typeof excelDate === 'string' ? parseInt(excelDate) : excelDate;
-
-    // Excel serial number: days since 1899-12-30 (with 1900 leap year bug)
-    if (!isNaN(dateNum) && dateNum > 0) {
-        // Excel epoch is December 30, 1899
-        // But we need to account for the leap year bug in 1900
-        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-        const date = new Date(excelEpoch.getTime() + dateNum * 86400000);
-        const year = date.getUTCFullYear();
-        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(date.getUTCDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    }
-
-    // Try to parse as string DD/MM/YYYY or YYYY-MM-DD
+    // Tester les formats texte EN PREMIER pour éviter que parseInt('09/09/2025') = 9
+    // soit traité comme un numéro de série Excel
     if (typeof excelDate === 'string') {
+        const s = excelDate.trim();
         const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
         const yyyymmdd = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-        let match = excelDate.match(ddmmyyyy);
+        let match = s.match(ddmmyyyy);
         if (match) return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
 
-        match = excelDate.match(yyyymmdd);
-        if (match) return excelDate;
+        match = s.match(yyyymmdd);
+        if (match) return s;
+    }
+
+    // Numéro de série Excel pur (ex: 45908) — seuil > 1000 pour éviter les faux positifs
+    const dateNum = typeof excelDate === 'string' ? Number(excelDate.trim()) : excelDate;
+    if (Number.isInteger(dateNum) && dateNum > 1000) {
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+        const date = new Date(excelEpoch.getTime() + dateNum * 86400000);
+        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
     }
 
     return null;
@@ -9653,6 +9649,36 @@ app.get('/api/rencontres-budgetaires', authenticateJWT, async (req, res) => {
 });
 
 // GET: Détail d'une rencontre avec participants et suivi
+app.get('/api/rencontres-budgetaires/:id/glpi-link', authenticateJWT, async (req, res) => {
+    try {
+        const rencontre = await db.get('SELECT id, ticket_glpi FROM rencontres_budgetaires WHERE id = ?', [req.params.id]);
+        if (!rencontre || !rencontre.ticket_glpi) return res.status(404).json({ error: 'Aucun ticket GLPI associé' });
+        const settings = await db.get('SELECT url, app_token, user_token, login, password FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url) return res.status(400).json({ error: 'GLPI non configuré' });
+        const baseUrl = settings.url.trim().replace(/\/apirest\.php.*$/, '').replace(/\/$/, '');
+        const ticketUrl = `${baseUrl}/front/ticket.form.php?id=${rencontre.ticket_glpi}`;
+        try {
+            const apiUrl = baseUrl + '/apirest.php';
+            const authHeader = (settings.user_token || '').trim()
+                ? `user_token ${settings.user_token.trim()}`
+                : `Basic ${Buffer.from(`${(settings.login||'').trim()}:${(settings.password||'').trim()}`).toString('base64')}`;
+            const headers = { 'App-Token': (settings.app_token||'').trim(), 'Content-Type': 'application/json' };
+            const httpsAgent = new (require('https').Agent)({ rejectUnauthorized: false });
+            const sessionRes = await axios.get(`${apiUrl}/initSession`, { headers: { ...headers, Authorization: authHeader }, timeout: 5000, httpsAgent });
+            const sessionToken = sessionRes.data?.session_token;
+            if (sessionToken) {
+                const ticketRes = await axios.get(`${apiUrl}/Ticket/${rencontre.ticket_glpi}`, { headers: { ...headers, 'Session-Token': sessionToken }, timeout: 5000, validateStatus: () => true, httpsAgent });
+                axios.get(`${apiUrl}/killSession`, { headers: { ...headers, 'Session-Token': sessionToken }, httpsAgent }).catch(() => {});
+                if (ticketRes.status === 404 || ticketRes.data?.ERROR === 'ERROR_ITEM_NOT_FOUND') {
+                    await db.run('UPDATE rencontres_budgetaires SET ticket_glpi = NULL WHERE id = ?', [rencontre.id]);
+                    return res.json({ exists: false, message: `Ticket #${rencontre.ticket_glpi} introuvable dans GLPI — numéro supprimé` });
+                }
+            }
+        } catch (e) { console.warn('[GLPI LINK] Vérification ignorée:', e.message); }
+        res.json({ exists: true, url: ticketUrl, ticket_id: rencontre.ticket_glpi });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 app.get('/api/rencontres-budgetaires/:id', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
@@ -9685,80 +9711,55 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
         // DEBUG: Log filename
         let debugLog = `Filename: "${fileName}"\n`;
 
-        // FORCE CSV parsing regardless of filename
-        if (true) { // Force CSV parsing
-            const content = req.file.buffer.toString('utf-8');
-            const lines = content.split('\n').filter(l => l.trim().length > 0);
-
-            if (lines.length < 2) {
-                return res.status(400).json({ error: 'Fichier CSV vide' });
+        // CSV parsing avec gestion BOM, encodage Windows-1252 et champs multi-lignes
+        {
+            let content = req.file.buffer.toString('utf-8');
+            if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
+            if (content.includes('\ufffd')) {
+                const win1252Map = {
+                    0x80: '\u20AC', 0x82: '\u201A', 0x83: '\u0192', 0x84: '\u201E', 0x85: '\u2026',
+                    0x86: '\u2020', 0x87: '\u2021', 0x88: '\u02C6', 0x89: '\u2030', 0x8A: '\u0160',
+                    0x8B: '\u2039', 0x8C: '\u0152', 0x8E: '\u017D', 0x91: '\u2018', 0x92: '\u2019',
+                    0x93: '\u201C', 0x94: '\u201D', 0x95: '\u2022', 0x96: '\u2013', 0x97: '\u2014',
+                    0x98: '\u02DC', 0x99: '\u2122', 0x9A: '\u0161', 0x9B: '\u203A', 0x9C: '\u0153',
+                    0x9E: '\u017E', 0x9F: '\u0178'
+                };
+                content = Array.from(req.file.buffer).map(b => win1252Map[b] || String.fromCharCode(b)).join('');
+                if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
             }
 
-            // Parse headers
-            const headerLine = lines[0];
-            debugLog += `RawHeaderLine: "${headerLine}"\n`;
-            const headers = headerLine.split(';').map(h => h.trim().replace(/^"|"$/g, ''));
-
-            // Find Suivi column index
-            const suiviIndex = headers.findIndex(h => h.toLowerCase() === 'suivi');
-
-            // DEBUG: Append to existing debug log
-            debugLog += `Headers: ${JSON.stringify(headers)}\nSuiviIndex: ${suiviIndex}\n`;
-            debugLog += `Header[${suiviIndex}]: "${headers[suiviIndex]}"\n\n`;
-
-            // Parse data rows
-            for (let i = 1; i < lines.length; i++) {
-                const rawLine = lines[i];
-                const values = rawLine.split(';').map(v => v.trim().replace(/^"|"$/g, ''));
-                const row = {};
-
-                // Map all columns
-                headers.forEach((header, idx) => {
-                    row[header] = values[idx] || '';
-                });
-
-                // Store suivi separately for reliability
-                const rawSuiviValue = suiviIndex >= 0 ? (values[suiviIndex] || '') : '';
-                row['__suivi'] = rawSuiviValue;
-                row['__rawSuiviValue'] = rawSuiviValue;
-
-                // DEBUG: First 5 rows - very detailed
-                if (i <= 5) {
-                    debugLog += `Row${i}:\n`;
-                    debugLog += `  RawLine: "${rawLine.substring(0, 150)}..."\n`;
-                    debugLog += `  Split count: ${values.length}, HeaderCount: ${headers.length}\n`;
-                    debugLog += `  values[${suiviIndex}]: "${values[suiviIndex]}"\n`;
-                    debugLog += `  rawSuiviValue: "${rawSuiviValue}"\n`;
-                    debugLog += `  row['__suivi']: "${row['__suivi']}"\n`;
-                    debugLog += `  row['Suivi']: "${row['Suivi']}"\n`;
-                    debugLog += `  row['suivi']: "${row['suivi']}"\n`;
-                    debugLog += `  Keys in row: ${Object.keys(row).join(', ')}\n\n`;
+            function parseCSVImport(text, delimiter = ';') {
+                const result = [];
+                let row = [], field = '', inQuotes = false, i = 0;
+                text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+                while (i < text.length) {
+                    const ch = text[i];
+                    if (inQuotes) {
+                        if (ch === '"') { if (text[i+1] === '"') { field += '"'; i += 2; continue; } inQuotes = false; }
+                        else field += ch;
+                    } else {
+                        if (ch === '"') inQuotes = true;
+                        else if (ch === delimiter) { row.push(field); field = ''; }
+                        else if (ch === '\n') { row.push(field); field = ''; if (row.some(f => f.trim())) result.push(row); row = []; }
+                        else field += ch;
+                    }
+                    i++;
                 }
-
-                rows.push(row);
+                row.push(field);
+                if (row.some(f => f.trim())) result.push(row);
+                return result;
             }
 
-            // Write debug
-            try {
-                fs.writeFileSync(path.join(__dirname, 'CSV_PARSE_DEBUG.txt'), debugLog);
-            } catch (e) {}
-        } else {
-            // Excel fallback
-            const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const rawData = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+            const parsed = parseCSVImport(content);
+            if (parsed.length < 2) return res.status(400).json({ error: 'Fichier CSV vide' });
 
-            if (rawData.length < 2) {
-                return res.status(400).json({ error: 'Aucune donnée' });
-            }
-
-            const headers = rawData[0];
-            for (let i = 1; i < rawData.length; i++) {
+            const headers = parsed[0].map(h => h.trim());
+            const suiviIndex = headers.findIndex(h => h.toLowerCase() === 'suivi');
+            for (let i = 1; i < parsed.length; i++) {
+                const values = parsed[i];
                 const row = {};
-                headers.forEach((h, idx) => {
-                    if (h) row[h.toString().trim()] = rawData[i][idx] || '';
-                });
-                row['__suivi'] = rawData[i][10] || '';
+                headers.forEach((header, idx) => { row[header] = (values[idx] || '').trim(); });
+                row['__suivi'] = suiviIndex >= 0 ? (values[suiviIndex] || '').trim() : '';
                 rows.push(row);
             }
         }
@@ -9900,9 +9901,10 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
 });
 
 // POST: Créer une rencontre manuelle
+// POST: Créer une rencontre (admin/finances)
 app.post('/api/rencontres-budgetaires', authenticateAdminOrFinances, async (req, res) => {
     try {
-        const { titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires } = req.body;
+        const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires } = req.body;
 
         if (!titre || !direction) {
             return res.status(400).json({ error: 'Titre et Direction sont obligatoires' });
@@ -9910,14 +9912,37 @@ app.post('/api/rencontres-budgetaires', authenticateAdminOrFinances, async (req,
 
         const result = await db.run(
             `INSERT INTO rencontres_budgetaires
-            (titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
-            [titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires]
+            (titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
+            [titre, direction, service || null, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires]
         );
 
         res.json({ id: result.lastID, message: 'Rencontre créée' });
     } catch (error) {
         console.error('Erreur POST rencontre:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Créer une demande dans une réunion (tous les utilisateurs JWT)
+app.post('/api/rencontres-budgetaires/from-reunion', authenticateJWT, async (req, res) => {
+    try {
+        const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, reunion_id } = req.body;
+
+        if (!titre || !direction) {
+            return res.status(400).json({ error: 'Titre et Direction sont obligatoires' });
+        }
+
+        const result = await db.run(
+            `INSERT INTO rencontres_budgetaires
+            (titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, reunion_id, statut)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
+            [titre, direction, service || null, date_reunion, annee, type, description, cout_ttc || null, arbitrage || null, responsable_dsi || null, reunion_id || null]
+        );
+
+        res.json({ id: result.lastID, message: 'Demande créée' });
+    } catch (error) {
+        console.error('Erreur POST demande réunion:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -10123,7 +10148,7 @@ app.delete('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
 // GET: Lister tous les emails par direction
 app.get('/api/direction-emails', authenticateJWT, async (req, res) => {
     try {
-        const data = await db.all('SELECT id, direction, email, created_at FROM direction_emails ORDER BY direction, email');
+        const data = await db.all('SELECT id, direction, service, email, created_at FROM direction_emails ORDER BY direction, service, email');
         res.json(data || []);
     } catch (error) {
         console.error('Erreur GET direction-emails:', error);
@@ -10136,7 +10161,7 @@ app.get('/api/direction-emails/:direction', authenticateJWT, async (req, res) =>
     try {
         const { direction } = req.params;
         const data = await db.all(
-            'SELECT id, direction, email FROM direction_emails WHERE direction = ? ORDER BY email',
+            'SELECT id, direction, service, email FROM direction_emails WHERE direction = ? ORDER BY service, email',
             [direction]
         );
         res.json(data || []);
@@ -10149,7 +10174,7 @@ app.get('/api/direction-emails/:direction', authenticateJWT, async (req, res) =>
 // POST: Ajouter un email à une direction
 app.post('/api/direction-emails', authenticateAdminOrFinances, async (req, res) => {
     try {
-        const { direction, email } = req.body;
+        const { direction, email, service } = req.body;
 
         if (!direction || !email) {
             return res.status(400).json({ error: 'Direction et email sont obligatoires' });
@@ -10162,8 +10187,8 @@ app.post('/api/direction-emails', authenticateAdminOrFinances, async (req, res) 
         }
 
         await db.run(
-            'INSERT INTO direction_emails (direction, email) VALUES (?, ?)',
-            [direction.trim(), email.trim().toLowerCase()]
+            'INSERT INTO direction_emails (direction, service, email) VALUES (?, ?, ?)',
+            [direction.trim(), service ? service.trim() : null, email.trim().toLowerCase()]
         );
 
         res.json({ message: 'Email ajouté avec succès', direction, email });
@@ -10245,6 +10270,162 @@ app.delete('/api/direction-emails/:id', authenticateAdminOrFinances, async (req,
         res.json({ message: 'Email supprimé avec succès' });
     } catch (error) {
         console.error('Erreur DELETE direction-emails/:id:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// RECHERCHE AD (FRONTEND PRINCIPAL)
+// ============================================
+
+app.get('/api/ad/search', authenticateJWT, async (req, res) => {
+    const { q } = req.query;
+    if (!q || q.length < 2) return res.json([]);
+    try {
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) return res.json([]);
+
+        const results = await new Promise((resolve, reject) => {
+            const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
+            client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                if (err) { client.destroy(); return reject(err); }
+                const filter = `(&(objectClass=user)(|(sAMAccountName=*${q}*)(displayName=*${q}*)(cn=*${q}*)))`;
+                const entries = [];
+                client.search(adSettings.base_dn, { filter, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'department', 'company'], sizeLimit: 20 }, (err, searchRes) => {
+                    if (err) { client.destroy(); return reject(err); }
+                    searchRes.on('searchEntry', (entry) => { const obj = flattenLDAPEntry(entry); if (obj?.sAMAccountName) entries.push(obj); });
+                    searchRes.on('end', () => { client.destroy(); resolve(entries); });
+                    searchRes.on('error', (e) => { client.destroy(); reject(e); });
+                });
+            });
+        });
+
+        // Enrichir avec les données AD (department, company) et RH (service, direction)
+        const mapped = await Promise.all((Array.isArray(results) ? results : []).map(async (r) => {
+            let service = r.department || null;  // Préférer le department AD
+            let direction = r.company || null;    // Préférer le company AD
+            try {
+                // Enrichir avec RH si les données AD manquent
+                const rh = await db.get('SELECT SERVICE_L, DIRECTION_L FROM rh.referentiel_agents WHERE ad_username = ? AND (DATE_DEPART IS NULL OR DATE_DEPART = "") LIMIT 1', [r.sAMAccountName]);
+                if (rh) {
+                    if (!service) service = rh.SERVICE_L;
+                    if (!direction) direction = rh.DIRECTION_L;
+                }
+            } catch (_) {}
+            return { username: r.sAMAccountName, displayName: r.displayName || r.cn || r.sAMAccountName, email: r.mail || '', service, direction };
+        }));
+        res.json(mapped);
+    } catch (error) {
+        console.error('[AD SEARCH HUB] Error:', error.message);
+        res.status(500).json({ message: 'Erreur recherche AD', error: error.message });
+    }
+});
+
+// ============================================
+// RÉUNIONS BUDGÉTAIRES
+// ============================================
+
+// GET: Lister les réunions
+app.get('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
+    try {
+        const reunions = await db.all('SELECT * FROM rencontres_reunions ORDER BY date_reunion DESC');
+        res.json(reunions);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET: Détail d'une réunion avec participants et demandes
+app.get('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id = ?', [id]);
+        if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+        const participants = await db.all('SELECT * FROM reunion_participants WHERE reunion_id = ? ORDER BY type_presence, nom', [id]);
+        const demandes = await db.all('SELECT * FROM rencontres_budgetaires WHERE reunion_id = ? ORDER BY direction, service, titre', [id]);
+        res.json({ ...reunion, participants, demandes });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Créer une réunion
+app.post('/api/rencontres-reunions', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        const { titre, date_reunion, lieu, description, participants } = req.body;
+        if (!titre || !date_reunion) return res.status(400).json({ error: 'Titre et date sont obligatoires' });
+        const annee = new Date(date_reunion).getFullYear();
+        const result = await db.run(
+            'INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, created_by) VALUES (?, ?, ?, ?, ?, ?)',
+            [titre.trim(), date_reunion, annee, lieu || null, description || null, req.user.username]
+        );
+        const reunionId = result.lastID;
+        if (Array.isArray(participants) && participants.length > 0) {
+            for (const p of participants) {
+                await db.run(
+                    'INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [reunionId, p.nom || '', p.prenom || null, p.email || null, p.service || null, p.direction || null, p.type_presence || 'metier', p.statut_presence || 'present', p.ad_username || null]
+                );
+            }
+        }
+        const created = await db.get('SELECT * FROM rencontres_reunions WHERE id = ?', [reunionId]);
+        res.status(201).json(created);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT: Modifier une réunion
+app.put('/api/rencontres-reunions/:id', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { titre, date_reunion, lieu, description, statut } = req.body;
+        const annee = date_reunion ? new Date(date_reunion).getFullYear() : null;
+        await db.run(
+            'UPDATE rencontres_reunions SET titre = ?, date_reunion = ?, annee = ?, lieu = ?, description = ?, statut = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [titre, date_reunion, annee, lieu || null, description || null, statut || 'planifiée', id]
+        );
+        res.json({ message: 'Réunion mise à jour' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer une réunion
+app.delete('/api/rencontres-reunions/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.run('DELETE FROM reunion_participants WHERE reunion_id = ?', [id]);
+        await db.run('UPDATE rencontres_budgetaires SET reunion_id = NULL WHERE reunion_id = ?', [id]);
+        await db.run('DELETE FROM rencontres_reunions WHERE id = ?', [id]);
+        res.json({ message: 'Réunion supprimée' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Ajouter un participant à une réunion
+app.post('/api/rencontres-reunions/:id/participants', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nom, prenom, email, service, direction, type_presence, ad_username } = req.body;
+        if (!nom) return res.status(400).json({ error: 'Le nom est obligatoire' });
+        const result = await db.run(
+            'INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, ad_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, nom, prenom || null, email || null, service || null, direction || null, type_presence || 'metier', ad_username || null]
+        );
+        res.status(201).json({ id: result.lastID, message: 'Participant ajouté' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer un participant
+app.delete('/api/reunion-participants/:id', authenticateAdminOrFinances, async (req, res) => {
+    try {
+        await db.run('DELETE FROM reunion_participants WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Participant supprimé' });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });

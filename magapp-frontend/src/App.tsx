@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, CheckSquare } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, CheckSquare, Briefcase, FileText } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -249,7 +249,7 @@ function App() {
             }
           });
           const rencontresData = res.data || [];
-          for (const r of encountersData) {
+          for (const r of rencontresData) {
             try {
               const suiviRes = await axios.get(`${apiBase}/rencontres-budgetaires/${r.id}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -275,7 +275,7 @@ function App() {
       const loadSuivi = async () => {
         try {
           const token = localStorage.getItem('token');
-          const rencontreId = encounters[rencontreSuiviIdx].id;
+          const rencontreId = rencontres[rencontreSuiviIdx].id;
           const res = await axios.get(`${apiBase}/rencontres-budgetaires/${rencontreId}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
@@ -1121,84 +1121,107 @@ function App() {
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', paddingTop: '20px', paddingBottom: '20px' }}>
-              {rencontres && rencontres.length > 0 ? (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
-                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Direction</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Demande</th>
-                      <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Suivi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rencontres.map((r: any, idx: number) => (
-                      <tr
-                        key={idx}
-                        style={{ borderBottom: '1px solid #e2e8f0', position: 'relative', cursor: r.commentaires?.trim() ? 'help' : 'default' }}
-                        onMouseEnter={() => r.commentaires?.trim() && setHoveredRencontreIdx(idx)}
-                        onMouseLeave={() => setHoveredRencontreIdx(null)}
-                      >
-                        <td style={{ padding: '12px', color: '#1e293b' }}>{r.direction}</td>
-                        <td style={{ padding: '12px', color: '#1e293b' }}>{r.titre || r.description}</td>
-                        <td style={{ padding: '12px' }}>
-                          <button
-                            onClick={() => setRencontreSuiviIdx(rencontreSuiviIdx === idx ? null : idx)}
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: '8px',
-                              border: 'none',
-                              background: r.suivi_count > 0 ? '#fef3c7' : '#f1f5f9',
-                              color: r.suivi_count > 0 ? '#92400e' : '#64748b',
-                              cursor: 'pointer',
-                              fontWeight: 600,
-                              fontSize: '0.8rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            <CheckSquare size={14} />
-                            {r.suivi_count || 0}
-                          </button>
-                        </td>
-                        {hoveredRencontreIdx === idx && r.commentaires?.trim() && (
-                          <div style={{
-                            position: 'absolute',
-                            top: '100%',
-                            left: '12px',
-                            right: '12px',
-                            background: '#1e293b',
-                            color: 'white',
-                            padding: '12px',
-                            borderRadius: '8px',
-                            fontSize: '0.8rem',
-                            lineHeight: '1.5',
-                            zIndex: 1000,
-                            marginTop: '8px',
-                            boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
-                            border: '1px solid #475569',
-                            maxWidth: '400px'
-                          }}>
-                            {r.commentaires}
-                            <div style={{
-                              position: 'absolute',
-                              bottom: '100%',
-                              left: '20px',
-                              width: '0',
-                              height: '0',
-                              borderLeft: '6px solid transparent',
-                              borderRight: '6px solid transparent',
-                              borderBottom: '6px solid #1e293b'
-                            }} />
-                          </div>
-                        )}
+              {rencontres && rencontres.length > 0 ? (() => {
+                // Grouper par service
+                const grouped: Record<string, any[]> = {};
+                rencontres.forEach((r: any, idx: number) => {
+                  const svc = r.service?.trim() || '—';
+                  if (!grouped[svc]) grouped[svc] = [];
+                  grouped[svc].push({ ...r, _idx: idx });
+                });
+                return (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                        <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Demande</th>
+                        <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Suivi</th>
+                        <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569', width: '80px' }}>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
+                    </thead>
+                    <tbody>
+                      {Object.entries(grouped).map(([svc, items]) => (
+                        <>
+                          <tr key={`svc-${svc}`}>
+                            <td colSpan={3} style={{ padding: '10px 12px 6px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderTop: '2px solid #e2e8f0' }}>
+                              {svc}
+                            </td>
+                          </tr>
+                          {items.map((r: any) => (
+                            <tr
+                              key={r._idx}
+                              style={{ borderBottom: '1px solid #e2e8f0', position: 'relative', cursor: r.commentaires?.trim() ? 'help' : 'default' }}
+                              onMouseEnter={() => r.commentaires?.trim() && setHoveredRencontreIdx(r._idx)}
+                              onMouseLeave={() => setHoveredRencontreIdx(null)}
+                            >
+                              <td style={{ padding: '12px', color: '#1e293b' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {r.type?.toLowerCase() === 'projet' ? <Briefcase size={15} color="#7c3aed" /> : r.type?.toLowerCase() === 'incident' ? <AlertTriangle size={15} color="#dc2626" /> : <FileText size={15} color="#0284c7" />}
+                                  {r.titre || r.description}
+                                </div>
+                              </td>
+                              <td style={{ padding: '12px', color: '#475569', fontSize: '0.82rem', maxWidth: '260px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{r.suivi || '—'}</td>
+                              <td style={{ padding: '12px' }}>
+                                <button
+                                  onClick={() => setRencontreSuiviIdx(rencontreSuiviIdx === r._idx ? null : r._idx)}
+                                  style={{
+                                    padding: '6px 12px',
+                                    borderRadius: '8px',
+                                    border: 'none',
+                                    background: r.suivi_count > 0 ? '#fef3c7' : '#f1f5f9',
+                                    color: r.suivi_count > 0 ? '#92400e' : '#64748b',
+                                    cursor: 'pointer',
+                                    fontWeight: 600,
+                                    fontSize: '0.8rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                  }}
+                                >
+                                  <CheckSquare size={14} />
+                                  {r.suivi_count || 0}
+                                </button>
+                              </td>
+                              {hoveredRencontreIdx === r._idx && r.commentaires?.trim() && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '12px',
+                                  right: '12px',
+                                  background: '#1e293b',
+                                  color: 'white',
+                                  padding: '12px',
+                                  borderRadius: '8px',
+                                  fontSize: '0.8rem',
+                                  lineHeight: '1.5',
+                                  zIndex: 1000,
+                                  marginTop: '8px',
+                                  boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                                  whiteSpace: 'pre-wrap',
+                                  wordBreak: 'break-word',
+                                  border: '1px solid #475569',
+                                  maxWidth: '400px'
+                                }}>
+                                  {r.commentaires}
+                                  <div style={{
+                                    position: 'absolute',
+                                    bottom: '100%',
+                                    left: '20px',
+                                    width: '0',
+                                    height: '0',
+                                    borderLeft: '6px solid transparent',
+                                    borderRight: '6px solid transparent',
+                                    borderBottom: '6px solid #1e293b'
+                                  }} />
+                                </div>
+                              )}
+                            </tr>
+                          ))}
+                        </>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              })() : (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
                   <p>Aucune demande trouvée pour vos directions</p>
                 </div>
@@ -1245,10 +1268,12 @@ function App() {
                     {suiviList.map((s: any) => (
                       <div key={s.id} style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                         <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: '4px' }}>{s.action_item}</div>
-                        <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', gap: '12px' }}>
+                        <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', gap: '12px', alignItems: 'center' }}>
                           <span>Responsable: {s.responsable || '-'}</span>
                           <span>Échéance: {s.date_echeance ? new Date(s.date_echeance).toLocaleDateString('fr-FR') : '-'}</span>
-                          <span style={{ color: s.statut === 'terminé' ? '#16a34a' : '#d97706' }}>{s.statut}</span>
+                          {s.statut === 'terminé'
+                            ? <CheckCircle2 size={16} color="#16a34a" title="Terminé" />
+                            : <Clock size={16} color="#0284c7" title="En cours" />}
                         </div>
                       </div>
                     ))}

@@ -434,6 +434,62 @@ async function setupDb() {
         console.warn('[DB Migration] Erreur ajout colonne suivi:', e.message);
     }
 
+    // Migration: Ajouter colonne service à direction_emails
+    try {
+        const cols = await db.all("PRAGMA table_info(direction_emails)");
+        if (!cols.some(c => c.name === 'service')) {
+            await db.exec('ALTER TABLE direction_emails ADD COLUMN service TEXT');
+            console.log('[DB Migration] Colonne service ajoutée à direction_emails');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur ajout colonne service à direction_emails:', e.message);
+    }
+
+    // Migration: Créer table rencontres_reunions
+    try {
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS rencontres_reunions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titre TEXT NOT NULL,
+                date_reunion DATETIME NOT NULL,
+                annee INTEGER,
+                lieu TEXT,
+                description TEXT,
+                statut TEXT DEFAULT 'planifiée',
+                created_by TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS reunion_participants (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reunion_id INTEGER NOT NULL,
+                nom TEXT NOT NULL,
+                prenom TEXT,
+                email TEXT,
+                service TEXT,
+                direction TEXT,
+                type_presence TEXT DEFAULT 'metier',
+                ad_username TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions (id) ON DELETE CASCADE
+            );
+        `);
+        console.log('[DB Migration] Tables rencontres_reunions et reunion_participants créées');
+    } catch (e) {
+        console.warn('[DB Migration] Erreur création tables réunions:', e.message);
+    }
+
+    // Migration: Ajouter reunion_id à rencontres_budgetaires
+    try {
+        const cols = await db.all("PRAGMA table_info(rencontres_budgetaires)");
+        if (!cols.some(c => c.name === 'reunion_id')) {
+            await db.exec('ALTER TABLE rencontres_budgetaires ADD COLUMN reunion_id INTEGER REFERENCES rencontres_reunions(id) ON DELETE SET NULL');
+            console.log('[DB Migration] Colonne reunion_id ajoutée à rencontres_budgetaires');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur ajout colonne reunion_id:', e.message);
+    }
+
     // Migration: Créer la tuile Rencontres si elle n'existe pas
     try {
         const existingTile = await db.get("SELECT id FROM tiles WHERE title = 'Rencontres Budgétaires'");
