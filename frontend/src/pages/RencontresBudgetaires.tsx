@@ -563,7 +563,14 @@ const RencontresBudgetaires: React.FC = () => {
   };
 
   const addParticipantManuelDetail = async () => {
-    if (!detailNewParticipant.nom || !selectedReunion) return;
+    if (!detailNewParticipant.nom) {
+      alert('Le nom est obligatoire');
+      return;
+    }
+    if (!selectedReunion) {
+      alert('Aucune réunion sélectionnée');
+      return;
+    }
     try {
       setIsAddingDetailParticipant(true);
       const res = await fetch(`/api/rencontres-reunions/${selectedReunion.id}/participants`, {
@@ -572,15 +579,17 @@ const RencontresBudgetaires: React.FC = () => {
         body: JSON.stringify(detailNewParticipant)
       });
       if (res.ok) {
+        alert('Participant ajouté');
         setDetailNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier', statut_presence: 'present' });
         setShowAddParticipantDetail(false);
         openReunionDetail(selectedReunion);
       } else {
         const err = await res.json();
-        alert(`Erreur : ${err.error}`);
+        alert(`Erreur : ${err.error || 'Erreur ajout participant'}`);
       }
     } catch (e) {
-      alert('Erreur ajout participant');
+      console.error('Erreur ajout participant:', e);
+      alert('Erreur lors de l\'ajout du participant');
     } finally {
       setIsAddingDetailParticipant(false);
     }
@@ -624,20 +633,37 @@ const RencontresBudgetaires: React.FC = () => {
   const suggestedServices = [...new Set(reunionParticipants.map(p => p.service).filter(Boolean))] as string[];
 
   const handleCreateDemande = async () => {
-    if (!newDemande.titre || !newDemande.direction || !selectedReunion) return;
-    const annee = selectedReunion.annee || new Date(selectedReunion.date_reunion).getFullYear();
-    const res = await fetch('/api/rencontres-budgetaires/from-reunion', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...newDemande, annee, date_reunion: selectedReunion.date_reunion, reunion_id: selectedReunion.id })
-    });
-    if (res.ok) {
-      setShowCreateDemandeModal(false);
-      setNewDemande({ titre: '', direction: '', service: '', type: '', description: '' });
-      openReunionDetail(selectedReunion);
-    } else {
-      const err = await res.json();
-      alert(`Erreur : ${err.error}`);
+    if (!newDemande.titre) {
+      alert('Le titre de la demande est obligatoire');
+      return;
+    }
+    if (!newDemande.direction) {
+      alert('La direction est obligatoire');
+      return;
+    }
+    if (!selectedReunion) {
+      alert('Aucune réunion sélectionnée');
+      return;
+    }
+    try {
+      const annee = selectedReunion.annee || new Date(selectedReunion.date_reunion).getFullYear();
+      const res = await fetch('/api/rencontres-budgetaires/from-reunion', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newDemande, annee, date_reunion: selectedReunion.date_reunion, reunion_id: selectedReunion.id })
+      });
+      if (res.ok) {
+        alert('Demande créée avec succès');
+        setShowCreateDemandeModal(false);
+        setNewDemande({ titre: '', direction: '', service: '', type: '', description: '' });
+        openReunionDetail(selectedReunion);
+      } else {
+        const err = await res.json();
+        alert(`Erreur : ${err.error || 'Erreur lors de la création'}`);
+      }
+    } catch (e) {
+      console.error('Erreur création demande:', e);
+      alert('Erreur lors de la création de la demande');
     }
   };
 
