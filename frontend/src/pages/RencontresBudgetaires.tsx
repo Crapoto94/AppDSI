@@ -133,7 +133,7 @@ const RencontresBudgetaires: React.FC = () => {
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
   const statuts = ['importée', 'planifiée', 'effectuée'];
   const arbitrages = ['OK DSI', 'En attente', 'Refusé', 'À discuter'];
-  const types = [...new Set(rencontres.map(r => r.type).filter(t => t))].sort();
+  const types = ['incident', 'demande', 'projet', 'autre'];
 
   useEffect(() => {
     if (token) {
@@ -642,9 +642,6 @@ const RencontresBudgetaires: React.FC = () => {
     setNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier', statut_presence: 'present' });
   };
 
-  // Services suggérés depuis les participants présents/excusés
-  const suggestedServices = [...new Set(reunionParticipants.map(p => p.service).filter(Boolean))] as string[];
-
   const handleCreateDemande = async () => {
     if (!newDemande.titre) {
       alert('Le titre de la demande est obligatoire');
@@ -747,7 +744,7 @@ const RencontresBudgetaires: React.FC = () => {
               <span>{isImporting ? 'Import...' : 'Importer'}</span>
             </button>
             <button
-              style={{ ...styles.toolbarBtn, backgroundColor: showManageReunions ? '#1d4ed8' : undefined, color: showManageReunions ? 'white' : undefined }}
+              style={styles.toolbarBtn}
               onClick={() => setShowManageReunions(v => !v)}
               title="Gérer les réunions"
             >
@@ -1795,40 +1792,40 @@ const RencontresBudgetaires: React.FC = () => {
         )}
 
         {/* Modale création demande dans une réunion */}
-        {showCreateDemandeModal && selectedReunion && (
-          <div style={{position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-            <div style={{background: 'white', borderRadius: '14px', width: '100%', maxWidth: '600px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)'}}>
-              <div style={{padding: '20px 24px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <h3 style={{margin: 0, fontSize: '16px', fontWeight: '800', color: '#1e293b'}}>Nouvelle demande — {selectedReunion.titre}</h3>
-                <button onClick={() => setShowCreateDemandeModal(false)} style={{background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '30px', height: '30px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}><X size={15} /></button>
-              </div>
-              <div style={{flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'grid', gridTemplateColumns: '1fr', gap: '14px'}}>
-                <div>
-                  <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>TITRE DE LA DEMANDE *</label>
-                  <input type="text" style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newDemande.titre} onChange={e => setNewDemande(v => ({...v, titre: e.target.value}))} />
+        {showCreateDemandeModal && selectedReunion && (() => {
+          const demandeServices = [...new Set((selectedReunion?.participants || []).map(p => p.service).filter(Boolean))] as string[];
+          return (
+            <div style={{position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
+              <div style={{background: 'white', borderRadius: '14px', width: '100%', maxWidth: '600px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)'}}>
+                <div style={{padding: '20px 24px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                  <h3 style={{margin: 0, fontSize: '16px', fontWeight: '800', color: '#1e293b'}}>Nouvelle demande — {selectedReunion.titre}</h3>
+                  <button onClick={() => setShowCreateDemandeModal(false)} style={{background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '30px', height: '30px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}><X size={15} /></button>
                 </div>
-                <div>
-                  <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>DIRECTION *</label>
-                  <select style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}} value={newDemande.direction} onChange={e => setNewDemande(v => ({...v, direction: e.target.value}))}>
-                    <option value="">-- Sélectionner --</option>
-                    {[...new Set((selectedReunion?.participants || []).map(p => p.direction).filter(Boolean))].map(d => <option key={d} value={d as string}>{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>SERVICE (depuis les participants)</label>
-                  <select style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}} value={newDemande.service} onChange={e => setNewDemande(v => ({...v, service: e.target.value}))}>
-                    <option value="">-- Sélectionner --</option>
-                    {suggestedServices.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>TYPE</label>
-                  <select style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}} value={newDemande.type} onChange={e => setNewDemande(v => ({...v, type: e.target.value}))}>
-                    <option value="">-- Sélectionner --</option>
-                    <option value="Demande">Demande</option>
-                    <option value="Investissement">Investissement</option>
-                    <option value="Projet">Projet</option>
-                  </select>
+                <div style={{flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'grid', gridTemplateColumns: '1fr', gap: '14px'}}>
+                  <div>
+                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>TITRE DE LA DEMANDE *</label>
+                    <input type="text" style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newDemande.titre} onChange={e => setNewDemande(v => ({...v, titre: e.target.value}))} />
+                  </div>
+                  <div>
+                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>DIRECTION *</label>
+                    <select style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}} value={newDemande.direction} onChange={e => setNewDemande(v => ({...v, direction: e.target.value}))}>
+                      <option value="">-- Sélectionner --</option>
+                      {[...new Set((selectedReunion?.participants || []).map(p => p.direction).filter(Boolean))].map(d => <option key={d} value={d as string}>{d}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>SERVICE (depuis les participants)</label>
+                    <select style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}} value={newDemande.service} onChange={e => setNewDemande(v => ({...v, service: e.target.value}))}>
+                      <option value="">-- Sélectionner --</option>
+                      {demandeServices.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>TYPE</label>
+                    <select style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}} value={newDemande.type} onChange={e => setNewDemande(v => ({...v, type: e.target.value}))}>
+                      <option value="">-- Sélectionner --</option>
+                      {types.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
                 </div>
                 <div>
                   <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>DESCRIPTION</label>
@@ -1841,7 +1838,8 @@ const RencontresBudgetaires: React.FC = () => {
               </div>
             </div>
           </div>
-        )}
+        );
+        })()}
 
         <input
           type="file"
