@@ -9637,30 +9637,71 @@ app.delete('/api/glpi/scheduled-syncs/:id', authenticateAdmin, async (req, res) 
 function excelDateToISO(excelDate) {
     if (!excelDate && excelDate !== 0) return null;
 
-    const dateNum = typeof excelDate === 'string' ? parseInt(excelDate) : excelDate;
-
-    // Excel serial number: days since 1899-12-30 (with 1900 leap year bug)
-    if (!isNaN(dateNum) && dateNum > 0) {
-        // Excel epoch is December 30, 1899
-        // But we need to account for the leap year bug in 1900
-        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-        const date = new Date(excelEpoch.getTime() + dateNum * 86400000);
-        const year = date.getUTCFullYear();
-        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(date.getUTCDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    }
-
-    // Try to parse as string DD/MM/YYYY or YYYY-MM-DD
+    // Try string date formats first (before treating as numeric)
     if (typeof excelDate === 'string') {
+        let cleanDate = excelDate.trim();
+
+        // Standard formats
         const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
         const yyyymmdd = /^(\d{4})-(\d{2})-(\d{2})$/;
+        const ddmmyyyy_dash = /^(\d{1,2})-(\d{1,2})-(\d{4})$/;
+        const ddmmyyyy_dot = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/;
+        const mmddyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/; // Could be MM/DD/YYYY too
 
-        let match = excelDate.match(ddmmyyyy);
+        // Try standard DD/MM/YYYY
+        let match = cleanDate.match(ddmmyyyy);
         if (match) return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
 
-        match = excelDate.match(yyyymmdd);
-        if (match) return excelDate;
+        // Try standard YYYY-MM-DD
+        match = cleanDate.match(yyyymmdd);
+        if (match) return cleanDate;
+
+        // Try DD-MM-YYYY
+        match = cleanDate.match(ddmmyyyy_dash);
+        if (match) return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+
+        // Try DD.MM.YYYY
+        match = cleanDate.match(ddmmyyyy_dot);
+        if (match) return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+
+        // Auto-correct malformed dates: extract digits and validate
+        const digitsOnly = cleanDate.replace(/[^\d]/g, '');
+
+        // Try patterns: DDMMYYYY (8 digits), DDMM/YYYY (8 digits), etc.
+        if (digitsOnly.match(/^\d{8}$/)) {
+            // Could be DDMMYYYY or MMDDYYYY
+            const day = digitsOnly.substring(0, 2);
+            const month = digitsOnly.substring(2, 4);
+            const year = digitsOnly.substring(4, 8);
+
+            // Validate: day should be 01-31, month should be 01-12
+            if (parseInt(day) >= 1 && parseInt(day) <= 31 && parseInt(month) >= 1 && parseInt(month) <= 12) {
+                return `${year}-${month}-${day}`;
+            }
+        }
+
+        // Try as Excel serial number (last resort for strings that are just numbers)
+        if (cleanDate.match(/^\d+$/)) {
+            const dateNum = parseInt(cleanDate);
+            if (dateNum > 0 && dateNum < 100000) {
+                const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+                const date = new Date(excelEpoch.getTime() + dateNum * 86400000);
+                const year = date.getUTCFullYear();
+                const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+                const day = String(date.getUTCDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            }
+        }
+    } else if (typeof excelDate === 'number') {
+        // Handle numeric Excel serial dates
+        if (excelDate > 0 && excelDate < 100000) {
+            const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+            const date = new Date(excelEpoch.getTime() + excelDate * 86400000);
+            const year = date.getUTCFullYear();
+            const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(date.getUTCDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
     }
 
     return null;
