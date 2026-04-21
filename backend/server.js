@@ -254,7 +254,7 @@ async function getADUserInfo(username, config) {
 }
 
 // Configuration Multer dynamique
-const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img', 'file_telecom', 'logs'];
+const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img', 'file_telecom', 'file_reunions', 'logs'];
 folders.forEach(f => {
     const dir = path.join(__dirname, f);
     if (!fs.existsSync(dir)) {
@@ -289,6 +289,7 @@ const storage = multer.diskStorage({
         else if (type === 'certif') folder = 'file_certif';
         else if (type === 'telecom_invoice') folder = 'file_telecom';
         else if (type === 'magapp_icon') folder = 'magapp_img';
+        else if (type === 'reunion') folder = 'file_reunions';
         const dest = path.join(__dirname, folder);
 
         const logMsg = `Multer Destination: type=${type}, folder=${folder}, dest=${dest}`;
@@ -314,6 +315,19 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 const uploadMemory = multer({ storage: multer.memoryStorage() });
+
+// Dedicated uploader for reunion attachments with hardcoded destination
+const reunionStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, path.join(__dirname, 'file_reunions'));
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        const base = path.basename(file.originalname, ext).replace(/[^a-z0-9_\-]/gi, '_');
+        cb(null, `${req.params.id || 'r'}_${Date.now()}_${base}${ext}`);
+    }
+});
+const uploadReunion = multer({ storage: reunionStorage, limits: { fileSize: 50 * 1024 * 1024 } });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -383,6 +397,8 @@ app.use('/file_factures', express.static(path.join(__dirname, 'file_factures')))
 app.use('/api/file_factures', express.static(path.join(__dirname, 'file_factures')));
 app.use('/file_certif', express.static(path.join(__dirname, 'file_certif')));
 app.use('/api/file_certif', express.static(path.join(__dirname, 'file_certif')));
+app.use('/file_reunions', express.static(path.join(__dirname, 'file_reunions')));
+app.use('/api/file_reunions', express.static(path.join(__dirname, 'file_reunions')));
 
 // Middleware to verify JWT
 const authenticateJWT = (req, res, next) => {
@@ -657,6 +673,71 @@ app.post('/api/ad-settings', authenticateAdmin, async (req, res) => {
         res.json({ message: 'Paramètres AD enregistrés' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur enregistrement paramètres AD' });
+    }
+});
+
+// GET: Rechercher des utilisateurs dans Active Directory
+app.get('/api/ad/search', authenticateJWT, async (req, res) => {
+    try {
+        const query = req.query.q || '';
+        if (!query || query.length < 2) {
+            return res.json([]);
+        }
+
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) {
+            return res.status(400).json({ error: 'Active Directory non configuré' });
+        }
+
+        // Essayer différentes combinaisons de nom/prénom
+        const parts = query.split(' ').filter(p => p);
+        const results = [];
+        const foundUsernames = new Set();
+
+        // Recherche avec chaque partie comme nom ou prénom
+        for (let i = 0; i < parts.length; i++) {
+            for (let j = 0; j < parts.length; j++) {
+                if (i === j) continue;
+                try {
+                    const user = await searchADUserByName(parts[i], parts[j], adSettings);
+                    if (user && user.sAMAccountName && !foundUsernames.has(user.sAMAccountName)) {
+                        foundUsernames.add(user.sAMAccountName);
+                        results.push({
+                            username: user.sAMAccountName,
+                            displayName: user.displayName || user.cn || user.sAMAccountName,
+                            email: user.mail || '',
+                            service: user.department || '',
+                            direction: user.company || ''
+                        });
+                    }
+                } catch (e) {
+                    // Continuer avec la prochaine combinaison
+                }
+            }
+        }
+
+        // Si pas de résultats, essayer une recherche simple
+        if (results.length === 0) {
+            try {
+                const user = await searchADUserByName(query, '', adSettings);
+                if (user && user.sAMAccountName) {
+                    results.push({
+                        username: user.sAMAccountName,
+                        displayName: user.displayName || user.cn || user.sAMAccountName,
+                        email: user.mail || '',
+                        service: user.department || '',
+                        direction: user.company || ''
+                    });
+                }
+            } catch (e) {
+                // Aucun résultat
+            }
+        }
+
+        res.json(results);
+    } catch (error) {
+        console.error('Erreur recherche AD:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -9556,26 +9637,30 @@ app.delete('/api/glpi/scheduled-syncs/:id', authenticateAdmin, async (req, res) 
 function excelDateToISO(excelDate) {
     if (!excelDate && excelDate !== 0) return null;
 
-    // Tester les formats texte EN PREMIER pour éviter que parseInt('09/09/2025') = 9
-    // soit traité comme un numéro de série Excel
+    const dateNum = typeof excelDate === 'string' ? parseInt(excelDate) : excelDate;
+
+    // Excel serial number: days since 1899-12-30 (with 1900 leap year bug)
+    if (!isNaN(dateNum) && dateNum > 0) {
+        // Excel epoch is December 30, 1899
+        // But we need to account for the leap year bug in 1900
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+        const date = new Date(excelEpoch.getTime() + dateNum * 86400000);
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    // Try to parse as string DD/MM/YYYY or YYYY-MM-DD
     if (typeof excelDate === 'string') {
-        const s = excelDate.trim();
         const ddmmyyyy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
         const yyyymmdd = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-        let match = s.match(ddmmyyyy);
+        let match = excelDate.match(ddmmyyyy);
         if (match) return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
 
-        match = s.match(yyyymmdd);
-        if (match) return s;
-    }
-
-    // Numéro de série Excel pur (ex: 45908) — seuil > 1000 pour éviter les faux positifs
-    const dateNum = typeof excelDate === 'string' ? Number(excelDate.trim()) : excelDate;
-    if (Number.isInteger(dateNum) && dateNum > 1000) {
-        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-        const date = new Date(excelEpoch.getTime() + dateNum * 86400000);
-        return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+        match = excelDate.match(yyyymmdd);
+        if (match) return excelDate;
     }
 
     return null;
@@ -9649,36 +9734,6 @@ app.get('/api/rencontres-budgetaires', authenticateJWT, async (req, res) => {
 });
 
 // GET: Détail d'une rencontre avec participants et suivi
-app.get('/api/rencontres-budgetaires/:id/glpi-link', authenticateJWT, async (req, res) => {
-    try {
-        const rencontre = await db.get('SELECT id, ticket_glpi FROM rencontres_budgetaires WHERE id = ?', [req.params.id]);
-        if (!rencontre || !rencontre.ticket_glpi) return res.status(404).json({ error: 'Aucun ticket GLPI associé' });
-        const settings = await db.get('SELECT url, app_token, user_token, login, password FROM glpi_settings WHERE id = 1');
-        if (!settings || !settings.url) return res.status(400).json({ error: 'GLPI non configuré' });
-        const baseUrl = settings.url.trim().replace(/\/apirest\.php.*$/, '').replace(/\/$/, '');
-        const ticketUrl = `${baseUrl}/front/ticket.form.php?id=${rencontre.ticket_glpi}`;
-        try {
-            const apiUrl = baseUrl + '/apirest.php';
-            const authHeader = (settings.user_token || '').trim()
-                ? `user_token ${settings.user_token.trim()}`
-                : `Basic ${Buffer.from(`${(settings.login||'').trim()}:${(settings.password||'').trim()}`).toString('base64')}`;
-            const headers = { 'App-Token': (settings.app_token||'').trim(), 'Content-Type': 'application/json' };
-            const httpsAgent = new (require('https').Agent)({ rejectUnauthorized: false });
-            const sessionRes = await axios.get(`${apiUrl}/initSession`, { headers: { ...headers, Authorization: authHeader }, timeout: 5000, httpsAgent });
-            const sessionToken = sessionRes.data?.session_token;
-            if (sessionToken) {
-                const ticketRes = await axios.get(`${apiUrl}/Ticket/${rencontre.ticket_glpi}`, { headers: { ...headers, 'Session-Token': sessionToken }, timeout: 5000, validateStatus: () => true, httpsAgent });
-                axios.get(`${apiUrl}/killSession`, { headers: { ...headers, 'Session-Token': sessionToken }, httpsAgent }).catch(() => {});
-                if (ticketRes.status === 404 || ticketRes.data?.ERROR === 'ERROR_ITEM_NOT_FOUND') {
-                    await db.run('UPDATE rencontres_budgetaires SET ticket_glpi = NULL WHERE id = ?', [rencontre.id]);
-                    return res.json({ exists: false, message: `Ticket #${rencontre.ticket_glpi} introuvable dans GLPI — numéro supprimé` });
-                }
-            }
-        } catch (e) { console.warn('[GLPI LINK] Vérification ignorée:', e.message); }
-        res.json({ exists: true, url: ticketUrl, ticket_id: rencontre.ticket_glpi });
-    } catch (error) { res.status(500).json({ error: error.message }); }
-});
-
 app.get('/api/rencontres-budgetaires/:id', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
@@ -9711,55 +9766,80 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
         // DEBUG: Log filename
         let debugLog = `Filename: "${fileName}"\n`;
 
-        // CSV parsing avec gestion BOM, encodage Windows-1252 et champs multi-lignes
-        {
-            let content = req.file.buffer.toString('utf-8');
-            if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
-            if (content.includes('\ufffd')) {
-                const win1252Map = {
-                    0x80: '\u20AC', 0x82: '\u201A', 0x83: '\u0192', 0x84: '\u201E', 0x85: '\u2026',
-                    0x86: '\u2020', 0x87: '\u2021', 0x88: '\u02C6', 0x89: '\u2030', 0x8A: '\u0160',
-                    0x8B: '\u2039', 0x8C: '\u0152', 0x8E: '\u017D', 0x91: '\u2018', 0x92: '\u2019',
-                    0x93: '\u201C', 0x94: '\u201D', 0x95: '\u2022', 0x96: '\u2013', 0x97: '\u2014',
-                    0x98: '\u02DC', 0x99: '\u2122', 0x9A: '\u0161', 0x9B: '\u203A', 0x9C: '\u0153',
-                    0x9E: '\u017E', 0x9F: '\u0178'
-                };
-                content = Array.from(req.file.buffer).map(b => win1252Map[b] || String.fromCharCode(b)).join('');
-                if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
+        // FORCE CSV parsing regardless of filename
+        if (true) { // Force CSV parsing
+            const content = req.file.buffer.toString('utf-8');
+            const lines = content.split('\n').filter(l => l.trim().length > 0);
+
+            if (lines.length < 2) {
+                return res.status(400).json({ error: 'Fichier CSV vide' });
             }
 
-            function parseCSVImport(text, delimiter = ';') {
-                const result = [];
-                let row = [], field = '', inQuotes = false, i = 0;
-                text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-                while (i < text.length) {
-                    const ch = text[i];
-                    if (inQuotes) {
-                        if (ch === '"') { if (text[i+1] === '"') { field += '"'; i += 2; continue; } inQuotes = false; }
-                        else field += ch;
-                    } else {
-                        if (ch === '"') inQuotes = true;
-                        else if (ch === delimiter) { row.push(field); field = ''; }
-                        else if (ch === '\n') { row.push(field); field = ''; if (row.some(f => f.trim())) result.push(row); row = []; }
-                        else field += ch;
-                    }
-                    i++;
-                }
-                row.push(field);
-                if (row.some(f => f.trim())) result.push(row);
-                return result;
-            }
+            // Parse headers
+            const headerLine = lines[0];
+            debugLog += `RawHeaderLine: "${headerLine}"\n`;
+            const headers = headerLine.split(';').map(h => h.trim().replace(/^"|"$/g, ''));
 
-            const parsed = parseCSVImport(content);
-            if (parsed.length < 2) return res.status(400).json({ error: 'Fichier CSV vide' });
-
-            const headers = parsed[0].map(h => h.trim());
+            // Find Suivi column index
             const suiviIndex = headers.findIndex(h => h.toLowerCase() === 'suivi');
-            for (let i = 1; i < parsed.length; i++) {
-                const values = parsed[i];
+
+            // DEBUG: Append to existing debug log
+            debugLog += `Headers: ${JSON.stringify(headers)}\nSuiviIndex: ${suiviIndex}\n`;
+            debugLog += `Header[${suiviIndex}]: "${headers[suiviIndex]}"\n\n`;
+
+            // Parse data rows
+            for (let i = 1; i < lines.length; i++) {
+                const rawLine = lines[i];
+                const values = rawLine.split(';').map(v => v.trim().replace(/^"|"$/g, ''));
                 const row = {};
-                headers.forEach((header, idx) => { row[header] = (values[idx] || '').trim(); });
-                row['__suivi'] = suiviIndex >= 0 ? (values[suiviIndex] || '').trim() : '';
+
+                // Map all columns
+                headers.forEach((header, idx) => {
+                    row[header] = values[idx] || '';
+                });
+
+                // Store suivi separately for reliability
+                const rawSuiviValue = suiviIndex >= 0 ? (values[suiviIndex] || '') : '';
+                row['__suivi'] = rawSuiviValue;
+                row['__rawSuiviValue'] = rawSuiviValue;
+
+                // DEBUG: First 5 rows - very detailed
+                if (i <= 5) {
+                    debugLog += `Row${i}:\n`;
+                    debugLog += `  RawLine: "${rawLine.substring(0, 150)}..."\n`;
+                    debugLog += `  Split count: ${values.length}, HeaderCount: ${headers.length}\n`;
+                    debugLog += `  values[${suiviIndex}]: "${values[suiviIndex]}"\n`;
+                    debugLog += `  rawSuiviValue: "${rawSuiviValue}"\n`;
+                    debugLog += `  row['__suivi']: "${row['__suivi']}"\n`;
+                    debugLog += `  row['Suivi']: "${row['Suivi']}"\n`;
+                    debugLog += `  row['suivi']: "${row['suivi']}"\n`;
+                    debugLog += `  Keys in row: ${Object.keys(row).join(', ')}\n\n`;
+                }
+
+                rows.push(row);
+            }
+
+            // Write debug
+            try {
+                fs.writeFileSync(path.join(__dirname, 'CSV_PARSE_DEBUG.txt'), debugLog);
+            } catch (e) {}
+        } else {
+            // Excel fallback
+            const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rawData = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+
+            if (rawData.length < 2) {
+                return res.status(400).json({ error: 'Aucune donnée' });
+            }
+
+            const headers = rawData[0];
+            for (let i = 1; i < rawData.length; i++) {
+                const row = {};
+                headers.forEach((h, idx) => {
+                    if (h) row[h.toString().trim()] = rawData[i][idx] || '';
+                });
+                row['__suivi'] = rawData[i][10] || '';
                 rows.push(row);
             }
         }
@@ -9901,10 +9981,9 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
 });
 
 // POST: Créer une rencontre manuelle
-// POST: Créer une rencontre (admin/finances)
 app.post('/api/rencontres-budgetaires', authenticateAdminOrFinances, async (req, res) => {
     try {
-        const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires } = req.body;
+        const { titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires } = req.body;
 
         if (!titre || !direction) {
             return res.status(400).json({ error: 'Titre et Direction sont obligatoires' });
@@ -9912,9 +9991,9 @@ app.post('/api/rencontres-budgetaires', authenticateAdminOrFinances, async (req,
 
         const result = await db.run(
             `INSERT INTO rencontres_budgetaires
-            (titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
-            [titre, direction, service || null, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires]
+            (titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
+            [titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires]
         );
 
         res.json({ id: result.lastID, message: 'Rencontre créée' });
@@ -9924,10 +10003,10 @@ app.post('/api/rencontres-budgetaires', authenticateAdminOrFinances, async (req,
     }
 });
 
-// POST: Créer une demande dans une réunion (tous les utilisateurs JWT)
+// POST: Créer une demande depuis une réunion
 app.post('/api/rencontres-budgetaires/from-reunion', authenticateJWT, async (req, res) => {
     try {
-        const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, reunion_id } = req.body;
+        const { titre, direction, service, date_reunion, annee, type, description, reunion_id } = req.body;
 
         if (!titre || !direction) {
             return res.status(400).json({ error: 'Titre et Direction sont obligatoires' });
@@ -9935,14 +10014,14 @@ app.post('/api/rencontres-budgetaires/from-reunion', authenticateJWT, async (req
 
         const result = await db.run(
             `INSERT INTO rencontres_budgetaires
-            (titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, reunion_id, statut)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
-            [titre, direction, service || null, date_reunion, annee, type, description, cout_ttc || null, arbitrage || null, responsable_dsi || null, reunion_id || null]
+            (titre, direction, service, date_reunion, annee, type, description, statut, reunion_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'demandée', ?)`,
+            [titre, direction, service || null, date_reunion, annee, type, description, reunion_id]
         );
 
-        res.json({ id: result.lastID, message: 'Demande créée' });
+        res.status(201).json({ id: result.lastID, message: 'Demande créée depuis la réunion', reunion_id });
     } catch (error) {
-        console.error('Erreur POST demande réunion:', error);
+        console.error('Erreur création demande depuis réunion:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -10141,6 +10220,306 @@ app.delete('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
     }
 });
 
+// ===== GESTION DES RÉUNIONS =====
+
+// POST: Générer les réunions pour les demandes non associées
+app.post('/api/rencontres-reunions/generate', authenticateJWT, async (req, res) => {
+    try {
+        // Trouver toutes les directions avec des demandes non associées à une réunion
+        const demandesNonAssociees = await db.all(`
+            SELECT DISTINCT direction, DATE(date_reunion) as date_reunion
+            FROM rencontres_budgetaires
+            WHERE reunion_id IS NULL AND direction IS NOT NULL
+            ORDER BY direction, date_reunion
+        `);
+
+        if (demandesNonAssociees.length === 0) {
+            return res.json({ message: 'Aucune demande non associée trouvée', reunions_created: 0 });
+        }
+
+        const username = req.user?.username || 'unknown';
+        const reunionsCreated = [];
+
+        // Créer une réunion par direction-date
+        for (const demande of demandesNonAssociees) {
+            const { direction, date_reunion } = demande;
+            const annee = date_reunion ? new Date(date_reunion).getFullYear() : new Date().getFullYear();
+
+            // Créer la réunion
+            const reunionResult = await db.run(
+                `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, statut, created_by)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [`Réunion ${direction} - ${date_reunion}`, date_reunion, annee, '', 'planifiée', username]
+            );
+
+            const reunionId = reunionResult.lastID;
+
+            // Associer toutes les demandes de la même direction et date à cette réunion
+            const updateResult = await db.run(
+                `UPDATE rencontres_budgetaires
+                 SET reunion_id = ?
+                 WHERE direction = ? AND DATE(date_reunion) = ? AND reunion_id IS NULL`,
+                [reunionId, direction, date_reunion]
+            );
+
+            reunionsCreated.push({
+                reunion_id: reunionId,
+                direction: direction,
+                date_reunion: date_reunion,
+                demandes_associees: updateResult.changes
+            });
+        }
+
+        res.json({
+            message: 'Réunions générées avec succès',
+            reunions_created: reunionsCreated.length,
+            details: reunionsCreated
+        });
+    } catch (error) {
+        console.error('Erreur génération réunions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET: Lister toutes les réunions
+app.get('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
+    try {
+        const reunions = await db.all(`
+            SELECT r.*,
+                   COUNT(DISTINCT p.id) as participant_count,
+                   COUNT(DISTINCT a.id) as attachment_count
+            FROM rencontres_reunions r
+            LEFT JOIN reunion_participants p ON r.id = p.reunion_id
+            LEFT JOIN reunion_attachments a ON r.id = a.reunion_id
+            GROUP BY r.id
+            ORDER BY r.date_reunion DESC
+        `);
+        res.json(reunions || []);
+    } catch (error) {
+        console.error('Erreur GET rencontres-reunions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Créer une nouvelle réunion
+app.post('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
+    try {
+        const { titre, date_reunion, annee, lieu, description, statut } = req.body;
+        const username = req.user?.username || 'unknown';
+
+        const result = await db.run(
+            `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, statut, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [titre, date_reunion, annee || new Date().getFullYear(), lieu, description, statut || 'planifiée', username]
+        );
+
+        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [result.lastID]);
+        res.status(201).json(reunion);
+    } catch (error) {
+        console.error('Erreur POST rencontres-reunions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET: Récupérer une réunion spécifique avec ses participants
+app.get('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+
+        if (!reunion) {
+            return res.status(404).json({ error: 'Réunion non trouvée' });
+        }
+
+        const participants = await db.all('SELECT * FROM reunion_participants WHERE reunion_id=? ORDER BY nom', [id]);
+        const attachments = await db.all('SELECT * FROM reunion_attachments WHERE reunion_id=? ORDER BY created_at DESC', [id]);
+
+        reunion.participants = participants;
+        reunion.attachments = attachments;
+
+        res.json(reunion);
+    } catch (error) {
+        console.error('Erreur GET rencontres-reunions/:id:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT: Mettre à jour une réunion
+app.put('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { titre, date_reunion, annee, lieu, description, statut } = req.body;
+
+        await db.run(
+            `UPDATE rencontres_reunions
+             SET titre=?, date_reunion=?, annee=?, lieu=?, description=?, statut=?, updated_at=CURRENT_TIMESTAMP
+             WHERE id=?`,
+            [titre, date_reunion, annee, lieu, description, statut, id]
+        );
+
+        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+        res.json(reunion);
+    } catch (error) {
+        console.error('Erreur PUT rencontres-reunions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer une réunion
+app.delete('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.run('DELETE FROM rencontres_reunions WHERE id=?', [id]);
+        res.json({ message: 'Réunion supprimée' });
+    } catch (error) {
+        console.error('Erreur DELETE rencontres-reunions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Ajouter un participant à une réunion
+app.post('/api/rencontres-reunions/:id/participants', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nom, prenom, email, service, direction, type_presence, statut_presence, ad_username } = req.body;
+
+        const result = await db.run(
+            `INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, nom, prenom, email, service, direction, type_presence || 'metier', statut_presence || 'present', ad_username]
+        );
+
+        const participant = await db.get('SELECT * FROM reunion_participants WHERE id=?', [result.lastID]);
+        res.status(201).json(participant);
+    } catch (error) {
+        console.error('Erreur POST participants:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer un participant
+app.delete('/api/reunion-participants/:id', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await db.run('DELETE FROM reunion_participants WHERE id=?', [id]);
+        res.json({ message: 'Participant supprimé' });
+    } catch (error) {
+        console.error('Erreur DELETE participant:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Upload PJ pour une réunion
+app.post('/api/rencontres-reunions/:id/attachments', authenticateJWT, uploadReunion.array('files', 10), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const username = req.user?.username || 'unknown';
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'Aucun fichier reçu' });
+    }
+    const inserted = [];
+    for (const file of req.files) {
+      const result = await db.run(
+        `INSERT INTO reunion_attachments (reunion_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, file.filename, file.originalname, file.mimetype, file.size, username]
+      );
+      inserted.push({ id: result.lastID, filename: file.filename, original_name: file.originalname, mimetype: file.mimetype, size: file.size });
+    }
+    res.json({ uploaded: inserted.length, files: inserted });
+  } catch (error) {
+    console.error('Erreur upload PJ réunion:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Lister les PJ d'une réunion
+app.get('/api/rencontres-reunions/:id/attachments', authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const attachments = await db.all(
+      `SELECT * FROM reunion_attachments WHERE reunion_id = ? ORDER BY created_at DESC`,
+      [id]
+    );
+    res.json(attachments);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Supprimer une PJ
+app.delete('/api/reunion-attachments/:id', authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const att = await db.get(`SELECT * FROM reunion_attachments WHERE id = ?`, [id]);
+    if (!att) return res.status(404).json({ error: 'PJ introuvable' });
+    // Supprimer le fichier physique
+    const filePath = path.join(__dirname, 'file_reunions', att.filename);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    await db.run(`DELETE FROM reunion_attachments WHERE id = ?`, [id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// DIRECTIONS ET SERVICES
+// ============================================
+
+// GET: Retourne toutes les directions connues (participants réunions + demandes) avec leurs services
+app.get('/api/directions-services', authenticateJWT, async (req, res) => {
+    try {
+        // Directions depuis les participants des réunions (avec leurs services)
+        const fromParticipants = await db.all(`
+            SELECT DISTINCT direction, service
+            FROM reunion_participants
+            WHERE direction IS NOT NULL AND direction != ''
+            ORDER BY direction, service
+        `);
+
+        // Directions depuis les demandes budgétaires
+        const fromDemandes = await db.all(`
+            SELECT DISTINCT direction, service
+            FROM rencontres_budgetaires
+            WHERE direction IS NOT NULL AND direction != ''
+            ORDER BY direction, service
+        `);
+
+        // Fusionner et dédupliquer
+        const all = [...fromParticipants, ...fromDemandes];
+
+        const dirSet = new Set();
+        const svcSet = new Set();
+        const dirServicesMap = {}; // { direction: Set<service> }
+
+        for (const row of all) {
+            if (row.direction) {
+                dirSet.add(row.direction);
+                if (!dirServicesMap[row.direction]) dirServicesMap[row.direction] = new Set();
+                if (row.service) {
+                    svcSet.add(row.service);
+                    dirServicesMap[row.direction].add(row.service);
+                }
+            }
+        }
+
+        // Convertir les Sets en arrays triés
+        const dirServicesFinal = {};
+        for (const [dir, svcs] of Object.entries(dirServicesMap)) {
+            dirServicesFinal[dir] = [...svcs].filter(Boolean).sort();
+        }
+
+        res.json({
+            directions: [...dirSet].sort(),
+            services: [...svcSet].sort(),
+            dirServicesMap: dirServicesFinal
+        });
+    } catch (error) {
+        console.error('Erreur GET directions-services:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ============================================
 // GESTION DES EMAILS PAR DIRECTION
 // ============================================
@@ -10148,7 +10527,7 @@ app.delete('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
 // GET: Lister tous les emails par direction
 app.get('/api/direction-emails', authenticateJWT, async (req, res) => {
     try {
-        const data = await db.all('SELECT id, direction, service, email, created_at FROM direction_emails ORDER BY direction, service, email');
+        const data = await db.all('SELECT id, direction, email, created_at FROM direction_emails ORDER BY direction, email');
         res.json(data || []);
     } catch (error) {
         console.error('Erreur GET direction-emails:', error);
@@ -10161,7 +10540,7 @@ app.get('/api/direction-emails/:direction', authenticateJWT, async (req, res) =>
     try {
         const { direction } = req.params;
         const data = await db.all(
-            'SELECT id, direction, service, email FROM direction_emails WHERE direction = ? ORDER BY service, email',
+            'SELECT id, direction, email FROM direction_emails WHERE direction = ? ORDER BY email',
             [direction]
         );
         res.json(data || []);
@@ -10174,7 +10553,7 @@ app.get('/api/direction-emails/:direction', authenticateJWT, async (req, res) =>
 // POST: Ajouter un email à une direction
 app.post('/api/direction-emails', authenticateAdminOrFinances, async (req, res) => {
     try {
-        const { direction, email, service } = req.body;
+        const { direction, email } = req.body;
 
         if (!direction || !email) {
             return res.status(400).json({ error: 'Direction et email sont obligatoires' });
@@ -10187,8 +10566,8 @@ app.post('/api/direction-emails', authenticateAdminOrFinances, async (req, res) 
         }
 
         await db.run(
-            'INSERT INTO direction_emails (direction, service, email) VALUES (?, ?, ?)',
-            [direction.trim(), service ? service.trim() : null, email.trim().toLowerCase()]
+            'INSERT INTO direction_emails (direction, email) VALUES (?, ?)',
+            [direction.trim(), email.trim().toLowerCase()]
         );
 
         res.json({ message: 'Email ajouté avec succès', direction, email });
@@ -10270,184 +10649,6 @@ app.delete('/api/direction-emails/:id', authenticateAdminOrFinances, async (req,
         res.json({ message: 'Email supprimé avec succès' });
     } catch (error) {
         console.error('Erreur DELETE direction-emails/:id:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// ============================================
-// RECHERCHE AD (FRONTEND PRINCIPAL)
-// ============================================
-
-app.get('/api/ad/search', authenticateJWT, async (req, res) => {
-    const { q } = req.query;
-    if (!q || q.length < 2) return res.json([]);
-    try {
-        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
-        if (!adSettings || !adSettings.is_enabled) return res.json([]);
-
-        const results = await new Promise((resolve, reject) => {
-            const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
-            client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
-                if (err) { client.destroy(); return reject(err); }
-                const filter = `(&(objectClass=user)(|(sAMAccountName=*${q}*)(displayName=*${q}*)(cn=*${q}*)))`;
-                const entries = [];
-                client.search(adSettings.base_dn, { filter, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'department', 'company'], sizeLimit: 20 }, (err, searchRes) => {
-                    if (err) { client.destroy(); return reject(err); }
-                    searchRes.on('searchEntry', (entry) => { const obj = flattenLDAPEntry(entry); if (obj?.sAMAccountName) entries.push(obj); });
-                    searchRes.on('end', () => { client.destroy(); resolve(entries); });
-                    searchRes.on('error', (e) => { client.destroy(); reject(e); });
-                });
-            });
-        });
-
-        // Récupérer les données AD (department, company) uniquement
-        const mapped = (Array.isArray(results) ? results : []).map((r) => ({
-            username: r.sAMAccountName,
-            displayName: r.displayName || r.cn || r.sAMAccountName,
-            email: r.mail || '',
-            service: r.department || null,
-            direction: r.company || null
-        }));
-        res.json(mapped);
-    } catch (error) {
-        console.error('[AD SEARCH HUB] Error:', error.message);
-        res.status(500).json({ message: 'Erreur recherche AD', error: error.message });
-    }
-});
-
-// ============================================
-// RÉUNIONS BUDGÉTAIRES
-// ============================================
-
-// GET: Récupérer les directions et services disponibles (depuis les participants de réunions uniquement)
-app.get('/api/directions-services', authenticateJWT, async (req, res) => {
-    try {
-        // Récupérer depuis participants de réunions uniquement (pas de RH)
-        const participantData = await db.all(`
-            SELECT DISTINCT direction, service
-            FROM reunion_participants
-            WHERE direction IS NOT NULL
-        `);
-
-        const directionsSet = new Set();
-        const servicesSet = new Set();
-
-        participantData.forEach(entry => {
-            if (entry.direction) directionsSet.add(entry.direction);
-            if (entry.service) servicesSet.add(entry.service);
-        });
-
-        res.json({
-            directions: Array.from(directionsSet).sort(),
-            services: Array.from(servicesSet).sort()
-        });
-    } catch (error) {
-        console.error('Erreur récupération directions/services:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// GET: Lister les réunions
-app.get('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
-    try {
-        const reunions = await db.all('SELECT * FROM rencontres_reunions ORDER BY date_reunion DESC');
-        res.json(reunions);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// GET: Détail d'une réunion avec participants et demandes
-app.get('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id = ?', [id]);
-        if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
-        const participants = await db.all('SELECT * FROM reunion_participants WHERE reunion_id = ? ORDER BY type_presence, nom', [id]);
-        const demandes = await db.all('SELECT * FROM rencontres_budgetaires WHERE reunion_id = ? ORDER BY direction, service, titre', [id]);
-        res.json({ ...reunion, participants, demandes });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// POST: Créer une réunion
-app.post('/api/rencontres-reunions', authenticateAdminOrFinances, async (req, res) => {
-    try {
-        const { titre, date_reunion, lieu, description, participants } = req.body;
-        if (!titre || !date_reunion) return res.status(400).json({ error: 'Titre et date sont obligatoires' });
-        const annee = new Date(date_reunion).getFullYear();
-        const result = await db.run(
-            'INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-            [titre.trim(), date_reunion, annee, lieu || null, description || null, req.user.username]
-        );
-        const reunionId = result.lastID;
-        if (Array.isArray(participants) && participants.length > 0) {
-            for (const p of participants) {
-                await db.run(
-                    'INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [reunionId, p.nom || '', p.prenom || null, p.email || null, p.service || null, p.direction || null, p.type_presence || 'metier', p.statut_presence || 'present', p.ad_username || null]
-                );
-            }
-        }
-        const created = await db.get('SELECT * FROM rencontres_reunions WHERE id = ?', [reunionId]);
-        res.status(201).json(created);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// PUT: Modifier une réunion
-app.put('/api/rencontres-reunions/:id', authenticateAdminOrFinances, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { titre, date_reunion, lieu, description, statut } = req.body;
-        const annee = date_reunion ? new Date(date_reunion).getFullYear() : null;
-        await db.run(
-            'UPDATE rencontres_reunions SET titre = ?, date_reunion = ?, annee = ?, lieu = ?, description = ?, statut = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [titre, date_reunion, annee, lieu || null, description || null, statut || 'planifiée', id]
-        );
-        res.json({ message: 'Réunion mise à jour' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// DELETE: Supprimer une réunion
-app.delete('/api/rencontres-reunions/:id', authenticateAdmin, async (req, res) => {
-    try {
-        const { id } = req.params;
-        await db.run('DELETE FROM reunion_participants WHERE reunion_id = ?', [id]);
-        await db.run('UPDATE rencontres_budgetaires SET reunion_id = NULL WHERE reunion_id = ?', [id]);
-        await db.run('DELETE FROM rencontres_reunions WHERE id = ?', [id]);
-        res.json({ message: 'Réunion supprimée' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// POST: Ajouter un participant à une réunion
-app.post('/api/rencontres-reunions/:id/participants', authenticateAdminOrFinances, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { nom, prenom, email, service, direction, type_presence, statut_presence, ad_username } = req.body;
-        if (!nom) return res.status(400).json({ error: 'Le nom est obligatoire' });
-        const result = await db.run(
-            'INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [id, nom, prenom || null, email || null, service || null, direction || null, type_presence || 'metier', statut_presence || 'present', ad_username || null]
-        );
-        res.status(201).json({ id: result.lastID, message: 'Participant ajouté' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// DELETE: Supprimer un participant
-app.delete('/api/reunion-participants/:id', authenticateAdminOrFinances, async (req, res) => {
-    try {
-        await db.run('DELETE FROM reunion_participants WHERE id = ?', [req.params.id]);
-        res.json({ message: 'Participant supprimé' });
-    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });

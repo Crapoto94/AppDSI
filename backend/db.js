@@ -371,8 +371,10 @@ async function setupDb() {
             lien_reference TEXT,
             statut TEXT DEFAULT 'planifiée',
             commentaires TEXT,
+            reunion_id INTEGER,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE SET NULL
         );
 
         CREATE TABLE IF NOT EXISTS rencontres_participants (
@@ -399,9 +401,38 @@ async function setupDb() {
         CREATE TABLE IF NOT EXISTS direction_emails (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             direction TEXT NOT NULL,
+            service TEXT,
             email TEXT NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(direction, email)
+            UNIQUE(direction, service, email)
+        );
+
+        CREATE TABLE IF NOT EXISTS rencontres_reunions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titre TEXT NOT NULL,
+            date_reunion DATETIME,
+            annee INTEGER,
+            lieu TEXT,
+            description TEXT,
+            statut TEXT DEFAULT 'planifiée',
+            created_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS reunion_participants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reunion_id INTEGER NOT NULL,
+            nom TEXT NOT NULL,
+            prenom TEXT,
+            email TEXT,
+            service TEXT,
+            direction TEXT,
+            type_presence TEXT DEFAULT 'metier',
+            statut_presence TEXT DEFAULT 'present',
+            ad_username TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE CASCADE
         );
 
         CREATE INDEX IF NOT EXISTS idx_rencontres_direction ON rencontres_budgetaires(direction);
@@ -410,6 +441,38 @@ async function setupDb() {
         CREATE INDEX IF NOT EXISTS idx_direction_emails ON direction_emails(direction);
         CREATE INDEX IF NOT EXISTS idx_direction_emails_email ON direction_emails(email);
     `);
+
+    // Migration: Créer la table reunion_attachments si elle n'existe pas
+    try {
+        await db.exec(`
+            CREATE TABLE IF NOT EXISTS reunion_attachments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              reunion_id INTEGER NOT NULL,
+              filename TEXT NOT NULL,
+              original_name TEXT NOT NULL,
+              mimetype TEXT,
+              size INTEGER,
+              uploaded_by TEXT,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE CASCADE
+            )
+        `);
+        console.log('[DB Migration] Table reunion_attachments vérifiée/créée');
+    } catch (e) {
+        console.warn('[DB Migration] Erreur création table reunion_attachments:', e.message);
+    }
+
+    // Migration: Ajouter la colonne service à direction_emails si elle n'existe pas
+    try {
+        const result = await db.all("PRAGMA table_info(direction_emails)");
+        const hasServiceColumn = result.some(col => col.name === 'service');
+        if (!hasServiceColumn) {
+            await db.exec('ALTER TABLE direction_emails ADD COLUMN service TEXT');
+            console.log('[DB Migration] Colonne service ajoutée à direction_emails');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur ajout colonne service à direction_emails:', e.message);
+    }
 
     // Migration: Ajouter la colonne service si elle n'existe pas
     try {
@@ -434,67 +497,12 @@ async function setupDb() {
         console.warn('[DB Migration] Erreur ajout colonne suivi:', e.message);
     }
 
-    // Migration: Ajouter colonne service à direction_emails
+    // Migration: Ajouter la colonne reunion_id si elle n'existe pas
     try {
-        const cols = await db.all("PRAGMA table_info(direction_emails)");
-        if (!cols.some(c => c.name === 'service')) {
-            await db.exec('ALTER TABLE direction_emails ADD COLUMN service TEXT');
-            console.log('[DB Migration] Colonne service ajoutée à direction_emails');
-        }
-    } catch (e) {
-        console.warn('[DB Migration] Erreur ajout colonne service à direction_emails:', e.message);
-    }
-
-    // Migration: Créer table rencontres_reunions
-    try {
-        await db.exec(`
-            CREATE TABLE IF NOT EXISTS rencontres_reunions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                titre TEXT NOT NULL,
-                date_reunion DATETIME NOT NULL,
-                annee INTEGER,
-                lieu TEXT,
-                description TEXT,
-                statut TEXT DEFAULT 'planifiée',
-                created_by TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS reunion_participants (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                reunion_id INTEGER NOT NULL,
-                nom TEXT NOT NULL,
-                prenom TEXT,
-                email TEXT,
-                service TEXT,
-                direction TEXT,
-                type_presence TEXT DEFAULT 'metier',
-                ad_username TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions (id) ON DELETE CASCADE
-            );
-        `);
-        console.log('[DB Migration] Tables rencontres_reunions et reunion_participants créées');
-    } catch (e) {
-        console.warn('[DB Migration] Erreur création tables réunions:', e.message);
-    }
-
-    // Migration: Ajouter statut_presence à reunion_participants
-    try {
-        const cols = await db.all("PRAGMA table_info(reunion_participants)");
-        if (!cols.some(c => c.name === 'statut_presence')) {
-            await db.exec('ALTER TABLE reunion_participants ADD COLUMN statut_presence TEXT DEFAULT "present"');
-            console.log('[DB Migration] Colonne statut_presence ajoutée à reunion_participants');
-        }
-    } catch (e) {
-        console.warn('[DB Migration] Erreur ajout colonne statut_presence:', e.message);
-    }
-
-    // Migration: Ajouter reunion_id à rencontres_budgetaires
-    try {
-        const cols = await db.all("PRAGMA table_info(rencontres_budgetaires)");
-        if (!cols.some(c => c.name === 'reunion_id')) {
-            await db.exec('ALTER TABLE rencontres_budgetaires ADD COLUMN reunion_id INTEGER REFERENCES rencontres_reunions(id) ON DELETE SET NULL');
+        const result = await db.all("PRAGMA table_info(rencontres_budgetaires)");
+        const hasReunionIdColumn = result.some(col => col.name === 'reunion_id');
+        if (!hasReunionIdColumn) {
+            await db.exec('ALTER TABLE rencontres_budgetaires ADD COLUMN reunion_id INTEGER');
             console.log('[DB Migration] Colonne reunion_id ajoutée à rencontres_budgetaires');
         }
     } catch (e) {

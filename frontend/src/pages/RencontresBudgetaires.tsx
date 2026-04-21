@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Header from '../components/Header';
 import {
   Upload, Search, X, Columns, Eye, Plus, Trash2, Info, Mail, AlertCircle, Ticket
@@ -68,6 +68,17 @@ interface ADUser {
   direction?: string;
 }
 
+interface ReunionAttachment {
+  id: number;
+  reunion_id: number;
+  filename: string;
+  original_name: string;
+  mimetype: string;
+  size: number;
+  uploaded_by: string;
+  created_at: string;
+}
+
 const RencontresBudgetaires: React.FC = () => {
   const { token } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -129,9 +140,15 @@ const RencontresBudgetaires: React.FC = () => {
   const [isAddingDetailParticipant, setIsAddingDetailParticipant] = useState(false);
   const [directions, setDirections] = useState<string[]>([]);
   const [services, setServices] = useState<string[]>([]);
+  const [dirServicesMap, setDirServicesMap] = useState<Record<string, string[]>>({});
+  const [reunionAttachments, setReunionAttachments] = useState<ReunionAttachment[]>([]);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const adSearchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const detailAdSearchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
-  const statuts = ['importée', 'planifiée', 'effectuée'];
+  const statuts = ['demandée', 'planifiée', 'effectuée', 'importée'];
   const arbitrages = ['OK DSI', 'En attente', 'Refusé', 'À discuter'];
   const types = ['incident', 'demande', 'projet', 'autre'];
 
@@ -471,6 +488,7 @@ const RencontresBudgetaires: React.FC = () => {
       const data = await res.json();
       setDirections(data.directions || []);
       setServices(data.services || []);
+      setDirServicesMap(data.dirServicesMap || {});
     } catch (e) { console.error('Erreur chargement directions/services:', e); }
   };
 
@@ -482,11 +500,60 @@ const RencontresBudgetaires: React.FC = () => {
     } catch (e) { console.error('Erreur chargement réunions:', e); }
   };
 
+  const fetchReunionAttachments = async (reunionId: number) => {
+    try {
+      const res = await fetch(`/api/rencontres-reunions/${reunionId}/attachments`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setReunionAttachments(data || []);
+    } catch (e) { console.error('Erreur chargement PJ:', e); }
+  };
+
+  const handleUploadAttachment = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !selectedReunion) return;
+    try {
+      setIsUploadingAttachment(true);
+      const formData = new FormData();
+      formData.append('target_type', 'reunion');
+      for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+      }
+      const res = await fetch(`/api/rencontres-reunions/${selectedReunion.id}/attachments`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      if (res.ok) {
+        fetchReunionAttachments(selectedReunion.id);
+      } else {
+        const err = await res.json();
+        alert(`Erreur upload: ${err.error}`);
+      }
+    } catch (e) { alert('Erreur upload'); }
+    finally {
+      setIsUploadingAttachment(false);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteAttachment = async (attId: number) => {
+    if (!window.confirm('Supprimer cette pièce jointe ?')) return;
+    try {
+      const res = await fetch(`/api/reunion-attachments/${attId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok && selectedReunion) fetchReunionAttachments(selectedReunion.id);
+    } catch (e) { console.error('Erreur suppression PJ:', e); }
+  };
+
   const openReunionDetail = async (reunion: Reunion) => {
     try {
       const res = await fetch(`/api/rencontres-reunions/${reunion.id}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       setSelectedReunion(data);
+      fetchReunionAttachments(data.id);
       setShowReunionDetail(true);
     } catch (e) { console.error(e); }
   };
@@ -529,17 +596,25 @@ const RencontresBudgetaires: React.FC = () => {
     if (selectedReunion) openReunionDetail(selectedReunion);
   };
 
-  const searchADDetail = async (q: string) => {
+  const searchADDetail = useCallback((q: string) => {
     setDetailAdQuery(q);
-    if (q.length < 2) { setDetailAdResults([]); return; }
+    if (detailAdSearchTimerRef.current) clearTimeout(detailAdSearchTimerRef.current);
+
+    if (q.length < 2) {
+      setDetailAdResults([]);
+      return;
+    }
+
     setDetailAdSearching(true);
-    try {
-      const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-      const data = await res.json();
-      setDetailAdResults(Array.isArray(data) ? data : []);
-    } catch (e) { setDetailAdResults([]); }
-    finally { setDetailAdSearching(false); }
-  };
+    detailAdSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const data = await res.json();
+        setDetailAdResults(Array.isArray(data) ? data : []);
+      } catch (e) { setDetailAdResults([]); }
+      finally { setDetailAdSearching(false); }
+    }, 400);
+  }, [token]);
 
   const addParticipantFromADDetail = async (user: ADUser) => {
     if (!selectedReunion) return;
@@ -608,17 +683,25 @@ const RencontresBudgetaires: React.FC = () => {
     }
   };
 
-  const searchAD = async (q: string) => {
+  const searchAD = useCallback((q: string) => {
     setAdQuery(q);
-    if (q.length < 2) { setAdResults([]); return; }
+    if (adSearchTimerRef.current) clearTimeout(adSearchTimerRef.current);
+
+    if (q.length < 2) {
+      setAdResults([]);
+      return;
+    }
+
     setAdSearching(true);
-    try {
-      const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-      const data = await res.json();
-      setAdResults(Array.isArray(data) ? data : []);
-    } catch (e) { setAdResults([]); }
-    finally { setAdSearching(false); }
-  };
+    adSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const data = await res.json();
+        setAdResults(Array.isArray(data) ? data : []);
+      } catch (e) { setAdResults([]); }
+      finally { setAdSearching(false); }
+    }, 400);
+  }, [token]);
 
   const addParticipantFromAD = (user: ADUser) => {
     setReunionParticipants(prev => [...prev, {
@@ -634,6 +717,30 @@ const RencontresBudgetaires: React.FC = () => {
     }]);
     setAdQuery('');
     setAdResults([]);
+  };
+
+  const generateReunionsFromDemandes = async () => {
+    try {
+      const res = await fetch('/api/rencontres-reunions/generate', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.reunions_created === 0) {
+          alert('Aucune demande non associée trouvée. Toutes les demandes sont déjà attachées à une réunion.');
+        } else {
+          alert(`${data.reunions_created} réunion(s) générée(s) avec succès!\n${(data.details || []).map((d: any) => `- ${d.direction}: ${d.demandes_associees} demande(s)`).join('\n')}`);
+        }
+        fetchReunions();
+        fetchRencontres();
+      } else {
+        alert(`Erreur: ${data.error || data.message}`);
+      }
+    } catch (e) {
+      console.error('Erreur génération réunions:', e);
+      alert('Erreur lors de la génération des réunions');
+    }
   };
 
   const addParticipantManuel = () => {
@@ -709,16 +816,18 @@ const RencontresBudgetaires: React.FC = () => {
     }
   };
 
-  const getStatutColor = (statut: string) => {
+  const getStatutColor = (statut: string | null | undefined) => {
     switch (statut) {
-      case 'importée': return '#3b82f6';
+      case 'demandée': return '#8b5cf6';
       case 'planifiée': return '#f59e0b';
       case 'effectuée': return '#10b981';
+      case 'importée': return '#3b82f6';
       default: return '#6b7280';
     }
   };
 
-  const getArbitrageColor = (arbitrage: string) => {
+  const getArbitrageColor = (arbitrage: string | null | undefined) => {
+    if (!arbitrage) return '#6b7280';
     if (arbitrage.includes('OK')) return '#10b981';
     if (arbitrage.includes('En attente')) return '#f59e0b';
     if (arbitrage.includes('Refusé')) return '#ef4444';
@@ -818,9 +927,10 @@ const RencontresBudgetaires: React.FC = () => {
             style={styles.filterSelect}
           >
             <option value="">Tous statuts</option>
-            <option value="importée">Importée</option>
+            <option value="demandée">Demandée</option>
             <option value="planifiée">Planifiée</option>
             <option value="effectuée">Effectuée</option>
+            <option value="importée">Importée</option>
           </select>
 
           <button
@@ -1309,165 +1419,168 @@ const RencontresBudgetaires: React.FC = () => {
           </div>
         )}
 
-        {/* Modal Gestion des emails - Nouveau Design */}
-        {showEmailsModal && (
-          <div style={{...styles.modalOverlay, zIndex: 50}}>
-            <div style={{...styles.modalDialog, maxWidth: '750px', background: '#ffffff'}}>
-              {/* Header Gradient */}
-              <div style={{background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)', padding: '30px', color: 'white', borderRadius: '12px 12px 0 0', position: 'relative'}}>
-                <button
-                  onClick={() => setShowEmailsModal(false)}
-                  style={{position: 'absolute', top: '15px', right: '15px', background: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', color: 'white', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'}}
-                  onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.3)'}
-                  onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.2)'}
-                >
+        {/* Modal Gestion des emails */}
+        {showEmailsModal && (() => {
+          // Toutes les directions connues (participants réunions + demandes)
+          const allDirs = [...new Set([...directions, ...directionEmails.map(e => e.direction)])].sort();
+          // Services disponibles selon la direction sélectionnée
+          const availableServices = selectedEmailDirection ? (dirServicesMap[selectedEmailDirection] || []) : [];
+          return (
+          <div style={styles.modalOverlay} onClick={() => setShowEmailsModal(false)}>
+            <div style={{background: 'white', borderRadius: '12px', width: '90%', maxWidth: '760px', maxHeight: '87vh', display: 'flex', flexDirection: 'column', overflow: 'hidden'}} onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div style={{padding: '20px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc'}}>
+                <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                  <Mail size={20} color="#2563eb" />
+                  <h2 style={{margin: 0, fontSize: '18px', fontWeight: '700', color: '#1f2937'}}>Emails par direction</h2>
+                  <span style={{background: '#dbeafe', color: '#1d4ed8', fontSize: '12px', fontWeight: '600', padding: '2px 8px', borderRadius: '12px'}}>{directionEmails.length} email{directionEmails.length > 1 ? 's' : ''}</span>
+                  {allDirs.filter(d => !directionEmails.some(e => e.direction === d)).length > 0 && (
+                    <span style={{background: '#fee2e2', color: '#dc2626', fontSize: '12px', fontWeight: '600', padding: '2px 8px', borderRadius: '12px'}}>
+                      {allDirs.filter(d => !directionEmails.some(e => e.direction === d)).length} sans email
+                    </span>
+                  )}
+                </div>
+                <button onClick={() => setShowEmailsModal(false)} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: '4px'}}>
                   <X size={20} />
                 </button>
-                <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px'}}>
-                  <div style={{width: '48px', height: '48px', background: 'rgba(255,255,255,0.2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-                    <Mail size={28} />
-                  </div>
-                  <div>
-                    <h2 style={{margin: 0, fontSize: '24px', fontWeight: '700'}}>Affectation des emails</h2>
-                    <p style={{margin: '4px 0 0 0', fontSize: '14px', opacity: 0.9}}>Gérez les adresses email par direction</p>
-                  </div>
-                </div>
               </div>
 
-              <div style={{padding: '30px', overflowY: 'auto', maxHeight: 'calc(85vh - 280px)'}}>
-                {/* Formulaire d'ajout */}
-                <div style={{background: '#f8fafc', border: '2px dashed #2563eb', borderRadius: '12px', padding: '24px', marginBottom: '30px'}}>
-                  <h3 style={{margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600', color: '#1e293b'}}>➕ Ajouter un nouvel email</h3>
-                  <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1.5fr 0.7fr', gap: '12px'}}>
-                    <div>
-                      <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>DIRECTION</label>
+              {/* Formulaire d'ajout */}
+              <div style={{padding: '16px 24px', borderBottom: '1px solid #e5e7eb', background: 'white'}}>
+                <p style={{margin: '0 0 10px 0', fontSize: '13px', fontWeight: '600', color: '#374151'}}>Ajouter un email</p>
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 2fr auto', gap: '8px', alignItems: 'end'}}>
+                  <div>
+                    <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#6b7280', marginBottom: '4px'}}>DIRECTION *</label>
+                    <select
+                      style={{width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', background: 'white'}}
+                      value={selectedEmailDirection}
+                      onChange={(e) => { setSelectedEmailDirection(e.target.value); setSelectedEmailService(''); }}
+                    >
+                      <option value="">Sélectionner...</option>
+                      {allDirs.map(d => {
+                        const hasEmail = directionEmails.some(e => e.direction === d);
+                        return <option key={d} value={d} style={{fontWeight: hasEmail ? 'normal' : 'bold'}}>{hasEmail ? d : `⚠ ${d}`}</option>;
+                      })}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#6b7280', marginBottom: '4px'}}>SERVICE</label>
+                    {availableServices.length > 0 ? (
                       <select
-                        style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', fontFamily: 'inherit', background: 'white', cursor: 'pointer'}}
-                        value={selectedEmailDirection}
-                        onChange={(e) => setSelectedEmailDirection(e.target.value)}
+                        style={{width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', background: 'white'}}
+                        value={selectedEmailService}
+                        onChange={(e) => setSelectedEmailService(e.target.value)}
                       >
-                        <option value="">Sélectionner...</option>
-                        {directions.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
+                        <option value="">Tous les services</option>
+                        {availableServices.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
-                    </div>
-                    <div>
-                      <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>SERVICE (optionnel)</label>
+                    ) : (
                       <input
                         type="text"
-                        placeholder="ex: Communication"
-                        style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}}
+                        placeholder="Optionnel"
+                        style={{width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px'}}
                         value={selectedEmailService}
                         onChange={(e) => setSelectedEmailService(e.target.value)}
                       />
-                    </div>
-                    <div>
-                      <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>ADRESSE EMAIL</label>
-                      <input
-                        type="email"
-                        placeholder="exemple@domain.com"
-                        style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}}
-                        value={newEmail}
-                        onChange={(e) => setNewEmail(e.target.value)}
-                      />
-                    </div>
-                    <div style={{display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'}}>
-                      <button
-                        style={{padding: '10px 16px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'}}
-                        onClick={handleAddEmail}
-                        disabled={isAddingEmail}
-                        onMouseEnter={(e) => !isAddingEmail && ((e.currentTarget as HTMLElement).style.backgroundColor = '#1d4ed8')}
-                        onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.backgroundColor = '#2563eb')}
-                      >
-                        {isAddingEmail ? '⏳' : '➕'} Ajouter
-                      </button>
-                    </div>
+                    )}
                   </div>
+                  <div>
+                    <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#6b7280', marginBottom: '4px'}}>EMAIL *</label>
+                    <input
+                      type="email"
+                      placeholder="prenom.nom@domaine.fr"
+                      style={{width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px'}}
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAddEmail()}
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddEmail}
+                    disabled={isAddingEmail || !selectedEmailDirection || !newEmail}
+                    style={{padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', opacity: (!selectedEmailDirection || !newEmail) ? 0.5 : 1, whiteSpace: 'nowrap'}}
+                  >
+                    {isAddingEmail ? '...' : '+ Ajouter'}
+                  </button>
                 </div>
+              </div>
 
-                {/* Liste des emails */}
+              {/* Liste — toutes les directions, celles sans email en gras avec message */}
+              <div style={{overflowY: 'auto', flex: 1, padding: '16px 24px'}}>
                 {emailsLoading ? (
-                  <div style={{textAlign: 'center', padding: '40px', color: '#94a3b8'}}>
-                    <div style={{fontSize: '32px', marginBottom: '12px'}}>⏳</div>
-                    <p>Chargement en cours...</p>
-                  </div>
-                ) : directionEmails.length === 0 ? (
-                  <div style={{textAlign: 'center', padding: '40px', color: '#94a3b8'}}>
-                    <div style={{fontSize: '48px', marginBottom: '12px', opacity: 0.5}}>📭</div>
-                    <p style={{fontSize: '15px', margin: 0}}>Aucun email attribué pour le moment</p>
-                    <p style={{fontSize: '13px', margin: '4px 0 0 0', color: '#cbd5e1'}}>Commencez par en ajouter un ci-dessus</p>
+                  <div style={{textAlign: 'center', padding: '40px', color: '#9ca3af'}}>Chargement...</div>
+                ) : allDirs.length === 0 ? (
+                  <div style={{textAlign: 'center', padding: '40px', color: '#9ca3af'}}>
+                    <Mail size={40} style={{opacity: 0.3, marginBottom: '12px'}} />
+                    <p style={{margin: 0}}>Aucune direction connue</p>
+                    <p style={{fontSize: '12px', margin: '4px 0 0 0'}}>Les directions apparaîtront quand des réunions ou demandes seront créées</p>
                   </div>
                 ) : (
-                  <div>
-                    {directions.map(direction => {
-                      const dirEmails = directionEmails.filter(e => e.direction === direction);
-                      if (dirEmails.length === 0) return null;
-                      return (
-                        <div key={direction} style={{marginBottom: '20px'}}>
-                          <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px'}}>
-                            <div style={{width: '4px', height: '24px', background: '#2563eb', borderRadius: '2px'}}></div>
-                            <h4 style={{margin: 0, fontSize: '15px', fontWeight: '700', color: '#1e293b'}}>{direction}</h4>
-                            <span style={{background: '#dbeafe', color: '#0c4a6e', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600'}}>{dirEmails.length}</span>
-                          </div>
-                          <div style={{display: 'grid', gap: '8px'}}>
-                            {dirEmails.map(de => (
-                              <div
-                                key={de.id}
-                                style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', transition: 'all 0.2s'}}
-                                onMouseEnter={(e) => {
-                                  (e.currentTarget as HTMLElement).style.background = '#f1f5f9';
-                                  (e.currentTarget as HTMLElement).style.borderColor = '#cbd5e1';
-                                }}
-                                onMouseLeave={(e) => {
-                                  (e.currentTarget as HTMLElement).style.background = '#f8fafc';
-                                  (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0';
-                                }}
-                              >
-                                <div style={{display: 'flex', alignItems: 'center', gap: '10px', flex: 1}}>
-                                  <div style={{width: '32px', height: '32px', background: '#e0e7ff', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-                                    <Mail size={16} color="#2563eb" />
-                                  </div>
-                                  <div>
-                                    <span style={{fontFamily: 'monospace', color: '#475569', fontSize: '14px'}}>{de.email}</span>
-                                    {de.service && <span style={{marginLeft: '8px', background: '#f0fdf4', color: '#16a34a', fontSize: '11px', fontWeight: '600', padding: '2px 7px', borderRadius: '4px'}}>{de.service}</span>}
-                                  </div>
+                  allDirs.map(dir => {
+                    const emails = directionEmails.filter(e => e.direction === dir);
+                    const hasEmail = emails.length > 0;
+                    return (
+                      <div key={dir} style={{marginBottom: '16px'}}>
+                        <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px'}}>
+                          <div style={{width: '3px', height: '18px', background: hasEmail ? '#2563eb' : '#ef4444', borderRadius: '2px'}} />
+                          <span style={{fontWeight: hasEmail ? '600' : '800', fontSize: '14px', color: hasEmail ? '#1f2937' : '#dc2626'}}>{dir}</span>
+                          {hasEmail ? (
+                            <span style={{background: '#eff6ff', color: '#2563eb', fontSize: '11px', fontWeight: '600', padding: '1px 6px', borderRadius: '10px'}}>{emails.length}</span>
+                          ) : (
+                            <span style={{background: '#fee2e2', color: '#dc2626', fontSize: '11px', fontWeight: '600', padding: '1px 6px', borderRadius: '10px'}}>Aucun email</span>
+                          )}
+                        </div>
+                        {hasEmail ? (
+                          <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '11px'}}>
+                            {emails.map(de => (
+                              <div key={de.id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px'}}>
+                                <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                  <Mail size={13} color="#6b7280" />
+                                  <span style={{fontSize: '13px', color: '#374151'}}>{de.email}</span>
+                                  {de.service && (
+                                    <span style={{background: '#ecfdf5', color: '#059669', fontSize: '11px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px'}}>{de.service}</span>
+                                  )}
                                 </div>
                                 <button
-                                  type="button"
-                                  style={{background: '#fee2e2', border: 'none', color: '#dc2626', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.2s'}}
                                   onClick={() => handleDeleteEmail(de.id)}
-                                  onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.background = '#fecaca'}
-                                  onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.background = '#fee2e2'}
-                                  title="Supprimer cet email"
+                                  style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', display: 'flex', alignItems: 'center'}}
+                                  title="Supprimer"
                                 >
                                   <Trash2 size={13} />
-                                  Supprimer
                                 </button>
                               </div>
                             ))}
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        ) : (
+                          <div style={{paddingLeft: '11px'}}>
+                            <button
+                              onClick={() => setSelectedEmailDirection(dir)}
+                              style={{fontSize: '12px', color: '#2563eb', background: 'none', border: '1px dashed #93c5fd', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer'}}
+                            >
+                              + Ajouter un email pour cette direction
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
 
               {/* Footer */}
-              <div style={{padding: '16px 30px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', borderRadius: '0 0 12px 12px', display: 'flex', justifyContent: 'flex-end'}}>
+              <div style={{padding: '14px 24px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', background: '#f9fafb'}}>
                 <button
-                  style={{padding: '10px 24px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'}}
                   onClick={() => setShowEmailsModal(false)}
-                  onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = '#1d4ed8'}
-                  onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.backgroundColor = '#2563eb'}
+                  style={{padding: '8px 20px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', fontSize: '14px', fontWeight: '600', cursor: 'pointer'}}
                 >
-                  ✓ Fermer
+                  Fermer
                 </button>
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Modale Gérer les Réunions */}
         {showManageReunions && (
@@ -1517,9 +1630,14 @@ const RencontresBudgetaires: React.FC = () => {
                 <button onClick={() => setShowManageReunions(false)} style={{background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}><X size={16} /></button>
               </div>
               <div style={{flex: 1, overflowY: 'auto', padding: '20px 24px'}}>
-                <button onClick={() => { setShowCreateReunionModal(true); setShowManageReunions(false); }} style={{padding: '10px 18px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '6px'}}>
-                  <Plus size={16} /> Créer une réunion
-                </button>
+                <div style={{display: 'flex', gap: '10px', marginBottom: '20px'}}>
+                  <button onClick={() => { setShowCreateReunionModal(true); setShowManageReunions(false); }} style={{padding: '10px 18px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', flex: 1}}>
+                    <Plus size={16} /> Créer une réunion
+                  </button>
+                  <button onClick={generateReunionsFromDemandes} style={{padding: '10px 18px', backgroundColor: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                    ⚡ Générer réunions
+                  </button>
+                </div>
                 {reunions.length === 0 ? (
                   <div style={{textAlign: 'center', padding: '30px', color: '#94a3b8'}}>Aucune réunion créée</div>
                 ) : (
@@ -1535,14 +1653,17 @@ const RencontresBudgetaires: React.FC = () => {
                     </thead>
                     <tbody>
                       {reunions.map(r => (
-                        <tr key={r.id} style={{borderBottom: '1px solid #f1f5f9', cursor: 'pointer'}} onClick={() => { openReunionDetail(r); setShowManageReunions(false); }}>
-                          <td style={{padding: '10px 12px', fontWeight: '600', color: '#1e293b'}}>{r.titre}</td>
-                          <td style={{padding: '10px 12px', color: '#475569'}}>{r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}</td>
-                          <td style={{padding: '10px 12px', color: '#475569'}}>{r.lieu || '-'}</td>
-                          <td style={{padding: '10px 12px'}}>
+                        <tr key={r.id} style={{borderBottom: '1px solid #f1f5f9'}} onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                          <td style={{padding: '10px 12px', fontWeight: '600', color: '#1e293b', cursor: 'pointer'}} onClick={() => { openReunionDetail(r); setShowManageReunions(false); }}>{r.titre}</td>
+                          <td style={{padding: '10px 12px', color: '#475569', cursor: 'pointer'}} onClick={() => { openReunionDetail(r); setShowManageReunions(false); }}>{r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}</td>
+                          <td style={{padding: '10px 12px', color: '#475569', cursor: 'pointer'}} onClick={() => { openReunionDetail(r); setShowManageReunions(false); }}>{r.lieu || '-'}</td>
+                          <td style={{padding: '10px 12px', cursor: 'pointer'}} onClick={() => { openReunionDetail(r); setShowManageReunions(false); }}>
                             <span style={{padding: '3px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', background: r.statut === 'effectuée' ? '#dcfce7' : '#fef3c7', color: r.statut === 'effectuée' ? '#16a34a' : '#92400e'}}>{r.statut}</span>
                           </td>
-                          <td style={{padding: '10px 12px', textAlign: 'right'}}><Eye size={15} color="#64748b" /></td>
+                          <td style={{padding: '10px 12px', textAlign: 'right', display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center'}}>
+                            <button onClick={() => { openReunionDetail(r); setShowManageReunions(false); }} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '4px'}} title="Voir les détails"><Eye size={16} color="#64748b" /></button>
+                            <button onClick={(e) => { e.stopPropagation(); handleDeleteReunion(r.id); }} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#ef4444'}} title="Supprimer la réunion"><Trash2 size={16} /></button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1786,6 +1907,66 @@ const RencontresBudgetaires: React.FC = () => {
                     </tbody>
                   </table>
                 )}
+
+                {/* Section Pièces Jointes */}
+                <div style={{marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #e5e7eb'}}>
+                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
+                    <h4 style={{margin: 0, fontSize: '14px', fontWeight: '700', color: '#374151'}}>
+                      📎 Pièces jointes ({reunionAttachments.length})
+                    </h4>
+                    <button
+                      onClick={() => attachmentInputRef.current?.click()}
+                      disabled={isUploadingAttachment}
+                      style={{display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer'}}
+                    >
+                      <Upload size={14} />
+                      {isUploadingAttachment ? 'Upload...' : 'Ajouter'}
+                    </button>
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      multiple
+                      style={{display: 'none'}}
+                      onChange={(e) => handleUploadAttachment(e.target.files)}
+                    />
+                  </div>
+                  {reunionAttachments.length === 0 ? (
+                    <p style={{fontSize: '13px', color: '#9ca3af', margin: 0, fontStyle: 'italic'}}>Aucune pièce jointe</p>
+                  ) : (
+                    <div style={{display: 'flex', flexDirection: 'column', gap: '6px'}}>
+                      {reunionAttachments.map(att => (
+                        <div key={att.id} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px'}}>
+                          <div style={{display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0}}>
+                            <span style={{fontSize: '18px'}}>
+                              {att.mimetype?.includes('pdf') ? '📄' : att.mimetype?.includes('image') ? '🖼️' : att.mimetype?.includes('sheet') || att.original_name.endsWith('.xlsx') ? '📊' : '📎'}
+                            </span>
+                            <div style={{minWidth: 0}}>
+                              <a
+                                href={`/file_reunions/${att.filename}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{fontSize: '13px', color: '#2563eb', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}
+                                title={att.original_name}
+                              >
+                                {att.original_name}
+                              </a>
+                              <span style={{fontSize: '11px', color: '#9ca3af'}}>
+                                {att.size ? `${(att.size / 1024).toFixed(0)} Ko` : ''} · {att.uploaded_by}
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteAttachment(att.id)}
+                            style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', flexShrink: 0}}
+                            title="Supprimer"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
