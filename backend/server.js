@@ -10457,11 +10457,11 @@ app.delete('/api/rencontres-reunions/:id', authenticateAdmin, async (req, res) =
 app.post('/api/rencontres-reunions/:id/participants', authenticateAdminOrFinances, async (req, res) => {
     try {
         const { id } = req.params;
-        const { nom, prenom, email, service, direction, type_presence, ad_username } = req.body;
+        const { nom, prenom, email, service, direction, type_presence, statut_presence, ad_username } = req.body;
         if (!nom) return res.status(400).json({ error: 'Le nom est obligatoire' });
         const result = await db.run(
-            'INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, ad_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [id, nom, prenom || null, email || null, service || null, direction || null, type_presence || 'metier', ad_username || null]
+            'INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, nom, prenom || null, email || null, service || null, direction || null, type_presence || 'metier', statut_presence || 'present', ad_username || null]
         );
         res.status(201).json({ id: result.lastID, message: 'Participant ajouté' });
     } catch (error) {

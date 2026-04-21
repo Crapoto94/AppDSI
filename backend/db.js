@@ -479,6 +479,17 @@ async function setupDb() {
         console.warn('[DB Migration] Erreur création tables réunions:', e.message);
     }
 
+    // Migration: Ajouter statut_presence à reunion_participants
+    try {
+        const cols = await db.all("PRAGMA table_info(reunion_participants)");
+        if (!cols.some(c => c.name === 'statut_presence')) {
+            await db.exec('ALTER TABLE reunion_participants ADD COLUMN statut_presence TEXT DEFAULT "present"');
+            console.log('[DB Migration] Colonne statut_presence ajoutée à reunion_participants');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur ajout colonne statut_presence:', e.message);
+    }
+
     // Migration: Ajouter reunion_id à rencontres_budgetaires
     try {
         const cols = await db.all("PRAGMA table_info(rencontres_budgetaires)");
