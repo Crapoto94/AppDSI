@@ -19,7 +19,6 @@ import AccessRequestPage from './pages/AccessRequestPage';
 import AdminAccessRequests from './pages/AdminAccessRequests';
 import AccessRequestOverlay from './components/AccessRequestOverlay';
 import AdminLayout from './components/AdminLayout';
-import StudioRH from './pages/StudioRH';
 import FrizbiSettings from './pages/FrizbiSettings';
 import RencontresBudgetaires from './pages/RencontresBudgetaires';
 
@@ -91,9 +90,7 @@ function App() {
           <Route path="frizbi" element={<FrizbiSettings />} />
         </Route>
 
-        <Route path="/rh" element={<PrivateRoute path="/rh"><StudioRH /></PrivateRoute>} />
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />
-        <Route path="/studio-rh" element={<Navigate to="/rh" replace />} />
       </Routes>
     </BrowserRouter>
   );
