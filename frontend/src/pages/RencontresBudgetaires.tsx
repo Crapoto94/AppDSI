@@ -127,18 +127,19 @@ const RencontresBudgetaires: React.FC = () => {
   const [detailAdSearching, setDetailAdSearching] = useState(false);
   const [detailNewParticipant, setDetailNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier' as 'metier' | 'dsi', statut_presence: 'present' as 'present' | 'excuse' });
   const [isAddingDetailParticipant, setIsAddingDetailParticipant] = useState(false);
+  const [directions, setDirections] = useState<string[]>([]);
+  const [services, setServices] = useState<string[]>([]);
 
-  const directions = [...new Set(rencontres.map(r => r.direction))].sort();
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
   const statuts = ['importée', 'planifiée', 'effectuée'];
   const arbitrages = ['OK DSI', 'En attente', 'Refusé', 'À discuter'];
   const types = [...new Set(rencontres.map(r => r.type).filter(t => t))].sort();
-  const services = [...new Set(rencontres.map(r => r.service).filter(s => s))].sort();
 
   useEffect(() => {
     if (token) {
       fetchRencontres();
       fetchReunions();
+      fetchDirectionsServices();
     }
   }, [token]);
 
@@ -464,6 +465,15 @@ const RencontresBudgetaires: React.FC = () => {
 
   // --- Réunions ---
 
+  const fetchDirectionsServices = async () => {
+    try {
+      const res = await fetch('/api/directions-services', { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      setDirections(data.directions || []);
+      setServices(data.services || []);
+    } catch (e) { console.error('Erreur chargement directions/services:', e); }
+  };
+
   const fetchReunions = async () => {
     try {
       const res = await fetch('/api/rencontres-reunions', { headers: { 'Authorization': `Bearer ${token}` } });
@@ -498,6 +508,7 @@ const RencontresBudgetaires: React.FC = () => {
         setNewReunion({ titre: '', date_reunion: '', lieu: '', description: '' });
         setReunionParticipants([]);
         fetchReunions();
+        fetchDirectionsServices();
       } else {
         const err = await res.json();
         alert(`Erreur : ${err.error}`);
@@ -550,6 +561,7 @@ const RencontresBudgetaires: React.FC = () => {
       if (res.ok) {
         setDetailAdQuery('');
         setDetailAdResults([]);
+        fetchDirectionsServices();
         openReunionDetail(selectedReunion);
       } else {
         const err = await res.json();
@@ -582,6 +594,7 @@ const RencontresBudgetaires: React.FC = () => {
         alert('Participant ajouté');
         setDetailNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier', statut_presence: 'present' });
         setShowAddParticipantDetail(false);
+        fetchDirectionsServices();
         openReunionDetail(selectedReunion);
       } else {
         const err = await res.json();

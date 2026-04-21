@@ -10325,6 +10325,55 @@ app.get('/api/ad/search', authenticateJWT, async (req, res) => {
 // RÉUNIONS BUDGÉTAIRES
 // ============================================
 
+// GET: Récupérer les directions et services disponibles
+app.get('/api/directions-services', authenticateJWT, async (req, res) => {
+    try {
+        // Récupérer depuis RH
+        const rhData = await db.all(`
+            SELECT DISTINCT DIRECTION_L as direction, SERVICE_L as service
+            FROM rh.referentiel_agents
+            WHERE date_plusvu IS NULL
+            AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > date())
+            AND DIRECTION_L IS NOT NULL
+        `);
+
+        // Récupérer depuis participants de réunions
+        const participantData = await db.all(`
+            SELECT DISTINCT direction, service
+            FROM reunion_participants
+            WHERE direction IS NOT NULL
+        `);
+
+        // Fusionner et dédupliquer
+        const allEntries = [...rhData, ...participantData];
+        const directionsSet = new Set();
+        const servicesSet = new Set();
+        const directionServiceMap = new Map();
+
+        allEntries.forEach(entry => {
+            if (entry.direction) {
+                directionsSet.add(entry.direction);
+                const key = `${entry.direction}||${entry.service || ''}`;
+                if (!directionServiceMap.has(key)) {
+                    directionServiceMap.set(key, { direction: entry.direction, service: entry.service || null });
+                }
+            }
+            if (entry.service) servicesSet.add(entry.service);
+        });
+
+        res.json({
+            directions: Array.from(directionsSet).sort(),
+            services: Array.from(servicesSet).sort(),
+            directionServices: Array.from(directionServiceMap.values()).sort((a, b) =>
+                (a.direction + (a.service || '')).localeCompare(b.direction + (b.service || ''))
+            )
+        });
+    } catch (error) {
+        console.error('Erreur récupération directions/services:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // GET: Lister les réunions
 app.get('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
     try {
