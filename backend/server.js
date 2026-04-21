@@ -10300,19 +10300,13 @@ app.get('/api/ad/search', authenticateJWT, async (req, res) => {
             });
         });
 
-        // Enrichir avec les données AD (department, company) et RH (service, direction)
-        const mapped = await Promise.all((Array.isArray(results) ? results : []).map(async (r) => {
-            let service = r.department || null;  // Préférer le department AD
-            let direction = r.company || null;    // Préférer le company AD
-            try {
-                // Enrichir avec RH si les données AD manquent
-                const rh = await db.get('SELECT SERVICE_L, DIRECTION_L FROM rh.referentiel_agents WHERE ad_username = ? AND (DATE_DEPART IS NULL OR DATE_DEPART = "") LIMIT 1', [r.sAMAccountName]);
-                if (rh) {
-                    if (!service) service = rh.SERVICE_L;
-                    if (!direction) direction = rh.DIRECTION_L;
-                }
-            } catch (_) {}
-            return { username: r.sAMAccountName, displayName: r.displayName || r.cn || r.sAMAccountName, email: r.mail || '', service, direction };
+        // Récupérer les données AD (department, company) uniquement
+        const mapped = (Array.isArray(results) ? results : []).map((r) => ({
+            username: r.sAMAccountName,
+            displayName: r.displayName || r.cn || r.sAMAccountName,
+            email: r.mail || '',
+            service: r.department || null,
+            direction: r.company || null
         }));
         res.json(mapped);
     } catch (error) {
