@@ -1110,24 +1110,38 @@ function App() {
               <X size={20} />
             </button>
 
-            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-              <div style={{ width: '60px', height: '60px', background: '#dbeafe', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{ width: '60px', height: '60px', background: '#dbeafe', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                 <BarChart3 size={32} color="#0284c7" />
               </div>
               <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>Rencontres Budgétaires</h2>
-              <p style={{ color: '#64748b', fontSize: '1rem', marginTop: '10px' }}>
+              <p style={{ color: '#64748b', fontSize: '1rem', marginTop: '8px', marginBottom: '8px' }}>
                 Demandes associées à vos directions
               </p>
+              {rencontres && rencontres.length > 0 && (() => {
+                const nonClosed = rencontres.filter((r: any) => r.statut !== 'effectuée').length;
+                return nonClosed > 0 ? (
+                  <span style={{ display: 'inline-block', background: '#fef3c7', color: '#92400e', fontWeight: 700, fontSize: '0.8rem', padding: '4px 12px', borderRadius: '12px', border: '1px solid #fde68a' }}>
+                    {nonClosed} en cours
+                  </span>
+                ) : (
+                  <span style={{ display: 'inline-block', background: '#dcfce7', color: '#166534', fontWeight: 700, fontSize: '0.8rem', padding: '4px 12px', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
+                    Tout traité
+                  </span>
+                );
+              })()}
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', paddingTop: '20px', paddingBottom: '20px' }}>
               {rencontres && rencontres.length > 0 ? (() => {
-                // Grouper par service
-                const grouped: Record<string, any[]> = {};
+                // Grouper par direction puis par service
+                const byDir: Record<string, Record<string, any[]>> = {};
                 rencontres.forEach((r: any, idx: number) => {
+                  const dir = r.direction?.trim() || '—';
                   const svc = r.service?.trim() || '—';
-                  if (!grouped[svc]) grouped[svc] = [];
-                  grouped[svc].push({ ...r, _idx: idx });
+                  if (!byDir[dir]) byDir[dir] = {};
+                  if (!byDir[dir][svc]) byDir[dir][svc] = [];
+                  byDir[dir][svc].push({ ...r, _idx: idx });
                 });
                 return (
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
@@ -1139,14 +1153,23 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.entries(grouped).map(([svc, items]) => (
+                      {Object.entries(byDir).map(([dir, services]) => (
                         <>
-                          <tr key={`svc-${svc}`}>
-                            <td colSpan={3} style={{ padding: '10px 12px 6px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderTop: '2px solid #e2e8f0' }}>
-                              {svc}
+                          <tr key={`dir-${dir}`}>
+                            <td colSpan={3} style={{ padding: '10px 12px 6px', background: '#1e293b', color: '#e2e8f0', fontWeight: 800, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.07em', borderTop: '2px solid #334155' }}>
+                              {dir}
                             </td>
                           </tr>
-                          {items.map((r: any) => (
+                          {Object.entries(services).map(([svc, items]) => (
+                            <>
+                              {svc !== '—' && (
+                                <tr key={`svc-${dir}-${svc}`}>
+                                  <td colSpan={3} style={{ padding: '6px 16px 4px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderTop: '1px solid #e2e8f0' }}>
+                                    {svc}
+                                  </td>
+                                </tr>
+                              )}
+                              {items.map((r: any) => (
                             <tr
                               key={r._idx}
                               style={{ borderBottom: '1px solid #e2e8f0', position: 'relative', cursor: r.commentaires?.trim() ? 'help' : 'default' }}
@@ -1215,6 +1238,8 @@ function App() {
                                 </div>
                               )}
                             </tr>
+                              ))}
+                            </>
                           ))}
                         </>
                       ))}
