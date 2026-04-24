@@ -9982,7 +9982,17 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
                 const arbitrageRaw = row['Arbitrage'] || row['Arbitrage '] || row['ARBITRAGE'] || '';
                 const arbitrage = arbitrageRaw ? String(arbitrageRaw).trim() : '';
                 const responsableDsi = row['DSI'] && String(row['DSI']).trim() !== '' ? String(row['DSI']).trim() : '';
-                const ticketGlpi = row['TICKET'] && String(row['TICKET']).trim() !== '' ? String(row['TICKET']).trim() : '';
+                const ticketRaw = row['TICKET'] || row['Ticket'] || row['ticket'] || row['N° TICKET'] || row['N°TICKET'] || '';
+                let ticketGlpi = '';
+                if (ticketRaw !== '' && ticketRaw !== null && ticketRaw !== undefined) {
+                    // Excel stocke les nombres comme flottants (43093.0) — on prend l'entier
+                    const ticketNum = parseFloat(String(ticketRaw).replace(/[^0-9.]/g, ''));
+                    if (!isNaN(ticketNum) && ticketNum > 0) {
+                        ticketGlpi = String(Math.round(ticketNum));
+                    } else if (String(ticketRaw).trim()) {
+                        ticketGlpi = String(ticketRaw).trim();
+                    }
+                }
                 const lienReference = row['LIEN'] && String(row['LIEN']).trim() !== '' ? String(row['LIEN']).trim() : '';
                 const commentaires = row['Commentaire ?'] && String(row['Commentaire ?']).trim() !== '' ? String(row['Commentaire ?']).trim() : '';
 
