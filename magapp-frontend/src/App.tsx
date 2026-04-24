@@ -83,6 +83,7 @@ function App() {
   const [showClosedObserved, setShowClosedObserved] = useState(false);
   const [showRencontres, setShowRencontres] = useState(false);
   const [rencontres, setRencontres] = useState<any[]>([]);
+  const [reunionsList, setReunionsList] = useState<any[]>([]);
   const [hoveredRencontreIdx, setHoveredRencontreIdx] = useState<number | null>(null);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
   const [suiviList, setSuiviList] = useState<any[]>([]);
@@ -243,26 +244,37 @@ function App() {
       const loadRencontres = async () => {
         try {
           const token = localStorage.getItem('token');
+
+          // Charger toutes les demandes
           const res = await axios.get(`${apiBase}/rencontres-budgetaires`, {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
+            headers: { Authorization: `Bearer ${token}` }
           });
           const rencontresData = res.data || [];
-          for (const r of rencontresData) {
-            try {
-              const suiviRes = await axios.get(`${apiBase}/rencontres-budgetaires/${r.id}`, {
-                headers: { Authorization: `Bearer ${token}` }
-              });
-              r.suivi_count = suiviRes.data?.suivi?.length || 0;
-            } catch {
-              r.suivi_count = 0;
-            }
-          }
           setRencontres(rencontresData);
+
+          // Charger les réunions avec leurs demandes
+          const reunionsRes = await axios.get(`${apiBase}/rencontres-reunions`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const reunionsBase = reunionsRes.data || [];
+
+          const reunionsWithDemandes = await Promise.all(
+            reunionsBase.map(async (r: any) => {
+              try {
+                const detail = await axios.get(`${apiBase}/rencontres-reunions/${r.id}`, {
+                  headers: { Authorization: `Bearer ${token}` }
+                });
+                return { ...r, demandes: detail.data?.demandes || [] };
+              } catch {
+                return { ...r, demandes: [] };
+              }
+            })
+          );
+          setReunionsList(reunionsWithDemandes);
         } catch (e) {
           console.error('Erreur chargement rencontres:', e);
           setRencontres([]);
+          setReunionsList([]);
         }
       };
       loadRencontres();
@@ -1116,7 +1128,7 @@ function App() {
               </div>
               <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>Rencontres Budgétaires</h2>
               <p style={{ color: '#64748b', fontSize: '1rem', marginTop: '8px', marginBottom: '8px' }}>
-                Demandes associées à vos directions
+                Réunions et demandes par direction / service
               </p>
               {rencontres && rencontres.length > 0 && (() => {
                 const nonClosed = rencontres.filter((r: any) => r.statut !== 'effectuée').length;
@@ -1132,125 +1144,106 @@ function App() {
               })()}
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', paddingTop: '20px', paddingBottom: '20px' }}>
-              {rencontres && rencontres.length > 0 ? (() => {
-                // Grouper par direction puis par service
-                const byDir: Record<string, Record<string, any[]>> = {};
-                rencontres.forEach((r: any, idx: number) => {
-                  const dir = r.direction?.trim() || '—';
-                  const svc = r.service?.trim() || '—';
-                  if (!byDir[dir]) byDir[dir] = {};
-                  if (!byDir[dir][svc]) byDir[dir][svc] = [];
-                  byDir[dir][svc].push({ ...r, _idx: idx });
-                });
-                return (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
-                        <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Demande</th>
-                        <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569' }}>Suivi</th>
-                        <th style={{ textAlign: 'left', padding: '12px', fontWeight: 700, color: '#475569', width: '80px' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(byDir).map(([dir, services]) => (
-                        <>
-                          <tr key={`dir-${dir}`}>
-                            <td colSpan={3} style={{ padding: '10px 12px 6px', background: '#1e293b', color: '#e2e8f0', fontWeight: 800, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.07em', borderTop: '2px solid #334155' }}>
-                              {dir}
-                            </td>
-                          </tr>
-                          {Object.entries(services).map(([svc, items]) => (
-                            <>
-                              {svc !== '—' && (
-                                <tr key={`svc-${dir}-${svc}`}>
-                                  <td colSpan={3} style={{ padding: '6px 16px 4px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderTop: '1px solid #e2e8f0' }}>
-                                    {svc}
-                                  </td>
-                                </tr>
-                              )}
-                              {items.map((r: any) => (
-                            <tr
-                              key={r._idx}
-                              style={{ borderBottom: '1px solid #e2e8f0', position: 'relative', cursor: r.commentaires?.trim() ? 'help' : 'default' }}
-                              onMouseEnter={() => r.commentaires?.trim() && setHoveredRencontreIdx(r._idx)}
-                              onMouseLeave={() => setHoveredRencontreIdx(null)}
-                            >
-                              <td style={{ padding: '12px', color: '#1e293b' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  {r.type?.toLowerCase() === 'projet' ? <Briefcase size={15} color="#7c3aed" /> : r.type?.toLowerCase() === 'incident' ? <AlertTriangle size={15} color="#dc2626" /> : <FileText size={15} color="#0284c7" />}
-                                  {r.titre || r.description}
-                                </div>
+            <div style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', paddingTop: '16px', paddingBottom: '20px' }}>
+              {(() => {
+                // Helper: grouper des demandes par direction puis service
+                const groupDemandes = (demandes: any[]) => {
+                  const byDir: Record<string, Record<string, any[]>> = {};
+                  demandes.forEach((r: any, idx: number) => {
+                    const dir = r.direction?.trim() || '—';
+                    const svc = r.service?.trim() || '—';
+                    if (!byDir[dir]) byDir[dir] = {};
+                    if (!byDir[dir][svc]) byDir[dir][svc] = [];
+                    byDir[dir][svc].push({ ...r, _idx: idx });
+                  });
+                  return byDir;
+                };
+
+                const renderDemandesTable = (demandes: any[], prefix: string) => {
+                  if (!demandes || demandes.length === 0) return <p style={{ color: '#94a3b8', fontSize: '0.82rem', margin: '6px 0 0 0' }}>Aucune demande</p>;
+                  const byDir = groupDemandes(demandes);
+                  return (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                      <tbody>
+                        {Object.entries(byDir).map(([dir, services]) => (
+                          <>
+                            <tr key={`${prefix}-dir-${dir}`}>
+                              <td colSpan={3} style={{ padding: '7px 10px 5px', background: '#334155', color: '#e2e8f0', fontWeight: 800, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                                {dir}
                               </td>
-                              <td style={{ padding: '12px', color: '#475569', fontSize: '0.82rem', maxWidth: '260px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{r.suivi || '—'}</td>
-                              <td style={{ padding: '12px' }}>
-                                <button
-                                  onClick={() => setRencontreSuiviIdx(rencontreSuiviIdx === r._idx ? null : r._idx)}
-                                  style={{
-                                    padding: '6px 12px',
-                                    borderRadius: '8px',
-                                    border: 'none',
-                                    background: r.suivi_count > 0 ? '#fef3c7' : '#f1f5f9',
-                                    color: r.suivi_count > 0 ? '#92400e' : '#64748b',
-                                    cursor: 'pointer',
-                                    fontWeight: 600,
-                                    fontSize: '0.8rem',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                  }}
-                                >
-                                  <CheckSquare size={14} />
-                                  {r.suivi_count || 0}
-                                </button>
-                              </td>
-                              {hoveredRencontreIdx === r._idx && r.commentaires?.trim() && (
-                                <div style={{
-                                  position: 'absolute',
-                                  top: '100%',
-                                  left: '12px',
-                                  right: '12px',
-                                  background: '#1e293b',
-                                  color: 'white',
-                                  padding: '12px',
-                                  borderRadius: '8px',
-                                  fontSize: '0.8rem',
-                                  lineHeight: '1.5',
-                                  zIndex: 1000,
-                                  marginTop: '8px',
-                                  boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
-                                  whiteSpace: 'pre-wrap',
-                                  wordBreak: 'break-word',
-                                  border: '1px solid #475569',
-                                  maxWidth: '400px'
-                                }}>
-                                  {r.commentaires}
-                                  <div style={{
-                                    position: 'absolute',
-                                    bottom: '100%',
-                                    left: '20px',
-                                    width: '0',
-                                    height: '0',
-                                    borderLeft: '6px solid transparent',
-                                    borderRight: '6px solid transparent',
-                                    borderBottom: '6px solid #1e293b'
-                                  }} />
-                                </div>
-                              )}
                             </tr>
-                              ))}
-                            </>
-                          ))}
-                        </>
-                      ))}
-                    </tbody>
-                  </table>
+                            {Object.entries(services).map(([svc, items]) => (
+                              <>
+                                {svc !== '—' && (
+                                  <tr key={`${prefix}-svc-${dir}-${svc}`}>
+                                    <td colSpan={3} style={{ padding: '4px 18px 3px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                      {svc}
+                                    </td>
+                                  </tr>
+                                )}
+                                {items.map((r: any) => (
+                                  <tr key={`${prefix}-${r.id}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '8px 10px', color: '#1e293b' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        {r.type?.toLowerCase() === 'projet' ? <Briefcase size={13} color="#7c3aed" /> : r.type?.toLowerCase() === 'incident' ? <AlertTriangle size={13} color="#dc2626" /> : <FileText size={13} color="#0284c7" />}
+                                        <span>{r.titre || r.description}</span>
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '8px 10px', color: '#475569', fontSize: '0.78rem', maxWidth: '200px', wordBreak: 'break-word' }}>{r.suivi || '—'}</td>
+                                    <td style={{ padding: '8px 10px' }}>
+                                      <span style={{ padding: '2px 7px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 600, background: r.statut === 'effectuée' ? '#dcfce7' : '#fef3c7', color: r.statut === 'effectuée' ? '#166534' : '#92400e' }}>
+                                        {r.statut || '—'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </>
+                            ))}
+                          </>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                };
+
+                const reunionIds = new Set(reunionsList.flatMap((ru: any) => (ru.demandes || []).map((d: any) => d.id)));
+                const orphans = rencontres.filter((r: any) => !reunionIds.has(r.id));
+
+                if (reunionsList.length === 0 && rencontres.length === 0) {
+                  return <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}><p>Aucune demande trouvée</p></div>;
+                }
+
+                return (
+                  <div>
+                    {reunionsList.map((ru: any) => (
+                      <div key={ru.id} style={{ marginBottom: '16px', border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+                        <div style={{ padding: '10px 14px', background: '#0f172a', display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'space-between' }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.9rem', color: 'white' }}>{ru.titre}</span>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            {ru.date_reunion && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{new Date(ru.date_reunion).toLocaleDateString('fr-FR')}</span>}
+                            <span style={{ padding: '2px 8px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700, background: ru.statut === 'effectuée' ? '#166534' : '#1e40af', color: 'white' }}>{ru.statut}</span>
+                            <span style={{ fontSize: '0.78rem', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '8px' }}>{(ru.demandes || []).length} demande{(ru.demandes || []).length !== 1 ? 's' : ''}</span>
+                          </div>
+                        </div>
+                        <div style={{ padding: '8px 0' }}>
+                          {renderDemandesTable(ru.demandes || [], `ru-${ru.id}`)}
+                        </div>
+                      </div>
+                    ))}
+                    {orphans.length > 0 && (
+                      <div style={{ marginBottom: '16px', border: '1px dashed #cbd5e1', borderRadius: '10px', overflow: 'hidden' }}>
+                        <div style={{ padding: '10px 14px', background: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#64748b' }}>Sans réunion associée</span>
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{orphans.length} demande{orphans.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div style={{ padding: '8px 0' }}>
+                          {renderDemandesTable(orphans, 'orphan')}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 );
-              })() : (
-                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
-                  <p>Aucune demande trouvée pour vos directions</p>
-                </div>
-              )}
+              })()}
             </div>
 
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>

