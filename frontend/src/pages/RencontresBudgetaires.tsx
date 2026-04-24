@@ -236,7 +236,12 @@ const RencontresBudgetaires: React.FC = () => {
       });
       const result = await res.json();
       if (res.ok) {
-        alert(`Import réussi : ${result.imported} importées${result.errors?.length > 0 ? ', ' + result.errors.length + ' erreurs' : ''}`);
+        let msg = `Import réussi : ${result.imported} importée(s)`;
+        if (result.errors?.length > 0) {
+          msg += `\n\n⚠️ ${result.errors.length} erreur(s) :\n` + result.errors.slice(0, 20).join('\n');
+          if (result.errors.length > 20) msg += `\n... et ${result.errors.length - 20} autres`;
+        }
+        alert(msg);
         fetchRencontres();
       } else {
         alert(`Erreur : ${result.error || result.message}`);
@@ -1043,7 +1048,7 @@ const RencontresBudgetaires: React.FC = () => {
                       <td style={styles.td}>
                         {r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}
                       </td>
-                      <td style={styles.td}>{r.cout_ttc?.toFixed(2) || 0}€</td>
+                      <td style={styles.td}>{r.cout_ttc > 0 ? `${r.cout_ttc.toFixed(2)}€` : '-'}</td>
                       <td style={{ ...styles.td, color: getArbitrageColor(r.arbitrage) }}>
                         <strong>{r.arbitrage || '-'}</strong>
                       </td>
@@ -1230,7 +1235,7 @@ const RencontresBudgetaires: React.FC = () => {
                         />
                       ) : (
                         <p style={{...styles.value, fontSize: '18px', fontWeight: 'bold', color: '#10b981'}}>
-                          {selectedRencontre.cout_ttc?.toFixed(2) || 0}€
+                          {selectedRencontre.cout_ttc > 0 ? `${selectedRencontre.cout_ttc.toFixed(2)}€` : '-'}
                         </p>
                       )}
                     </div>

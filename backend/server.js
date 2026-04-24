@@ -9979,7 +9979,8 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
                     : '';
                 const type = row['Type'] ? String(row['Type']).trim() : '';
                 const description = row['Quoi ?'] ? String(row['Quoi ?']).trim() : '';
-                const arbitrage = row['Arbitrage '] ? String(row['Arbitrage ']).trim() : '';
+                const arbitrageRaw = row['Arbitrage'] || row['Arbitrage '] || row['ARBITRAGE'] || '';
+                const arbitrage = arbitrageRaw ? String(arbitrageRaw).trim() : '';
                 const responsableDsi = row['DSI'] && String(row['DSI']).trim() !== '' ? String(row['DSI']).trim() : '';
                 const ticketGlpi = row['TICKET'] && String(row['TICKET']).trim() !== '' ? String(row['TICKET']).trim() : '';
                 const lienReference = row['LIEN'] && String(row['LIEN']).trim() !== '' ? String(row['LIEN']).trim() : '';
