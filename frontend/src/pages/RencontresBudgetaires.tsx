@@ -146,6 +146,10 @@ const RencontresBudgetaires: React.FC = () => {
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const adSearchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const detailAdSearchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const emailAdSearchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [emailAdQuery, setEmailAdQuery] = useState('');
+  const [emailAdResults, setEmailAdResults] = useState<ADUser[]>([]);
+  const [emailAdSearching, setEmailAdSearching] = useState(false);
 
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
   const statuts = ['demandée', 'planifiée', 'effectuée', 'importée'];
@@ -741,6 +745,48 @@ const RencontresBudgetaires: React.FC = () => {
       console.error('Erreur génération réunions:', e);
       alert('Erreur lors de la génération des réunions');
     }
+  };
+
+  const handleDeleteAllReunions = async () => {
+    if (!window.confirm('⚠️ Êtes-vous sûr de vouloir supprimer TOUTES les réunions ?\n\nLes participants, pièces jointes et associations seront également supprimés. Cette action est irréversible !')) return;
+    try {
+      const res = await fetch('/api/rencontres-reunions', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`✅ ${data.deleted} réunion(s) supprimée(s)`);
+        fetchReunions();
+        fetchRencontres();
+      } else {
+        const err = await res.json();
+        alert(`Erreur : ${err.error}`);
+      }
+    } catch (e) {
+      alert('Erreur lors de la suppression');
+    }
+  };
+
+  const searchADForEmail = useCallback((q: string) => {
+    setEmailAdQuery(q);
+    if (emailAdSearchTimerRef.current) clearTimeout(emailAdSearchTimerRef.current);
+    if (q.length < 2) { setEmailAdResults([]); return; }
+    setEmailAdSearching(true);
+    emailAdSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        const data = await res.json();
+        setEmailAdResults(Array.isArray(data) ? data : []);
+      } catch (e) { setEmailAdResults([]); }
+      finally { setEmailAdSearching(false); }
+    }, 400);
+  }, [token]);
+
+  const selectADUserForEmail = (user: ADUser) => {
+    setNewEmail(user.email);
+    setEmailAdQuery('');
+    setEmailAdResults([]);
   };
 
   const addParticipantManuel = () => {
@@ -1449,7 +1495,7 @@ const RencontresBudgetaires: React.FC = () => {
               {/* Formulaire d'ajout */}
               <div style={{padding: '16px 24px', borderBottom: '1px solid #e5e7eb', background: 'white'}}>
                 <p style={{margin: '0 0 10px 0', fontSize: '13px', fontWeight: '600', color: '#374151'}}>Ajouter un email</p>
-                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 2fr auto', gap: '8px', alignItems: 'end'}}>
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px'}}>
                   <div>
                     <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#6b7280', marginBottom: '4px'}}>DIRECTION *</label>
                     <select
@@ -1483,6 +1529,33 @@ const RencontresBudgetaires: React.FC = () => {
                         value={selectedEmailService}
                         onChange={(e) => setSelectedEmailService(e.target.value)}
                       />
+                    )}
+                  </div>
+                </div>
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: '8px', alignItems: 'end'}}>
+                  <div style={{position: 'relative'}}>
+                    <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#6b7280', marginBottom: '4px'}}>RECHERCHE AD</label>
+                    <input
+                      type="text"
+                      placeholder="Nom prénom..."
+                      style={{width: '100%', padding: '8px 10px', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '13px', background: '#eff6ff'}}
+                      value={emailAdQuery}
+                      onChange={(e) => searchADForEmail(e.target.value)}
+                    />
+                    {emailAdSearching && <span style={{position: 'absolute', right: '8px', top: '30px', fontSize: '11px', color: '#6b7280'}}>...</span>}
+                    {emailAdResults.length > 0 && (
+                      <div style={{position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #bfdbfe', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: '180px', overflowY: 'auto'}}>
+                        {emailAdResults.map(u => (
+                          <div key={u.username} onClick={() => selectADUserForEmail(u)}
+                            style={{padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px'}}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#eff6ff'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                          >
+                            <div style={{fontWeight: '600', color: '#1e293b'}}>{u.displayName}</div>
+                            <div style={{color: '#64748b', fontSize: '12px'}}>{u.email || 'Pas d\'email AD'}</div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                   <div>
@@ -1636,6 +1709,9 @@ const RencontresBudgetaires: React.FC = () => {
                   </button>
                   <button onClick={generateReunionsFromDemandes} style={{padding: '10px 18px', backgroundColor: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'}}>
                     ⚡ Générer réunions
+                  </button>
+                  <button onClick={handleDeleteAllReunions} style={{padding: '10px 18px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                    <Trash2 size={15} /> Tout supprimer
                   </button>
                 </div>
                 {reunions.length === 0 ? (

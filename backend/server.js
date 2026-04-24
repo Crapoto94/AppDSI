@@ -689,57 +689,54 @@ app.get('/api/ad/search', authenticateJWT, async (req, res) => {
             return res.status(400).json({ error: 'Active Directory non configuré' });
         }
 
-        // Essayer différentes combinaisons de nom/prénom
-        const parts = query.split(' ').filter(p => p);
-        const results = [];
-        const foundUsernames = new Set();
-
-        // Recherche avec chaque partie comme nom ou prénom
-        for (let i = 0; i < parts.length; i++) {
-            for (let j = 0; j < parts.length; j++) {
-                if (i === j) continue;
-                try {
-                    const user = await searchADUserByName(parts[i], parts[j], adSettings);
-                    if (user && user.sAMAccountName && !foundUsernames.has(user.sAMAccountName)) {
-                        foundUsernames.add(user.sAMAccountName);
-                        results.push({
-                            username: user.sAMAccountName,
-                            displayName: user.displayName || user.cn || user.sAMAccountName,
-                            email: user.mail || '',
-                            service: user.department || '',
-                            direction: user.company || ''
-                        });
-                    }
-                } catch (e) {
-                    // Continuer avec la prochaine combinaison
-                }
-            }
-        }
-
-        // Si pas de résultats, essayer une recherche simple
-        if (results.length === 0) {
-            try {
-                const user = await searchADUserByName(query, '', adSettings);
-                if (user && user.sAMAccountName) {
-                    results.push({
-                        username: user.sAMAccountName,
-                        displayName: user.displayName || user.cn || user.sAMAccountName,
-                        email: user.mail || '',
-                        service: user.department || '',
-                        direction: user.company || ''
-                    });
-                }
-            } catch (e) {
-                // Aucun résultat
-            }
-        }
-
+        const results = await searchADUsersByQuery(query, adSettings);
         res.json(results);
     } catch (error) {
         console.error('Erreur recherche AD:', error);
         res.status(500).json({ error: error.message });
     }
 });
+
+async function searchADUsersByQuery(query, config) {
+    return new Promise((resolve, reject) => {
+        const client = ldap.createClient({ url: `ldap://${config.host}:${config.port}` });
+        client.bind(config.bind_dn, config.bind_password, (err) => {
+            if (err) { client.destroy(); return reject(err); }
+
+            const escaped = query.replace(/[*()\\\x00]/g, '\\$&');
+            const filter = `(&(objectClass=user)(|(displayName=*${escaped}*)(sAMAccountName=*${escaped}*)(cn=*${escaped}*)))`;
+            const opts = {
+                filter,
+                scope: 'sub',
+                attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'department', 'company'],
+                sizeLimit: 20
+            };
+
+            const results = [];
+            const foundUsernames = new Set();
+
+            client.search(config.base_dn, opts, (err, searchRes) => {
+                if (err) { client.destroy(); return reject(err); }
+
+                searchRes.on('searchEntry', (entry) => {
+                    const user = flattenLDAPEntry(entry);
+                    if (user && user.sAMAccountName && !foundUsernames.has(user.sAMAccountName)) {
+                        foundUsernames.add(user.sAMAccountName);
+                        results.push({
+                            username: user.sAMAccountName,
+                            displayName: decodeLDAPString(user.displayName || user.cn || user.sAMAccountName),
+                            email: user.mail || '',
+                            service: user.department || '',
+                            direction: user.company || ''
+                        });
+                    }
+                });
+                searchRes.on('end', () => { client.destroy(); resolve(results); });
+                searchRes.on('error', (err) => { client.destroy(); reject(err); });
+            });
+        });
+    });
+}
 
 // Azure AD (Entra ID) Settings API
 // Route publique : retourne uniquement is_enabled (pour Login.tsx)
@@ -10213,6 +10210,58 @@ app.delete('/api/rencontres-participants/:id', authenticateJWT, async (req, res)
 });
 
 // POST: Ajouter un suivi
+// GET: Vérifier l'existence d'un ticket GLPI lié à une rencontre
+app.get('/api/rencontres-budgetaires/:id/glpi-link', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const rencontre = await db.get('SELECT ticket_glpi FROM rencontres_budgetaires WHERE id=?', [id]);
+        if (!rencontre || !rencontre.ticket_glpi) {
+            return res.json({ exists: false, message: 'Aucun ticket GLPI associé' });
+        }
+
+        const ticketId = rencontre.ticket_glpi;
+        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+        if (!settings || !settings.url || !settings.is_enabled) {
+            return res.json({ exists: true, url: null, message: `Ticket #${ticketId} (GLPI non configuré)` });
+        }
+
+        let url = settings.url.trim();
+        if (!url.includes('apirest.php')) {
+            url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+        }
+        const baseUrl = url.replace(/\/apirest\.php$/, '');
+
+        const commonHeaders = { 'App-Token': settings.app_token.trim(), 'Content-Type': 'application/json', 'Accept': 'application/json' };
+        const authHeader = (settings.login && settings.password)
+            ? `Basic ${Buffer.from(`${settings.login}:${settings.password}`).toString('base64')}`
+            : `user_token ${settings.user_token}`;
+
+        try {
+            const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader }, timeout: 8000 });
+            const sessionToken = sessionRes.data?.session_token;
+            if (!sessionToken) return res.json({ exists: true, url: `${baseUrl}/front/ticket.form.php?id=${ticketId}`, message: `Ticket #${ticketId}` });
+
+            try {
+                await axios.get(`${url}/Ticket/${ticketId}?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 8000 });
+                await axios.get(`${url}/killSession`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } }).catch(() => {});
+                return res.json({ exists: true, url: `${baseUrl}/front/ticket.form.php?id=${ticketId}`, message: `Ticket #${ticketId}` });
+            } catch (e) {
+                await axios.get(`${url}/killSession`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } }).catch(() => {});
+                if (e.response?.status === 404) {
+                    await db.run('UPDATE rencontres_budgetaires SET ticket_glpi=NULL WHERE id=?', [id]);
+                    return res.json({ exists: false, message: `Ticket #${ticketId} introuvable dans GLPI — lien supprimé` });
+                }
+                return res.json({ exists: true, url: `${baseUrl}/front/ticket.form.php?id=${ticketId}`, message: `Ticket #${ticketId}` });
+            }
+        } catch {
+            return res.json({ exists: true, url: `${baseUrl}/front/ticket.form.php?id=${ticketId}`, message: `Ticket #${ticketId}` });
+        }
+    } catch (error) {
+        console.error('Erreur glpi-link:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/rencontres-budgetaires/:id/suivi', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
@@ -10374,9 +10423,11 @@ app.get('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
 
         const participants = await db.all('SELECT * FROM reunion_participants WHERE reunion_id=? ORDER BY nom', [id]);
         const attachments = await db.all('SELECT * FROM reunion_attachments WHERE reunion_id=? ORDER BY created_at DESC', [id]);
+        const demandes = await db.all('SELECT * FROM rencontres_budgetaires WHERE reunion_id=? ORDER BY date_reunion DESC', [id]);
 
         reunion.participants = participants;
         reunion.attachments = attachments;
+        reunion.demandes = demandes;
 
         res.json(reunion);
     } catch (error) {
@@ -10414,6 +10465,20 @@ app.delete('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => 
         res.json({ message: 'Réunion supprimée' });
     } catch (error) {
         console.error('Erreur DELETE rencontres-reunions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// DELETE: Supprimer toutes les réunions
+app.delete('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
+    try {
+        await db.run('UPDATE rencontres_budgetaires SET reunion_id = NULL WHERE reunion_id IS NOT NULL');
+        await db.run('DELETE FROM reunion_participants');
+        await db.run('DELETE FROM reunion_attachments');
+        const result = await db.run('DELETE FROM rencontres_reunions');
+        res.json({ message: 'Toutes les réunions supprimées', deleted: result.changes });
+    } catch (error) {
+        console.error('Erreur DELETE all rencontres-reunions:', error);
         res.status(500).json({ error: error.message });
     }
 });
