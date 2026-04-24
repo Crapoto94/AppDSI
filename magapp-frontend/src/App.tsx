@@ -1206,27 +1206,39 @@ function App() {
                   );
                 };
 
-                const reunionIds = new Set(reunionsList.flatMap((ru: any) => (ru.demandes || []).map((d: any) => d.id)));
-                const orphans = rencontres.filter((r: any) => !reunionIds.has(r.id));
+                // IDs des demandes visibles par l'utilisateur
+                const userDemandeIds = new Set(rencontres.map((r: any) => r.id));
 
-                if (reunionsList.length === 0 && rencontres.length === 0) {
+                // Ne garder que les réunions ayant au moins une demande de l'utilisateur
+                // et n'afficher que les demandes de l'utilisateur dans chaque réunion
+                const visibleReunions = reunionsList
+                  .map((ru: any) => ({
+                    ...ru,
+                    demandes: (ru.demandes || []).filter((d: any) => userDemandeIds.has(d.id))
+                  }))
+                  .filter((ru: any) => ru.demandes.length > 0);
+
+                const reunionDemandeIds = new Set(visibleReunions.flatMap((ru: any) => ru.demandes.map((d: any) => d.id)));
+                const orphans = rencontres.filter((r: any) => !reunionDemandeIds.has(r.id));
+
+                if (visibleReunions.length === 0 && rencontres.length === 0) {
                   return <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}><p>Aucune demande trouvée</p></div>;
                 }
 
                 return (
                   <div>
-                    {reunionsList.map((ru: any) => (
+                    {visibleReunions.map((ru: any) => (
                       <div key={ru.id} style={{ marginBottom: '16px', border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
                         <div style={{ padding: '10px 14px', background: '#0f172a', display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'space-between' }}>
                           <span style={{ fontWeight: 800, fontSize: '0.9rem', color: 'white' }}>{ru.titre}</span>
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                             {ru.date_reunion && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{new Date(ru.date_reunion).toLocaleDateString('fr-FR')}</span>}
                             <span style={{ padding: '2px 8px', borderRadius: '8px', fontSize: '0.72rem', fontWeight: 700, background: ru.statut === 'effectuée' ? '#166534' : '#1e40af', color: 'white' }}>{ru.statut}</span>
-                            <span style={{ fontSize: '0.78rem', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '8px' }}>{(ru.demandes || []).length} demande{(ru.demandes || []).length !== 1 ? 's' : ''}</span>
+                            <span style={{ fontSize: '0.78rem', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '8px' }}>{ru.demandes.length} demande{ru.demandes.length !== 1 ? 's' : ''}</span>
                           </div>
                         </div>
                         <div style={{ padding: '8px 0' }}>
-                          {renderDemandesTable(ru.demandes || [], `ru-${ru.id}`)}
+                          {renderDemandesTable(ru.demandes, `ru-${ru.id}`)}
                         </div>
                       </div>
                     ))}
