@@ -10394,7 +10394,7 @@ app.get('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
 // POST: Créer une nouvelle réunion
 app.post('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
     try {
-        const { titre, date_reunion, annee, lieu, description, statut } = req.body;
+        const { titre, date_reunion, annee, lieu, description, statut, participants } = req.body;
         const username = req.user?.username || 'unknown';
 
         const result = await db.run(
@@ -10403,7 +10403,19 @@ app.post('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
             [titre, date_reunion, annee || new Date().getFullYear(), lieu, description, statut || 'planifiée', username]
         );
 
-        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [result.lastID]);
+        const reunionId = result.lastID;
+
+        if (Array.isArray(participants) && participants.length > 0) {
+            for (const p of participants) {
+                await db.run(
+                    `INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [reunionId, p.nom, p.prenom || '', p.email || '', p.service || '', p.direction || '', p.type_presence || 'metier', p.statut_presence || 'present', p.ad_username || null]
+                );
+            }
+        }
+
+        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [reunionId]);
         res.status(201).json(reunion);
     } catch (error) {
         console.error('Erreur POST rencontres-reunions:', error);
