@@ -15,9 +15,17 @@ function convertSqliteToPostgres(sql) {
                     .replace(/magapp_clicks/gi, 'magapp.clicks')
                     .replace(/magapp_subscriptions/gi, 'magapp.subscriptions')
                     .replace(/magapp_settings/gi, 'magapp.settings')
-                    .replace(/(?<!hub\.)\busers\b/gi, 'hub.users');
-    
+                    .replace(/(?<!hub\.)\busers\b/gi, 'hub.users')
+                    .replace(/(?<!rencontres\.)\brencontres_budgetaires\b/gi, 'rencontres.rencontres_budgetaires')
+                    .replace(/(?<!rencontres\.)\brencontres_participants\b/gi, 'rencontres.rencontres_participants')
+                    .replace(/(?<!rencontres\.)\brencontres_suivi\b/gi, 'rencontres.rencontres_suivi')
+                    .replace(/(?<!rencontres\.)\brencontres_reunions\b/gi, 'rencontres.rencontres_reunions')
+                    .replace(/(?<!rencontres\.)\breunion_participants\b/gi, 'rencontres.reunion_participants')
+                    .replace(/(?<!rencontres\.)\breunion_attachments\b/gi, 'rencontres.reunion_attachments')
+                    .replace(/(?<!rencontres\.)\bdirection_emails\b/gi, 'rencontres.direction_emails');
+
     newSql = newSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
+    newSql = newSql.replace(/INSERT OR REPLACE INTO/gi, 'INSERT INTO');
     
     if (newSql.toUpperCase().includes('INSERT INTO MAGAPP.FAVORITES') && sql.toUpperCase().includes('IGNORE')) {
         newSql += ' ON CONFLICT (username, app_id) DO NOTHING';
@@ -447,6 +455,118 @@ async function setupPgDb() {
         console.warn('[PG DB] Migration execution_time:', e.message);
       }
     }
+
+    // ============================================================
+    // SCHEMA RENCONTRES BUDGÉTAIRES
+    // ============================================================
+    await client.query('CREATE SCHEMA IF NOT EXISTS rencontres;');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rencontres.rencontres_reunions (
+        id SERIAL PRIMARY KEY,
+        titre TEXT NOT NULL,
+        date_reunion TIMESTAMP,
+        annee INTEGER,
+        lieu TEXT,
+        description TEXT,
+        statut TEXT DEFAULT 'planifiée',
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rencontres.rencontres_budgetaires (
+        id SERIAL PRIMARY KEY,
+        titre TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        service TEXT,
+        date_reunion TIMESTAMP,
+        annee INTEGER,
+        type TEXT,
+        description TEXT,
+        cout_ttc NUMERIC,
+        arbitrage TEXT,
+        responsable_dsi TEXT,
+        ticket_glpi TEXT,
+        lien_reference TEXT,
+        statut TEXT DEFAULT 'planifiée',
+        commentaires TEXT,
+        suivi TEXT,
+        reunion_id INTEGER REFERENCES rencontres.rencontres_reunions(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rencontres.rencontres_participants (
+        id SERIAL PRIMARY KEY,
+        rencontre_id INTEGER NOT NULL REFERENCES rencontres.rencontres_budgetaires(id) ON DELETE CASCADE,
+        nom TEXT,
+        role TEXT,
+        email TEXT,
+        statut TEXT DEFAULT 'en attente'
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rencontres.rencontres_suivi (
+        id SERIAL PRIMARY KEY,
+        rencontre_id INTEGER NOT NULL REFERENCES rencontres.rencontres_budgetaires(id) ON DELETE CASCADE,
+        action_item TEXT,
+        responsable TEXT,
+        date_echeance DATE,
+        statut TEXT DEFAULT 'en cours',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rencontres.direction_emails (
+        id SERIAL PRIMARY KEY,
+        direction TEXT NOT NULL,
+        service TEXT,
+        email TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(direction, service, email)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rencontres.reunion_participants (
+        id SERIAL PRIMARY KEY,
+        reunion_id INTEGER NOT NULL REFERENCES rencontres.rencontres_reunions(id) ON DELETE CASCADE,
+        nom TEXT NOT NULL,
+        prenom TEXT,
+        email TEXT,
+        service TEXT,
+        direction TEXT,
+        type_presence TEXT DEFAULT 'metier',
+        statut_presence TEXT DEFAULT 'present',
+        ad_username TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rencontres.reunion_attachments (
+        id SERIAL PRIMARY KEY,
+        reunion_id INTEGER NOT NULL REFERENCES rencontres.rencontres_reunions(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mimetype TEXT,
+        size INTEGER,
+        uploaded_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_direction ON rencontres.rencontres_budgetaires(direction);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_annee ON rencontres.rencontres_budgetaires(annee);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_statut ON rencontres.rencontres_budgetaires(statut);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_de_direction ON rencontres.direction_emails(direction);`);
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

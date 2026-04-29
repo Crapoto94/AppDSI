@@ -2308,6 +2308,48 @@ app.post('/api/admin/frizbi/send-test', authenticateAdmin, async (req, res) => {
     }
 });
 
+// API Ville settings (stored in app_settings)
+app.get('/api/admin/api-ville-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const keys = ['api_ville_url', 'api_ville_swagger_url', 'api_ville_token'];
+        const rows = await db.all(`SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN (${keys.map(() => '?').join(',')})`, keys);
+        const result = {};
+        for (const k of keys) result[k] = '';
+        for (const r of rows) result[r.setting_key] = r.setting_value || '';
+        res.json(result);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/api-ville-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const { api_ville_url, api_ville_swagger_url, api_ville_token } = req.body;
+        const entries = [
+            ['api_ville_url', api_ville_url || '', 'URL de base de l\'API Ville'],
+            ['api_ville_swagger_url', api_ville_swagger_url || '', 'URL Swagger de l\'API Ville'],
+            ['api_ville_token', api_ville_token || '', 'Token d\'authentification API Ville'],
+        ];
+        for (const [key, value, desc] of entries) {
+            await db.run(`INSERT OR REPLACE INTO app_settings (setting_key, setting_value, description) VALUES (?, ?, ?)`, [key, value, desc]);
+        }
+        res.json({ message: 'Paramètres API Ville enregistrés' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/api-ville-settings/test', authenticateAdmin, async (req, res) => {
+    try {
+        const { api_ville_url, api_ville_token } = req.body;
+        if (!api_ville_url) return res.status(400).json({ success: false, message: 'URL non configurée' });
+        const headers = { 'Accept': 'application/json' };
+        if (api_ville_token) headers['Authorization'] = `Bearer ${api_ville_token}`;
+        const testUrl = api_ville_url.replace(/\/$/, '');
+        const response = await axios.get(testUrl, { headers, timeout: 8000, validateStatus: () => true });
+        const ok = response.status < 500;
+        res.json({ success: ok, message: ok ? `Réponse HTTP ${response.status} — API accessible` : `Erreur HTTP ${response.status}`, status: response.status });
+    } catch (e) {
+        res.json({ success: false, message: `Impossible de joindre l'API : ${e.message}` });
+    }
+});
+
 app.get('/api/admin/rh/ad-proposals', authenticateAdmin, async (req, res) => {
     try {
         await db.run('CREATE TABLE IF NOT EXISTS rh.ad_proposals (id INTEGER PRIMARY KEY AUTOINCREMENT, matricule TEXT, ad_username TEXT, score INTEGER, status TEXT DEFAULT "pending", date_creation DATETIME DEFAULT CURRENT_TIMESTAMP)');
@@ -5283,6 +5325,12 @@ setupDb().then(async database => {
     // Initialize PostgreSQL for MagApp
     await setupPgDb();
 
+    // Migrations table certificates
+    try { await db.run("ALTER TABLE certificates ADD COLUMN sedit_number TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE certificates ADD COLUMN observations TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE certificates ADD COLUMN renewal_status TEXT DEFAULT NULL"); } catch (e) {}
+    try { await db.run("ALTER TABLE certificates ADD COLUMN renewal_comment TEXT DEFAULT ''"); } catch (e) {}
+
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Backend server running on http://0.0.0.0:${PORT}`);
     });
@@ -6980,6 +7028,138 @@ Stack: ${error.stack}`;
 `);
         res.status(500).json({ message: 'Error processing certificate PDF', error: error.message });
     }
+});
+
+// POST /api/certificates — création manuelle
+app.post('/api/certificates', authenticateJWT, async (req, res) => {
+    try {
+        const { order_number = '', request_date = new Date().toISOString().split('T')[0], beneficiary_name = '', beneficiary_email = '', product_code = '', product_label = '', expiry_date = null, sedit_number = '', is_provisional = 1, observations = '' } = req.body;
+        const finalProvisional = expiry_date ? 0 : (is_provisional ?? 1);
+        const result = await db.run(
+            `INSERT INTO certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, '', expiry_date, sedit_number, finalProvisional, observations]
+        );
+        const newCert = await db.get('SELECT * FROM certificates WHERE id = ?', [result.lastID]);
+        res.status(201).json(newCert);
+    } catch (error) { res.status(500).json({ message: 'Erreur création certificat', error: error.message }); }
+});
+
+// POST /api/certificates/:id/file — attacher un fichier PDF à un certificat existant
+app.post('/api/certificates/:id/file', authenticateJWT, (req, res, next) => {
+    upload.single('file')(req, res, err => { if (err) return res.status(500).json({ message: 'Erreur upload', error: err.message }); next(); });
+}, async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+    try {
+        const cert = await db.get('SELECT * FROM certificates WHERE id = ?', [req.params.id]);
+        if (!cert) return res.status(404).json({ message: 'Certificat non trouvé' });
+        if (cert.file_path) { try { const old = path.join(__dirname, cert.file_path); if (fs.existsSync(old)) fs.unlinkSync(old); } catch (e) {} }
+        const newFilePath = `file_certif/${req.file.filename}`;
+        await db.run('UPDATE certificates SET file_path = ? WHERE id = ?', [newFilePath, req.params.id]);
+        const updated = await db.get('SELECT * FROM certificates WHERE id = ?', [req.params.id]);
+        res.json(updated);
+    } catch (error) { res.status(500).json({ message: 'Erreur attachement fichier', error: error.message }); }
+});
+
+// PUT /api/certificates/:id/renewal — statut de renouvellement
+app.put('/api/certificates/:id/renewal', authenticateJWT, async (req, res) => {
+    const { renewal_status, renewal_comment } = req.body;
+    try {
+        await db.run('UPDATE certificates SET renewal_status = ?, renewal_comment = ? WHERE id = ?', [renewal_status, renewal_comment || '', req.params.id]);
+        const updated = await db.get('SELECT * FROM certificates WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Statut renouvellement mis à jour', certificate: updated });
+    } catch (error) { res.status(500).json({ message: 'Erreur mise à jour renouvellement', error: error.message }); }
+});
+
+// PUT /api/certificates/:id — mise à jour complète
+app.put('/api/certificates/:id', authenticateJWT, async (req, res) => {
+    try {
+        const allowed = ['order_number', 'request_date', 'beneficiary_name', 'beneficiary_email', 'product_code', 'product_label', 'expiry_date', 'sedit_number', 'is_provisional', 'observations', 'renewal_status', 'renewal_comment'];
+        const updates = []; const values = [];
+        allowed.forEach(f => { if (req.body[f] !== undefined) { updates.push(`${f} = ?`); values.push(req.body[f]); } });
+        if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ modifiable fourni' });
+        if (req.body.expiry_date !== undefined && req.body.expiry_date !== null && !('is_provisional' in req.body)) { updates.push('is_provisional = ?'); values.push(0); }
+        values.push(req.params.id);
+        await db.run(`UPDATE certificates SET ${updates.join(', ')} WHERE id = ?`, values);
+        const updated = await db.get('SELECT * FROM certificates WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Certificat mis à jour', certificate: updated });
+    } catch (error) { res.status(500).json({ message: 'Erreur mise à jour certificat', error: error.message }); }
+});
+
+// POST /api/certificates/upload-multiple — multi-PDF upload
+app.post('/api/certificates/upload-multiple', authenticateJWT, (req, res, next) => {
+    upload.array('files', 20)(req, res, err => { if (err) return res.status(500).json({ message: 'Erreur Multer', error: err.message }); next(); });
+}, async (req, res) => {
+    const files = req.files;
+    if (!files || !Array.isArray(files) || files.length === 0) return res.status(400).json({ message: 'Pas de fichiers fournis.' });
+    const results = [];
+    for (const file of files) {
+        try {
+            // Reuse existing parse logic inline
+            const fileName = file.originalname;
+            if (!fileName.toLowerCase().endsWith('.pdf')) { results.push({ file: fileName, status: 'error', message: 'Seuls les PDF sont acceptés' }); continue; }
+            const dataBuffer = fs.readFileSync(file.path);
+            const pdfData = await pdf(dataBuffer);
+            const content = pdfData.text || '';
+            const orderMatch = content.match(/BD\d+-\d+/);
+            const dateMatch = content.match(/\d{2}\/\d{2}\/\d{4}/);
+            let emailMatch = content.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+            if (emailMatch) emailMatch[0] = emailMatch[0].replace(/^[A-Z]{2,}(?=[a-z])/, '');
+            const productCodeMatch = content.match(/(OE2|OP2)-[A-Z0-9-]+/);
+            const formatDateToISO = s => { if (!s) return null; const p = s.split('/'); return p.length === 3 ? `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}` : s; };
+            const addYears = (s, y) => { if (!s) return null; const d = new Date(s); if (isNaN(d)) return null; d.setFullYear(d.getFullYear()+y); return d.toISOString().split('T')[0]; };
+            const addDays = (s, n) => { if (!s) return null; const d = new Date(s); if (isNaN(d)) return null; d.setDate(d.getDate()+n); return d.toISOString().split('T')[0]; };
+            const data = { order_number: orderMatch ? orderMatch[0] : 'Inconnu', request_date: dateMatch ? formatDateToISO(dateMatch[0]) : new Date().toISOString().split('T')[0], beneficiary_name: 'Inconnu', beneficiary_email: emailMatch ? emailMatch[0] : 'Inconnu', product_code: productCodeMatch ? productCodeMatch[0] : 'Inconnu', product_label: 'Certificat Standard', file_path: `file_certif/${file.filename}`, sedit_number: '', is_provisional: 1, observations: '' };
+            const libelleMatch = content.match(/LIBELLE\s*:\s*([^ \n]+.*)/i);
+            if (libelleMatch) { data.product_label = libelleMatch[1].trim(); } else { let type = content.toUpperCase().includes('AGENT') ? 'Agents - G2' : content.includes('Dématérialisation') ? 'Dématérialisation - G2' : content.toUpperCase().includes('SERVEUR') ? 'Serveur - SSL' : 'Standard'; let dur = data.product_code.endsWith('3A') ? '3 ans' : '2 ans'; data.product_label = type !== 'Standard' ? `${type} - ${dur}` : 'Certificat Standard'; }
+            const durMatch = data.product_label.match(/(\d+)\s*ans?/i); data.expiry_date = durMatch ? addYears(data.request_date, parseInt(durMatch[1])) : addDays(data.request_date, 15);
+            const prefNomMatch = content.match(/PRENOM \/ NOM\s*:\s*([^ \n]+.*)/i); if (prefNomMatch) data.beneficiary_name = prefNomMatch[1].trim();
+            if (!data.order_number || data.order_number === 'Inconnu') data.order_number = 'FO';
+            const existing = await db.get('SELECT id, file_path, is_provisional, sedit_number, expiry_date, observations FROM certificates WHERE order_number = ?', [data.order_number]);
+            let result;
+            if (existing && data.order_number !== 'FO') {
+                const fp = (existing.is_provisional === 0 && existing.expiry_date) ? 0 : data.is_provisional;
+                const fe = (existing.is_provisional === 0 && existing.expiry_date) ? existing.expiry_date : data.expiry_date;
+                await db.run(`UPDATE certificates SET request_date=?,beneficiary_name=?,beneficiary_email=?,product_code=?,product_label=?,file_path=?,expiry_date=?,sedit_number=?,is_provisional=?,observations=? WHERE id=?`, [data.request_date,data.beneficiary_name,data.beneficiary_email,data.product_code,data.product_label,data.file_path,fe,existing.sedit_number||data.sedit_number,fp,existing.observations||data.observations,existing.id]);
+                if (existing.file_path && existing.file_path !== data.file_path) { try { const op = path.join(__dirname, existing.file_path); if (fs.existsSync(op)) fs.unlinkSync(op); } catch (e) {} }
+                result = { lastID: existing.id };
+            } else {
+                result = await db.run(`INSERT INTO certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, [data.order_number,data.request_date,data.beneficiary_name,data.beneficiary_email,data.product_code,data.product_label,data.file_path,data.expiry_date,data.sedit_number,data.is_provisional,data.observations]);
+            }
+            const saved = await db.get('SELECT * FROM certificates WHERE id = ?', [result.lastID]);
+            results.push({ file: fileName, status: 'ok', certificate: saved });
+        } catch (error) { results.push({ file: file.originalname, status: 'error', message: error.message }); }
+    }
+    res.json({ results });
+});
+
+// POST /api/certificates/upload-excel — import depuis Excel
+app.post('/api/certificates/upload-excel', authenticateJWT, (req, res, next) => {
+    upload.single('file')(req, res, err => { if (err) return res.status(500).json({ message: 'Erreur Multer', error: err.message }); next(); });
+}, async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'Aucun fichier XLSX fourni.' });
+    try {
+        const workbook = xlsx.readFile(req.file.path);
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+        const normDate = s => { if (!s) return null; const d = new Date(s); if (!isNaN(d)) return d.toISOString().split('T')[0]; const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}` : null; };
+        const results = [];
+        for (const [idx, row] of rows.entries()) {
+            const orderNumber = String(row.order_number || row['N° Commande'] || row.Commande || row['Order Number'] || '').trim();
+            if (!orderNumber) { results.push({ row: idx+2, status: 'skipped', message: 'N° commande manquant' }); continue; }
+            const data = { order_number: orderNumber, request_date: normDate(String(row.request_date || row['Date Demande'] || new Date().toISOString().split('T')[0])) || new Date().toISOString().split('T')[0], beneficiary_name: String(row.beneficiary_name || row['Bénéficiaire'] || row['Beneficiary'] || 'Inconnu').trim() || 'Inconnu', beneficiary_email: String(row.beneficiary_email || row['Email'] || 'Inconnu').trim() || 'Inconnu', product_code: String(row.product_code || row['Code produit'] || 'Inconnu').trim() || 'Inconnu', product_label: String(row.product_label || row['Libellé produit'] || 'Certificat Standard').trim() || 'Certificat Standard', expiry_date: normDate(String(row.expiry_date || row['Fin Validité'] || '')), sedit_number: String(row.sedit_number || row['N° Sedit'] || '').trim(), observations: String(row.observations || row['Observations'] || '').trim(), file_path: '', is_provisional: 0 };
+            data.is_provisional = data.expiry_date ? 0 : 1;
+            try {
+                const existing = await db.get('SELECT id, is_provisional, expiry_date, sedit_number, observations FROM certificates WHERE order_number = ?', [data.order_number]);
+                let result;
+                if (existing) { await db.run(`UPDATE certificates SET request_date=?,beneficiary_name=?,beneficiary_email=?,product_code=?,product_label=?,expiry_date=?,sedit_number=?,is_provisional=?,observations=? WHERE id=?`, [data.request_date,data.beneficiary_name,data.beneficiary_email,data.product_code,data.product_label,data.expiry_date||existing.expiry_date,data.sedit_number||existing.sedit_number,data.expiry_date?0:existing.is_provisional,data.observations||existing.observations,existing.id]); result = { lastID: existing.id }; }
+                else { result = await db.run(`INSERT INTO certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, [data.order_number,data.request_date,data.beneficiary_name,data.beneficiary_email,data.product_code,data.product_label,'',data.expiry_date,data.sedit_number,data.is_provisional,data.observations]); }
+                const saved = await db.get('SELECT * FROM certificates WHERE id = ?', [result.lastID]);
+                results.push({ row: idx+2, status: 'ok', certificate: saved });
+            } catch (error) { results.push({ row: idx+2, status: 'error', message: error.message }); }
+        }
+        try { if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch (e) {}
+        res.json({ results });
+    } catch (error) { res.status(500).json({ message: 'Erreur traitement Excel', error: error.message }); }
 });
 
 // Default Error Handler (must be after all routes)
@@ -10483,6 +10663,101 @@ app.get('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
         res.json(reunion);
     } catch (error) {
         console.error('Erreur GET rencontres-reunions/:id:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST: Envoyer le compte rendu d'une réunion par email
+app.post('/api/rencontres-reunions/:id/compte-rendu', authenticateJWT, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+        if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+
+        const participants = await db.all('SELECT * FROM reunion_participants WHERE reunion_id=? ORDER BY nom', [id]);
+        const demandes = await db.all('SELECT * FROM rencontres_budgetaires WHERE reunion_id=? ORDER BY direction, service, titre', [id]);
+
+        // Grouper les demandes par direction puis service
+        const byDir = {};
+        for (const d of demandes) {
+            const dir = d.direction || 'Non spécifié';
+            const svc = d.service || '';
+            if (!byDir[dir]) byDir[dir] = {};
+            if (!byDir[dir][svc]) byDir[dir][svc] = [];
+            byDir[dir][svc].push(d);
+        }
+
+        const arbitrageBadge = (a) => {
+            if (!a) return '<span style="color:#94a3b8">—</span>';
+            const color = a === 'OK DSI' ? '#1d4ed8' : a === 'Refusé' ? '#dc2626' : '#92400e';
+            const bg = a === 'OK DSI' ? '#dbeafe' : a === 'Refusé' ? '#fee2e2' : '#fef3c7';
+            return `<span style="padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;background:${bg};color:${color}">${a}</span>`;
+        };
+
+        let demandesHtml = '';
+        if (demandes.length === 0) {
+            demandesHtml = '<p style="color:#94a3b8;font-style:italic">Aucune demande associée à cette réunion.</p>';
+        } else {
+            for (const [dir, services] of Object.entries(byDir)) {
+                demandesHtml += `<tr><td colspan="4" style="padding:8px 10px 6px;background:#334155;color:#e2e8f0;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:0.06em">${dir}</td></tr>`;
+                for (const [svc, items] of Object.entries(services)) {
+                    if (svc) demandesHtml += `<tr><td colspan="4" style="padding:4px 18px 3px;background:#f1f5f9;font-weight:700;color:#0284c7;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">${svc}</td></tr>`;
+                    for (const d of items) {
+                        const check = d.statut === 'effectuée' ? '✅ ' : '';
+                        demandesHtml += `<tr style="border-bottom:1px solid #f1f5f9;background:${d.statut === 'effectuée' ? '#f0fdf4' : 'white'}">
+                            <td style="padding:8px 12px;color:#1e293b;font-weight:600">${check}${d.titre || '—'}</td>
+                            <td style="padding:8px 12px;color:#475569;font-size:12px">${d.type || '—'}</td>
+                            <td style="padding:8px 12px">${arbitrageBadge(d.arbitrage)}</td>
+                            <td style="padding:8px 12px;color:#475569;font-size:12px">${d.suivi || '—'}</td>
+                        </tr>`;
+                    }
+                }
+            }
+        }
+
+        const dateStr = reunion.date_reunion ? new Date(reunion.date_reunion).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
+        const participantsStr = participants.map(p => `${p.prenom ? p.prenom + ' ' : ''}${p.nom}${p.service ? ' (' + p.service + ')' : ''}`).join(', ') || 'Aucun participant renseigné';
+
+        const content = `
+<h2 style="color:#0f172a;margin:0 0 4px;font-size:20px">${reunion.titre}</h2>
+<p style="color:#64748b;margin:0 0 20px;font-size:14px">${dateStr}${reunion.lieu ? ' — ' + reunion.lieu : ''}</p>
+
+<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;width:30%">Participants</td>
+      <td style="padding:10px 14px;color:#1e293b">${participantsStr}</td></tr>
+  ${reunion.description ? `<tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569">Description</td><td style="padding:10px 14px;color:#1e293b">${reunion.description}</td></tr>` : ''}
+</table>
+
+<h3 style="color:#1e293b;font-size:15px;margin:24px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px">Demandes (${demandes.length})</h3>
+<table style="width:100%;border-collapse:collapse;font-size:13px">
+  <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Demande</th>
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Type</th>
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Arbitrage</th>
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Suivi</th>
+  </tr></thead>
+  <tbody>${demandesHtml}</tbody>
+</table>
+
+<div style="margin-top:28px;padding:16px 20px;background:#eff6ff;border-radius:10px;border-left:4px solid #2563eb">
+  <p style="margin:0;color:#1e40af;font-size:13px;font-weight:600">💡 Retrouvez vos demandes et leur évolution en temps réel</p>
+  <p style="margin:6px 0 0;color:#3b82f6;font-size:12px">Connectez-vous au <strong>Magasin d'Application DSI</strong> pour consulter l'état de vos demandes, les arbitrages et les mises à jour : <a href="https://magapp.ivry.local" style="color:#2563eb;font-weight:700">magapp.ivry.local</a></p>
+</div>`;
+
+        // Récupérer les emails des participants
+        const emails = participants.map(p => p.email).filter(e => e && e.includes('@'));
+        if (emails.length === 0) return res.status(400).json({ error: 'Aucun participant avec une adresse email renseignée' });
+
+        const subject = `Compte rendu — ${reunion.titre}${dateStr ? ' du ' + dateStr : ''}`;
+        let sent = 0, failed = 0;
+        for (const email of emails) {
+            try { await sendMail(email, subject, content); sent++; }
+            catch (e) { console.error(`[COMPTE-RENDU] Erreur envoi à ${email}:`, e.message); failed++; }
+        }
+
+        res.json({ message: `Compte rendu envoyé à ${sent} destinataire(s)${failed > 0 ? `, ${failed} échec(s)` : ''}`, sent, failed, total: emails.length });
+    } catch (error) {
+        console.error('Erreur POST compte-rendu:', error);
         res.status(500).json({ error: error.message });
     }
 });
