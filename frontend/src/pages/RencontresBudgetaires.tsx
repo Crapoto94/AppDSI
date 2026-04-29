@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Header from '../components/Header';
 import {
   Upload, Search, X, Columns, Eye, Plus, Trash2, Info, Mail, AlertCircle, Ticket, Send
@@ -144,9 +144,9 @@ const RencontresBudgetaires: React.FC = () => {
   const [reunionAttachments, setReunionAttachments] = useState<ReunionAttachment[]>([]);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const adSearchTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const detailAdSearchTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const emailAdSearchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const adSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const detailAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const emailAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [emailAdQuery, setEmailAdQuery] = useState('');
   const [emailAdResults, setEmailAdResults] = useState<ADUser[]>([]);
   const [emailAdSearching, setEmailAdSearching] = useState(false);
