@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, CheckSquare, Briefcase, FileText } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, CheckSquare, Briefcase, FileText, MessageSquare } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -1198,6 +1198,27 @@ function App() {
                                           ? <CheckCircle2 size={14} color="#16a34a" />
                                           : r.type?.toLowerCase() === 'projet' ? <Briefcase size={13} color="#7c3aed" /> : r.type?.toLowerCase() === 'incident' ? <AlertTriangle size={13} color="#dc2626" /> : <FileText size={13} color="#0284c7" />}
                                         <span style={{ color: r.statut === 'effectuée' ? '#15803d' : '#1e293b' }}>{r.titre || r.description}</span>
+                                        {r.commentaires && (
+                                          <span
+                                            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', marginLeft: '4px', color: '#64748b' }}
+                                            onMouseEnter={e => {
+                                              const el = document.getElementById('comment-tooltip'); if (el) el.remove();
+                                              const tip = document.createElement('div');
+                                              tip.id = 'comment-tooltip';
+                                              tip.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#fff;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:360px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;white-space:pre-wrap;';
+                                              tip.textContent = r.commentaires;
+                                              document.body.appendChild(tip);
+                                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                              const tipH = tip.getBoundingClientRect().height;
+                                              const top = rect.bottom + 6 + tipH > window.innerHeight ? rect.top - tipH - 6 : rect.bottom + 6;
+                                              tip.style.top = top + 'px';
+                                              tip.style.left = Math.min(rect.left, window.innerWidth - 370) + 'px';
+                                            }}
+                                            onMouseLeave={() => { const el = document.getElementById('comment-tooltip'); if (el) el.remove(); }}
+                                          >
+                                            <MessageSquare size={13} />
+                                          </span>
+                                        )}
                                       </div>
                                     </td>
                                     <td style={{ padding: '8px 10px', color: '#475569', fontSize: '0.78rem', maxWidth: '200px', wordBreak: 'break-word' }}>{r.suivi || '—'}</td>

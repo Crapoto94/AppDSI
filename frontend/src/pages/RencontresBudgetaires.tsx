@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Header from '../components/Header';
 import {
-  Upload, Search, X, Columns, Eye, Plus, Trash2, Info, Mail, AlertCircle, Ticket
+  Upload, Search, X, Columns, Eye, Plus, Trash2, Info, Mail, AlertCircle, Ticket, Send
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -598,6 +598,22 @@ const RencontresBudgetaires: React.FC = () => {
     await fetch(`/api/rencontres-reunions/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
     setShowReunionDetail(false);
     fetchReunions();
+  };
+
+  const [sendingCompteRendu, setSendingCompteRendu] = useState(false);
+  const handleSendCompteRendu = async () => {
+    if (!selectedReunion) return;
+    setSendingCompteRendu(true);
+    try {
+      const res = await fetch(`/api/rencontres-reunions/${selectedReunion.id}/compte-rendu`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) alert(`✅ ${data.message}`);
+      else alert(`❌ Erreur : ${data.error}`);
+    } catch { alert('❌ Erreur réseau lors de l\'envoi'); }
+    finally { setSendingCompteRendu(false); }
   };
 
   const handleDeleteParticipant = async (pid: number) => {
@@ -1908,6 +1924,9 @@ const RencontresBudgetaires: React.FC = () => {
                 </div>
                 <div style={{display: 'flex', gap: '8px'}}>
                   <button onClick={() => setShowCreateDemandeModal(true)} style={{padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px'}}><Plus size={14} /> Demande</button>
+                  <button onClick={handleSendCompteRendu} disabled={sendingCompteRendu} style={{padding: '8px 14px', background: '#ecfdf5', color: '#059669', border: '1px solid #6ee7b7', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', opacity: sendingCompteRendu ? 0.6 : 1}} title="Envoyer le compte rendu par email à tous les participants">
+                    <Send size={14} /> {sendingCompteRendu ? 'Envoi...' : 'Compte rendu'}
+                  </button>
                   <button onClick={() => handleDeleteReunion(selectedReunion.id)} style={{padding: '8px 14px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px'}}><Trash2 size={14} /></button>
                   <button onClick={() => setShowReunionDetail(false)} style={{background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}><X size={16} /></button>
                 </div>
