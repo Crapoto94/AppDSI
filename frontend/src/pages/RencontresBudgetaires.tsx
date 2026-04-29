@@ -14,7 +14,7 @@ interface Rencontre {
   annee: number;
   type: string;
   description: string;
-  cout_ttc: number;
+  cout_ttc: number | string;
   arbitrage: string;
   responsable_dsi: string;
   ticket_glpi: string;
@@ -360,7 +360,7 @@ const RencontresBudgetaires: React.FC = () => {
         selectedRencontre.description || '',
         '',
         selectedRencontre.commentaires ? `Commentaires :\n${selectedRencontre.commentaires}` : '',
-        selectedRencontre.cout_ttc ? `Montant TTC : ${selectedRencontre.cout_ttc.toFixed(2)}€` : '',
+        selectedRencontre.cout_ttc ? `Montant TTC : ${Number(selectedRencontre.cout_ttc).toFixed(2)}€` : '',
         selectedRencontre.arbitrage ? `Arbitrage : ${selectedRencontre.arbitrage}` : '',
         selectedRencontre.responsable_dsi ? `Responsable DSI : ${selectedRencontre.responsable_dsi}` : '',
       ].filter(Boolean).join('\n');
@@ -1064,7 +1064,7 @@ const RencontresBudgetaires: React.FC = () => {
                       <td style={styles.td}>
                         {r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}
                       </td>
-                      <td style={styles.td}>{r.cout_ttc > 0 ? `${r.cout_ttc.toFixed(2)}€` : '-'}</td>
+                      <td style={styles.td}>{Number(r.cout_ttc) > 0 ? `${Number(r.cout_ttc).toFixed(2)}€` : '-'}</td>
                       <td style={{ ...styles.td, color: getArbitrageColor(r.arbitrage) }}>
                         <strong>{r.arbitrage || '-'}</strong>
                       </td>
@@ -1251,7 +1251,7 @@ const RencontresBudgetaires: React.FC = () => {
                         />
                       ) : (
                         <p style={{...styles.value, fontSize: '18px', fontWeight: 'bold', color: '#10b981'}}>
-                          {selectedRencontre.cout_ttc > 0 ? `${selectedRencontre.cout_ttc.toFixed(2)}€` : '-'}
+                          {Number(selectedRencontre.cout_ttc) > 0 ? `${Number(selectedRencontre.cout_ttc).toFixed(2)}€` : '-'}
                         </p>
                       )}
                     </div>
