@@ -6159,7 +6159,7 @@ app.get('/api/magapp/settings', async (req, res) => {
             const { username, email } = req.query;
             const identifier = (username || (email && email.split('@')[0]) || '').toLowerCase().trim();
             if (identifier) {
-                const directionEmail = await db.get('SELECT 1 FROM direction_emails WHERE email LIKE ? OR email LIKE ?', [`${identifier}@%`, `${identifier}%`]);
+                const directionEmail = await pgDb.get('SELECT 1 FROM direction_emails WHERE email LIKE ? OR email LIKE ?', [`${identifier}@%`, `${identifier}%`]);
                 hasRencontresAccess = !!directionEmail;
             }
         } catch (e) {
@@ -9936,7 +9936,7 @@ app.get('/api/rencontres-budgetaires', authenticateJWT, async (req, res) => {
                 if (username) {
                     // Chercher les directions associées à cet username
                     // Le username peut être trouvé au début de l'email (ex: "machevalier" dans "machevalier@ivry94.fr")
-                    const userDirections = await db.all('SELECT direction FROM direction_emails WHERE email LIKE ? OR email LIKE ?', [`${username}@%`, `${username}%`]);
+                    const userDirections = await pgDb.all('SELECT direction FROM direction_emails WHERE email LIKE ? OR email LIKE ?', [`${username}@%`, `${username}%`]);
                     console.log(`[RENCONTRES] Directions trouvées pour ${username}:`, userDirections);
                     if (userDirections && userDirections.length > 0) {
                         const dirList = userDirections.map(d => d.direction);
@@ -9970,7 +9970,7 @@ app.get('/api/rencontres-budgetaires', authenticateJWT, async (req, res) => {
 
         console.log(`[RENCONTRES] SQL Query:`, sql);
         console.log(`[RENCONTRES] Params:`, params);
-        const rencontres = await db.all(sql, params);
+        const rencontres = await pgDb.all(sql, params);
         console.log(`[RENCONTRES] Résultat: ${rencontres.length} rencontres`);
         res.json(rencontres);
     } catch (error) {
@@ -9983,14 +9983,14 @@ app.get('/api/rencontres-budgetaires', authenticateJWT, async (req, res) => {
 app.get('/api/rencontres-budgetaires/:id', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
-        const rencontre = await db.get('SELECT * FROM rencontres_budgetaires WHERE id = ?', [id]);
+        const rencontre = await pgDb.get('SELECT * FROM rencontres_budgetaires WHERE id = ?', [id]);
 
         if (!rencontre) {
             return res.status(404).json({ error: 'Rencontre non trouvée' });
         }
 
-        const participants = await db.all('SELECT * FROM rencontres_participants WHERE rencontre_id = ?', [id]);
-        const suivi = await db.all('SELECT * FROM rencontres_suivi WHERE rencontre_id = ?', [id]);
+        const participants = await pgDb.all('SELECT * FROM rencontres_participants WHERE rencontre_id = ?', [id]);
+        const suivi = await pgDb.all('SELECT * FROM rencontres_suivi WHERE rencontre_id = ?', [id]);
 
         res.json({ ...rencontre, participants, suivi });
     } catch (error) {
@@ -10201,8 +10201,8 @@ app.post('/api/rencontres-budgetaires/import', authenticateAdminOrFinances, uplo
                 }
 
                 // INSERT OR REPLACE
-                await db.run(
-                    `INSERT OR REPLACE INTO rencontres_budgetaires
+                await pgDb.run(
+                    `INSERT INTO rencontres_budgetaires
                     (direction, service, date_reunion, annee, type, titre, description, cout_ttc,
                      arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, suivi, statut)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'importée')`,
@@ -10246,7 +10246,7 @@ app.post('/api/rencontres-budgetaires', authenticateAdminOrFinances, async (req,
             return res.status(400).json({ error: 'Titre et Direction sont obligatoires' });
         }
 
-        const result = await db.run(
+        const result = await pgDb.run(
             `INSERT INTO rencontres_budgetaires
             (titre, direction, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planifiée')`,
@@ -10269,7 +10269,7 @@ app.post('/api/rencontres-budgetaires/from-reunion', authenticateJWT, async (req
             return res.status(400).json({ error: 'Titre et Direction sont obligatoires' });
         }
 
-        const result = await db.run(
+        const result = await pgDb.run(
             `INSERT INTO rencontres_budgetaires
             (titre, direction, service, date_reunion, annee, type, description, statut, reunion_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'demandée', ?)`,
@@ -10289,7 +10289,7 @@ app.put('/api/rencontres-budgetaires/:id', authenticateAdminOrFinances, async (r
         const { id } = req.params;
         const { titre, direction, service, date_reunion, annee, type, description, cout_ttc, arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, statut } = req.body;
 
-        await db.run(
+        await pgDb.run(
             `UPDATE rencontres_budgetaires SET
             titre=?, direction=?, service=?, date_reunion=?, annee=?, type=?, description=?, cout_ttc=?,
             arbitrage=?, responsable_dsi=?, ticket_glpi=?, lien_reference=?, commentaires=?, statut=?, updated_at=CURRENT_TIMESTAMP
@@ -10315,15 +10315,15 @@ app.delete('/api/rencontres-budgetaires/delete-all', authenticateAdmin, async (r
         }
 
         // Compter les demandes avant suppression
-        const countResults = await db.all('SELECT COUNT(*) as count FROM rencontres_budgetaires');
+        const countResults = await pgDb.all('SELECT COUNT(*) as count FROM rencontres_budgetaires');
         const totalCount = countResults?.[0]?.count || 0;
 
         // Supprimer les participants et suivi en cascade
-        await db.run('DELETE FROM rencontres_participants');
-        await db.run('DELETE FROM rencontres_suivi');
+        await pgDb.run('DELETE FROM rencontres_participants');
+        await pgDb.run('DELETE FROM rencontres_suivi');
 
         // Supprimer toutes les rencontres
-        await db.run('DELETE FROM rencontres_budgetaires');
+        await pgDb.run('DELETE FROM rencontres_budgetaires');
 
         // Log
         const timestamp = new Date().toISOString();
@@ -10348,9 +10348,9 @@ app.delete('/api/rencontres-budgetaires/:id', authenticateAdmin, async (req, res
         const { id } = req.params;
 
         // Supprimer les participants et suivi (cascade)
-        await db.run('DELETE FROM rencontres_participants WHERE rencontre_id=?', [id]);
-        await db.run('DELETE FROM rencontres_suivi WHERE rencontre_id=?', [id]);
-        await db.run('DELETE FROM rencontres_budgetaires WHERE id=?', [id]);
+        await pgDb.run('DELETE FROM rencontres_participants WHERE rencontre_id=?', [id]);
+        await pgDb.run('DELETE FROM rencontres_suivi WHERE rencontre_id=?', [id]);
+        await pgDb.run('DELETE FROM rencontres_budgetaires WHERE id=?', [id]);
 
         fs.appendFileSync(
             path.join(__dirname, 'logs', 'mouchard.log'),
@@ -10367,7 +10367,7 @@ app.delete('/api/rencontres-budgetaires/:id', authenticateAdmin, async (req, res
 // GET: Statistiques par direction
 app.get('/api/rencontres-budgetaires/stats/directions', authenticateJWT, async (req, res) => {
     try {
-        const stats = await db.all(`
+        const stats = await pgDb.all(`
             SELECT direction, COUNT(*) as count, SUM(cout_ttc) as montant_total
             FROM rencontres_budgetaires
             GROUP BY direction
@@ -10383,7 +10383,7 @@ app.get('/api/rencontres-budgetaires/stats/directions', authenticateJWT, async (
 // GET: Statistiques par année
 app.get('/api/rencontres-budgetaires/stats/annees', authenticateJWT, async (req, res) => {
     try {
-        const stats = await db.all(`
+        const stats = await pgDb.all(`
             SELECT annee, COUNT(*) as count, SUM(cout_ttc) as montant_total
             FROM rencontres_budgetaires
             WHERE annee IS NOT NULL
@@ -10403,7 +10403,7 @@ app.post('/api/rencontres-budgetaires/:id/participants', authenticateJWT, async 
         const { id } = req.params;
         const { nom, role, email, statut } = req.body;
 
-        const result = await db.run(
+        const result = await pgDb.run(
             `INSERT INTO rencontres_participants (rencontre_id, nom, role, email, statut)
             VALUES (?, ?, ?, ?, ?)`,
             [id, nom, role, email, statut || 'en attente']
@@ -10420,7 +10420,7 @@ app.post('/api/rencontres-budgetaires/:id/participants', authenticateJWT, async 
 app.delete('/api/rencontres-participants/:id', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
-        await db.run('DELETE FROM rencontres_participants WHERE id=?', [id]);
+        await pgDb.run('DELETE FROM rencontres_participants WHERE id=?', [id]);
         res.json({ message: 'Participant supprimé' });
     } catch (error) {
         console.error('Erreur DELETE participant:', error);
@@ -10433,7 +10433,7 @@ app.delete('/api/rencontres-participants/:id', authenticateJWT, async (req, res)
 app.get('/api/rencontres-budgetaires/:id/glpi-link', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
-        const rencontre = await db.get('SELECT ticket_glpi FROM rencontres_budgetaires WHERE id=?', [id]);
+        const rencontre = await pgDb.get('SELECT ticket_glpi FROM rencontres_budgetaires WHERE id=?', [id]);
         if (!rencontre || !rencontre.ticket_glpi) {
             return res.json({ exists: false, message: 'Aucun ticket GLPI associé' });
         }
@@ -10467,7 +10467,7 @@ app.get('/api/rencontres-budgetaires/:id/glpi-link', authenticateJWT, async (req
             } catch (e) {
                 await axios.get(`${url}/killSession`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } }).catch(() => {});
                 if (e.response?.status === 404) {
-                    await db.run('UPDATE rencontres_budgetaires SET ticket_glpi=NULL WHERE id=?', [id]);
+                    await pgDb.run('UPDATE rencontres_budgetaires SET ticket_glpi=NULL WHERE id=?', [id]);
                     return res.json({ exists: false, message: `Ticket #${ticketId} introuvable dans GLPI — lien supprimé` });
                 }
                 return res.json({ exists: true, url: `${baseUrl}/front/ticket.form.php?id=${ticketId}`, message: `Ticket #${ticketId}` });
@@ -10486,7 +10486,7 @@ app.post('/api/rencontres-budgetaires/:id/suivi', authenticateJWT, async (req, r
         const { id } = req.params;
         const { action_item, responsable, date_echeance, statut } = req.body;
 
-        const result = await db.run(
+        const result = await pgDb.run(
             `INSERT INTO rencontres_suivi (rencontre_id, action_item, responsable, date_echeance, statut)
             VALUES (?, ?, ?, ?, ?)`,
             [id, action_item, responsable, date_echeance, statut || 'en cours']
@@ -10505,7 +10505,7 @@ app.put('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
         const { id } = req.params;
         const { action_item, responsable, date_echeance, statut } = req.body;
 
-        await db.run(
+        await pgDb.run(
             `UPDATE rencontres_suivi SET action_item=?, responsable=?, date_echeance=?, statut=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
             [action_item, responsable, date_echeance, statut, id]
         );
@@ -10521,7 +10521,7 @@ app.put('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
 app.delete('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
-        await db.run('DELETE FROM rencontres_suivi WHERE id=?', [id]);
+        await pgDb.run('DELETE FROM rencontres_suivi WHERE id=?', [id]);
         res.json({ message: 'Suivi supprimé' });
     } catch (error) {
         console.error('Erreur DELETE suivi:', error);
@@ -10535,7 +10535,7 @@ app.delete('/api/rencontres-suivi/:id', authenticateJWT, async (req, res) => {
 app.post('/api/rencontres-reunions/generate', authenticateJWT, async (req, res) => {
     try {
         // Trouver toutes les directions avec des demandes non associées à une réunion
-        const demandesNonAssociees = await db.all(`
+        const demandesNonAssociees = await pgDb.all(`
             SELECT DISTINCT direction, DATE(date_reunion) as date_reunion
             FROM rencontres_budgetaires
             WHERE reunion_id IS NULL AND direction IS NOT NULL
@@ -10555,7 +10555,7 @@ app.post('/api/rencontres-reunions/generate', authenticateJWT, async (req, res) 
             const annee = date_reunion ? new Date(date_reunion).getFullYear() : new Date().getFullYear();
 
             // Créer la réunion
-            const reunionResult = await db.run(
+            const reunionResult = await pgDb.run(
                 `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, statut, created_by)
                  VALUES (?, ?, ?, ?, ?, ?)`,
                 [`Réunion ${direction} - ${date_reunion}`, date_reunion, annee, '', 'planifiée', username]
@@ -10564,7 +10564,7 @@ app.post('/api/rencontres-reunions/generate', authenticateJWT, async (req, res) 
             const reunionId = reunionResult.lastID;
 
             // Associer toutes les demandes de la même direction et date à cette réunion
-            const updateResult = await db.run(
+            const updateResult = await pgDb.run(
                 `UPDATE rencontres_budgetaires
                  SET reunion_id = ?
                  WHERE direction = ? AND DATE(date_reunion) = ? AND reunion_id IS NULL`,
@@ -10593,7 +10593,7 @@ app.post('/api/rencontres-reunions/generate', authenticateJWT, async (req, res) 
 // GET: Lister toutes les réunions
 app.get('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
     try {
-        const reunions = await db.all(`
+        const reunions = await pgDb.all(`
             SELECT r.*,
                    COUNT(DISTINCT p.id) as participant_count,
                    COUNT(DISTINCT a.id) as attachment_count
@@ -10616,7 +10616,7 @@ app.post('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
         const { titre, date_reunion, annee, lieu, description, statut, participants } = req.body;
         const username = req.user?.username || 'unknown';
 
-        const result = await db.run(
+        const result = await pgDb.run(
             `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, statut, created_by)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [titre, date_reunion, annee || new Date().getFullYear(), lieu, description, statut || 'planifiée', username]
@@ -10626,7 +10626,7 @@ app.post('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
 
         if (Array.isArray(participants) && participants.length > 0) {
             for (const p of participants) {
-                await db.run(
+                await pgDb.run(
                     `INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [reunionId, p.nom, p.prenom || '', p.email || '', p.service || '', p.direction || '', p.type_presence || 'metier', p.statut_presence || 'present', p.ad_username || null]
@@ -10634,7 +10634,7 @@ app.post('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
             }
         }
 
-        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [reunionId]);
+        const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [reunionId]);
         res.status(201).json(reunion);
     } catch (error) {
         console.error('Erreur POST rencontres-reunions:', error);
@@ -10646,15 +10646,15 @@ app.post('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
 app.get('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
-        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+        const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
 
         if (!reunion) {
             return res.status(404).json({ error: 'Réunion non trouvée' });
         }
 
-        const participants = await db.all('SELECT * FROM reunion_participants WHERE reunion_id=? ORDER BY nom', [id]);
-        const attachments = await db.all('SELECT * FROM reunion_attachments WHERE reunion_id=? ORDER BY created_at DESC', [id]);
-        const demandes = await db.all('SELECT * FROM rencontres_budgetaires WHERE reunion_id=? ORDER BY date_reunion DESC', [id]);
+        const participants = await pgDb.all('SELECT * FROM reunion_participants WHERE reunion_id=? ORDER BY nom', [id]);
+        const attachments = await pgDb.all('SELECT * FROM reunion_attachments WHERE reunion_id=? ORDER BY created_at DESC', [id]);
+        const demandes = await pgDb.all('SELECT * FROM rencontres_budgetaires WHERE reunion_id=? ORDER BY date_reunion DESC', [id]);
 
         reunion.participants = participants;
         reunion.attachments = attachments;
@@ -10671,11 +10671,11 @@ app.get('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
 app.post('/api/rencontres-reunions/:id/compte-rendu', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
-        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+        const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
         if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
 
-        const participants = await db.all('SELECT * FROM reunion_participants WHERE reunion_id=? ORDER BY nom', [id]);
-        const demandes = await db.all('SELECT * FROM rencontres_budgetaires WHERE reunion_id=? ORDER BY direction, service, titre', [id]);
+        const participants = await pgDb.all('SELECT * FROM reunion_participants WHERE reunion_id=? ORDER BY nom', [id]);
+        const demandes = await pgDb.all('SELECT * FROM rencontres_budgetaires WHERE reunion_id=? ORDER BY direction, service, titre', [id]);
 
         // Grouper les demandes par direction puis service
         const byDir = {};
@@ -10768,14 +10768,14 @@ app.put('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
         const { id } = req.params;
         const { titre, date_reunion, annee, lieu, description, statut } = req.body;
 
-        await db.run(
+        await pgDb.run(
             `UPDATE rencontres_reunions
              SET titre=?, date_reunion=?, annee=?, lieu=?, description=?, statut=?, updated_at=CURRENT_TIMESTAMP
              WHERE id=?`,
             [titre, date_reunion, annee, lieu, description, statut, id]
         );
 
-        const reunion = await db.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+        const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
         res.json(reunion);
     } catch (error) {
         console.error('Erreur PUT rencontres-reunions:', error);
@@ -10787,7 +10787,7 @@ app.put('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
 app.delete('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
-        await db.run('DELETE FROM rencontres_reunions WHERE id=?', [id]);
+        await pgDb.run('DELETE FROM rencontres_reunions WHERE id=?', [id]);
         res.json({ message: 'Réunion supprimée' });
     } catch (error) {
         console.error('Erreur DELETE rencontres-reunions:', error);
@@ -10798,10 +10798,10 @@ app.delete('/api/rencontres-reunions/:id', authenticateJWT, async (req, res) => 
 // DELETE: Supprimer toutes les réunions
 app.delete('/api/rencontres-reunions', authenticateJWT, async (req, res) => {
     try {
-        await db.run('UPDATE rencontres_budgetaires SET reunion_id = NULL WHERE reunion_id IS NOT NULL');
-        await db.run('DELETE FROM reunion_participants');
-        await db.run('DELETE FROM reunion_attachments');
-        const result = await db.run('DELETE FROM rencontres_reunions');
+        await pgDb.run('UPDATE rencontres_budgetaires SET reunion_id = NULL WHERE reunion_id IS NOT NULL');
+        await pgDb.run('DELETE FROM reunion_participants');
+        await pgDb.run('DELETE FROM reunion_attachments');
+        const result = await pgDb.run('DELETE FROM rencontres_reunions');
         res.json({ message: 'Toutes les réunions supprimées', deleted: result.changes });
     } catch (error) {
         console.error('Erreur DELETE all rencontres-reunions:', error);
@@ -10815,13 +10815,13 @@ app.post('/api/rencontres-reunions/:id/participants', authenticateJWT, async (re
         const { id } = req.params;
         const { nom, prenom, email, service, direction, type_presence, statut_presence, ad_username } = req.body;
 
-        const result = await db.run(
+        const result = await pgDb.run(
             `INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [id, nom, prenom, email, service, direction, type_presence || 'metier', statut_presence || 'present', ad_username]
         );
 
-        const participant = await db.get('SELECT * FROM reunion_participants WHERE id=?', [result.lastID]);
+        const participant = await pgDb.get('SELECT * FROM reunion_participants WHERE id=?', [result.lastID]);
         res.status(201).json(participant);
     } catch (error) {
         console.error('Erreur POST participants:', error);
@@ -10833,7 +10833,7 @@ app.post('/api/rencontres-reunions/:id/participants', authenticateJWT, async (re
 app.delete('/api/reunion-participants/:id', authenticateJWT, async (req, res) => {
     try {
         const { id } = req.params;
-        await db.run('DELETE FROM reunion_participants WHERE id=?', [id]);
+        await pgDb.run('DELETE FROM reunion_participants WHERE id=?', [id]);
         res.json({ message: 'Participant supprimé' });
     } catch (error) {
         console.error('Erreur DELETE participant:', error);
@@ -10851,7 +10851,7 @@ app.post('/api/rencontres-reunions/:id/attachments', authenticateJWT, uploadReun
     }
     const inserted = [];
     for (const file of req.files) {
-      const result = await db.run(
+      const result = await pgDb.run(
         `INSERT INTO reunion_attachments (reunion_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`,
         [id, file.filename, file.originalname, file.mimetype, file.size, username]
       );
@@ -10868,7 +10868,7 @@ app.post('/api/rencontres-reunions/:id/attachments', authenticateJWT, uploadReun
 app.get('/api/rencontres-reunions/:id/attachments', authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
-    const attachments = await db.all(
+    const attachments = await pgDb.all(
       `SELECT * FROM reunion_attachments WHERE reunion_id = ? ORDER BY created_at DESC`,
       [id]
     );
@@ -10882,12 +10882,12 @@ app.get('/api/rencontres-reunions/:id/attachments', authenticateJWT, async (req,
 app.delete('/api/reunion-attachments/:id', authenticateJWT, async (req, res) => {
   try {
     const { id } = req.params;
-    const att = await db.get(`SELECT * FROM reunion_attachments WHERE id = ?`, [id]);
+    const att = await pgDb.get(`SELECT * FROM reunion_attachments WHERE id = ?`, [id]);
     if (!att) return res.status(404).json({ error: 'PJ introuvable' });
     // Supprimer le fichier physique
     const filePath = path.join(__dirname, 'file_reunions', att.filename);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    await db.run(`DELETE FROM reunion_attachments WHERE id = ?`, [id]);
+    await pgDb.run(`DELETE FROM reunion_attachments WHERE id = ?`, [id]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -10902,7 +10902,7 @@ app.delete('/api/reunion-attachments/:id', authenticateJWT, async (req, res) => 
 app.get('/api/directions-services', authenticateJWT, async (req, res) => {
     try {
         // Directions depuis les participants des réunions (avec leurs services)
-        const fromParticipants = await db.all(`
+        const fromParticipants = await pgDb.all(`
             SELECT DISTINCT direction, service
             FROM reunion_participants
             WHERE direction IS NOT NULL AND direction != ''
@@ -10910,7 +10910,7 @@ app.get('/api/directions-services', authenticateJWT, async (req, res) => {
         `);
 
         // Directions depuis les demandes budgétaires
-        const fromDemandes = await db.all(`
+        const fromDemandes = await pgDb.all(`
             SELECT DISTINCT direction, service
             FROM rencontres_budgetaires
             WHERE direction IS NOT NULL AND direction != ''
@@ -10959,7 +10959,7 @@ app.get('/api/directions-services', authenticateJWT, async (req, res) => {
 // GET: Lister tous les emails par direction
 app.get('/api/direction-emails', authenticateJWT, async (req, res) => {
     try {
-        const data = await db.all('SELECT id, direction, email, created_at FROM direction_emails ORDER BY direction, email');
+        const data = await pgDb.all('SELECT id, direction, email, created_at FROM direction_emails ORDER BY direction, email');
         res.json(data || []);
     } catch (error) {
         console.error('Erreur GET direction-emails:', error);
@@ -10971,7 +10971,7 @@ app.get('/api/direction-emails', authenticateJWT, async (req, res) => {
 app.get('/api/direction-emails/:direction', authenticateJWT, async (req, res) => {
     try {
         const { direction } = req.params;
-        const data = await db.all(
+        const data = await pgDb.all(
             'SELECT id, direction, email FROM direction_emails WHERE direction = ? ORDER BY email',
             [direction]
         );
@@ -10997,14 +10997,14 @@ app.post('/api/direction-emails', authenticateAdminOrFinances, async (req, res) 
             return res.status(400).json({ error: 'Format email invalide' });
         }
 
-        await db.run(
+        await pgDb.run(
             'INSERT INTO direction_emails (direction, email) VALUES (?, ?)',
             [direction.trim(), email.trim().toLowerCase()]
         );
 
         res.json({ message: 'Email ajouté avec succès', direction, email });
     } catch (error) {
-        if (error.message.includes('UNIQUE constraint failed')) {
+        if (error.message.includes('UNIQUE constraint failed') || error.code === '23505') {
             return res.status(400).json({ error: 'Cet email est déjà attribué' });
         }
         console.error('Erreur POST direction-emails:', error);
@@ -11032,7 +11032,7 @@ app.post('/api/direction-emails/batch/:direction', authenticateAdminOrFinances, 
         }
 
         // D'abord, supprimer les anciens emails pour cette direction
-        await db.run('DELETE FROM direction_emails WHERE direction = ?', [direction.trim()]);
+        await pgDb.run('DELETE FROM direction_emails WHERE direction = ?', [direction.trim()]);
 
         // Ensuite, insérer les nouveaux
         const uniqueEmails = [...new Set(emails.map(e => e.trim().toLowerCase()))];
@@ -11041,13 +11041,13 @@ app.post('/api/direction-emails/batch/:direction', authenticateAdminOrFinances, 
 
         for (const email of uniqueEmails) {
             try {
-                await db.run(
+                await pgDb.run(
                     'INSERT INTO direction_emails (direction, email) VALUES (?, ?)',
                     [direction.trim(), email]
                 );
                 inserted++;
             } catch (error) {
-                if (error.message.includes('UNIQUE constraint failed')) {
+                if (error.message.includes('UNIQUE constraint failed') || error.code === '23505') {
                     skipped++;
                 } else {
                     throw error;
@@ -11072,7 +11072,7 @@ app.delete('/api/direction-emails/:id', authenticateAdminOrFinances, async (req,
     try {
         const { id } = req.params;
 
-        const result = await db.run('DELETE FROM direction_emails WHERE id = ?', [id]);
+        const result = await pgDb.run('DELETE FROM direction_emails WHERE id = ?', [id]);
 
         if (result.changes === 0) {
             return res.status(404).json({ error: 'Email non trouvé' });

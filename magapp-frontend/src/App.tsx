@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, CheckSquare, Briefcase, FileText, MessageSquare } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -85,10 +85,9 @@ function App() {
   const [rencontres, setRencontres] = useState<any[]>([]);
   const [reunionsList, setReunionsList] = useState<any[]>([]);
   const [hideEffectuees, setHideEffectuees] = useState(false);
-  const [hoveredRencontreIdx, setHoveredRencontreIdx] = useState<number | null>(null);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
   const [suiviList, setSuiviList] = useState<any[]>([]);
-  const [tiles, setTiles] = useState<any[]>([]);
+  const [_tiles, setTiles] = useState<any[]>([]);
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaDescription, setIdeaDescription] = useState('');
   const [ideaAttachments, setIdeaAttachments] = useState<File[]>([]);
@@ -1037,7 +1036,7 @@ function App() {
               >
                 <BarChart3 size={18} />
                 Rencontres
-                {settings.is_beta_user && !((settings.show_rencontres_original ?? settings.show_rencontres) && hasRencontresAccess) && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                {settings.is_beta_user && !(settings.show_rencontres && hasRencontresAccess) && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
               </button>
             )}
 
@@ -1335,8 +1334,8 @@ function App() {
                           <span>Responsable: {s.responsable || '-'}</span>
                           <span>Échéance: {s.date_echeance ? new Date(s.date_echeance).toLocaleDateString('fr-FR') : '-'}</span>
                           {s.statut === 'terminé'
-                            ? <CheckCircle2 size={16} color="#16a34a" title="Terminé" />
-                            : <Clock size={16} color="#0284c7" title="En cours" />}
+                            ? <CheckCircle2 size={16} color="#16a34a" />
+                            : <Clock size={16} color="#0284c7" />}
                         </div>
                       </div>
                     ))}
