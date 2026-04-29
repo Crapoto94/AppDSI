@@ -16,13 +16,13 @@ function convertSqliteToPostgres(sql) {
                     .replace(/magapp_subscriptions/gi, 'magapp.subscriptions')
                     .replace(/magapp_settings/gi, 'magapp.settings')
                     .replace(/(?<!hub\.)\busers\b/gi, 'hub.users')
-                    .replace(/(?<!rencontres\.)\brencontres_budgetaires\b/gi, 'hub_rencontres.rencontres_budgetaires')
-                    .replace(/(?<!rencontres\.)\brencontres_participants\b/gi, 'hub_rencontres.rencontres_participants')
-                    .replace(/(?<!rencontres\.)\brencontres_suivi\b/gi, 'hub_rencontres.rencontres_suivi')
-                    .replace(/(?<!rencontres\.)\brencontres_reunions\b/gi, 'hub_rencontres.rencontres_reunions')
-                    .replace(/(?<!rencontres\.)\breunion_participants\b/gi, 'hub_rencontres.reunion_participants')
-                    .replace(/(?<!rencontres\.)\breunion_attachments\b/gi, 'hub_rencontres.reunion_attachments')
-                    .replace(/(?<!rencontres\.)\bdirection_emails\b/gi, 'hub_rencontres.direction_emails');
+                    .replace(/(?<!hub_rencontres\.)\brencontres_budgetaires\b/gi, 'hub_rencontres.rencontres_budgetaires')
+                    .replace(/(?<!hub_rencontres\.)\brencontres_participants\b/gi, 'hub_rencontres.rencontres_participants')
+                    .replace(/(?<!hub_rencontres\.)\brencontres_suivi\b/gi, 'hub_rencontres.rencontres_suivi')
+                    .replace(/(?<!hub_rencontres\.)\brencontres_reunions\b/gi, 'hub_rencontres.rencontres_reunions')
+                    .replace(/(?<!hub_rencontres\.)\breunion_participants\b/gi, 'hub_rencontres.reunion_participants')
+                    .replace(/(?<!hub_rencontres\.)\breunion_attachments\b/gi, 'hub_rencontres.reunion_attachments')
+                    .replace(/(?<!hub_rencontres\.)\bdirection_emails\b/gi, 'hub_rencontres.direction_emails');
 
     newSql = newSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
     newSql = newSql.replace(/INSERT OR REPLACE INTO/gi, 'INSERT INTO');
@@ -459,7 +459,7 @@ async function setupPgDb() {
     // ============================================================
     // SCHEMA RENCONTRES BUDGÉTAIRES
     // ============================================================
-    await client.query('CREATE SCHEMA IF NOT EXISTS rencontres;');
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_rencontres;');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_rencontres.rencontres_reunions (
