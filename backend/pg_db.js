@@ -16,13 +16,13 @@ function convertSqliteToPostgres(sql) {
                     .replace(/magapp_subscriptions/gi, 'magapp.subscriptions')
                     .replace(/magapp_settings/gi, 'magapp.settings')
                     .replace(/(?<!hub\.)\busers\b/gi, 'hub.users')
-                    .replace(/(?<!rencontres\.)\brencontres_budgetaires\b/gi, 'rencontres.rencontres_budgetaires')
-                    .replace(/(?<!rencontres\.)\brencontres_participants\b/gi, 'rencontres.rencontres_participants')
-                    .replace(/(?<!rencontres\.)\brencontres_suivi\b/gi, 'rencontres.rencontres_suivi')
-                    .replace(/(?<!rencontres\.)\brencontres_reunions\b/gi, 'rencontres.rencontres_reunions')
-                    .replace(/(?<!rencontres\.)\breunion_participants\b/gi, 'rencontres.reunion_participants')
-                    .replace(/(?<!rencontres\.)\breunion_attachments\b/gi, 'rencontres.reunion_attachments')
-                    .replace(/(?<!rencontres\.)\bdirection_emails\b/gi, 'rencontres.direction_emails');
+                    .replace(/(?<!rencontres\.)\brencontres_budgetaires\b/gi, 'hub_rencontres.rencontres_budgetaires')
+                    .replace(/(?<!rencontres\.)\brencontres_participants\b/gi, 'hub_rencontres.rencontres_participants')
+                    .replace(/(?<!rencontres\.)\brencontres_suivi\b/gi, 'hub_rencontres.rencontres_suivi')
+                    .replace(/(?<!rencontres\.)\brencontres_reunions\b/gi, 'hub_rencontres.rencontres_reunions')
+                    .replace(/(?<!rencontres\.)\breunion_participants\b/gi, 'hub_rencontres.reunion_participants')
+                    .replace(/(?<!rencontres\.)\breunion_attachments\b/gi, 'hub_rencontres.reunion_attachments')
+                    .replace(/(?<!rencontres\.)\bdirection_emails\b/gi, 'hub_rencontres.direction_emails');
 
     newSql = newSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
     newSql = newSql.replace(/INSERT OR REPLACE INTO/gi, 'INSERT INTO');
@@ -462,7 +462,7 @@ async function setupPgDb() {
     await client.query('CREATE SCHEMA IF NOT EXISTS rencontres;');
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS rencontres.rencontres_reunions (
+      CREATE TABLE IF NOT EXISTS hub_rencontres.rencontres_reunions (
         id SERIAL PRIMARY KEY,
         titre TEXT NOT NULL,
         date_reunion TIMESTAMP,
@@ -477,7 +477,7 @@ async function setupPgDb() {
     `);
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS rencontres.rencontres_budgetaires (
+      CREATE TABLE IF NOT EXISTS hub_rencontres.rencontres_budgetaires (
         id SERIAL PRIMARY KEY,
         titre TEXT NOT NULL,
         direction TEXT NOT NULL,
@@ -494,16 +494,16 @@ async function setupPgDb() {
         statut TEXT DEFAULT 'planifiée',
         commentaires TEXT,
         suivi TEXT,
-        reunion_id INTEGER REFERENCES rencontres.rencontres_reunions(id) ON DELETE SET NULL,
+        reunion_id INTEGER REFERENCES hub_rencontres.rencontres_reunions(id) ON DELETE SET NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS rencontres.rencontres_participants (
+      CREATE TABLE IF NOT EXISTS hub_rencontres.rencontres_participants (
         id SERIAL PRIMARY KEY,
-        rencontre_id INTEGER NOT NULL REFERENCES rencontres.rencontres_budgetaires(id) ON DELETE CASCADE,
+        rencontre_id INTEGER NOT NULL REFERENCES hub_rencontres.rencontres_budgetaires(id) ON DELETE CASCADE,
         nom TEXT,
         role TEXT,
         email TEXT,
@@ -512,9 +512,9 @@ async function setupPgDb() {
     `);
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS rencontres.rencontres_suivi (
+      CREATE TABLE IF NOT EXISTS hub_rencontres.rencontres_suivi (
         id SERIAL PRIMARY KEY,
-        rencontre_id INTEGER NOT NULL REFERENCES rencontres.rencontres_budgetaires(id) ON DELETE CASCADE,
+        rencontre_id INTEGER NOT NULL REFERENCES hub_rencontres.rencontres_budgetaires(id) ON DELETE CASCADE,
         action_item TEXT,
         responsable TEXT,
         date_echeance DATE,
@@ -524,7 +524,7 @@ async function setupPgDb() {
     `);
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS rencontres.direction_emails (
+      CREATE TABLE IF NOT EXISTS hub_rencontres.direction_emails (
         id SERIAL PRIMARY KEY,
         direction TEXT NOT NULL,
         service TEXT,
@@ -535,9 +535,9 @@ async function setupPgDb() {
     `);
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS rencontres.reunion_participants (
+      CREATE TABLE IF NOT EXISTS hub_rencontres.reunion_participants (
         id SERIAL PRIMARY KEY,
-        reunion_id INTEGER NOT NULL REFERENCES rencontres.rencontres_reunions(id) ON DELETE CASCADE,
+        reunion_id INTEGER NOT NULL REFERENCES hub_rencontres.rencontres_reunions(id) ON DELETE CASCADE,
         nom TEXT NOT NULL,
         prenom TEXT,
         email TEXT,
@@ -551,9 +551,9 @@ async function setupPgDb() {
     `);
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS rencontres.reunion_attachments (
+      CREATE TABLE IF NOT EXISTS hub_rencontres.reunion_attachments (
         id SERIAL PRIMARY KEY,
-        reunion_id INTEGER NOT NULL REFERENCES rencontres.rencontres_reunions(id) ON DELETE CASCADE,
+        reunion_id INTEGER NOT NULL REFERENCES hub_rencontres.rencontres_reunions(id) ON DELETE CASCADE,
         filename TEXT NOT NULL,
         original_name TEXT NOT NULL,
         mimetype TEXT,
@@ -563,10 +563,10 @@ async function setupPgDb() {
       );
     `);
 
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_direction ON rencontres.rencontres_budgetaires(direction);`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_annee ON rencontres.rencontres_budgetaires(annee);`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_statut ON rencontres.rencontres_budgetaires(statut);`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_de_direction ON rencontres.direction_emails(direction);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_direction ON hub_rencontres.rencontres_budgetaires(direction);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_annee ON hub_rencontres.rencontres_budgetaires(annee);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_statut ON hub_rencontres.rencontres_budgetaires(statut);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_de_direction ON hub_rencontres.direction_emails(direction);`);
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
