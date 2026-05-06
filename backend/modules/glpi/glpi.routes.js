@@ -1,24 +1,24 @@
 const express = require('express');
 const router = express.Router();
 const glpiController = require('./glpi.controller');
-const { authenticateAdmin, authenticateJWT, authenticateInternalOrAdmin } = require('../../shared/middleware');
+const { authenticateAdmin, authenticateJWT, authenticateInternalOrAdmin, authenticateGLPIControl } = require('../../shared/middleware');
 
 // Settings & Connection
-router.get('/settings', authenticateAdmin, glpiController.getSettings);
-router.post('/settings', authenticateAdmin, glpiController.saveSettings);
-router.post('/test-connection', authenticateAdmin, glpiController.testConnection);
+router.get('/settings', authenticateGLPIControl, glpiController.getSettings);
+router.post('/settings', authenticateGLPIControl, glpiController.saveSettings);
+router.post('/test-connection', authenticateGLPIControl, glpiController.testConnection);
 
 // Status & Progress
-router.get('/sync-status', authenticateAdmin, glpiController.getSyncStatus);
-router.post('/sync-cancel', authenticateAdmin, glpiController.cancelSync);
-router.get('/sync-observers-status', authenticateAdmin, glpiController.getObserversStatus);
-router.post('/sync-observers-cancel', authenticateAdmin, glpiController.cancelObserversSync);
-router.get('/sync-followups-status', authenticateAdmin, glpiController.getFollowupsStatus);
-router.post('/sync-followups-cancel', authenticateAdmin, glpiController.cancelFollowupsSync);
+router.get('/sync-status', authenticateGLPIControl, glpiController.getSyncStatus);
+router.post('/sync-cancel', authenticateGLPIControl, glpiController.cancelSync);
+router.get('/sync-observers-status', authenticateGLPIControl, glpiController.getObserversStatus);
+router.post('/sync-observers-cancel', authenticateGLPIControl, glpiController.cancelObserversSync);
+router.get('/sync-followups-status', authenticateGLPIControl, glpiController.getFollowupsStatus);
+router.post('/sync-followups-cancel', authenticateGLPIControl, glpiController.cancelFollowupsSync);
 
 // Tickets Operations
-router.get('/tickets-count', authenticateAdmin, glpiController.getTicketsCount);
-router.get('/tickets-recent', authenticateAdmin, glpiController.getRecentTickets);
+router.get('/tickets-count', authenticateGLPIControl, glpiController.getTicketsCount);
+router.get('/tickets-recent', authenticateGLPIControl, glpiController.getRecentTickets);
 router.get('/user-tickets/:username', authenticateJWT, glpiController.getUserTickets);
 router.post('/tickets', authenticateJWT, glpiController.createTicket);
 router.put('/tickets/:id/close', authenticateJWT, glpiController.closeTicket);
@@ -32,8 +32,8 @@ router.post('/sync-followups', authenticateInternalOrAdmin, glpiController.syncF
 router.post('/sync-followups-recent', authenticateInternalOrAdmin, glpiController.syncFollowups); // Reuse syncFollowups
 
 // Profiles & Logs
-router.get('/my-profile', authenticateAdmin, glpiController.getMyProfile);
-router.get('/sync-logs', authenticateAdmin, glpiController.getSyncLogs);
+router.get('/my-profile', authenticateGLPIControl, glpiController.getMyProfile);
+router.get('/sync-logs', authenticateGLPIControl, glpiController.getSyncLogs);
 
 // Scheduled Syncs
 router.post('/cron-test', authenticateAdmin, (req, res) => {

@@ -419,7 +419,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   const fetchGLPISettings = async () => {
     try {
-      const res = await fetch('/api/glpi-settings', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch('/api/glpi/settings', { headers: { 'Authorization': `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
         setGlpiConfig({ ...data, is_enabled: !!data.is_enabled });
@@ -526,7 +526,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const handleSaveGLPI = async () => {
     setIsSaving(true);
     try {
-      await axios.post('/api/glpi-settings', glpiConfig, {
+      await axios.post('/api/glpi/settings', glpiConfig, {
         headers: { Authorization: `Bearer ${token}` }
       });
       alert('Paramètres GLPI enregistrés');

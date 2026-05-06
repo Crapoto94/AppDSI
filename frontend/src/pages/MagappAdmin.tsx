@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -79,12 +79,34 @@ interface PostgresSettings {
   updated_at: string;
 }
 
+interface AppDoc {
+  id: number;
+  app_id: number;
+  title: string;
+  doc_type: 'pdf' | 'youtube' | 'link';
+  url: string;
+  is_obsolete: boolean;
+  is_favorite: boolean;
+  is_technical: boolean;
+  created_at: string;
+  app_name?: string;
+}
+
+interface DocStats {
+  id: number;
+  title: string;
+  app_name: string;
+  total_views: number;
+  avg_rating: number;
+  total_ratings: number;
+}
+
 const MagappAdmin: React.FC = () => {
   const [apps, setApps] = useState<AppItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [stats, setStats] = useState<ClickStats[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [activeTab, setActiveTab] = useState<'apps' | 'categories' | 'versions' | 'subscriptions' | 'stats' | 'postgres' | 'settings' | 'ideas'>('apps');
+  const [activeTab, setActiveTab] = useState<'apps' | 'categories' | 'versions' | 'subscriptions' | 'stats' | 'postgres' | 'settings' | 'ideas' | 'library'>('apps');
   const [showAllStats, setShowAllStats] = useState(false);
   const [editingApp, setEditingApp] = useState<AppItem | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -98,15 +120,36 @@ const MagappAdmin: React.FC = () => {
     icon: '/api/img/default.png', 
     display_order: 0,
     is_maintenance: 0,
-    maintenance_start: '',
-    maintenance_end: '',
-    app_type: 'Web',
-    present_magapp: 'oui',
-    present_onboard: 'oui',
-    email_createur: '',
-    lien_mercator: ''
+    app_type: 'web',
+    present_magapp: '1',
+    present_onboard: '0'
   });
-  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean}>({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true });
+
+  const [docs, setDocs] = useState<AppDoc[]>([]);
+  const [docStats, setDocStats] = useState<DocStats[]>([]);
+  const [editingDoc, setEditingDoc] = useState<AppDoc | null>(null);
+  const [newDoc, setNewDoc] = useState<Partial<AppDoc>>({ 
+    title: '', 
+    description: '',
+    app_id: 0, 
+    doc_type: 'pdf', 
+    url: '', 
+    is_favorite: false,
+    is_technical: false,
+    is_obsolete: false
+  });
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean}>({ 
+    show_tickets: true, 
+    show_subscriptions: true, 
+    show_health_check: true, 
+    show_create_buttons: true, 
+    show_ideas: true, 
+    show_rencontres: true,
+    show_library: false
+  });
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
   const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
@@ -137,7 +180,7 @@ const MagappAdmin: React.FC = () => {
         fetch('/api/magapp/categories', { headers }),
         fetch('/api/magapp/stats', { headers }),
         fetch('/api/postgres-settings', { headers }),
-        fetch('/api/magapp/settings', { headers }),
+        fetch('/api/magapp/settings?real=true', { headers }),
         fetch('/api/magapp/mercator-apps', { headers })
       ]);
 
@@ -153,10 +196,24 @@ const MagappAdmin: React.FC = () => {
           show_health_check: data.show_health_check_original ?? data.show_health_check ?? true,
           show_create_buttons: data.show_create_buttons_original ?? data.show_create_buttons ?? true,
           show_ideas: data.show_ideas_original ?? data.show_ideas ?? true,
-          show_rencontres: data.show_rencontres_original ?? data.show_rencontres ?? true
+          show_rencontres: data.show_rencontres_original ?? data.show_rencontres ?? true,
+          show_library: data.show_library_original ?? data.show_library ?? false
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
+      fetchLibrary();
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchLibrary = async () => {
+    try {
+      const headers = { 'Authorization': `Bearer ${token}` };
+      const [docsRes, docStatsRes] = await Promise.all([
+        fetch('/api/admin/magapp/docs', { headers }),
+        fetch('/api/admin/magapp/docs/stats', { headers })
+      ]);
+      if (docsRes.ok) setDocs(await docsRes.json());
+      if (docStatsRes.ok) setDocStats(await docStatsRes.json());
     } catch (e) { console.error(e); }
   };
 
@@ -179,6 +236,93 @@ const MagappAdmin: React.FC = () => {
       const response = await fetch('/api/admin/magapp/ideas', { headers: { 'Authorization': `Bearer ${token}` } });
       if (response.ok) setAllIdeas(await response.json());
     } catch (e) { console.error(e); }
+  };
+
+  const handleUploadDocFile = async (): Promise<string | null> => {
+    if (!docFile) return null;
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', docFile);
+      const res = await fetch('/api/admin/magapp/docs/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.url;
+      }
+      return null;
+    } catch (err) {
+      console.error('Upload error:', err);
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleCreateDoc = async () => {
+    if (!newDoc.app_id || !newDoc.title || (!newDoc.url && !docFile)) {
+      alert('Veuillez remplir tous les champs obligatoires (Application, Titre, URL ou Fichier)');
+      return;
+    }
+    try {
+      let finalUrl = newDoc.url;
+      if (newDoc.doc_type === 'pdf' && docFile) {
+        const uploadedUrl = await handleUploadDocFile();
+        if (uploadedUrl) finalUrl = uploadedUrl;
+      }
+      
+      const response = await fetch('/api/admin/magapp/docs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ ...newDoc, url: finalUrl })
+      });
+      if (response.ok) {
+        setNewDoc({ title: '', description: '', app_id: 0, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false });
+        setDocFile(null);
+        setShowDocModal(false);
+        fetchLibrary();
+      } else {
+        const err = await response.json();
+        alert(`Erreur : ${err.message}`);
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  const handleUpdateDoc = async (doc: AppDoc) => {
+    try {
+      let finalUrl = doc.url;
+      if (doc.doc_type === 'pdf' && docFile) {
+        const uploadedUrl = await handleUploadDocFile();
+        if (uploadedUrl) finalUrl = uploadedUrl;
+      }
+
+      const response = await fetch(`/api/admin/magapp/docs/${doc.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ ...doc, url: finalUrl })
+      });
+      if (response.ok) {
+        setEditingDoc(null);
+        setDocFile(null);
+        setShowDocModal(false);
+        fetchLibrary();
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  const handleDeleteDoc = async (id: number) => {
+    if (window.confirm('Supprimer ce document ?')) {
+      try {
+        const response = await fetch(`/api/admin/magapp/docs/${id}`, { 
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) fetchLibrary();
+      } catch (err) { console.error(err); }
+    }
   };
 
   const handleUpdateIdeaStatus = async (id: number, status: string) => {
@@ -457,6 +601,7 @@ const MagappAdmin: React.FC = () => {
               { id: 'subscriptions', icon: <Bell size={18} />, label: 'Abonnés' },
               { id: 'ideas', icon: <Lightbulb size={18} />, label: 'Idées' },
               { id: 'stats', icon: <BarChart2 size={18} />, label: 'Stats' },
+              { id: 'library', icon: <GraduationCap size={18} />, label: 'Bibliothèque' },
               { id: 'postgres', icon: <Globe size={18} />, label: 'DB' },
               { id: 'settings', icon: <Settings size={18} />, label: 'Paramètres' }
             ].map(tab => (
@@ -1210,6 +1355,18 @@ const MagappAdmin: React.FC = () => {
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton "Mes Idées" et le formulaire de soumission.</p>
                 </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher la Bibliothèque (BETA)</span>
+                    <input 
+                      type="checkbox" 
+                      checked={magappSettings.show_library} 
+                      onChange={e => setMagappSettings({...magappSettings, show_library: e.target.checked})} 
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Active l'accès à la bibliothèque de documentation pour les utilisateurs.</p>
+                </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: '#fffbeb', border: '2px solid #fbbf24', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem', color: '#92400e' }}>Afficher les Rencontres Budgétaires</span>
@@ -1228,8 +1385,248 @@ const MagappAdmin: React.FC = () => {
               </div>
             </section>
           )}
+
+          {activeTab === 'library' && (
+            <div className="workspace-grid" style={{ gridTemplateColumns: '1fr' }}>
+              <section className="workspace-section">
+                <div className="section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <h2>Statistiques de consultation</h2>
+                    <div className="header-icon-v2"><BarChart2 size={20} /></div>
+                  </div>
+                </div>
+                <div className="stats-grid-v2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                  <div className="stat-card-v2">
+                    <div className="stat-label" style={{ color: '#64748b', fontSize: '0.9rem', fontWeight: 600 }}>Total Vues</div>
+                    <div className="stat-value" style={{ fontSize: '2rem', fontWeight: 900, color: '#4f46e5' }}>{docStats.reduce((acc, s) => acc + (parseInt(s.total_views as any) || 0), 0)}</div>
+                  </div>
+                  <div className="stat-card-v2">
+                    <div className="stat-label" style={{ color: '#64748b', fontSize: '0.9rem', fontWeight: 600 }}>Note Moyenne Globale</div>
+                    <div className="stat-value" style={{ fontSize: '2rem', fontWeight: 900, color: '#f59e0b' }}>
+                      {(() => {
+                        const rated = docStats.filter(s => (parseFloat(s.avg_rating as any) || 0) > 0);
+                        if (rated.length === 0) return 'N/A';
+                        const total = rated.reduce((acc, s) => acc + (parseFloat(s.avg_rating as any) || 0), 0);
+                        return (total / rated.length).toFixed(1);
+                      })()} / 5
+                    </div>
+                  </div>
+                  <div className="stat-card-v2">
+                    <div className="stat-label" style={{ color: '#64748b', fontSize: '0.9rem', fontWeight: 600 }}>Documents actifs</div>
+                    <div className="stat-value" style={{ fontSize: '2rem', fontWeight: 900, color: '#10b981' }}>{docs.filter(d => !d.is_obsolete).length}</div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="workspace-section">
+                <div className="section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <h2>Gestion de la bibliothèque ({docs.length})</h2>
+                    <div className="header-icon-v2"><GraduationCap size={20} /></div>
+                  </div>
+                  <button className="primary-btn-v2" onClick={() => { setEditingDoc(null); setNewDoc({ title: '', app_id: apps[0]?.id || 0, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false }); setShowDocModal(true); }}>
+                    <Plus size={18} /> Nouveau Document
+                  </button>
+                </div>
+
+                <div className="table-responsive-v2" style={{ overflowX: 'auto' }}>
+                  <table className="modern-table-v2">
+                    <thead>
+                      <tr>
+                        <th>Application</th>
+                        <th>Titre</th>
+                        <th>Type</th>
+                        <th>Statut</th>
+                        <th>Stats</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {docs.map(doc => {
+                        const s = docStats.find(st => st.id === doc.id);
+                        return (
+                          <tr key={doc.id} style={{ opacity: doc.is_obsolete ? 0.6 : 1 }}>
+                            <td style={{ fontWeight: 700 }}>{doc.app_name}</td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {doc.is_favorite && <Star size={14} fill="#f59e0b" color="#f59e0b" />}
+                                {doc.title}
+                              </div>
+                            </td>
+                            <td>
+                              <span style={{ 
+                                padding: '4px 8px', 
+                                borderRadius: '6px', 
+                                fontSize: '0.7rem', 
+                                fontWeight: 800,
+                                background: doc.doc_type === 'pdf' ? '#fee2e2' : (doc.doc_type === 'youtube' ? '#ffedd5' : '#e0f2fe'),
+                                color: doc.doc_type === 'pdf' ? '#dc2626' : (doc.doc_type === 'youtube' ? '#ea580c' : '#0369a1')
+                              }}>
+                                {doc.doc_type.toUpperCase()}
+                              </span>
+                            </td>
+                            <td>
+                              <span style={{ 
+                                padding: '4px 8px', 
+                                borderRadius: '6px', 
+                                fontSize: '0.7rem', 
+                                fontWeight: 800,
+                                background: doc.is_obsolete ? '#f1f5f9' : '#dcfce7',
+                                color: doc.is_obsolete ? '#64748b' : '#166534'
+                              }}>
+                                {doc.is_obsolete ? 'Obsolète' : 'Actif'}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ fontSize: '0.8rem' }}>
+                                <div>👁️ {s?.total_views || 0} vues</div>
+                                {(parseFloat(s?.avg_rating as any) || 0) > 0 && <div style={{ color: '#f59e0b', fontWeight: 700 }}>⭐ {parseFloat(s?.avg_rating as any).toFixed(1)} ({s?.total_ratings})</div>}
+                              </div>
+                            </td>
+                            <td>
+                              <div className="action-btns-v2" style={{ display: 'flex', gap: '8px' }}>
+                                <button className="action-btn-v2" style={{ background: '#f1f5f9', border: 'none', padding: '6px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => { setEditingDoc(doc); setShowDocModal(true); }}><Edit2 size={16} /></button>
+                                <button className="action-btn-v2" style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '6px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => handleDeleteDoc(doc.id)}><Trash2 size={16} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          )}
         </main>
       </div>
+
+      {/* Doc Modal */}
+      {showDocModal && (
+        <div className="modal-overlay-v2">
+          <div className="modal-content-v2 animate-fade-in" style={{ maxWidth: '600px' }}>
+            <div className="modal-header-v2">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <div className="header-icon-v2"><GraduationCap size={24} /></div>
+                <h3>{editingDoc ? 'Modifier Document' : 'Nouveau Document'}</h3>
+              </div>
+              <button className="close-modal-btn" onClick={() => setShowDocModal(false)}><X size={20} /></button>
+            </div>
+            
+            <div className="modal-body-v2">
+              <div className="form-grid-v2" style={{ gridTemplateColumns: '1fr' }}>
+                <div className="form-group-v2">
+                  <label>Application associée</label>
+                  <select 
+                    value={editingDoc ? editingDoc.app_id : newDoc.app_id} 
+                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, app_id: parseInt(e.target.value)}) : setNewDoc({...newDoc, app_id: parseInt(e.target.value)})}
+                  >
+                    <option value={0}>Sélectionner une application</option>
+                    {apps.map(app => (
+                      <option key={app.id} value={app.id}>{app.name}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="form-group-v2">
+                  <label>Titre du document</label>
+                  <input 
+                    type="text" 
+                    value={editingDoc ? editingDoc.title : newDoc.title} 
+                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, title: e.target.value}) : setNewDoc({...newDoc, title: e.target.value})}
+                    placeholder="Ex: Guide utilisateur, Vidéo de démo..."
+                  />
+                </div>
+
+                <div className="form-group-v2">
+                  <label>Description (optionnelle)</label>
+                  <textarea 
+                    value={editingDoc ? editingDoc.description : newDoc.description} 
+                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, description: e.target.value}) : setNewDoc({...newDoc, description: e.target.value})}
+                    placeholder="Précisez le contenu ou l'usage de ce document..."
+                    style={{ minHeight: '80px', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}
+                  />
+                </div>
+                
+                <div className="form-group-v2">
+                  <label>Type de document</label>
+                  <select 
+                    value={editingDoc ? editingDoc.doc_type : newDoc.doc_type} 
+                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, doc_type: e.target.value as any}) : setNewDoc({...newDoc, doc_type: e.target.value as any})}
+                  >
+                    <option value="pdf">Fichier PDF</option>
+                    <option value="youtube">Vidéo YouTube</option>
+                    <option value="link">Lien externe</option>
+                  </select>
+                </div>
+                
+                <div className="form-group-v2">
+                  <label>{(editingDoc ? editingDoc.doc_type : newDoc.doc_type) === 'youtube' ? 'ID de la vidéo ou URL' : 'URL (optionnel si fichier joint)'}</label>
+                  <input 
+                    type="text" 
+                    value={editingDoc ? editingDoc.url : newDoc.url} 
+                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, url: e.target.value}) : setNewDoc({...newDoc, url: e.target.value})}
+                    placeholder="https://..."
+                  />
+                </div>
+
+                {(editingDoc ? editingDoc.doc_type : newDoc.doc_type) === 'pdf' && (
+                  <div className="form-group-v2">
+                    <label>Fichier PDF</label>
+                    <input 
+                      type="file" 
+                      accept=".pdf" 
+                      onChange={e => setDocFile(e.target.files ? e.target.files[0] : null)}
+                      style={{ padding: '10px', border: '1px dashed #cbd5e1', borderRadius: '12px', background: '#f8fafc' }}
+                    />
+                    {(editingDoc?.url || newDoc?.url) && !docFile && (
+                      <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '5px' }}>Fichier actuel : {editingDoc?.url || newDoc?.url}</p>
+                    )}
+                  </div>
+                )}
+                
+                <div style={{ display: 'flex', gap: '20px', marginTop: '10px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={editingDoc ? editingDoc.is_favorite : newDoc.is_favorite} 
+                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_favorite: e.target.checked}) : setNewDoc({...newDoc, is_favorite: e.target.checked})}
+                    />
+                    Favori (en gras)
+                  </label>
+                  
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={editingDoc ? editingDoc.is_technical : newDoc.is_technical} 
+                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_technical: e.target.checked}) : setNewDoc({...newDoc, is_technical: e.target.checked})}
+                    />
+                    Document Technique
+                  </label>
+                  
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={editingDoc ? editingDoc.is_obsolete : newDoc.is_obsolete} 
+                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_obsolete: e.target.checked}) : setNewDoc({...newDoc, is_obsolete: e.target.checked})}
+                    />
+                    Obsolète (masqué pour les utilisateurs)
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            <div className="modal-footer-v2">
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button className="filter-btn-v2" onClick={() => setShowDocModal(false)}>Annuler</button>
+                <button className="primary-btn-v2" onClick={editingDoc ? () => handleUpdateDoc(editingDoc) : handleCreateDoc} disabled={isUploading}>
+                  {isUploading ? <><div className="spinner-v2" style={{ width: '16px', height: '16px', border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Upload en cours...</> : <><Save size={18} /> {editingDoc ? 'Mettre à jour' : 'Créer le document'}</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         .magapp-admin-container {

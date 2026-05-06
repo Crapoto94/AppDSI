@@ -41,6 +41,7 @@ const Dashboard: React.FC = () => {
         });
         const data = await response.json();
         if (Array.isArray(data)) {
+          console.log('Received tiles:', data);
           setTiles(data);
         }
       } catch (error) {

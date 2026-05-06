@@ -1,4 +1,6 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
+
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // Bypass SSL certificate verification globally
 
 const cors = require('cors');
@@ -2057,6 +2059,36 @@ app.post('/api/magapp/ideas/upload', ideasUpload.array('files', 5), async (req, 
     }
 });
 
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Route : Upload de fichiers pour documentation MagApp
+const magappDocsUploadDir = path.join(__dirname, 'uploads', 'magapp_docs');
+if (!fs.existsSync(magappDocsUploadDir)) {
+    fs.mkdirSync(magappDocsUploadDir, { recursive: true });
+}
+
+const magappDocsStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, magappDocsUploadDir),
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + '-' + file.originalname);
+    }
+});
+const magappDocsUpload = multer({ storage: magappDocsStorage });
+
+app.post('/api/admin/magapp/docs/upload', authenticateMagappControl, magappDocsUpload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier uploadé' });
+        const fileUrl = `/uploads/magapp_docs/${req.file.filename}`;
+        res.json({ url: fileUrl });
+    } catch (error) {
+        console.error('[MagApp Docs Upload] Erreur:', error.message);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+
 
 
 
@@ -2419,28 +2451,7 @@ setupDb().then(async database => {
 
 
 // PostgreSQL Connection Settings (in SQLite)
-app.get('/api/postgres-settings', authenticateAdmin, async (req, res) => {
-    try {
-        const settings = await db.get('SELECT * FROM postgres_settings WHERE id = 1');
-        res.json(settings);
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching postgres settings' });
-    }
-});
-
-app.post('/api/postgres-settings', authenticateAdmin, async (req, res) => {
-    const { host, port, database, username, password, is_enabled } = req.body;
-    try {
-        await db.run(
-            'UPDATE postgres_settings SET host = ?, port = ?, database = ?, username = ?, password = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
-            [host, port, database, username, password, is_enabled ? 1 : 0]
-        );
-        res.json({ message: 'PostgreSQL connection settings updated. Restart server to apply.' });
-    } catch (error) {
-        console.error('Erreur postgres_settings:', error);
-        res.status(500).json({ message: 'Error updating postgres settings', error: error.message });
-    }
-});
+// End of setup
 
 // Mail API
 app.get('/api/mail-settings', authenticateAdmin, async (req, res) => {
@@ -2814,7 +2825,9 @@ app.post('/api/admin/sql/query', authenticateAdmin, async (req, res) => {
 });
 
 // Auth Routes
-app.post('/api/login', async (req, res) => {
+// Auth Routes
+app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
+    console.log(`[DEBUG LOGIN] Received request on ${req.path}`);
     let { username, password } = req.body;
     
     if (username) username = username.replace(/@ivry94\.fr$/i, '');
@@ -2822,26 +2835,29 @@ app.post('/api/login', async (req, res) => {
     // 1. Tentative via Active Directory si activé
     try {
         const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        console.log(`[DEBUG LOGIN] AD enabled: ${adSettings?.is_enabled}`);
         if (adSettings && adSettings.is_enabled) {
+            console.log(`[DEBUG LOGIN] Calling authenticateAD for ${username}...`);
             const adUser = await authenticateAD(username, password, adSettings);
+            console.log(`[DEBUG LOGIN] authenticateAD result: ${adUser ? 'SUCCESS' : 'FAILED'}`);
             if (adUser) {
                 // L'utilisateur est authentifié AD. On cherche son profil localement.
                 let user = await db.get('SELECT * FROM users WHERE username = ?', [username.toLowerCase()]);
+                console.log(`[DEBUG LOGIN] Local user profile found: ${user ? 'YES' : 'NO'}`);
 
                 if (!user) {
                     // Création automatique de l'utilisateur s'il est OK AD mais absent de la base locale
                     try {
-                        // Règle spéciale : admin et adminhub sont toujours approuvés
                         const isAdminAccount = username.toLowerCase() === 'admin' || username.toLowerCase() === 'adminhub';
                         const role = isAdminAccount ? 'admin' : 'user';
                         const isApproved = isAdminAccount ? 1 : 0;
 
+                        console.log(`[DEBUG LOGIN] Creating auto user for AD success: ${username} (Role: ${role})`);
                         const result = await db.run(
                             'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
                             [adUser.username.toLowerCase(), role, isApproved]
                         );
                         user = await db.get('SELECT * FROM users WHERE id = ?', [result.lastID]);
-                        console.log(`[AUTH] Nouvel utilisateur AD créé : ${adUser.username} (Role: ${role}, Approved: ${isApproved})`);
                     } catch (insertError) {
                         console.error(`[AUTH] Erreur lors de la création auto de l'utilisateur ${username}:`, insertError);
                         return res.status(500).json({ message: "Erreur lors de la création du compte local." });
@@ -2849,14 +2865,15 @@ app.post('/api/login', async (req, res) => {
                 }
 
                 if (user) {
-                    // Les utilisateurs non approuvés reçoivent quand même un token pour le Dashboard restreint
+                    console.log(`[DEBUG LOGIN] Generating token for user ${user.username} with email ${adUser.email}`);
                     const accessToken = jwt.sign({
                         id: user.id,
                         username: user.username,
                         role: user.role,
                         is_approved: user.is_approved,
                         service_code: user.service_code,
-                        service_complement: user.service_complement
+                        service_complement: user.service_complement,
+                        email: adUser.email
                     }, SECRET_KEY);
 
                     return res.json({
@@ -2867,7 +2884,8 @@ app.post('/api/login', async (req, res) => {
                             role: user.role,
                             is_approved: user.is_approved,
                             service_code: user.service_code,
-                            service_complement: user.service_complement
+                            service_complement: user.service_complement,
+                            email: adUser.email
                         }
                     });
                 }
@@ -2878,36 +2896,52 @@ app.post('/api/login', async (req, res) => {
     }
 
     // 2. Auth locale (Fallback ou comptes locaux)
+    console.log(`[DEBUG LOGIN] Attempting local auth for: ${username}`);
     const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+    
+    if (user) {
+        console.log(`[DEBUG LOGIN] Found local user: ${user.username}`);
+        if (!user.password) {
+            console.log(`[DEBUG LOGIN] Local user has no password set (AD account probably)`);
+        } else {
+            console.log(`[DEBUG LOGIN] Comparing input password (length: ${password.length}) with hash in DB (length: ${user.password.length})`);
+            const isMatch = await bcrypt.compare(password, user.password);
+            console.log(`[DEBUG LOGIN] Password match result: ${isMatch}`);
+            if (isMatch) {
+                // Règle de sécurité : Les admins sont TOUJOURS approuvés
+                const isApproved = (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub') ? 1 : user.is_approved;
 
-    if (user && user.password && await bcrypt.compare(password, user.password)) {
-        // Règle de sécurité : Les admins sont TOUJOURS approuvés
-        const isApproved = (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub') ? 1 : user.is_approved;
+                const accessToken = jwt.sign({
+                    id: user.id,
+                    username: user.username,
+                    role: user.role,
+                    is_approved: isApproved,
+                    service_code: user.service_code,
+                    service_complement: user.service_complement
+                }, SECRET_KEY);
 
-        const accessToken = jwt.sign({
-            id: user.id,
-            username: user.username,
-            role: user.role,
-            is_approved: isApproved,
-            service_code: user.service_code,
-            service_complement: user.service_complement
-        }, SECRET_KEY);
-
-        res.json({
-            accessToken,
-            user: {
-                id: user.id,
-                username: user.username,
-                role: user.role,
-                is_approved: isApproved,
-                service_code: user.service_code,
-                service_complement: user.service_complement
+                return res.json({
+                    accessToken,
+                    user: {
+                        id: user.id,
+                        username: user.username,
+                        role: user.role,
+                        is_approved: isApproved,
+                        service_code: user.service_code,
+                        service_complement: user.service_complement
+                    }
+                });
+            } else {
+                console.log(`[DEBUG LOGIN] Password mismatch for: ${username}`);
             }
-        });
+        }
     } else {
-        res.status(401).json({ message: 'Identifiants invalides' });
+        console.log(`[DEBUG LOGIN] User not found: ${username}`);
     }
+
+    res.status(401).json({ message: 'Identifiants invalides' });
 });
+
 
 // Admin Access Requests Management
 app.post('/api/change-password', authenticateJWT, async (req, res) => {
@@ -2927,13 +2961,42 @@ app.post('/api/change-password', authenticateJWT, async (req, res) => {
 });
 
 // Tiles Routes
-// Public endpoint for magapp to fetch tiles with links
+// Public/Authenticated endpoint to fetch tiles with authorization status
 app.get('/api/tiles', async (req, res) => {
     try {
         const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
+        
+        // Optional: Check authorization if token is provided
+        let authorizedTileIds = new Set();
+        let user = null;
 
-        // Load links for all tiles
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.split(' ')[1];
+            try {
+                user = jwt.verify(token, SECRET_KEY);
+            } catch (e) { /* ignore invalid token for this public-ish route */ }
+        }
+
+        if (user) {
+            console.log(`[DEBUG TILES] Identified user: ${user.username} (ID: ${user.id}, Role: ${user.role})`);
+            if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+                tiles.forEach(t => authorizedTileIds.add(t.id));
+                console.log('[DEBUG TILES] User is ADMIN, all tiles authorized');
+            } else {
+                const userTiles = await db.all('SELECT tile_id FROM user_tiles WHERE user_id = ?', [user.id]);
+                console.log(`[DEBUG TILES] Found ${userTiles.length} authorized tiles for ${user.username} (IDs: ${userTiles.map(ut => ut.tile_id).join(',')})`);
+                userTiles.forEach(ut => authorizedTileIds.add(ut.tile_id));
+            }
+        } else {
+            console.log('[DEBUG TILES] No user identified from token');
+        }
+
         for (const tile of tiles) {
+            tile.is_authorized = user ? authorizedTileIds.has(tile.id) : true;
+            console.log(`[DEBUG TILES] Checking tile ${tile.id} (${tile.title}): is_authorized = ${tile.is_authorized}`);
+            
+            // Load links
             tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
         }
 

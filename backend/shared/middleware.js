@@ -1,0 +1,173 @@
+const jwt = require('jsonwebtoken');
+const { SECRET_KEY } = require('./config');
+const { getSqlite } = require('./database');
+
+/**
+ * Middleware to verify JWT token
+ */
+const authenticateJWT = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+        const token = authHeader.split(' ')[1];
+        if (!token) {
+            console.log(`[JWT] Token missing for ${req.path}`);
+            return res.status(401).json({ message: 'Token manquant dans le header' });
+        }
+
+        jwt.verify(token, SECRET_KEY, (err, user) => {
+            if (err) {
+                console.error(`[JWT ERROR] Verification failed for ${req.path}: ${err.message}`);
+                return res.status(403).json({ message: 'Session expirée ou invalide' });
+            }
+            // Ensure admins are always approved
+            if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+                user.is_approved = 1;
+            }
+            req.user = user;
+            console.log(`[JWT] User ${user.username} verified for ${req.path}`);
+            next();
+        });
+    } else {
+        console.log(`[JWT] Auth header missing for ${req.path}`);
+        res.status(401).json({ message: 'Authentification requise' });
+    }
+};
+
+/**
+ * Middleware to optionally verify JWT token without blocking
+ */
+const tryAuthenticateJWT = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+        const token = authHeader.split(' ')[1];
+        if (token) {
+            jwt.verify(token, SECRET_KEY, (err, user) => {
+                if (!err) {
+                    if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+                        user.is_approved = 1;
+                    }
+                    req.user = user;
+                }
+                next();
+            });
+            return;
+        }
+    }
+    next();
+};
+
+/**
+ * Middleware for Admin only
+ */
+const authenticateAdmin = (req, res, next) => {
+    authenticateJWT(req, res, () => {
+        if (req.user && (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin')) {
+            next();
+        } else {
+            res.status(403).json({ message: 'Accès refusé : administrateur uniquement' });
+        }
+    });
+};
+
+/**
+ * Middleware for Internal (scheduled syncs) or Admin
+ */
+const authenticateInternalOrAdmin = (req, res, next) => {
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Internal ')) {
+        const token = Buffer.from('scheduled-sync:internal').toString('base64');
+        if (auth === `Internal ${token}`) {
+            req.user = { username: 'scheduled-sync', role: 'admin' };
+            return next();
+        }
+    }
+    authenticateAdmin(req, res, next);
+};
+
+/**
+ * Middleware for Admin or Finances/Compta roles
+ */
+const authenticateAdminOrFinances = (req, res, next) => {
+    authenticateJWT(req, res, () => {
+        if (req.user && (req.user.role === 'admin' || req.user.role === 'finances' || req.user.role === 'compta')) {
+            next();
+        } else {
+            res.status(403).json({ message: 'Accès refusé : administrateur ou finances/compta uniquement' });
+        }
+    });
+};
+
+/**
+ * Middleware for Admin or users with MagApp Control access
+ */
+const authenticateMagappControl = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (req.user && (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin')) {
+            return next();
+        }
+        
+        try {
+            const db = getSqlite();
+            if (req.user && req.user.id && db) {
+                const authorized = await db.get(`
+                    SELECT 1 FROM user_tiles ut 
+                    JOIN tile_links tl ON ut.tile_id = tl.tile_id 
+                    WHERE ut.user_id = ? AND tl.url = '/admin/magapp'
+                `, [req.user.id]);
+                
+                console.log(`[AUTH MAGAPP] User ${req.user.username} (ID: ${req.user.id}) tile check result:`, !!authorized);
+                if (authorized) return next();
+            } else {
+                console.log(`[AUTH MAGAPP] Missing info: user=${!!req.user}, user.id=${req.user?.id}, db=${!!db}`);
+            }
+        } catch (error) {
+            console.error('[AUTH MAGAPP] Error checking tile access:', error);
+        }
+        
+        console.log(`[AUTH MAGAPP] Access denied for ${req.user?.username}`);
+        res.status(403).json({ message: 'Accès refusé : administrateur ou accès Magasin d\'Apps requis' });
+    });
+};
+
+const authenticateGLPIControl = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
+        
+        // Admins ont toujours accès
+        if (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub') {
+            return next();
+        }
+
+        try {
+            const db = getSqlite();
+            // Vérifier si l'utilisateur a accès à la tuile d'administration GLPI
+            // On cherche la tuile qui pointe vers /admin/glpi
+            const authorized = await db.get(`
+                SELECT 1 FROM user_tiles ut 
+                JOIN tile_links tl ON ut.tile_id = tl.tile_id 
+                WHERE ut.user_id = ? AND tl.url LIKE '%/admin/glpi%'
+            `, [req.user.id]);
+
+            console.log(`[AUTH GLPI] User ${req.user.username} (ID: ${req.user.id}) tile check result: ${!!authorized}`);
+
+            if (authorized) {
+                return next();
+            }
+
+            res.status(403).json({ message: 'Accès refusé : vous n\'avez pas les droits de gestion GLPI' });
+        } catch (error) {
+            console.error('[AUTH GLPI ERROR]', error);
+            res.status(500).json({ message: 'Erreur lors de la vérification des droits GLPI' });
+        }
+    });
+};
+
+module.exports = {
+    authenticateJWT,
+    tryAuthenticateJWT,
+    authenticateAdmin,
+    authenticateInternalOrAdmin,
+    authenticateAdminOrFinances,
+    authenticateMagappControl,
+    authenticateGLPIControl
+};

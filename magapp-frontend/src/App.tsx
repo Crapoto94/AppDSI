@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -29,6 +29,19 @@ interface AppItem {
   present_onboard: string;
   email_createur: string;
   lien_mercator: string;
+  doc_count?: number;
+}
+
+interface AppDoc {
+  id: number;
+  app_id: number;
+  title: string;
+  doc_type: 'pdf' | 'youtube' | 'link';
+  url: string;
+  is_obsolete: boolean;
+  is_favorite: boolean;
+  is_technical: boolean;
+  created_at: string;
 }
 
 interface Ticket {
@@ -64,7 +77,7 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
   const [allVersions, setAllVersions] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string; is_active: boolean }[]>([]);
@@ -98,6 +111,16 @@ function App() {
   const [highPriorityIncidents, setHighPriorityIncidents] = useState<{glpi_id: number, title: string, status_label: string, date_creation: string}[]>([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
   const [isCreatingIdea, setIsCreatingIdea] = useState(false);
+  
+  // Library states
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [libraryTab, setLibraryTab] = useState<'public' | 'technical'>('public');
+  const [selectedAppDocs, setSelectedAppDocs] = useState<AppDoc[]>([]);
+  const [selectedAppForDocs, setSelectedAppForDocs] = useState<AppItem | null>(null);
+  const [activeDoc, setActiveDoc] = useState<AppDoc | null>(null);
+  const [showDocViewer, setShowDocViewer] = useState(false);
+  const [docRating, setDocRating] = useState<number>(0);
+  const [isRecordingInteraction, setIsRecordingInteraction] = useState(false);
   const [userIdeas, setUserIdeas] = useState<{id: number, title: string, description: string, status: string, admin_response: string, created_at: string}[]>([]);
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean,
@@ -150,13 +173,61 @@ function App() {
     checkAuth();
   }, []);
 
+  const openLibrary = async (app: AppItem) => {
+    setSelectedAppForDocs(app);
+    setLibraryTab('public');
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`/api/magapp/apps/${app.id}/docs`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      setSelectedAppDocs(response.data);
+      setShowLibrary(true);
+    } catch (error) {
+      console.error('Error fetching docs:', error);
+    }
+  };
+
+  const openDoc = async (doc: AppDoc) => {
+    setActiveDoc(doc);
+    setShowDocViewer(true);
+    setDocRating(0);
+    // Record view
+    try {
+      const token = localStorage.getItem('token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      await axios.post(`/api/magapp/docs/${doc.id}/interaction`, { type: 'view' }, { headers });
+    } catch (error) {
+      console.error('Error recording view:', error);
+    }
+  };
+
+  const submitRating = async (rating: number) => {
+    if (!activeDoc) return;
+    setIsRecordingInteraction(true);
+    try {
+      const token = localStorage.getItem('token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      await axios.post(`/api/magapp/docs/${activeDoc.id}/interaction`, { type: 'rating', rating }, { headers });
+      setDocRating(rating);
+      setTimeout(() => {
+        setIsRecordingInteraction(false);
+      }, 2000);
+    } catch (error) {
+      console.error('Error recording rating:', error);
+      setIsRecordingInteraction(false);
+    }
+  };
+
   const loadAppData = async (username: string, email: string) => {
     try {
       setLoading(true);
       
       const fetchSafe = async (url: string, defaultValue: any) => {
         try {
-          const res = await axios.get(url);
+          const token = localStorage.getItem('token');
+          const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+          const res = await axios.get(url, { headers });
           return res.data;
         } catch (e) {
           console.error(`Erreur lors du fetch de ${url}:`, e);
@@ -1036,7 +1107,7 @@ function App() {
               >
                 <BarChart3 size={18} />
                 Rencontres
-                {settings.is_beta_user && !(settings.show_rencontres && hasRencontresAccess) && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                {settings.is_beta_user && !settings.show_rencontres_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
               </button>
             )}
 
@@ -1852,6 +1923,8 @@ function App() {
                 handleAppClick={handleAppClick}
                 formatDate={formatDate}
                 healthStatus={healthResults[app.id]}
+                openLibrary={openLibrary}
+                showLibraryFeature={settings.show_library}
               />
             ))}
           </div>
@@ -1881,6 +1954,8 @@ function App() {
                   handleAppClick={handleAppClick}
                   formatDate={formatDate}
                   healthStatus={healthResults[app.id]}
+                  openLibrary={openLibrary}
+                  showLibraryFeature={settings.show_library}
                 />
               ))}
             </div>
@@ -2368,6 +2443,250 @@ Je confirme l'incident
           </div>
         </div>
       )}
+      {/* Library Modal */}
+      {showLibrary && selectedAppForDocs && (
+        <div className="modal-overlay" onClick={() => setShowLibrary(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ background: '#f0f9ff', color: '#0078a4', padding: '10px', borderRadius: '12px' }}>
+                  <GraduationCap size={24} />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0 }}>Bibliothèque : {selectedAppForDocs.name}</h2>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                    {selectedAppDocs.length} document{selectedAppDocs.length > 1 ? 's' : ''} disponible{selectedAppDocs.length > 1 ? 's' : ''}
+                  </p>
+                </div>
+              </div>
+              <button className="close-button" onClick={() => setShowLibrary(false)}><X size={20} /></button>
+            </div>
+            
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', height: '60vh', padding: 0 }}>
+              {settings.is_beta_user && (
+                <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                  <button 
+                    onClick={() => setLibraryTab('public')}
+                    style={{ 
+                      flex: 1, 
+                      padding: '12px', 
+                      border: 'none', 
+                      background: libraryTab === 'public' ? 'white' : 'transparent',
+                      borderBottom: libraryTab === 'public' ? '2px solid #0078a4' : 'none',
+                      color: libraryTab === 'public' ? '#0078a4' : '#64748b',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Documentation
+                  </button>
+                  <button 
+                    onClick={() => setLibraryTab('technical')}
+                    style={{ 
+                      flex: 1, 
+                      padding: '12px', 
+                      border: 'none', 
+                      background: libraryTab === 'technical' ? 'white' : 'transparent',
+                      borderBottom: libraryTab === 'technical' ? '2px solid #0078a4' : 'none',
+                      color: libraryTab === 'technical' ? '#0078a4' : '#64748b',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Technique
+                  </button>
+                </div>
+              )}
+
+              <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+                {selectedAppDocs.filter(d => libraryTab === 'technical' ? d.is_technical : !d.is_technical).length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8' }}>
+                    <FileText size={48} style={{ opacity: 0.3, marginBottom: '16px' }} />
+                    <p>Aucun document {libraryTab === 'technical' ? 'technique' : ''} n'est disponible pour cette application.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {selectedAppDocs
+                      .filter(d => libraryTab === 'technical' ? d.is_technical : !d.is_technical)
+                      .map(doc => (
+                      <div 
+                        key={doc.id} 
+                        className="doc-item" 
+                        onClick={() => openDoc(doc)}
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '16px', 
+                          padding: '16px', 
+                          background: '#f8fafc', 
+                          borderRadius: '12px', 
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          border: '1px solid #e2e8f0',
+                          position: 'relative'
+                        }}
+                      >
+                        <div style={{ 
+                          background: doc.doc_type === 'pdf' ? '#fee2e2' : (doc.doc_type === 'youtube' ? '#ffedd5' : '#f0f9ff'),
+                          color: doc.doc_type === 'pdf' ? '#dc2626' : (doc.doc_type === 'youtube' ? '#ea580c' : '#0078a4'),
+                          padding: '10px',
+                          borderRadius: '10px'
+                        }}>
+                          {doc.doc_type === 'pdf' && <FileText size={20} />}
+                          {doc.doc_type === 'youtube' && <Activity size={20} />}
+                          {doc.doc_type === 'link' && <Eye size={20} />}
+                        </div>
+                        
+                        <div style={{ flex: 1 }}>
+                          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: doc.is_favorite ? 800 : 600 }}>
+                            {doc.title}
+                            {doc.is_favorite && <Star size={14} fill="#f59e0b" color="#f59e0b" style={{ marginLeft: '8px' }} />}
+                            {doc.is_technical && <Briefcase size={14} color="#64748b" style={{ marginLeft: '8px' }} />}
+                          </h3>
+                          <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#94a3b8' }}>
+                            Ajouté le {new Date(doc.created_at).toLocaleDateString('fr-FR')}
+                          </p>
+                        </div>
+                        
+                        <button style={{ 
+                          background: '#0f172a', 
+                          color: 'white', 
+                          border: 'none', 
+                          borderRadius: '8px', 
+                          padding: '6px 12px', 
+                          fontSize: '0.8rem', 
+                          fontWeight: 600 
+                        }}>
+                          Ouvrir
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Doc Viewer Modal */}
+      {showDocViewer && activeDoc && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ width: '95vw', height: '90vh', maxWidth: '1200px' }}>
+            <div className="modal-header" style={{ padding: '16px 24px' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.2rem' }}>{activeDoc.title}</h2>
+                  {activeDoc.description && <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#64748b' }}>{activeDoc.description}</p>}
+                </div>
+              <button className="close-button" onClick={() => setShowDocViewer(false)}><X size={20} /></button>
+            </div>
+            
+            <div style={{ flex: 1, background: '#f1f5f9', position: 'relative' }}>
+              {activeDoc.doc_type === 'pdf' && (
+                <iframe 
+                  src={activeDoc.url.startsWith('http') ? activeDoc.url : (activeDoc.url.startsWith('/uploads') ? activeDoc.url : `/api/magapp/docs/file/${activeDoc.url}`)} 
+                  style={{ width: '100%', height: '100%', border: 'none' }}
+                  title={activeDoc.title}
+                />
+              )}
+              {activeDoc.doc_type === 'youtube' && (
+                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'black' }}>
+                  <iframe 
+                    width="100%" 
+                    height="100%" 
+                    src={(() => {
+                      let url = activeDoc.url;
+                      if (!url) return '';
+                      
+                      // Match video ID from various YouTube URL formats
+                      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+                      const match = url.match(regExp);
+                      
+                      let id = (match && match[2].length === 11) ? match[2] : null;
+                      
+                      if (!id) {
+                        // Fallback if URL is just the ID
+                        if (url.length === 11) id = url;
+                      }
+                      
+                      if (id) {
+                        return `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1&autoplay=0`;
+                      }
+                      
+                      // Return original URL if no ID found (might be a direct embed link)
+                      return url;
+                    })()}
+                    title="YouTube video player" 
+                    frameBorder="0" 
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                    allowFullScreen
+                  />
+                </div>
+              )}
+              {activeDoc.doc_type === 'link' && (
+                <iframe 
+                  src={activeDoc.url} 
+                  style={{ width: '100%', height: '100%', border: 'none', background: 'white' }}
+                  title={activeDoc.title}
+                />
+              )}
+            </div>
+            
+            <div className="modal-footer" style={{ padding: '20px 30px', background: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ flex: 1 }}>
+                <p style={{ margin: 0, fontWeight: 700, color: '#0f172a' }}>Ce document vous a-t-il été utile ?</p>
+                <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Votre note nous aide à améliorer la bibliothèque.</p>
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {[1, 2, 3, 4, 5].map(star => (
+                  <button 
+                    key={star}
+                    onClick={(e) => { 
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('Star clicked:', star); 
+                      submitRating(star); 
+                    }}
+                    disabled={isRecordingInteraction || docRating > 0}
+                    className="star-rating-btn"
+                    style={{ 
+                      background: 'none', 
+                      border: 'none', 
+                      cursor: docRating > 0 ? 'default' : 'pointer',
+                      padding: '12px',
+                      color: (docRating || 0) >= star ? '#f59e0b' : '#cbd5e1',
+                      transition: 'all 0.2s',
+                      pointerEvents: 'auto',
+                      position: 'relative',
+                      zIndex: 2000,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Star 
+                      size={40} 
+                      fill={(docRating || 0) >= star ? "#f59e0b" : "none"} 
+                      style={{ pointerEvents: 'none' }} 
+                    />
+                  </button>
+                ))}
+                
+                {docRating > 0 && (
+                  <div style={{ marginLeft: '16px' }}>
+                    <span style={{ background: '#dcfce7', color: '#166534', padding: '6px 16px', borderRadius: '20px', fontWeight: 700, fontSize: '0.9rem' }}>
+                      Merci !
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2382,9 +2701,11 @@ interface AppCardProps {
   handleAppClick: (app: AppItem) => void;
   formatDate: (dateStr: string | null) => string;
   healthStatus?: 'ok' | 'fail';
+  openLibrary: (app: AppItem) => void;
+  showLibraryFeature: boolean;
 }
 
-const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSubscriptions, toggleFavorite, handleSubscribe, handleAppClick, formatDate, healthStatus }) => {
+const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSubscriptions, toggleFavorite, handleSubscribe, handleAppClick, formatDate, healthStatus, openLibrary, showLibraryFeature }) => {
   const isMaint = app.is_maintenance === 1;
   const healthClass = healthStatus === 'ok' ? 'health-ok' : (healthStatus === 'fail' ? 'health-fail' : '');
   
@@ -2437,7 +2758,7 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSu
       <div className="card-actions" style={{ position: 'absolute', right: '25px', display: 'flex', gap: '8px', zIndex: 5 }}>
         {showSubscriptions && (
           <button 
-            className="subscribe-btn-custom"
+            className="subscribe-btn-custom animate-hover"
             onClick={(e) => handleSubscribe(e, app)}
             title={isSubscribed ? "Se désabonner des alertes" : "S'abonner aux alertes maintenance"}
             style={{ 
@@ -2458,8 +2779,33 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSu
             <Bell size={16} fill={isSubscribed ? "#0078a4" : "none"} />
           </button>
         )}
+        {showLibraryFeature && (app.doc_count || 0) > 0 && (
+          <div style={{ position: 'relative' }}>
+            <button 
+              className="library-btn-custom animate-hover"
+              onClick={(e) => { e.stopPropagation(); e.preventDefault(); openLibrary(app); }}
+              title="Consulter la documentation"
+              style={{ 
+                background: 'white', 
+                color: '#0f172a',
+                borderRadius: '50%', 
+                width: '32px', 
+                height: '32px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                cursor: 'pointer',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                transition: 'all 0.2s'
+              }}
+            >
+              <GraduationCap size={16} />
+            </button>
+          </div>
+        )}
         <button 
-          className="favorite-btn"
+          className="favorite-btn animate-hover"
           onClick={(e) => toggleFavorite(e, app.id)}
           title={isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
           style={{ 
