@@ -12,8 +12,9 @@ interface TileData {
   icon: string;
   description: string;
   sort_order: number;
-  status: 'active' | 'maintenance' | 'soon';
+  status: 'active' | 'maintenance' | 'soon' | 'inactive';
   is_authorized?: boolean;
+  is_public?: number;
   links: { label: string; url: string; is_internal: boolean }[];
 }
 
@@ -92,6 +93,8 @@ const Dashboard: React.FC = () => {
                   links={tile.links}
                   status={tile.status}
                   is_authorized={tile.is_authorized}
+                  is_public={tile.is_public === 1}
+                  isAdmin={user?.role === 'admin'}
                 />
               ))}
           </div>

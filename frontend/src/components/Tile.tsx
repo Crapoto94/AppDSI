@@ -18,26 +18,40 @@ interface TileProps {
   links: TileLink[];
   status?: 'active' | 'maintenance' | 'soon';
   is_authorized?: boolean;
+  is_public?: boolean;
+  isAdmin?: boolean;
   orphan_orders?: number;
   orphan_invoices?: number;
 }
 
-const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status = 'active', is_authorized = true, orphan_orders, orphan_invoices }) => {
+const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status = 'active', is_authorized = true, is_public = false, isAdmin = false, orphan_orders, orphan_invoices }) => {
   // Dynamically get icon from lucide-react
   // @ts-expect-error Lucide icons dynamically loaded
   const IconComponent = Icons[icon.charAt(0).toUpperCase() + icon.slice(1)] || Icons.Box;
 
-  const isLocked = status === 'maintenance' || status === 'soon';
+  const isLocked = (status === 'maintenance' || status === 'soon') && !isAdmin;
 
   return (
-    <div className={`tile ${status} ${!is_authorized ? 'locked' : ''}`}>
-      {status === 'maintenance' && (
+    <div className={`tile ${status} ${!is_authorized ? 'locked' : ''} ${isAdmin ? 'admin-mode' : ''}`}>
+      {is_public && (
+        <div className="public-badge">
+          <Icons.Globe size={12} />
+          <span>PUBLIC</span>
+        </div>
+      )}
+      {status === 'soon' && isAdmin && (
+        <div className="admin-soon-badge">
+          <Icons.Clock size={12} />
+          <span>SOON (ADMIN)</span>
+        </div>
+      )}
+      {status === 'maintenance' && !isAdmin && (
         <div className="status-overlay">
           <Icons.Wrench size={24} />
           <span>EN MAINTENANCE</span>
         </div>
       )}
-      {status === 'soon' && (
+      {status === 'soon' && !isAdmin && (
         <div className="status-overlay soon">
           <Icons.Clock size={24} />
           <span>BIENTÔT DISPONIBLE</span>
@@ -96,7 +110,43 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
           overflow: hidden;
         }
         .tile.maintenance { border-top-color: #f59e0b; opacity: 0.8; }
-        .tile.soon { border-top-color: #64748b; opacity: 0.5; filter: grayscale(100%); }
+        .tile.soon { border-top-color: #64748b; opacity: 0.5; filter: grayscale(100%); transition: all 0.3s ease; }
+        .tile.soon.admin-mode { opacity: 0.9; filter: grayscale(30%); }
+        .tile.soon.admin-mode:hover { opacity: 1; filter: grayscale(0%); }
+
+        .public-badge {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          background: #dcfce7;
+          color: #166534;
+          padding: 4px 8px;
+          border-radius: 6px;
+          font-size: 10px;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          z-index: 30;
+          border: 1px solid #bbf7d0;
+        }
+
+        .admin-soon-badge {
+          position: absolute;
+          top: 10px;
+          left: 10px;
+          background: #f1f5f9;
+          color: #475569;
+          padding: 4px 8px;
+          border-radius: 6px;
+          font-size: 10px;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          z-index: 30;
+          border: 1px solid #e2e8f0;
+        }
 
         .status-overlay {
           position: absolute;
