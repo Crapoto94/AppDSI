@@ -33,7 +33,7 @@ const AccessRequestPage: React.FC = () => {
                     axios.get('/api/tiles-all'),
                     axios.get('/api/messages/code/demandeacces')
                 ]);
-                setTiles(tilesRes.data.filter((t: any) => !t.is_public));
+                setTiles(tilesRes.data.filter((t: any) => !t.is_public && t.status !== 'soon'));
                 setMessage(msgRes.data.content);
             } catch (err) {
                 console.error(err);

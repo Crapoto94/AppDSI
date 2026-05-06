@@ -69,7 +69,7 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
               {link.is_internal ? <ArrowRight size={14} /> : <ExternalLink size={14} />}
             </a>
           ))
-        ) : (
+        ) : status !== 'soon' ? (
           <Link
             to={`/request-access?preselect=${id}`}
             className="tile-btn btn-primary locked-btn"
@@ -77,7 +77,7 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
             <Icons.UserCheck size={16} />
             Demander l'accès
           </Link>
-        )}
+        ) : null}
       </div>
 
       <style>{`
@@ -96,7 +96,7 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
           overflow: hidden;
         }
         .tile.maintenance { border-top-color: #f59e0b; opacity: 0.8; }
-        .tile.soon { border-top-color: #64748b; opacity: 0.8; }
+        .tile.soon { border-top-color: #64748b; opacity: 0.5; filter: grayscale(100%); }
 
         .status-overlay {
           position: absolute;
