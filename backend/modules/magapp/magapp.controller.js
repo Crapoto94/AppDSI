@@ -749,6 +749,7 @@ const MagAppController = {
             const { id } = req.params;
             
             let isAdmin = false;
+            console.log(`[MAGAPP DOCS] Fetching docs for app ${id}. User: ${req.user ? req.user.username : 'NULL'}`);
             if (req.user) {
                 if (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub') {
                     isAdmin = true;
