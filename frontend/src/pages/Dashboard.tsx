@@ -81,7 +81,7 @@ const Dashboard: React.FC = () => {
         ) : (
           <div className="tiles-grid">
 {tiles
-              .filter(t => t.status === 'active')
+              .filter(t => t.status === 'active' || t.status === 'soon')
               .map((tile) => (
                 <Tile
                   key={tile.id}

@@ -26,8 +26,9 @@ interface TileData {
   icon: string;
   description: string;
   links: TileLink[];
-  status: 'active' | 'maintenance' | 'soon';
+  status: 'active' | 'maintenance' | 'soon' | 'inactive';
   sort_order: number;
+  is_public?: number;
 }
 
 interface UserData {
@@ -49,7 +50,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const { token } = useAuth();
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
-  const [newTile, setNewTile] = useState({ title: '', icon: 'Box', description: '', status: 'active' as any });
+  const [newTile, setNewTile] = useState({ title: '', icon: 'Box', description: '', status: 'active' as any, is_public: false });
   const [editingTile, setEditingTile] = useState<TileData | null>(null);
   const [editingLinks, setEditingLinks] = useState<any[]>([]);
   const [originalLinks, setOriginalLinks] = useState<any[]>([]);
@@ -1164,7 +1165,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             title: editingTile.title,
             icon: editingTile.icon || 'Box',
             description: editingTile.description || '',
-            status: editingTile.status || 'active'
+            status: editingTile.status || 'active',
+            is_public: editingTile.is_public ? 1 : 0
           })
         });
         if (!response.ok) throw new Error(`Erreur ${response.status}`);
@@ -1178,6 +1180,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             icon: newTile.icon || 'Box',
             description: newTile.description || '',
             status: newTile.status || 'active',
+            is_public: newTile.is_public ? 1 : 0,
             sort_order: tiles.length
           })
         });
@@ -3114,8 +3117,31 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           >
                             <option value="active">✓ Actif</option>
                             <option value="inactive">✗ Inactif</option>
+                            <option value="soon">⋯ Bientôt</option>
+                            <option value="maintenance">🔧 Maintenance</option>
                           </select>
                         </div>
+                      </div>
+
+                      <div style={{ marginBottom: '20px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: 'white', padding: '12px', borderRadius: '10px', border: '2px solid #7dd3fc' }}>
+                          <input 
+                            type="checkbox"
+                            checked={editingTile ? !!editingTile.is_public : !!newTile.is_public}
+                            onChange={(e) => {
+                              if (editingTile) {
+                                setEditingTile({ ...editingTile, is_public: e.target.checked ? 1 : 0 });
+                              } else {
+                                setNewTile({ ...newTile, is_public: e.target.checked });
+                              }
+                            }}
+                            style={{ width: '20px', height: '20px' }}
+                          />
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: '0.95rem', fontWeight: '700', color: '#0c4a6e' }}>Brique Publique</span>
+                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Accessible à tous les utilisateurs identifiés (pas besoin d'autorisation individuelle)</span>
+                          </div>
+                        </label>
                       </div>
 
                       {/* Description */}

@@ -522,6 +522,14 @@ async function setupDb() {
             );
         }
     } catch (e) {}
+    
+    try {
+        const result = await db.all("PRAGMA table_info(tiles)");
+        const hasIsPublicColumn = result.some(col => col.name === 'is_public');
+        if (!hasIsPublicColumn) {
+            await db.exec('ALTER TABLE tiles ADD COLUMN is_public INTEGER DEFAULT 0');
+        }
+    } catch (e) {}
 
     // Migrations table certificates
     try { await db.run("ALTER TABLE certificates ADD COLUMN sedit_number TEXT DEFAULT ''"); } catch (e) {}

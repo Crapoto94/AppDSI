@@ -2993,7 +2993,21 @@ app.get('/api/tiles', async (req, res) => {
         }
 
         for (const tile of tiles) {
-            tile.is_authorized = user ? authorizedTileIds.has(tile.id) : true;
+            // A tile is authorized if it's public AND user is logged in, OR if user has explicit access, OR if user is admin
+            tile.is_authorized = false;
+            if (user) {
+                if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+                    tile.is_authorized = true;
+                } else if (tile.is_public) {
+                    tile.is_authorized = true;
+                } else if (authorizedTileIds.has(tile.id)) {
+                    tile.is_authorized = true;
+                }
+            } else {
+                // For non-authenticated users, nothing is authorized unless it's a truly public dashboard (which we don't have here)
+                tile.is_authorized = false;
+            }
+            
             console.log(`[DEBUG TILES] Checking tile ${tile.id} (${tile.title}): is_authorized = ${tile.is_authorized}`);
             
             // Load links
@@ -3020,7 +3034,7 @@ app.get('/api/tiles-auth', authenticateJWT, async (req, res) => {
         }
 
         for (const tile of tiles) {
-            tile.is_authorized = authorizedTileIds.has(tile.id);
+            tile.is_authorized = (tile.is_public || authorizedTileIds.has(tile.id));
             if (tile.is_authorized) {
                 tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
             } else {
@@ -3034,14 +3048,16 @@ app.get('/api/tiles-auth', authenticateJWT, async (req, res) => {
 });
 
 app.post('/api/tiles', authenticateAdmin, async (req, res) => {
-    const { title, icon, description, sort_order, status } = req.body;
-    const result = await db.run('INSERT INTO tiles (title, icon, description, sort_order, status) VALUES (?, ?, ?, ?, ?)', [title, icon, description, sort_order || 0, status || 'active']);
+    const { title, icon, description, sort_order, status, is_public } = req.body;
+    const result = await db.run('INSERT INTO tiles (title, icon, description, sort_order, status, is_public) VALUES (?, ?, ?, ?, ?, ?)', 
+        [title, icon, description, sort_order || 0, status || 'active', is_public ? 1 : 0]);
     res.json({ id: result.lastID });
 });
 
 app.put('/api/tiles/:id', authenticateAdmin, async (req, res) => {
-    const { title, icon, description, sort_order, status } = req.body;
-    await db.run('UPDATE tiles SET title = ?, icon = ?, description = ?, sort_order = ?, status = ? WHERE id = ?', [title, icon, description, sort_order, status, req.params.id]);
+    const { title, icon, description, sort_order, status, is_public } = req.body;
+    await db.run('UPDATE tiles SET title = ?, icon = ?, description = ?, sort_order = ?, status = ?, is_public = ? WHERE id = ?', 
+        [title, icon, description, sort_order, status, is_public ? 1 : 0, req.params.id]);
     res.json({ message: 'Tile updated' });
 });
 
