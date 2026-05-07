@@ -128,6 +128,7 @@ const MagappAdmin: React.FC = () => {
   const [docs, setDocs] = useState<AppDoc[]>([]);
   const [docStats, setDocStats] = useState<DocStats[]>([]);
   const [editingDoc, setEditingDoc] = useState<AppDoc | null>(null);
+  const [filterLibApp, setFilterLibApp] = useState<number | 'all'>('all');
   const [newDoc, setNewDoc] = useState<Partial<AppDoc>>({ 
     title: '', 
     description: '',
@@ -1423,6 +1424,19 @@ const MagappAdmin: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                     <h2>Gestion de la bibliothèque ({docs.length})</h2>
                     <div className="header-icon-v2"><GraduationCap size={20} /></div>
+                    
+                    <div className="filter-group-v2" style={{ marginLeft: '10px' }}>
+                      <select 
+                        value={filterLibApp} 
+                        onChange={e => setFilterLibApp(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+                        style={{ padding: '6px 12px', borderRadius: '8px', border: 'none', background: 'white', fontSize: '0.85rem', fontWeight: 600, color: '#4f46e5', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}
+                      >
+                        <option value="all">Toutes les applications</option>
+                        {apps.map(app => (
+                          <option key={app.id} value={app.id}>{app.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   <button className="primary-btn-v2" onClick={() => { setEditingDoc(null); setNewDoc({ title: '', app_id: apps[0]?.id || 0, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false }); setShowDocModal(true); }}>
                     <Plus size={18} /> Nouveau Document
@@ -1433,7 +1447,6 @@ const MagappAdmin: React.FC = () => {
                   <table className="modern-table-v2">
                     <thead>
                       <tr>
-                        <th>Application</th>
                         <th>Titre</th>
                         <th>Type</th>
                         <th>Statut</th>
@@ -1442,56 +1455,78 @@ const MagappAdmin: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {docs.map(doc => {
-                        const s = docStats.find(st => st.id === doc.id);
-                        return (
-                          <tr key={doc.id} style={{ opacity: doc.is_obsolete ? 0.6 : 1 }}>
-                            <td style={{ fontWeight: 700 }}>{doc.app_name}</td>
-                            <td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {doc.is_favorite && <Star size={14} fill="#f59e0b" color="#f59e0b" />}
-                                {doc.title}
-                              </div>
-                            </td>
-                            <td>
-                              <span style={{ 
-                                padding: '4px 8px', 
-                                borderRadius: '6px', 
-                                fontSize: '0.7rem', 
-                                fontWeight: 800,
-                                background: doc.doc_type === 'pdf' ? '#fee2e2' : (doc.doc_type === 'youtube' ? '#ffedd5' : '#e0f2fe'),
-                                color: doc.doc_type === 'pdf' ? '#dc2626' : (doc.doc_type === 'youtube' ? '#ea580c' : '#0369a1')
-                              }}>
-                                {doc.doc_type.toUpperCase()}
-                              </span>
-                            </td>
-                            <td>
-                              <span style={{ 
-                                padding: '4px 8px', 
-                                borderRadius: '6px', 
-                                fontSize: '0.7rem', 
-                                fontWeight: 800,
-                                background: doc.is_obsolete ? '#f1f5f9' : '#dcfce7',
-                                color: doc.is_obsolete ? '#64748b' : '#166534'
-                              }}>
-                                {doc.is_obsolete ? 'Obsolète' : 'Actif'}
-                              </span>
-                            </td>
-                            <td>
-                              <div style={{ fontSize: '0.8rem' }}>
-                                <div>👁️ {s?.total_views || 0} vues</div>
-                                {(parseFloat(s?.avg_rating as any) || 0) > 0 && <div style={{ color: '#f59e0b', fontWeight: 700 }}>⭐ {parseFloat(s?.avg_rating as any).toFixed(1)} ({s?.total_ratings})</div>}
-                              </div>
-                            </td>
-                            <td>
-                              <div className="action-btns-v2" style={{ display: 'flex', gap: '8px' }}>
-                                <button className="action-btn-v2" style={{ background: '#f1f5f9', border: 'none', padding: '6px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => { setEditingDoc(doc); setShowDocModal(true); }}><Edit2 size={16} /></button>
-                                <button className="action-btn-v2" style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '6px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => handleDeleteDoc(doc.id)}><Trash2 size={16} /></button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {(() => {
+                        const filteredDocs = docs.filter(d => filterLibApp === 'all' || d.app_id === filterLibApp);
+                        const groupedByApp = filteredDocs.reduce((acc, doc) => {
+                          const appName = doc.app_name || 'Sans application';
+                          if (!acc[appName]) acc[appName] = [];
+                          acc[appName].push(doc);
+                          return acc;
+                        }, {} as Record<string, AppDoc[]>);
+
+                        return Object.entries(groupedByApp).map(([appName, appDocs]) => (
+                          <React.Fragment key={appName}>
+                            <tr style={{ background: '#f8fafc' }}>
+                              <td colSpan={5} style={{ padding: '12px 16px', fontWeight: 800, color: '#4f46e5', fontSize: '0.9rem', borderBottom: '1px solid #e2e8f0' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <LayoutGrid size={16} />
+                                  {appName} ({appDocs.length})
+                                </div>
+                              </td>
+                            </tr>
+                            {appDocs.map(doc => {
+                              const s = docStats.find(st => st.id === doc.id);
+                              return (
+                                <tr key={doc.id} style={{ opacity: doc.is_obsolete ? 0.6 : 1 }}>
+                                  <td>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      {doc.is_favorite && <Star size={14} fill="#f59e0b" color="#f59e0b" />}
+                                      {doc.is_technical && <div style={{ background: '#eef2ff', color: '#4f46e5', padding: '4px', borderRadius: '6px' }} title="Document technique"><Code size={14} /></div>}
+                                      {doc.title}
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <span style={{ 
+                                      padding: '4px 8px', 
+                                      borderRadius: '6px', 
+                                      fontSize: '0.7rem', 
+                                      fontWeight: 800,
+                                      background: doc.doc_type === 'pdf' ? '#fee2e2' : (doc.doc_type === 'youtube' ? '#ffedd5' : '#e0f2fe'),
+                                      color: doc.doc_type === 'pdf' ? '#dc2626' : (doc.doc_type === 'youtube' ? '#ea580c' : '#0369a1')
+                                    }}>
+                                      {doc.doc_type.toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <span style={{ 
+                                      padding: '4px 8px', 
+                                      borderRadius: '6px', 
+                                      fontSize: '0.7rem', 
+                                      fontWeight: 800,
+                                      background: doc.is_obsolete ? '#f1f5f9' : '#dcfce7',
+                                      color: doc.is_obsolete ? '#64748b' : '#166534'
+                                    }}>
+                                      {doc.is_obsolete ? 'Non publié' : 'Publié'}
+                                    </span>
+                                  </td>
+                                  <td>
+                                    <div style={{ fontSize: '0.8rem' }}>
+                                      <div>👁️ {s?.total_views || 0} vues</div>
+                                      {(parseFloat(s?.avg_rating as any) || 0) > 0 && <div style={{ color: '#f59e0b', fontWeight: 700 }}>⭐ {parseFloat(s?.avg_rating as any).toFixed(1)} ({s?.total_ratings})</div>}
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <div className="action-btns-v2" style={{ display: 'flex', gap: '8px' }}>
+                                      <button className="action-btn-v2" style={{ background: '#f1f5f9', border: 'none', padding: '6px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => { setEditingDoc(doc); setShowDocModal(true); }}><Edit2 size={16} /></button>
+                                      <button className="action-btn-v2" style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '6px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => handleDeleteDoc(doc.id)}><Trash2 size={16} /></button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -1610,7 +1645,7 @@ const MagappAdmin: React.FC = () => {
                       checked={editingDoc ? editingDoc.is_obsolete : newDoc.is_obsolete} 
                       onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_obsolete: e.target.checked}) : setNewDoc({...newDoc, is_obsolete: e.target.checked})}
                     />
-                    Obsolète (masqué pour les utilisateurs)
+                    Non publié (masqué pour les utilisateurs)
                   </label>
                 </div>
               </div>
