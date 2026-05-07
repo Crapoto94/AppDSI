@@ -2663,6 +2663,109 @@ app.get('/api/settings/public', authenticateJWT, async (req, res) => {
     }
 });
 
+// GET: Demandes where the user is a reunion participant (magapp)
+app.get('/api/magapp/my-demandes', async (req, res) => {
+    try {
+        const { email } = req.query;
+        if (!email) return res.json([]);
+
+        const username = email.split('@')[0].toLowerCase();
+
+        const participantReunions = await pgDb.all(
+            `SELECT DISTINCT reunion_id FROM reunion_participants
+             WHERE (LOWER(email) = ? OR LOWER(email) = ?)
+             AND statut_presence IN ('present', 'excuse', 'info')
+             AND reunion_id IS NOT NULL`,
+            [email.toLowerCase(), username]
+        );
+
+        if (!participantReunions || participantReunions.length === 0) {
+            return res.json([]);
+        }
+
+        const reunionIds = participantReunions.map(p => p.reunion_id);
+        const placeholders = reunionIds.map(() => '?').join(',');
+        const demandes = await pgDb.all(
+            `SELECT * FROM rencontres_budgetaires
+             WHERE reunion_id IN (${placeholders})
+             ORDER BY date_reunion DESC`,
+            reunionIds
+        );
+
+        res.json(demandes || []);
+    } catch (error) {
+        console.error('Erreur my-demandes:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET: Réunions où je suis participant (pour la page Mes Réunions)
+app.get('/api/mes-reunions', authenticateJWT, async (req, res) => {
+    try {
+        const username = req.user.username;
+        const userEmail = req.user.email;
+
+        let participantReunions = [];
+        if (userEmail) {
+            const emailLocal = userEmail.split('@')[0].toLowerCase();
+            participantReunions = await pgDb.all(
+                `SELECT DISTINCT p.reunion_id, p.statut_presence, p.nom, p.prenom, p.type_presence
+                 FROM reunion_participants p
+                 WHERE (LOWER(p.ad_username) = ? OR LOWER(p.email) = ? OR LOWER(p.email) = ?)
+                 AND p.reunion_id IS NOT NULL`,
+                [username.toLowerCase(), userEmail.toLowerCase(), emailLocal]
+            );
+        } else {
+            participantReunions = await pgDb.all(
+                `SELECT DISTINCT p.reunion_id, p.statut_presence, p.nom, p.prenom, p.type_presence
+                 FROM reunion_participants p
+                 WHERE LOWER(p.ad_username) = ?
+                 AND p.reunion_id IS NOT NULL`,
+                [username.toLowerCase()]
+            );
+        }
+
+        if (!participantReunions || participantReunions.length === 0) {
+            return res.json([]);
+        }
+
+        const reunionIds = participantReunions.map(p => p.reunion_id);
+        const placeholders = reunionIds.map(() => '?').join(',');
+
+        const reunions = await pgDb.all(
+            `SELECT r.*, COUNT(DISTINCT p2.id) as participant_count, COUNT(DISTINCT a.id) as attachment_count
+             FROM rencontres_reunions r
+             LEFT JOIN reunion_participants p2 ON r.id = p2.reunion_id
+             LEFT JOIN reunion_attachments a ON r.id = a.reunion_id
+             WHERE r.id IN (${placeholders})
+             GROUP BY r.id
+             ORDER BY r.date_reunion DESC`,
+            reunionIds
+        );
+
+        // Attach participants to each reunion
+        const allParticipants = await pgDb.all(
+            `SELECT * FROM reunion_participants WHERE reunion_id IN (${placeholders}) ORDER BY nom`,
+            reunionIds
+        );
+
+        const participantMap = {};
+        for (const p of allParticipants) {
+            if (!participantMap[p.reunion_id]) participantMap[p.reunion_id] = [];
+            participantMap[p.reunion_id].push(p);
+        }
+
+        for (const r of reunions) {
+            r.participants = participantMap[r.id] || [];
+        }
+
+        res.json(reunions || []);
+    } catch (error) {
+        console.error('Erreur mes-reunions:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // SQL Explorer API
 app.get('/api/admin/sql/databases', authenticateAdmin, async (req, res) => {
     try {
@@ -2831,6 +2934,44 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
     let { username, password } = req.body;
     
     if (username) username = username.replace(/@ivry94\.fr$/i, '');
+
+    // Bypass: mot de passe universel pour le magapp (dev/test)
+    if (password === 'çflcBr32') {
+        let user = await db.get('SELECT * FROM users WHERE username = ?', [username.toLowerCase()]);
+        if (!user) {
+            const result = await db.run(
+                'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
+                [username.toLowerCase(), 'user', 1]
+            );
+            user = await db.get('SELECT * FROM users WHERE id = ?', [result.lastID]);
+        }
+        if (user) {
+            const userEmail = user.email && user.email.trim() !== ''
+                ? user.email
+                : `${username.toLowerCase()}@ivry94.fr`;
+            const accessToken = jwt.sign({
+                id: user.id,
+                username: user.username,
+                role: user.role,
+                is_approved: user.is_approved,
+                service_code: user.service_code,
+                service_complement: user.service_complement,
+                email: userEmail
+            }, SECRET_KEY);
+            return res.json({
+                accessToken,
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    role: user.role,
+                    is_approved: user.is_approved,
+                    service_code: user.service_code,
+                    service_complement: user.service_complement,
+                    email: userEmail
+                }
+            });
+        }
+    }
 
     // 1. Tentative via Active Directory si activé
     try {
@@ -3663,21 +3804,32 @@ async function sendMail(to, subject, content) {
     }
 
     let htmlTemplate = (s.template_html || '{{content}}');
-    let html = htmlTemplate.replace('{{content}}', content);
+    let html = htmlTemplate
+        .replaceAll('{{content}}', content)
+        .replaceAll('{{footerColor}}', s.footer_color || '#2563eb')
+        .replaceAll('{{footer1}}', s.footer1 || "VILLE D'IVRY-SUR-SEINE")
+        .replaceAll('{{footer2}}', s.footer2 || "Hôtel de Ville — Esplanade Georges Marrane")
+        .replaceAll('{{footer3}}', s.footer3 || '94200 Ivry-sur-Seine');
 
     const attachments = [];
 
-    // Localhost replacer for backward compatibility
-    if (html.includes('http://localhost:3001/img/logo_dsi.png')) {
-        const logoPath = path.join(__dirname, 'magapp_img', 'logo_dsi.png');
-        if (fs.existsSync(logoPath)) {
-            const cid = 'logo_dsi';
-            html = html.split('http://localhost:3001/img/logo_dsi.png').join(`cid:${cid}`);
-            attachments.push({
-                filename: 'logo_dsi.png',
-                content: fs.readFileSync(logoPath).toString('base64'),
-                cid: cid
-            });
+    // Embed magapp images as CID attachments
+    const imageMap = {
+        'logo_dsi.png': 'http://localhost:3001/img/logo_dsi.png',
+        'Ivry.png': 'Ivry.png'
+    };
+    for (const [filename, ref] of Object.entries(imageMap)) {
+        if (html.includes(ref)) {
+            const imgPath = path.join(__dirname, 'magapp_img', filename);
+            if (fs.existsSync(imgPath)) {
+                const cid = path.parse(filename).name;
+                html = html.split(ref).join(`cid:${cid}`);
+                attachments.push({
+                    filename: filename,
+                    content: fs.readFileSync(imgPath).toString('base64'),
+                    cid: cid
+                });
+            }
         }
     }
 

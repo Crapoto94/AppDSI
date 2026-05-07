@@ -1,6 +1,20 @@
 {
-    "currentVersion": "0.3.7",
+    "currentVersion": "0.3.8",
     "history": [
+        {
+            "version": "0.3.8",
+            "date": "08/05/2026",
+            "changes": [
+                "amélioration synchro GLPI",
+                "  Fonction de suivi de réunions",
+                "Magapp  : dépot de ticket",
+                "Studio RH : Gestion des logs de synchro",
+                "Studio RH : Gestion des alignements",
+                "Studio EH : Affichage par couleur selon niveau d'encadrement",
+                "Studio RH : Agent clicable tout le temps",
+                "Messages : améliorer le template"
+            ]
+        },
         {
             "version": "0.3.7",
             "date": "15/03/2026",

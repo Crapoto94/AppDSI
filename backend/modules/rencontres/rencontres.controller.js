@@ -81,17 +81,55 @@ module.exports = {
             let rows = [];
             let debugLog = `Filename: "${fileName}"\n`;
 
-            // CSV parsing
-            const content = req.file.buffer.toString('utf-8');
-            const lines = content.split('\n').filter(l => l.trim().length > 0);
-            if (lines.length < 2) return res.status(400).json({ error: 'Fichier CSV vide' });
+            // CSV parsing - handle encoding (UTF-8 or Latin-1/Windows-1252)
+            let content = req.file.buffer.toString('utf-8');
+            if (content.includes('\uFFFD')) {
+                content = req.file.buffer.toString('latin1');
+            }
 
-            const headerLine = lines[0];
+            // Parse CSV lines handling quoted fields with multiline values
+            const rawLines = [];
+            let building = '';
+            let inQuote = false;
+            for (let i = 0; i < content.length; i++) {
+                const ch = content[i];
+                if (ch === '"') inQuote = !inQuote;
+                if (ch === '\n' && !inQuote) {
+                    if (building.trim()) rawLines.push(building.trim());
+                    building = '';
+                } else if (ch !== '\r') {
+                    building += ch;
+                }
+            }
+            if (building.trim()) rawLines.push(building.trim());
+
+            if (rawLines.length < 2) return res.status(400).json({ error: 'Fichier CSV vide' });
+
+            const headerLine = rawLines[0];
             const headers = headerLine.split(';').map(h => h.trim().replace(/^"|"$/g, ''));
             const suiviIndex = headers.findIndex(h => h.toLowerCase() === 'suivi');
 
-            for (let i = 1; i < lines.length; i++) {
-                const values = lines[i].split(';').map(v => v.trim().replace(/^"|"$/g, ''));
+            const splitCSVLine = (line, delimiter) => {
+                const result = [];
+                let field = '';
+                let inQuotes = false;
+                for (let i = 0; i < line.length; i++) {
+                    const c = line[i];
+                    if (c === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (c === delimiter && !inQuotes) {
+                        result.push(field.replace(/^"|"$/g, '').trim());
+                        field = '';
+                    } else {
+                        field += c;
+                    }
+                }
+                result.push(field.replace(/^"|"$/g, '').trim());
+                return result;
+            };
+
+            for (let i = 1; i < rawLines.length; i++) {
+                const values = splitCSVLine(rawLines[i], ';');
                 const row = {};
                 headers.forEach((header, idx) => { row[header] = values[idx] || ''; });
                 row['__suivi'] = suiviIndex >= 0 ? (values[suiviIndex] || '') : '';
@@ -140,12 +178,15 @@ module.exports = {
                     const suiviRaw = row['__suivi'] ? String(row['__suivi']).trim() : '';
                     const suivi = suiviRaw && suiviRaw.toLowerCase() !== 'undefined' && suiviRaw.toLowerCase() !== 'null' && suiviRaw !== '' ? suiviRaw : '';
 
+                    const dateReunionObj = new Date(dateReunion + 'T00:00:00');
+                    const rowStatut = dateReunionObj > new Date() ? 'planifiée' : '';
+
                     await pgDb.run(
                         `INSERT INTO rencontres_budgetaires
                         (direction, service, date_reunion, annee, type, titre, description, cout_ttc,
                          arbitrage, responsable_dsi, ticket_glpi, lien_reference, commentaires, suivi, statut)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'importée')`,
-                        [direction, service, dateReunion, annee, type, titre, description, coutTTC, arbitrage, responsableDsi, ticketGlpi, lienReference, commentaires, suivi]
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [direction, service, dateReunion, annee, type, titre, description, coutTTC, arbitrage, responsableDsi, ticketGlpi, lienReference, commentaires, suivi, rowStatut]
                     );
                     imported++;
                 } catch (lineError) {

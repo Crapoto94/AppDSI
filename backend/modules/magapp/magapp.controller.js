@@ -503,6 +503,13 @@ const MagAppController = {
                 if (identifier) {
                     const directionEmail = await pgDb.get('SELECT 1 FROM direction_emails WHERE email LIKE ? OR email LIKE ?', [`${identifier}@%`, `${identifier}%`]);
                     hasRencontresAccess = !!directionEmail;
+                    if (!hasRencontresAccess) {
+                        const participantCheck = await pgDb.get(
+                            'SELECT 1 FROM reunion_participants WHERE LOWER(email) = ? OR LOWER(email) = ?',
+                            [`${identifier}@ivry94.fr`, identifier]
+                        );
+                        hasRencontresAccess = !!participantCheck;
+                    }
                 }
             } catch (e) { console.error('[MAGAPP SETTINGS] Rencontres access check error:', e.message); }
             

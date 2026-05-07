@@ -431,6 +431,8 @@ async function setupPgDb() {
         annee INTEGER,
         lieu TEXT,
         description TEXT,
+        releve_decision TEXT,
+        liste_taches TEXT,
         statut TEXT DEFAULT 'planifiée',
         created_by TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

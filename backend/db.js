@@ -324,7 +324,59 @@ async function setupDb() {
         );
 
         INSERT OR IGNORE INTO mail_settings (id, sender_name, template_html, global_enable, use_api) 
-        VALUES (1, 'DSI Hub', '<html><body>{{content}}</body></html>', 1, 1);
+        VALUES (1, 'DSI Hub', '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body style="margin: 0; padding: 0; min-width: 100%; background-color: #f4f7f9; font-family: ''Segoe UI'', Tahoma, Geneva, Verdana, sans-serif;">
+    <table width="100%" bgcolor="#f4f7f9" border="0" cellpadding="0" cellspacing="0" style="background-color: #f4f7f9;">
+    <tr>
+        <td style="padding: 40px 0;">
+            <table align="center" cellpadding="0" cellspacing="0" border="0" style="width: 100%; max-width: 750px;">
+                <!-- Header / Logo -->
+                <tr>
+                    <td align="center" style="padding-bottom: 30px;">
+                        <img src="Ivry.png" width="180" border="0" alt="Ivry s/ Seine" style="display: block;" />
+                        <div style="font-size: 18px; font-weight: 700; color: #1a202c; margin-top: 10px;">Ville d''Ivry-sur-seine</div>
+                    </td>
+                </tr>
+                <!-- Content Area -->
+                <tr>
+                    <td bgcolor="#ffffff" style="background-color: #ffffff; padding: 40px; border: 1px solid #e1e7ed; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+                        <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                            <tr>
+                                <td style="font-size: 16px; line-height: 1.6; color: #2d3748;">
+                                    {{content}}
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+                <!-- Footer area -->
+                <tr>
+                    <td align="center" style="padding: 30px;">
+                        <!-- Accent Line -->
+                        <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                            <tr>
+                                <td height="4" style="height: 4px; background: linear-gradient(to right, #e53e3e, {{footerColor}}); border-radius: 2px;"></td>
+                            </tr>
+                        </table>
+                        <br />
+                        <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                            <tr>
+                                <td align="center" style="color: #718096; font-size: 13px; line-height: 20px;">
+                                    <div style="text-transform: uppercase; letter-spacing: 1.2px; font-weight: 800; color: {{footerColor}}; font-size: 11px; margin-bottom: 5px;">{{footer1}}</div>
+                                    <div style="font-weight: 600; color: #4a5568;">{{footer2}}</div>
+                                    <div>{{footer3}}</div>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    </table>
+</body>
+</html>', 1, 1);
 
         CREATE TABLE IF NOT EXISTS postgres_settings (
             id INTEGER PRIMARY KEY,
@@ -521,6 +573,28 @@ async function setupDb() {
         }
     } catch (e) {
         console.warn('[DB Migration] Erreur création tuile Rencontres:', e.message);
+    }
+
+    // Migration: Créer la tuile Mes Réunions si elle n'existe pas
+    try {
+        const existingTile = await db.get("SELECT id FROM tiles WHERE title = 'Mes Réunions'");
+        if (!existingTile) {
+            const maxOrder = await db.get("SELECT MAX(sort_order) as max FROM tiles");
+            const result = await db.run(
+                "INSERT INTO tiles (title, icon, description, status, sort_order, is_public) VALUES (?, ?, ?, ?, ?, ?)",
+                ['Mes Réunions', 'Calendar', 'Réunions où je suis participant', 'active', (maxOrder?.max || 999) + 1, 1]
+            );
+            const tileId = result.lastID;
+            const existingLink = await db.get("SELECT id FROM tile_links WHERE tile_id = ? AND label = 'Voir mes réunions'", [tileId]);
+            if (!existingLink) {
+                try {
+                    await db.run("INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)", [tileId, 'Voir mes réunions', '/mes-reunions', 1]);
+                } catch (e2) {}
+            }
+            console.log('[DB Migration] Tuile Mes Réunions créée');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur création tuile Mes Réunions:', e.message);
     }
 
     // Note: Tables moved to external DBs (gf, rh) are not created here anymore.

@@ -68,12 +68,12 @@ module.exports = {
     // POST: Créer une nouvelle réunion
     create: async (req, res) => {
         try {
-            const { titre, date_reunion, annee, lieu, description, statut, participants } = req.body;
+            const { titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, participants } = req.body;
             const username = req.user?.username || 'unknown';
 
             const result = await pgDb.run(
-                `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, statut, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [titre, date_reunion, annee || new Date().getFullYear(), lieu, description, statut || 'planifiée', username]
+                `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [titre, date_reunion, annee || new Date().getFullYear(), lieu, description, releve_decision || null, liste_taches || null, statut || 'planifiée', username]
             );
 
             const reunionId = result.lastID;
@@ -127,8 +127,9 @@ module.exports = {
 
             const arbitrageBadge = (a) => {
                 if (!a) return '<span style="color:#94a3b8">—</span>';
-                const color = a === 'OK DSI' ? '#1d4ed8' : a === 'Refusé' ? '#dc2626' : '#92400e';
-                const bg = a === 'OK DSI' ? '#dbeafe' : a === 'Refusé' ? '#fee2e2' : '#fef3c7';
+                const isOk = a === 'OK DSI' || a === 'OK';
+                const color = isOk ? '#1d4ed8' : a === 'Refusé' ? '#dc2626' : '#92400e';
+                const bg = isOk ? '#dbeafe' : a === 'Refusé' ? '#fee2e2' : '#fef3c7';
                 return `<span style="padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;background:${bg};color:${color}">${a}</span>`;
             };
 
@@ -137,16 +138,14 @@ module.exports = {
                 demandesHtml = '<p style="color:#94a3b8;font-style:italic">Aucune demande associée à cette réunion.</p>';
             } else {
                 for (const [dir, services] of Object.entries(byDir)) {
-                    demandesHtml += `<tr><td colspan="4" style="padding:8px 10px 6px;background:#334155;color:#e2e8f0;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:0.06em">${dir}</td></tr>`;
+                    demandesHtml += `<tr><td colspan="2" style="padding:8px 10px 6px;background:#334155;color:#e2e8f0;font-weight:800;font-size:12px;text-transform:uppercase;letter-spacing:0.06em">${dir}</td></tr>`;
                     for (const [svc, items] of Object.entries(services)) {
-                        if (svc) demandesHtml += `<tr><td colspan="4" style="padding:4px 18px 3px;background:#f1f5f9;font-weight:700;color:#0284c7;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">${svc}</td></tr>`;
+                        if (svc) demandesHtml += `<tr><td colspan="2" style="padding:4px 18px 3px;background:#f1f5f9;font-weight:700;color:#0284c7;font-size:11px;text-transform:uppercase;letter-spacing:0.04em">${svc}</td></tr>`;
                         for (const d of items) {
                             const check = d.statut === 'effectuée' ? '✅ ' : '';
                             demandesHtml += `<tr style="border-bottom:1px solid #f1f5f9;background:${d.statut === 'effectuée' ? '#f0fdf4' : 'white'}">
                                 <td style="padding:8px 12px;color:#1e293b;font-weight:600">${check}${d.titre || '—'}</td>
                                 <td style="padding:8px 12px;color:#475569;font-size:12px">${d.type || '—'}</td>
-                                <td style="padding:8px 12px">${arbitrageBadge(d.arbitrage)}</td>
-                                <td style="padding:8px 12px;color:#475569;font-size:12px">${d.suivi || '—'}</td>
                             </tr>`;
                         }
                     }
@@ -154,23 +153,69 @@ module.exports = {
             }
 
             const dateStr = reunion.date_reunion ? new Date(reunion.date_reunion).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
-            const participantsStr = participants.map(p => `${p.prenom ? p.prenom + ' ' : ''}${p.nom}${p.service ? ' (' + p.service + ')' : ''}`).join(', ') || 'Aucun participant renseigné';
+
+            // Participants groupés par statut
+            const presents = participants.filter(p => p.statut_presence === 'present');
+            const excuses = participants.filter(p => p.statut_presence === 'excuse');
+            const participantsHtml = `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;width:30%;border-bottom:1px solid #e2e8f0">🗓️ Date</td>
+      <td style="padding:10px 14px;color:#1e293b;border-bottom:1px solid #e2e8f0">${dateStr}${reunion.lieu ? ' — ' + reunion.lieu : ''}</td></tr>
+  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;border-bottom:1px solid #e2e8f0">👥 Présents (${presents.length})</td>
+      <td style="padding:10px 14px;color:#1e293b;border-bottom:1px solid #e2e8f0">${presents.length > 0 ? presents.map(p => `<span style="display:inline-block;padding:2px 8px;background:#dcfce7;color:#16a34a;border-radius:4px;font-weight:600;margin:1px 2px">${p.prenom ? p.prenom + ' ' : ''}${p.nom}${p.service ? ' (' + p.service + ')' : ''}</span>`).join(' ') : '<em style="color:#94a3b8">Aucun</em>'}</td></tr>
+  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;border-bottom:1px solid #e2e8f0">❌ Excusés (${excuses.length})</td>
+      <td style="padding:10px 14px;color:#1e293b;border-bottom:1px solid #e2e8f0">${excuses.length > 0 ? excuses.map(p => `<span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#dc2626;border-radius:4px;font-weight:600;margin:1px 2px">${p.prenom ? p.prenom + ' ' : ''}${p.nom}${p.service ? ' (' + p.service + ')' : ''}</span>`).join(' ') : '<em style="color:#94a3b8">Aucun</em>'}</td></tr>
+</table>`;
+
+            // Déroulé
+            const derouleHtml = reunion.description ? `
+<h3 style="color:#1e293b;font-size:15px;margin:24px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px">📋 Déroulé</h3>
+<div style="padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;line-height:1.7;color:#1e293b">${reunion.description}</div>` : '';
+
+            // Relevé de décision
+            let decisions = [];
+            try { decisions = JSON.parse(reunion.releve_decision || '[]'); } catch (e) {}
+            const decisionsHtml = decisions.length > 0 ? `
+<h3 style="color:#1e293b;font-size:15px;margin:24px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px">📝 Relevé de décision</h3>
+<table style="width:100%;border-collapse:collapse;font-size:13px">
+  <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700;width:40px">#</th>
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Décision</th>
+  </tr></thead>
+  <tbody>${decisions.map((d, i) => `<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:8px 12px;color:#64748b;font-weight:600">${i + 1}</td><td style="padding:8px 12px;color:#1e293b">${d.texte || ''}</td></tr>`).join('')}</tbody>
+</table>` : '';
+
+            // Liste de tâches
+            let tasks = [];
+            try { tasks = JSON.parse(reunion.liste_taches || '[]'); } catch (e) {}
+            const tasksHtml = tasks.length > 0 ? `
+<h3 style="color:#1e293b;font-size:15px;margin:24px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px">✅ Liste de tâches</h3>
+<table style="width:100%;border-collapse:collapse;font-size:13px">
+  <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700;width:40px">#</th>
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Tâche</th>
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Responsable</th>
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Échéance</th>
+  </tr></thead>
+  <tbody>${tasks.map((t, i) => `<tr style="border-bottom:1px solid #f1f5f9">
+    <td style="padding:8px 12px;color:#64748b;font-weight:600">${i + 1}</td>
+    <td style="padding:8px 12px;color:#1e293b;font-weight:600">${t.tache || ''}</td>
+    <td style="padding:8px 12px;color:#475569">${t.responsable || '—'}</td>
+    <td style="padding:8px 12px;color:#475569">${t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
+  </tr>`).join('')}</tbody>
+</table>` : '';
 
             const content = `
-<h2 style="color:#0f172a;margin:0 0 4px;font-size:20px">${reunion.titre}</h2>
-<p style="color:#64748b;margin:0 0 20px;font-size:14px">${dateStr}${reunion.lieu ? ' — ' + reunion.lieu : ''}</p>
-<table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
-  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;width:30%">Participants</td>
-      <td style="padding:10px 14px;color:#1e293b">${participantsStr}</td></tr>
-  ${reunion.description ? `<tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569">Description</td><td style="padding:10px 14px;color:#1e293b">${reunion.description}</td></tr>` : ''}
-</table>
+<h1 style="color:#1e293b;margin:0 0 24px;font-size:26px;font-weight:900;text-align:center;letter-spacing:-0.02em">📄 Compte rendu de réunion</h1>
+<h2 style="color:#0f172a;margin:0 0 4px;font-size:20px">📅 ${reunion.titre}</h2>
+${participantsHtml}
+${derouleHtml}
+${decisionsHtml}
+${tasksHtml}
 <h3 style="color:#1e293b;font-size:15px;margin:24px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px">Demandes (${demandes.length})</h3>
 <table style="width:100%;border-collapse:collapse;font-size:13px">
   <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
     <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Demande</th>
     <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Type</th>
-    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Arbitrage</th>
-    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Suivi</th>
   </tr></thead>
   <tbody>${demandesHtml}</tbody>
 </table>
@@ -199,8 +244,8 @@ module.exports = {
     update: async (req, res) => {
         try {
             const { id } = req.params;
-            const { titre, date_reunion, annee, lieu, description, statut } = req.body;
-            await pgDb.run(`UPDATE rencontres_reunions SET titre=?, date_reunion=?, annee=?, lieu=?, description=?, statut=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, [titre, date_reunion, annee, lieu, description, statut, id]);
+            const { titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut } = req.body;
+            await pgDb.run(`UPDATE rencontres_reunions SET titre=?, date_reunion=?, annee=?, lieu=?, description=?, releve_decision=?, liste_taches=?, statut=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, [titre, date_reunion, annee, lieu, description, releve_decision || null, liste_taches || null, statut, id]);
             const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
             res.json(reunion);
         } catch (error) { res.status(500).json({ error: error.message }); }
