@@ -29,10 +29,11 @@ module.exports = {
             for (const demande of demandesNonAssociees) {
                 const { direction, date_reunion } = demande;
                 const annee = date_reunion ? new Date(date_reunion).getFullYear() : new Date().getFullYear();
+                const dateFormatted = date_reunion ? new Date(date_reunion).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 
                 const reunionResult = await pgDb.run(
                     `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, statut, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
-                    [`Réunion ${direction} - ${date_reunion}`, date_reunion, annee, '', 'planifiée', username]
+                    [`Réunion ${direction} du ${dateFormatted}`, date_reunion, annee, '', 'planifiée', username]
                 );
 
                 const reunionId = reunionResult.lastID;
