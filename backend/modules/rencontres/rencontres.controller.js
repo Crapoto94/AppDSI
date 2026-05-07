@@ -3,7 +3,7 @@ const path = require('path');
 const xlsx = require('xlsx');
 const axios = require('axios');
 const { getSqlite, pgDb } = require('../../shared/database');
-const { excelDateToISO } = require('../../shared/utils');
+const { excelDateToISO, parseOracleDate } = require('../../shared/utils');
 
 // Forward declaration - sendMail will be injected
 let sendMailFn = null;
@@ -112,7 +112,7 @@ module.exports = {
                     if (!row.Direction) { errors.push(`Ligne ${i + 2}: Direction manquante`); continue; }
                     if (row.Date === '' || row.Date === null || row.Date === undefined) { errors.push(`Ligne ${i + 2}: Date manquante`); continue; }
 
-                    const dateReunion = excelDateToISO(row.Date);
+                    const dateReunion = parseOracleDate(row.Date);
                     if (!dateReunion) { errors.push(`Ligne ${i + 2}: Format de date invalide (${row.Date})`); continue; }
 
                     const annee = parseInt(dateReunion.split('-')[0]);
