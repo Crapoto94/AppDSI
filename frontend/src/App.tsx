@@ -24,6 +24,8 @@ import RencontresBudgetaires from './pages/RencontresBudgetaires';
 import MesReunions from './pages/MesReunions';
 import PortefeuilleProjets from './pages/PortefeuilleProjets';
 import ProjetDetail from './pages/ProjetDetail';
+import TranscriptManager from './pages/TranscriptManager';
+import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -69,6 +71,9 @@ function App() {
         <Route path="/portefeuille-projets" element={<PrivateRoute path="/portefeuille-projets"><PortefeuilleProjets /></PrivateRoute>} />
         <Route path="/projets/:id" element={<PrivateRoute path="/projets"><ProjetDetail /></PrivateRoute>} />
         <Route path="/projets/nouveau" element={<PrivateRoute path="/projets"><PortefeuilleProjets /></PrivateRoute>} />
+        
+        <Route path="/transcriptmanager" element={<PrivateRoute path="/transcriptmanager"><TranscriptManager /></PrivateRoute>} />
+        <Route path="/transcriptmanager/meeting/:id" element={<PrivateRoute path="/transcriptmanager"><TranscriptMeetingDetail /></PrivateRoute>} />
 
         {/* Admin Routes with Sidebar Layout */}
         <Route 
@@ -95,6 +100,7 @@ function App() {
           <Route path="settings" element={<AdminSettings />} />
           <Route path="ideas" element={<AdminIdeas />} />
           <Route path="frizbi" element={<FrizbiSettings />} />
+          <Route path="transcript" element={<Admin section="transcript" />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />

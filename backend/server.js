@@ -18,6 +18,7 @@ const glpiController = require('./modules/glpi/glpi.controller');
 const tiersRouter = require('./modules/finance/tiers.routes');
 const contactsRouter = require('./modules/finance/contacts.routes');
 const certificatesRouter = require('./modules/certificates/certificates.routes');
+const transcriptManagerRouter = require('./modules/transcriptmanager/transcriptmanager.routes');
 const { recalculateAllOperations } = require('./modules/finance/finance.controller');
 const updateTierStats = require('./update_tier_stats');
 const multer = require('multer');
@@ -385,6 +386,7 @@ app.use('/file_reunions', express.static(path.join(__dirname, 'file_reunions')))
 app.use('/api/file_reunions', express.static(path.join(__dirname, 'file_reunions')));
 app.use('/api/file_projets', express.static(path.join(__dirname, 'file_projets')));
 
+app.use('/api/transcriptmanager', transcriptManagerRouter);
 app.use('/api', magappRouter);
 app.use('/api/admin/rh', rhRouter);
 
