@@ -12,7 +12,7 @@ interface TileData {
   icon: string;
   description: string;
   sort_order: number;
-  status: 'active' | 'maintenance' | 'soon' | 'inactive';
+  status: 'active' | 'maintenance' | 'soon';
   is_authorized?: boolean;
   is_public?: number;
   links: { label: string; url: string; is_internal: boolean }[];

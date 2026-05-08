@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Header from '../components/Header';
 import {
-  Upload, Search, X, Columns, Eye, Plus, Trash2, Info, Mail, AlertCircle, Ticket, Send
+  Upload, Search, X, Columns, Eye, Plus, Trash2, Info, Mail, AlertCircle, Ticket
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSearchParams } from 'react-router-dom';
@@ -69,17 +69,6 @@ interface ADUser {
   email: string;
   service?: string;
   direction?: string;
-}
-
-interface ReunionAttachment {
-  id: number;
-  reunion_id: number;
-  filename: string;
-  original_name: string;
-  mimetype: string;
-  size: number;
-  uploaded_by: string;
-  created_at: string;
 }
 
 const RencontresBudgetaires: React.FC = () => {
@@ -575,41 +564,6 @@ const RencontresBudgetaires: React.FC = () => {
     setNewEmail(user.email);
     setEmailAdQuery('');
     setEmailAdResults([]);
-  };
-
-  const handleCreateDemande = async () => {
-    if (!newDemande.titre) {
-      alert('Le titre de la demande est obligatoire');
-      return;
-    }
-    if (!newDemande.direction) {
-      alert('La direction est obligatoire');
-      return;
-    }
-    if (!selectedReunion) {
-      alert('Aucune réunion sélectionnée');
-      return;
-    }
-    try {
-      const annee = selectedReunion.annee || new Date(selectedReunion.date_reunion).getFullYear();
-      const res = await fetch('/api/rencontres-budgetaires/from-reunion', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newDemande, annee, date_reunion: selectedReunion.date_reunion, reunion_id: selectedReunion.id })
-      });
-      if (res.ok) {
-        alert('Demande créée avec succès');
-        setShowCreateDemandeModal(false);
-        setNewDemande({ titre: '', direction: '', service: '', type: '', description: '' });
-        openReunionDetail(selectedReunion);
-      } else {
-        const err = await res.json();
-        alert(`Erreur : ${err.error || 'Erreur lors de la création'}`);
-      }
-    } catch (e) {
-      console.error('Erreur création demande:', e);
-      alert('Erreur lors de la création de la demande');
-    }
   };
 
   const handleDeleteAll = async () => {
@@ -1562,8 +1516,6 @@ const RencontresBudgetaires: React.FC = () => {
           token={token}
           userRole={user?.role}
           currentUsername={user?.username}
-          directions={directions}
-          services={services}
           onClose={() => setDetailReunionId(null)}
           onUpdated={() => fetchReunions()}
           onDemandeCreated={() => { fetchRencontres(); fetchReunions(); }}

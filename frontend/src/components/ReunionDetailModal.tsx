@@ -19,18 +19,16 @@ interface Attachment {
 interface Props {
   isOpen: boolean;
   reunionId: number | null;
-  token: string;
+  token: string | null;
   userRole?: string;
   currentUsername?: string;
-  directions?: string[];
-  services?: string[];
   onClose: () => void;
   onUpdated?: () => void;
   onDemandeCreated?: () => void;
   onDeleted?: () => void;
 }
 
-const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRole, currentUsername, directions = [], services = [], onClose, onUpdated, onDemandeCreated, onDeleted }) => {
+const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRole, currentUsername, onClose, onUpdated, onDemandeCreated, onDeleted }) => {
   const [selectedReunion, setSelectedReunion] = useState<Reunion | null>(null);
   const [detailReunionData, setDetailReunionData] = useState({ description: '', releve_decision: '', liste_taches: '' });
   const [reunionAttachments, setReunionAttachments] = useState<Attachment[]>([]);

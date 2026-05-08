@@ -85,6 +85,7 @@ interface AppDoc {
   title: string;
   doc_type: 'pdf' | 'youtube' | 'link';
   url: string;
+  description?: string;
   is_obsolete: boolean;
   is_favorite: boolean;
   is_technical: boolean;
