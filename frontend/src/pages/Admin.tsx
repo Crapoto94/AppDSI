@@ -3186,7 +3186,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                       onMouseEnter={e => { if (!isSelected) { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#bae6fd'; } }}
                                       onMouseLeave={e => { if (!isSelected) { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = 'transparent'; } }}
                                     >
-                                      {React.createElement(LucideIcons[name as keyof typeof LucideIcons] || LucideIcons.Box, { size: 20, color: isSelected ? '#0284c7' : '#475569' })}
+                                      {(() => { const Ic = LucideIcons[name as keyof typeof LucideIcons]; // @ts-expect-error Lucide icons dynamically loaded
+                                        return React.createElement(Ic || LucideIcons.Box, { size: 20, color: isSelected ? '#0284c7' : '#475569' }); })()}
                                     </div>
                                   );
                                 })}
@@ -3487,7 +3488,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         <button className="icon-btn small" onClick={() => handleMoveTile(index, 'down')} disabled={index === tiles.length - 1}><ChevronDown size={12} /></button>
                                     </div>
                                 </td>
-                                <td><div className="avatar bg-gray-100">{React.createElement(LucideIcons[(tile.icon?.charAt(0).toUpperCase() + tile.icon?.slice(1)) as keyof typeof LucideIcons] || LucideIcons.Box, { size: 18 })}</div></td>
+                                <td><div className="avatar bg-gray-100">{(() => { const n = tile.icon?.charAt(0).toUpperCase() + tile.icon?.slice(1); const Ic = LucideIcons[n as keyof typeof LucideIcons]; // @ts-expect-error Lucide icons dynamically loaded
+                                  return React.createElement(Ic || LucideIcons.Box, { size: 18 }); })()}</div></td>
                                 <td><span className="font-bold text-gray-900">{tile.title}</span></td>
                                 <td><span className="text-sm text-gray-500 line-clamp-1">{tile.description}</span></td>
                                 <td>
