@@ -396,7 +396,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
   const [showAddTache, setShowAddTache] = useState(false);
   const [newTache, setNewTache] = useState({ titre: '', date_debut: '', date_fin: '', couleur: '#3b82f6', statut: 'a_faire', groupe_id: '', depend_id: '', depend_type: 'tache' });
   const [showAddJalon, setShowAddJalon] = useState(false);
-  const [newJalon, setNewJalon] = useState({ titre: '', date_jalon: '', type: 'jalon' });
+  const [newJalon, setNewJalon] = useState({ titre: '', date_jalon: '', type: 'jalon', depend_id: '', depend_type: 'tache' });
   const [showAddGroupe, setShowAddGroupe] = useState(false);
   const [newGroupe, setNewGroupe] = useState({ titre: '', couleur: '#e2e8f0' });
   const [editTache, setEditTache] = useState<{ id: number; titre: string; date_debut: string; date_fin: string; duree: number; statut: string } | null>(null);
@@ -467,11 +467,18 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
 
   const addJalon = async () => {
     if (!newJalon.titre || !newJalon.date_jalon) return;
-    await fetch(`/api/projets/${projetId}/jalons`, {
+    const r = await fetch(`/api/projets/${projetId}/jalons`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(newJalon)
+      body: JSON.stringify({ titre: newJalon.titre, date_jalon: newJalon.date_jalon })
     });
-    setNewJalon({ titre: '', date_jalon: '', type: 'jalon' });
+    const data = await r.json();
+    if (data.id && newJalon.depend_id) {
+      await fetch(`/api/projets/${projetId}/dependances`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ source_type: newJalon.depend_type, source_id: parseInt(newJalon.depend_id), depend_type: 'jalon', depend_id: data.id })
+      });
+    }
+    setNewJalon({ titre: '', date_jalon: '', type: 'jalon', depend_id: '', depend_type: 'tache' });
     setShowAddJalon(false); loadData();
   };
 
@@ -604,6 +611,10 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px', marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <input value={newJalon.titre} onChange={e => setNewJalon({...newJalon, titre: e.target.value})} placeholder="Titre *" style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', flex: 1, minWidth: '150px' }} />
           <input type="date" value={newJalon.date_jalon} onChange={e => setNewJalon({...newJalon, date_jalon: e.target.value})} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+          <select value={newJalon.depend_id} onChange={e => setNewJalon({...newJalon, depend_id: e.target.value, depend_type: 'tache'})} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white', maxWidth: '160px' }}>
+            <option value="">Sans dépendance</option>
+            {taches.map(t => <option key={t.id} value={String(t.id)}>← {t.titre}</option>)}
+          </select>
           <button onClick={addJalon} disabled={!newJalon.titre || !newJalon.date_jalon} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', opacity: (newJalon.titre && newJalon.date_jalon) ? 1 : 0.5 }}>Ajouter</button>
         </div>
       )}
@@ -652,6 +663,43 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                 })}
               </div>
             </div>
+            {/* Jalons en 1ère ligne */}
+            {jalons.length > 0 && (
+              <div style={{ marginLeft: '200px', marginBottom: '12px' }}>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>📍 Jalons ({jalons.length})</div>
+                <div style={{ width: `${ganttW}px`, position: 'relative', height: '26px', background: '#faf5ff', borderRadius: '6px', padding: '2px 0' }}>
+                  {jalons.map(j => {
+                    const depTache = dependances.filter(d => d.depend_type === 'jalon' && d.depend_id === j.id);
+                    const depVersTache = depTache.map(d => taches.find(tc => tc.id === d.source_id)).filter(Boolean);
+                    // Flèche depuis la tâche dont ce jalon dépend
+                    const depDeTache = dependances.filter(d => d.source_type === 'jalon' && d.source_id === j.id);
+                    return (
+                      <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '3px', transform: 'translateX(-50%)', fontSize: '14px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+                        title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})${depVersTache.length ? ' - Lié à: ' + depVersTache.map(t => t.titre).join(', ') : ''}${depDeTache.length ? ' - Dépend de tâche' : ''}`}>
+                        {j.atteint ? '✅' : '📍'}
+                        <span style={{ fontSize: '9px', color: '#6d28d9', fontWeight: '600', whiteSpace: 'nowrap', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.titre}</span>
+                      </div>
+                    );
+                  })}
+                  {/* Flèches de dépendance tâche → jalon */}
+                  {dependances.filter(d => d.depend_type === 'jalon').map(d => {
+                    const tache = taches.find(tc => tc.id === d.source_id);
+                    const jalon = jalons.find(jj => jj.id === d.depend_id);
+                    if (!tache || !tache.date_fin || !jalon) return null;
+                    const xFin = toX(tache.date_fin);
+                    const xJal = toX(jalon.date_jalon);
+                    if (xFin >= xJal) return null;
+                    return (
+                      <div key={d.id} style={{ position: 'absolute', left: `${xFin}px`, top: '12px', width: `${xJal - xFin}px`, height: '2px', zIndex: 1, pointerEvents: 'none' }}>
+                        <svg width={xJal - xFin + 2} height="2" style={{ display: 'block' }}>
+                          <line x1="0" y1="1" x2={xJal - xFin} y2="1" stroke="#8b5cf6" strokeWidth="1.5" strokeDasharray="3,2" />
+                        </svg>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {/* Barres du Gantt */}
             {groupesAvecTaches.map(groupe => {
               const tachesDuGroupe = groupe.id === 0 ? tachesParGroupe(null) : tachesParGroupe(groupe.id);
@@ -723,7 +771,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                           const arrowWidth = xDebSrc - xFinDep;
                           const couleur = depT.statut === 'terminee' ? '#22c55e' : '#ef4444';
                           return (
-                            <div key={d.id} style={{ position: 'absolute', left: `${xFinDep}px`, top: '8px', width: `${arrowWidth + 4}px`, height: '4px`, zIndex: 3, pointerEvents: 'none' }}>
+                            <div key={d.id} style={{ position: 'absolute', left: `${xFinDep}px`, top: '8px', width: `${arrowWidth + 4}px`, height: '4px', zIndex: 3, pointerEvents: 'none' }}>
                               <svg width={arrowWidth + 4} height="4" style={{ display: 'block' }}>
                                 <line x1="0" y1="2" x2={arrowWidth} y2="2" stroke={couleur} strokeWidth="1.5" strokeDasharray="3,2" />
                                 <polygon points={`${arrowWidth - 1},0 ${arrowWidth - 1},4 ${arrowWidth + 4},2`} fill={couleur} />
@@ -737,23 +785,6 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                 </div>
               );
             })}
-            {jalons.length > 0 && (
-              <div style={{ marginTop: '8px' }}>
-                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginLeft: '200px', marginBottom: '4px' }}>📍 Jalons ({jalons.length})</div>
-                <div style={{ display: 'flex', alignItems: 'center', height: '24px' }}>
-                  <div style={{ width: '195px', paddingRight: '5px', fontSize: '11px', color: '#94a3b8' }}></div>
-                  <div style={{ width: `${ganttW}px`, position: 'relative', height: '20px' }}>
-                    {jalons.map(j => (
-                      <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '2px', transform: 'translateX(-50%)', fontSize: '16px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '2px' }}
-                        title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})`}>
-                        {j.atteint ? '✅' : '📍'}
-                        <span style={{ fontSize: '8px', color: '#64748b', whiteSpace: 'nowrap', maxWidth: '60px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.titre}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
