@@ -471,10 +471,14 @@ async function setupPgDb() {
         description TEXT,
         statut TEXT DEFAULT 'planifiée',
         created_by TEXT,
+        source TEXT DEFAULT 'rencontres_budgetaires',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'rencontres_budgetaires'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.reunion_participants ADD COLUMN IF NOT EXISTS commentaire TEXT`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_rencontres.rencontres_budgetaires (
@@ -546,6 +550,7 @@ async function setupPgDb() {
         type_presence TEXT DEFAULT 'metier',
         statut_presence TEXT DEFAULT 'present',
         ad_username TEXT,
+        commentaire TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);

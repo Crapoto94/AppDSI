@@ -432,8 +432,18 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
                 WHERE ut.user_id = ?
             `, [user.id]);
 
-            const urls = new Set(['/', '/request-access', '/profile']); // Default allowed routes
+            const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions']); // Default allowed routes
             authorizedTiles.forEach(row => {
+                if (row.link_url) urls.add(row.link_url);
+            });
+            // Also include URLs from public tiles
+            const publicTiles = await db.all(`
+                SELECT tl.url as link_url
+                FROM tiles t
+                LEFT JOIN tile_links tl ON t.id = tl.tile_id
+                WHERE t.is_public = 1
+            `);
+            publicTiles.forEach(row => {
                 if (row.link_url) urls.add(row.link_url);
             });
             user.authorized_urls = Array.from(urls);
@@ -2703,41 +2713,34 @@ app.get('/api/magapp/my-demandes', async (req, res) => {
 app.get('/api/mes-reunions', authenticateJWT, async (req, res) => {
     try {
         const username = req.user.username;
-        const userEmail = req.user.email;
 
-        let participantReunions = [];
-        if (userEmail) {
-            const emailLocal = userEmail.split('@')[0].toLowerCase();
-            participantReunions = await pgDb.all(
-                `SELECT DISTINCT p.reunion_id, p.statut_presence, p.nom, p.prenom, p.type_presence
-                 FROM reunion_participants p
-                 WHERE (LOWER(p.ad_username) = ? OR LOWER(p.email) = ? OR LOWER(p.email) = ?)
-                 AND p.reunion_id IS NOT NULL`,
-                [username.toLowerCase(), userEmail.toLowerCase(), emailLocal]
-            );
-        } else {
-            participantReunions = await pgDb.all(
-                `SELECT DISTINCT p.reunion_id, p.statut_presence, p.nom, p.prenom, p.type_presence
-                 FROM reunion_participants p
-                 WHERE LOWER(p.ad_username) = ?
-                 AND p.reunion_id IS NOT NULL`,
-                [username.toLowerCase()]
-            );
-        }
+        const emailLocal = username.toLowerCase();
+
+        console.log(`[Mes Réunions] username=${username}`);
+
+        let participantReunions = await pgDb.all(
+            `SELECT DISTINCT p.reunion_id, p.statut_presence, p.nom, p.prenom, p.type_presence
+             FROM reunion_participants p
+             WHERE (LOWER(p.email) = ? OR LOWER(p.email) = ? OR LOWER(p.ad_username) = ?)
+             AND p.reunion_id IS NOT NULL`,
+            [emailLocal + '@ivry94.fr', emailLocal, emailLocal]
+        );
+
+        console.log(`[Mes Réunions] Found ${participantReunions.length} participant records`);
 
         if (!participantReunions || participantReunions.length === 0) {
             return res.json([]);
         }
 
         const reunionIds = participantReunions.map(p => p.reunion_id);
-        const placeholders = reunionIds.map(() => '?').join(',');
+        const idPlaceholders = reunionIds.map(() => '?').join(',');
 
         const reunions = await pgDb.all(
             `SELECT r.*, COUNT(DISTINCT p2.id) as participant_count, COUNT(DISTINCT a.id) as attachment_count
              FROM rencontres_reunions r
              LEFT JOIN reunion_participants p2 ON r.id = p2.reunion_id
              LEFT JOIN reunion_attachments a ON r.id = a.reunion_id
-             WHERE r.id IN (${placeholders})
+             WHERE r.id IN (${idPlaceholders})
              GROUP BY r.id
              ORDER BY r.date_reunion DESC`,
             reunionIds
@@ -2745,7 +2748,7 @@ app.get('/api/mes-reunions', authenticateJWT, async (req, res) => {
 
         // Attach participants to each reunion
         const allParticipants = await pgDb.all(
-            `SELECT * FROM reunion_participants WHERE reunion_id IN (${placeholders}) ORDER BY nom`,
+            `SELECT * FROM reunion_participants WHERE reunion_id IN (${idPlaceholders}) ORDER BY nom`,
             reunionIds
         );
 
@@ -3789,7 +3792,7 @@ app.delete('/api/attachments/:id', authenticateJWT, async (req, res) => {
 });
 
 // Helper Mail
-async function sendMail(to, subject, content) {
+async function sendMail(to, subject, content, extraAttachments = []) {
     const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
     if (!s) throw new Error("Paramètres mail non configurés");
     
@@ -3860,6 +3863,10 @@ async function sendMail(to, subject, content) {
         imgCounter++;
     });
 
+    for (const ext of extraAttachments) {
+        attachments.push(ext);
+    }
+
     console.log(`[MAIL] Préparation envoi pour ${to}. Sujet: ${subject}. Pièces jointes: ${attachments.length}`);
 
     // Use API if explicitly requested OR fallback if SMTP is chosen but not fully configured
@@ -3876,11 +3883,11 @@ async function sendMail(to, subject, content) {
             to: [{ email: to }],
             subject: subject,
             htmlContent: html,
-            attachment: attachments.map(a => ({
-                content: a.content,
-                name: a.filename,
-                contentId: `<${a.cid}>` // Format standard avec chevrons pour Gmail
-            }))
+            attachment: attachments.map(a => {
+                const item = { content: a.content, name: a.filename };
+                if (a.cid) item.contentId = `<${a.cid}>`;
+                return item;
+            })
         };
 
         const config = {

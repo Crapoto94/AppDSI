@@ -54,13 +54,20 @@ module.exports = {
     // GET: Lister toutes les réunions
     getAll: async (req, res) => {
         try {
-            const reunions = await pgDb.all(`
+            const { source } = req.query;
+            let sql = `
                 SELECT r.*, COUNT(DISTINCT p.id) as participant_count, COUNT(DISTINCT a.id) as attachment_count
                 FROM rencontres_reunions r
                 LEFT JOIN reunion_participants p ON r.id = p.reunion_id
                 LEFT JOIN reunion_attachments a ON r.id = a.reunion_id
-                GROUP BY r.id ORDER BY r.date_reunion DESC
-            `);
+            `;
+            const params = [];
+            if (source) {
+                sql += ' WHERE r.source = ?';
+                params.push(source);
+            }
+            sql += ' GROUP BY r.id ORDER BY r.date_reunion DESC';
+            const reunions = await pgDb.all(sql, params);
             res.json(reunions || []);
         } catch (error) { res.status(500).json({ error: error.message }); }
     },
@@ -68,20 +75,36 @@ module.exports = {
     // POST: Créer une nouvelle réunion
     create: async (req, res) => {
         try {
-            const { titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, participants } = req.body;
+            const { titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, participants, source } = req.body;
             const username = req.user?.username || 'unknown';
 
             const result = await pgDb.run(
-                `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [titre, date_reunion, annee || new Date().getFullYear(), lieu, description, releve_decision || null, liste_taches || null, statut || 'planifiée', username]
+                `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, created_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [titre, date_reunion, annee || new Date().getFullYear(), lieu, description, releve_decision || null, liste_taches || null, statut || 'planifiée', username, source || 'rencontres_budgetaires']
             );
 
             const reunionId = result.lastID;
+            const addedUsernames = new Set();
             if (Array.isArray(participants) && participants.length > 0) {
                 for (const p of participants) {
                     await pgDb.run(
-                        `INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [reunionId, p.nom, p.prenom || '', p.email || '', p.service || '', p.direction || '', p.type_presence || 'metier', p.statut_presence || 'present', p.ad_username || null]
+                        `INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username, commentaire) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [reunionId, p.nom, p.prenom || '', p.email || '', p.service || '', p.direction || '', p.type_presence || 'metier', p.statut_presence || 'present', p.ad_username || null, p.commentaire || null]
+                    );
+                    if (p.ad_username) addedUsernames.add(p.ad_username);
+                }
+            }
+
+            // Auto-ajouter le créateur comme participant s'il n'est pas déjà présent
+            if (!addedUsernames.has(username)) {
+                const userInfo = await pgDb.get('SELECT displayName, email FROM hub.users WHERE username=?', [username]);
+                if (userInfo) {
+                    const nameParts = (userInfo.displayName || username).split(' ');
+                    const prenom = nameParts[0] || '';
+                    const nom = nameParts.slice(1).join(' ') || username;
+                    await pgDb.run(
+                        `INSERT INTO reunion_participants (reunion_id, nom, prenom, email, type_presence, statut_presence, ad_username) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                        [reunionId, nom, prenom, userInfo.email || null, 'dsi', 'present', username]
                     );
                 }
             }
@@ -229,14 +252,27 @@ ${tasksHtml}
 
             if (!sendMailFn) return res.status(500).json({ error: 'Service email non configuré' });
 
+            // Récupérer les fichiers joints à la réunion
+            const attachments = await pgDb.all('SELECT * FROM reunion_attachments WHERE reunion_id=? ORDER BY created_at DESC', [id]);
+            const fileAttachments = [];
+            for (const att of attachments) {
+                const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+                if (fs.existsSync(filePath)) {
+                    fileAttachments.push({
+                        filename: att.original_name,
+                        content: fs.readFileSync(filePath).toString('base64')
+                    });
+                }
+            }
+
             const subject = `Compte rendu — ${reunion.titre}${dateStr ? ' du ' + dateStr : ''}`;
             let sent = 0, failed = 0;
             for (const email of emails) {
-                try { await sendMailFn(email, subject, content); sent++; }
+                try { await sendMailFn(email, subject, content, fileAttachments); sent++; }
                 catch (e) { console.error(`[COMPTE-RENDU] Erreur envoi à ${email}:`, e.message); failed++; }
             }
 
-            res.json({ message: `Compte rendu envoyé à ${sent} destinataire(s)${failed > 0 ? `, ${failed} échec(s)` : ''}`, sent, failed, total: emails.length });
+            res.json({ message: `Compte rendu envoyé à ${sent} destinataire(s)${failed > 0 ? `, ${failed} échec(s)` : ''}${fileAttachments.length > 0 ? ` avec ${fileAttachments.length} pièce(s) jointe(s)` : ''}`, sent, failed, total: emails.length });
         } catch (error) { res.status(500).json({ error: error.message }); }
     },
 
@@ -254,6 +290,11 @@ ${tasksHtml}
     // DELETE: one
     deleteOne: async (req, res) => {
         try {
+            const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [req.params.id]);
+            if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+            const isAdmin = req.user?.role === 'admin';
+            const isCreator = req.user?.username && reunion.created_by === req.user.username;
+            if (!isAdmin && !isCreator) return res.status(403).json({ error: 'Seuls l\'administrateur ou le créateur peuvent supprimer cette réunion' });
             await pgDb.run('DELETE FROM rencontres_reunions WHERE id=?', [req.params.id]);
             res.json({ message: 'Réunion supprimée' });
         } catch (error) { res.status(500).json({ error: error.message }); }
@@ -274,10 +315,10 @@ ${tasksHtml}
     addParticipant: async (req, res) => {
         try {
             const { id } = req.params;
-            const { nom, prenom, email, service, direction, type_presence, statut_presence, ad_username } = req.body;
+            const { nom, prenom, email, service, direction, type_presence, statut_presence, ad_username, commentaire } = req.body;
             const result = await pgDb.run(
-                `INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [id, nom, prenom, email, service, direction, type_presence || 'metier', statut_presence || 'present', ad_username]
+                `INSERT INTO reunion_participants (reunion_id, nom, prenom, email, service, direction, type_presence, statut_presence, ad_username, commentaire) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, nom, prenom, email, service, direction, type_presence || 'metier', statut_presence || 'present', ad_username, commentaire || null]
             );
             const participant = await pgDb.get('SELECT * FROM reunion_participants WHERE id=?', [result.lastID]);
             res.status(201).json(participant);

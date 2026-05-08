@@ -508,6 +508,7 @@ async function setupDb() {
             type_presence TEXT DEFAULT 'metier',
             statut_presence TEXT DEFAULT 'present',
             ad_username TEXT,
+            commentaire TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE CASCADE
         );
@@ -564,6 +565,14 @@ async function setupDb() {
         const hasReunionIdColumn = result.some(col => col.name === 'reunion_id');
         if (!hasReunionIdColumn) {
             await db.exec('ALTER TABLE rencontres_budgetaires ADD COLUMN reunion_id INTEGER');
+        }
+    } catch (e) {}
+
+    try {
+        const result = await db.all("PRAGMA table_info(reunion_participants)");
+        const hasColumn = result.some(col => col.name === 'commentaire');
+        if (!hasColumn) {
+            await db.exec('ALTER TABLE reunion_participants ADD COLUMN commentaire TEXT');
         }
     } catch (e) {}
 

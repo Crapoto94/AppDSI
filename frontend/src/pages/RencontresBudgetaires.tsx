@@ -4,6 +4,9 @@ import {
   Upload, Search, X, Columns, Eye, Plus, Trash2, Info, Mail, AlertCircle, Ticket, Send
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useSearchParams } from 'react-router-dom';
+import CreateReunionModal from '../components/CreateReunionModal';
+import ReunionDetailModal from '../components/ReunionDetailModal';
 
 interface Rencontre {
   id: number;
@@ -56,7 +59,7 @@ interface ReunionParticipant {
   service?: string;
   direction?: string;
   type_presence: 'metier' | 'dsi';
-  statut_presence: 'present' | 'excuse';
+  statut_presence: 'present' | 'excuse' | 'info';
   ad_username?: string;
 }
 
@@ -80,7 +83,8 @@ interface ReunionAttachment {
 }
 
 const RencontresBudgetaires: React.FC = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const [searchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [rencontres, setRencontres] = useState<Rencontre[]>([]);
@@ -93,6 +97,7 @@ const RencontresBudgetaires: React.FC = () => {
   const [selectedAnnee, setSelectedAnnee] = useState<number | ''>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStatut, setSelectedStatut] = useState<string>('');
+  const [selectedArbitrage, setSelectedArbitrage] = useState<string>('');
 
   // UI
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
@@ -119,41 +124,19 @@ const RencontresBudgetaires: React.FC = () => {
   const [reunions, setReunions] = useState<Reunion[]>([]);
   const [showManageReunions, setShowManageReunions] = useState(false);
   const [showCreateReunionModal, setShowCreateReunionModal] = useState(false);
-  const [selectedReunion, setSelectedReunion] = useState<Reunion | null>(null);
-  const [showReunionDetail, setShowReunionDetail] = useState(false);
-  const [newReunion, setNewReunion] = useState({ titre: '', date_reunion: '', lieu: '', description: '' });
-  const [reunionParticipants, setReunionParticipants] = useState<ReunionParticipant[]>([]);
-  const [newParticipant, setNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier' as 'metier' | 'dsi', statut_presence: 'present' as 'present' | 'excuse' });
-  const [adQuery, setAdQuery] = useState('');
-  const [adResults, setAdResults] = useState<ADUser[]>([]);
-  const [adSearching, setAdSearching] = useState(false);
-  const [isCreatingReunion, setIsCreatingReunion] = useState(false);
-  // Modale demande dans une réunion
-  const [showCreateDemandeModal, setShowCreateDemandeModal] = useState(false);
-  const [newDemande, setNewDemande] = useState({ titre: '', direction: '', service: '', type: '', description: '' });
-  // Pour ajouter un participant à une réunion existante
-  const [showAddParticipantDetail, setShowAddParticipantDetail] = useState(false);
-  const [detailAdQuery, setDetailAdQuery] = useState('');
-  const [detailAdResults, setDetailAdResults] = useState<ADUser[]>([]);
-  const [detailAdSearching, setDetailAdSearching] = useState(false);
-  const [detailNewParticipant, setDetailNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier' as 'metier' | 'dsi', statut_presence: 'present' as 'present' | 'excuse' });
-  const [isAddingDetailParticipant, setIsAddingDetailParticipant] = useState(false);
+  const [detailReunionId, setDetailReunionId] = useState<number | null>(null);
   const [directions, setDirections] = useState<string[]>([]);
   const [services, setServices] = useState<string[]>([]);
   const [dirServicesMap, setDirServicesMap] = useState<Record<string, string[]>>({});
-  const [reunionAttachments, setReunionAttachments] = useState<ReunionAttachment[]>([]);
-  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
-  const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const adSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const detailAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const emailAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [emailAdQuery, setEmailAdQuery] = useState('');
   const [emailAdResults, setEmailAdResults] = useState<ADUser[]>([]);
   const [emailAdSearching, setEmailAdSearching] = useState(false);
+  const [handledInitialReunionId, setHandledInitialReunionId] = useState(false);
 
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
-  const statuts = ['demandée', 'planifiée', 'effectuée', 'importée'];
-  const arbitrages = ['OK DSI', 'En attente', 'Refusé', 'À discuter'];
+  const statuts = ['demandée', 'planifiée', 'effectuée'];
+  const arbitrageList = [...new Set(rencontres.map(r => r.arbitrage).filter(Boolean))].sort();
   const types = ['incident', 'demande', 'projet', 'autre'];
 
   useEffect(() => {
@@ -163,6 +146,17 @@ const RencontresBudgetaires: React.FC = () => {
       fetchDirectionsServices();
     }
   }, [token]);
+
+  useEffect(() => {
+    const reunionId = searchParams.get('reunionId');
+    if (!handledInitialReunionId && reunionId && reunions.length > 0) {
+      const reunion = reunions.find(r => r.id === Number(reunionId));
+      if (reunion) {
+        openReunionDetail(reunion);
+        setHandledInitialReunionId(true);
+      }
+    }
+  }, [reunions, searchParams, handledInitialReunionId]);
 
   useEffect(() => {
     let filtered = rencontres;
@@ -175,6 +169,9 @@ const RencontresBudgetaires: React.FC = () => {
     }
     if (selectedStatut) {
       filtered = filtered.filter(r => r.statut === selectedStatut);
+    }
+    if (selectedArbitrage) {
+      filtered = filtered.filter(r => r.arbitrage === selectedArbitrage);
     }
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -198,7 +195,7 @@ const RencontresBudgetaires: React.FC = () => {
     }
 
     setFilteredRencontres(filtered);
-  }, [rencontres, selectedDirection, selectedAnnee, selectedStatut, searchTerm, sortConfig]);
+  }, [rencontres, selectedDirection, selectedAnnee, selectedStatut, selectedArbitrage, searchTerm, sortConfig]);
 
   const fetchRencontres = async () => {
     try {
@@ -484,11 +481,6 @@ const RencontresBudgetaires: React.FC = () => {
     }
   };
 
-  const openEmailsModal = () => {
-    fetchDirectionEmails();
-    setShowEmailsModal(true);
-  };
-
   // --- Réunions ---
 
   const fetchDirectionsServices = async () => {
@@ -503,245 +495,20 @@ const RencontresBudgetaires: React.FC = () => {
 
   const fetchReunions = async () => {
     try {
-      const res = await fetch('/api/rencontres-reunions', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch('/api/rencontres-reunions?source=rencontres_budgetaires', { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       setReunions(data || []);
     } catch (e) { console.error('Erreur chargement réunions:', e); }
   };
 
-  const fetchReunionAttachments = async (reunionId: number) => {
-    try {
-      const res = await fetch(`/api/rencontres-reunions/${reunionId}/attachments`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setReunionAttachments(data || []);
-    } catch (e) { console.error('Erreur chargement PJ:', e); }
-  };
-
-  const handleUploadAttachment = async (files: FileList | null) => {
-    if (!files || files.length === 0 || !selectedReunion) return;
-    try {
-      setIsUploadingAttachment(true);
-      const formData = new FormData();
-      formData.append('target_type', 'reunion');
-      for (let i = 0; i < files.length; i++) {
-        formData.append('files', files[i]);
-      }
-      const res = await fetch(`/api/rencontres-reunions/${selectedReunion.id}/attachments`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-      if (res.ok) {
-        fetchReunionAttachments(selectedReunion.id);
-      } else {
-        const err = await res.json();
-        alert(`Erreur upload: ${err.error}`);
-      }
-    } catch (e) { alert('Erreur upload'); }
-    finally {
-      setIsUploadingAttachment(false);
-      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
-    }
-  };
-
-  const handleDeleteAttachment = async (attId: number) => {
-    if (!window.confirm('Supprimer cette pièce jointe ?')) return;
-    try {
-      const res = await fetch(`/api/reunion-attachments/${attId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok && selectedReunion) fetchReunionAttachments(selectedReunion.id);
-    } catch (e) { console.error('Erreur suppression PJ:', e); }
-  };
-
-  const openReunionDetail = async (reunion: Reunion) => {
-    try {
-      const res = await fetch(`/api/rencontres-reunions/${reunion.id}`, { headers: { 'Authorization': `Bearer ${token}` } });
-      const data = await res.json();
-      setSelectedReunion(data);
-      fetchReunionAttachments(data.id);
-      setShowReunionDetail(true);
-    } catch (e) { console.error(e); }
-  };
-
-  const handleCreateReunion = async () => {
-    if (!newReunion.titre || !newReunion.date_reunion) {
-      alert('Titre et date sont obligatoires');
-      return;
-    }
-    try {
-      setIsCreatingReunion(true);
-      const res = await fetch('/api/rencontres-reunions', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...newReunion, participants: reunionParticipants })
-      });
-      if (res.ok) {
-        setShowCreateReunionModal(false);
-        setNewReunion({ titre: '', date_reunion: '', lieu: '', description: '' });
-        setReunionParticipants([]);
-        fetchReunions();
-        fetchDirectionsServices();
-      } else {
-        const err = await res.json();
-        alert(`Erreur : ${err.error}`);
-      }
-    } catch (e) { alert('Erreur création réunion'); }
-    finally { setIsCreatingReunion(false); }
+  const openReunionDetail = (reunion: Reunion) => {
+    setDetailReunionId(reunion.id);
   };
 
   const handleDeleteReunion = async (id: number) => {
     if (!window.confirm('Supprimer cette réunion ?')) return;
     await fetch(`/api/rencontres-reunions/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-    setShowReunionDetail(false);
     fetchReunions();
-  };
-
-  const [sendingCompteRendu, setSendingCompteRendu] = useState(false);
-  const handleSendCompteRendu = async () => {
-    if (!selectedReunion) return;
-    setSendingCompteRendu(true);
-    try {
-      const res = await fetch(`/api/rencontres-reunions/${selectedReunion.id}/compte-rendu`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (res.ok) alert(`✅ ${data.message}`);
-      else alert(`❌ Erreur : ${data.error}`);
-    } catch { alert('❌ Erreur réseau lors de l\'envoi'); }
-    finally { setSendingCompteRendu(false); }
-  };
-
-  const handleDeleteParticipant = async (pid: number) => {
-    await fetch(`/api/reunion-participants/${pid}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-    if (selectedReunion) openReunionDetail(selectedReunion);
-  };
-
-  const searchADDetail = useCallback((q: string) => {
-    setDetailAdQuery(q);
-    if (detailAdSearchTimerRef.current) clearTimeout(detailAdSearchTimerRef.current);
-
-    if (q.length < 2) {
-      setDetailAdResults([]);
-      return;
-    }
-
-    setDetailAdSearching(true);
-    detailAdSearchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-        const data = await res.json();
-        setDetailAdResults(Array.isArray(data) ? data : []);
-      } catch (e) { setDetailAdResults([]); }
-      finally { setDetailAdSearching(false); }
-    }, 400);
-  }, [token]);
-
-  const addParticipantFromADDetail = async (user: ADUser) => {
-    if (!selectedReunion) return;
-    try {
-      setIsAddingDetailParticipant(true);
-      const res = await fetch(`/api/rencontres-reunions/${selectedReunion.id}/participants`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nom: user.displayName.split(' ').slice(1).join(' ') || user.displayName,
-          prenom: user.displayName.split(' ')[0],
-          email: user.email,
-          service: user.service || '',
-          direction: user.direction || '',
-          type_presence: 'dsi',
-          ad_username: user.username
-        })
-      });
-      if (res.ok) {
-        setDetailAdQuery('');
-        setDetailAdResults([]);
-        fetchDirectionsServices();
-        openReunionDetail(selectedReunion);
-      } else {
-        const err = await res.json();
-        alert(`Erreur : ${err.error}`);
-      }
-    } catch (e) {
-      alert('Erreur ajout participant');
-    } finally {
-      setIsAddingDetailParticipant(false);
-    }
-  };
-
-  const addParticipantManuelDetail = async () => {
-    if (!detailNewParticipant.nom) {
-      alert('Le nom est obligatoire');
-      return;
-    }
-    if (!selectedReunion) {
-      alert('Aucune réunion sélectionnée');
-      return;
-    }
-    try {
-      setIsAddingDetailParticipant(true);
-      const res = await fetch(`/api/rencontres-reunions/${selectedReunion.id}/participants`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(detailNewParticipant)
-      });
-      if (res.ok) {
-        alert('Participant ajouté');
-        setDetailNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier', statut_presence: 'present' });
-        setShowAddParticipantDetail(false);
-        fetchDirectionsServices();
-        openReunionDetail(selectedReunion);
-      } else {
-        const err = await res.json();
-        alert(`Erreur : ${err.error || 'Erreur ajout participant'}`);
-      }
-    } catch (e) {
-      console.error('Erreur ajout participant:', e);
-      alert('Erreur lors de l\'ajout du participant');
-    } finally {
-      setIsAddingDetailParticipant(false);
-    }
-  };
-
-  const searchAD = useCallback((q: string) => {
-    setAdQuery(q);
-    if (adSearchTimerRef.current) clearTimeout(adSearchTimerRef.current);
-
-    if (q.length < 2) {
-      setAdResults([]);
-      return;
-    }
-
-    setAdSearching(true);
-    adSearchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-        const data = await res.json();
-        setAdResults(Array.isArray(data) ? data : []);
-      } catch (e) { setAdResults([]); }
-      finally { setAdSearching(false); }
-    }, 400);
-  }, [token]);
-
-  const addParticipantFromAD = (user: ADUser) => {
-    setReunionParticipants(prev => [...prev, {
-      id: Date.now(), reunion_id: 0,
-      nom: user.displayName.split(' ').slice(1).join(' ') || user.displayName,
-      prenom: user.displayName.split(' ')[0],
-      email: user.email,
-      service: user.service || '',
-      direction: user.direction || '',
-      type_presence: 'dsi',
-      statut_presence: 'present',
-      ad_username: user.username
-    }]);
-    setAdQuery('');
-    setAdResults([]);
   };
 
   const generateReunionsFromDemandes = async () => {
@@ -808,12 +575,6 @@ const RencontresBudgetaires: React.FC = () => {
     setNewEmail(user.email);
     setEmailAdQuery('');
     setEmailAdResults([]);
-  };
-
-  const addParticipantManuel = () => {
-    if (!newParticipant.nom) return;
-    setReunionParticipants(prev => [...prev, { ...newParticipant, id: Date.now(), reunion_id: 0 }]);
-    setNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier', statut_presence: 'present' });
   };
 
   const handleCreateDemande = async () => {
@@ -888,7 +649,6 @@ const RencontresBudgetaires: React.FC = () => {
       case 'demandée': return '#8b5cf6';
       case 'planifiée': return '#f59e0b';
       case 'effectuée': return '#10b981';
-      case 'importée': return '#3b82f6';
       default: return '#6b7280';
     }
   };
@@ -926,14 +686,6 @@ const RencontresBudgetaires: React.FC = () => {
             >
               <Plus size={18} />
               <span>Réunions{reunions.length > 0 ? ` (${reunions.length})` : ''}</span>
-            </button>
-            <button
-              style={styles.toolbarBtn}
-              onClick={openEmailsModal}
-              title="Gérer les emails par direction"
-            >
-              <Mail size={18} />
-              <span>Emails</span>
             </button>
             <button
               style={styles.toolbarBtn}
@@ -997,7 +749,17 @@ const RencontresBudgetaires: React.FC = () => {
             <option value="demandée">Demandée</option>
             <option value="planifiée">Planifiée</option>
             <option value="effectuée">Effectuée</option>
-            <option value="importée">Importée</option>
+          </select>
+
+          <select
+            value={selectedArbitrage}
+            onChange={(e) => setSelectedArbitrage(e.target.value)}
+            style={styles.filterSelect}
+          >
+            <option value="">Tous arbitrages</option>
+            {arbitrageList.map(a => (
+              <option key={a} value={a}>{a}</option>
+            ))}
           </select>
 
           <button
@@ -1006,6 +768,7 @@ const RencontresBudgetaires: React.FC = () => {
               setSelectedDirection('');
               setSelectedAnnee('');
               setSelectedStatut('');
+              setSelectedArbitrage('');
               setSearchTerm('');
             }}
           >
@@ -1033,6 +796,7 @@ const RencontresBudgetaires: React.FC = () => {
                     Date {sortConfig?.key === 'date_reunion' && (sortConfig.direction === 'asc' ? '▲' : '▼')}
                   </th>
                   <th style={styles.th}>Montant TTC</th>
+                  <th style={styles.th}>Suivi</th>
                   <th style={styles.th}>Arbitrage</th>
                   <th style={styles.th}>Statut</th>
                   <th style={styles.th}>Actions</th>
@@ -1055,9 +819,11 @@ const RencontresBudgetaires: React.FC = () => {
                         }}
                         onClick={() => {
                           setSelectedRencontre(r);
+                          setEditedData({ ...r });
+                          setIsEditMode(true);
                           setShowDetailModal(true);
                         }}
-                        title="Cliquer pour voir les détails"
+                        title="Cliquer pour éditer"
                       >
                         {r.titre.substring(0, 60)}
                       </td>
@@ -1065,6 +831,9 @@ const RencontresBudgetaires: React.FC = () => {
                         {r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '-'}
                       </td>
                       <td style={styles.td}>{Number(r.cout_ttc) > 0 ? `${Number(r.cout_ttc).toFixed(2)}€` : '-'}</td>
+                      <td style={{...styles.td, maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}} title={r.suivi || ''}>
+                        {r.suivi || '-'}
+                      </td>
                       <td style={{ ...styles.td, color: getArbitrageColor(r.arbitrage) }}>
                         <strong>{r.arbitrage || '-'}</strong>
                       </td>
@@ -1201,19 +970,6 @@ const RencontresBudgetaires: React.FC = () => {
                       )}
                     </div>
                     <div style={styles.detailField}>
-                      <label style={styles.label}>Année</label>
-                      {isEditMode ? (
-                        <input
-                          type="number"
-                          style={styles.editInput}
-                          value={editedData?.annee || ''}
-                          onChange={(e) => handleEditFieldChange('annee', parseInt(e.target.value))}
-                        />
-                      ) : (
-                        <p style={styles.value}>{selectedRencontre.annee || '-'}</p>
-                      )}
-                    </div>
-                    <div style={styles.detailField}>
                       <label style={styles.label}>Type</label>
                       {isEditMode ? (
                         <select
@@ -1264,7 +1020,7 @@ const RencontresBudgetaires: React.FC = () => {
                           onChange={(e) => handleEditFieldChange('arbitrage', e.target.value)}
                         >
                           <option value="">-- Sélectionner --</option>
-                          {arbitrages.map(a => (
+                          {arbitrageList.map(a => (
                             <option key={a} value={a}>{a}</option>
                           ))}
                         </select>
@@ -1433,11 +1189,22 @@ const RencontresBudgetaires: React.FC = () => {
                 {isEditMode ? (
                   <>
                     <button
-                      style={{ ...styles.btn, backgroundColor: '#ef4444', color: 'white', border: 'none' }}
-                      onClick={handleCancelEdit}
-                      disabled={isEditSaving}
+                      style={{
+                        ...styles.btn,
+                        backgroundColor: isCreatingTicket ? '#94a3b8' : '#7c3aed',
+                        color: 'white',
+                        border: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: isCreatingTicket ? 'not-allowed' : 'pointer',
+                      }}
+                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenGlpiTicket(selectedRencontre.id) : handleCreateGlpiTicket}
+                      disabled={isCreatingTicket}
+                      title={selectedRencontre.ticket_glpi ? `Ouvrir ticket GLPI #${selectedRencontre.ticket_glpi}` : 'Créer un ticket GLPI'}
                     >
-                      ❌ Annuler
+                      <Ticket size={16} />
+                      {isCreatingTicket ? 'Création...' : selectedRencontre.ticket_glpi ? `GLPI #${selectedRencontre.ticket_glpi}` : 'Créer ticket GLPI'}
                     </button>
                     <button
                       style={{ ...styles.btn, backgroundColor: '#10b981', color: 'white', border: 'none' }}
@@ -1731,9 +1498,11 @@ const RencontresBudgetaires: React.FC = () => {
                   <button onClick={generateReunionsFromDemandes} style={{padding: '10px 18px', backgroundColor: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'}}>
                     ⚡ Générer réunions
                   </button>
-                  <button onClick={handleDeleteAllReunions} style={{padding: '10px 18px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'}}>
-                    <Trash2 size={15} /> Tout supprimer
-                  </button>
+                  {user?.role === 'admin' && (
+                    <button onClick={handleDeleteAllReunions} style={{padding: '10px 18px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                      <Trash2 size={15} /> Tout supprimer
+                    </button>
+                  )}
                 </div>
                 {reunions.length === 0 ? (
                   <div style={{textAlign: 'center', padding: '30px', color: '#94a3b8'}}>Aucune réunion créée</div>
@@ -1759,7 +1528,9 @@ const RencontresBudgetaires: React.FC = () => {
                           </td>
                           <td style={{padding: '10px 12px', textAlign: 'right', display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center'}}>
                             <button onClick={() => { openReunionDetail(r); setShowManageReunions(false); }} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '4px'}} title="Voir les détails"><Eye size={16} color="#64748b" /></button>
-                            <button onClick={(e) => { e.stopPropagation(); handleDeleteReunion(r.id); }} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#ef4444'}} title="Supprimer la réunion"><Trash2 size={16} /></button>
+                            {user?.role === 'admin' && (
+                              <button onClick={(e) => { e.stopPropagation(); handleDeleteReunion(r.id); }} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#ef4444'}} title="Supprimer la réunion"><Trash2 size={16} /></button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -1771,356 +1542,33 @@ const RencontresBudgetaires: React.FC = () => {
           </div>
         )}
 
-        {/* Modale création réunion */}
-        {showCreateReunionModal && (
-          <div style={{position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-            <div style={{background: 'white', borderRadius: '16px', width: '100%', maxWidth: '780px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.25)'}}>
-              {/* Header */}
-              <div style={{padding: '24px 28px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                <h2 style={{margin: 0, fontSize: '18px', fontWeight: '800', color: '#1e293b'}}>📅 Nouvelle Réunion Budgétaire</h2>
-                <button onClick={() => setShowCreateReunionModal(false)} style={{background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}><X size={16} /></button>
-              </div>
-              <div style={{flex: 1, overflowY: 'auto', padding: '24px 28px'}}>
-                {/* Infos réunion */}
-                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px'}}>
-                  <div style={{gridColumn: '1/-1'}}>
-                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>TITRE *</label>
-                    <input type="text" placeholder="Ex: Rencontre DIRCOM 2025" style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newReunion.titre} onChange={e => setNewReunion(v => ({...v, titre: e.target.value}))} />
-                  </div>
-                  <div>
-                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>DATE *</label>
-                    <input type="date" style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newReunion.date_reunion} onChange={e => setNewReunion(v => ({...v, date_reunion: e.target.value}))} />
-                  </div>
-                  <div>
-                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>LIEU</label>
-                    <input type="text" placeholder="Ex: Salle Ivry" style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newReunion.lieu} onChange={e => setNewReunion(v => ({...v, lieu: e.target.value}))} />
-                  </div>
-                  <div style={{gridColumn: '1/-1'}}>
-                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>DESCRIPTION</label>
-                    <textarea rows={2} style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', resize: 'vertical'}} value={newReunion.description} onChange={e => setNewReunion(v => ({...v, description: e.target.value}))} />
-                  </div>
-                </div>
+        <CreateReunionModal
+          isOpen={showCreateReunionModal}
+          onClose={() => setShowCreateReunionModal(false)}
+          onCreated={(created) => {
+            setShowCreateReunionModal(false);
+            fetchReunions();
+            fetchDirectionsServices();
+            openReunionDetail(created);
+          }}
+          token={token}
+          directions={directions}
+          services={services}
+        />
 
-                {/* Participants */}
-                <h3 style={{margin: '0 0 14px', fontSize: '14px', fontWeight: '700', color: '#1e293b', borderTop: '1px solid #e2e8f0', paddingTop: '16px'}}>Participants ({reunionParticipants.length})</h3>
-
-                {/* Recherche DSI (AD) */}
-                <div style={{background: '#eff6ff', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
-                  <div style={{fontSize: '12px', fontWeight: '700', color: '#1d4ed8', marginBottom: '8px'}}>🔍 Ajouter un agent DSI (Active Directory)</div>
-                  <div style={{position: 'relative'}}>
-                    <input type="text" placeholder="Rechercher par nom..." style={{width: '100%', padding: '9px 12px', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '14px'}} value={adQuery} onChange={e => searchAD(e.target.value)} />
-                    {adSearching && <span style={{position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#64748b'}}>...</span>}
-                  </div>
-                  {adResults.length > 0 && (
-                    <div style={{marginTop: '8px', border: '1px solid #bfdbfe', borderRadius: '8px', background: 'white', maxHeight: '160px', overflowY: 'auto'}}>
-                      {adResults.map(u => (
-                        <div key={u.username} style={{padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9'}} onClick={() => addParticipantFromAD(u)}
-                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'}
-                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
-                          <div>
-                            <div style={{fontWeight: '600', fontSize: '13px'}}>{u.displayName}</div>
-                            <div style={{fontSize: '11px', color: '#64748b'}}>{u.email}{u.service ? ` — ${u.service}` : ''}{u.direction ? ` / ${u.direction}` : ''}</div>
-                          </div>
-                          <Plus size={14} color="#2563eb" />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Ajout manuel (Métiers) */}
-                <div style={{background: '#f0fdf4', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
-                  <div style={{fontSize: '12px', fontWeight: '700', color: '#16a34a', marginBottom: '8px'}}>➕ Ajouter un participant Métier (manuel)</div>
-                  <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '8px', alignItems: 'end'}}>
-                    <div><label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>NOM *</label><input type="text" placeholder="Nom" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.nom} onChange={e => setNewParticipant(v => ({...v, nom: e.target.value}))} /></div>
-                    <div><label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>PRÉNOM</label><input type="text" placeholder="Prénom" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.prenom} onChange={e => setNewParticipant(v => ({...v, prenom: e.target.value}))} /></div>
-                    <div>
-                      <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>DIRECTION</label>
-                      <input type="text" placeholder='Direction' list="suggest-dir" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.direction} onChange={e => setNewParticipant(v => ({...v, direction: e.target.value}))} />
-                      <datalist id="suggest-dir">{directions.map(d => <option key={d} value={d} />)}</datalist>
-                    </div>
-                    <div>
-                      <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>SERVICE</label>
-                      <input type="text" placeholder='Service' list="suggest-svc" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.service} onChange={e => setNewParticipant(v => ({...v, service: e.target.value}))} />
-                      <datalist id="suggest-svc">{services.map(s => <option key={s} value={s} />)}</datalist>
-                    </div>
-                    <button onClick={addParticipantManuel} style={{padding: '8px 14px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', whiteSpace: 'nowrap'}}>+ Ajouter</button>
-                  </div>
-                </div>
-
-                {/* Liste participants */}
-                {reunionParticipants.length > 0 && (() => {
-                  const dsi = reunionParticipants.filter(p => p.type_presence === 'dsi');
-                  const metiers = reunionParticipants.filter(p => p.type_presence !== 'dsi');
-                  return (
-                    <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
-                      {dsi.length > 0 && (
-                        <div>
-                          <h4 style={{margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em'}}>👨‍💼 DSI ({dsi.length})</h4>
-                          <div style={{border: '1px solid #dbeafe', borderRadius: '8px', overflow: 'hidden', background: '#f0f9ff'}}>
-                            {dsi.map((p, i) => (
-                              <div key={p.id} style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: i < dsi.length - 1 ? '1px solid #bfdbfe' : 'none'}}>
-                                <select value={p.statut_presence} onChange={e => setReunionParticipants(prev => prev.map(x => x.id === p.id ? {...x, statut_presence: e.target.value as 'present' | 'excuse'} : x))} style={{fontSize: '11px', padding: '4px 6px', border: '1px solid #bfdbfe', borderRadius: '4px', background: 'white'}}>
-                                  <option value="present">Présent</option>
-                                  <option value="excuse">Excusé</option>
-                                </select>
-                                <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
-                                  <span style={{fontSize: '13px', fontWeight: '700', color: '#1e293b'}}>{p.prenom ? `${p.prenom} ` : ''}{p.nom}</span>
-                                  <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
-                                    {p.service && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>{p.service}</span>}
-                                  </div>
-                                </div>
-                                <button onClick={() => setReunionParticipants(prev => prev.filter(x => x.id !== p.id))} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', flexShrink: 0}}><X size={14} /></button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {metiers.length > 0 && (
-                        <div>
-                          <h4 style={{margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em'}}>👥 Métiers ({metiers.length})</h4>
-                          <div style={{border: '1px solid #bbf7d0', borderRadius: '8px', overflow: 'hidden', background: '#f0fdf4'}}>
-                            {metiers.map((p, i) => (
-                              <div key={p.id} style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: i < metiers.length - 1 ? '1px solid #86efac' : 'none'}}>
-                                <select value={p.statut_presence} onChange={e => setReunionParticipants(prev => prev.map(x => x.id === p.id ? {...x, statut_presence: e.target.value as 'present' | 'excuse'} : x))} style={{fontSize: '11px', padding: '4px 6px', border: '1px solid #86efac', borderRadius: '4px', background: 'white'}}>
-                                  <option value="present">Présent</option>
-                                  <option value="excuse">Excusé</option>
-                                </select>
-                                <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
-                                  <span style={{fontSize: '13px', fontWeight: '700', color: '#1e293b'}}>{p.prenom ? `${p.prenom} ` : ''}{p.nom}</span>
-                                  <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
-                                    {p.service && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>{p.service}</span>}
-                                  </div>
-                                </div>
-                                <button onClick={() => setReunionParticipants(prev => prev.filter(x => x.id !== p.id))} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', flexShrink: 0}}><X size={14} /></button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-              {/* Footer */}
-              <div style={{padding: '16px 28px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '12px', justifyContent: 'flex-end'}}>
-                <button onClick={() => setShowCreateReunionModal(false)} style={{padding: '10px 20px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#475569'}}>Annuler</button>
-                <button onClick={handleCreateReunion} disabled={isCreatingReunion} style={{padding: '10px 24px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700'}}>
-                  {isCreatingReunion ? '...' : '✓ Créer la réunion'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modale détail réunion */}
-        {showReunionDetail && selectedReunion && (
-          <div style={{position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-            <div style={{background: 'white', borderRadius: '16px', width: '100%', maxWidth: '860px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.25)'}}>
-              <div style={{padding: '20px 24px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start'}}>
-                <div>
-                  <h2 style={{margin: '0 0 4px', fontSize: '17px', fontWeight: '800', color: '#1e293b'}}>{selectedReunion.titre}</h2>
-                  <p style={{margin: 0, fontSize: '13px', color: '#64748b'}}>{selectedReunion.date_reunion ? new Date(selectedReunion.date_reunion).toLocaleDateString('fr-FR') : ''}{selectedReunion.lieu ? ` — ${selectedReunion.lieu}` : ''}</p>
-                </div>
-                <div style={{display: 'flex', gap: '8px'}}>
-                  <button onClick={() => setShowCreateDemandeModal(true)} style={{padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px'}}><Plus size={14} /> Demande</button>
-                  <button onClick={handleSendCompteRendu} disabled={sendingCompteRendu} style={{padding: '8px 14px', background: '#ecfdf5', color: '#059669', border: '1px solid #6ee7b7', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', opacity: sendingCompteRendu ? 0.6 : 1}} title="Envoyer le compte rendu par email à tous les participants">
-                    <Send size={14} /> {sendingCompteRendu ? 'Envoi...' : 'Compte rendu'}
-                  </button>
-                  <button onClick={() => handleDeleteReunion(selectedReunion.id)} style={{padding: '8px 14px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px'}}><Trash2 size={14} /></button>
-                  <button onClick={() => setShowReunionDetail(false)} style={{background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}><X size={16} /></button>
-                </div>
-              </div>
-              <div style={{flex: 1, overflowY: 'auto', padding: '20px 24px'}}>
-                {/* Participants */}
-                <div style={{marginBottom: '20px'}}>
-                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
-                    <h4 style={{margin: 0, fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Participants ({selectedReunion.participants?.length || 0})</h4>
-                    <button onClick={() => setShowAddParticipantDetail(!showAddParticipantDetail)} style={{padding: '4px 10px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px'}}><Plus size={13} /> Ajouter</button>
-                  </div>
-
-                  {showAddParticipantDetail && (
-                    <div style={{background: '#f0f9ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '12px', marginBottom: '12px'}}>
-                      {/* Recherche DSI */}
-                      <div style={{marginBottom: '12px'}}>
-                        <div style={{fontSize: '11px', fontWeight: '700', color: '#1d4ed8', marginBottom: '6px'}}>🔍 Ajouter agent DSI</div>
-                        <div style={{position: 'relative'}}>
-                          <input type="text" placeholder="Rechercher par nom..." style={{width: '100%', padding: '8px 10px', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '13px'}} value={detailAdQuery} onChange={e => searchADDetail(e.target.value)} />
-                          {detailAdSearching && <span style={{position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#64748b'}}>...</span>}
-                        </div>
-                        {detailAdResults.length > 0 && (
-                          <div style={{marginTop: '6px', border: '1px solid #bfdbfe', borderRadius: '6px', background: 'white', maxHeight: '120px', overflowY: 'auto'}}>
-                            {detailAdResults.map(u => (
-                              <div key={u.username} style={{padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}} onClick={() => addParticipantFromADDetail(u)} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
-                                <div>
-                                  <div style={{fontWeight: '600'}}>{u.displayName}</div>
-                                  <div style={{fontSize: '10px', color: '#64748b'}}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
-                                </div>
-                                <Plus size={12} color="#2563eb" />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Ajout manuel */}
-                      <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '6px', fontSize: '12px'}}>
-                        <div><input type="text" placeholder="Nom" style={{width: '100%', padding: '6px 8px', border: '1px solid #bbf7d0', borderRadius: '4px', fontSize: '12px'}} value={detailNewParticipant.nom} onChange={e => setDetailNewParticipant(v => ({...v, nom: e.target.value}))} /></div>
-                        <div><input type="text" placeholder="Service" style={{width: '100%', padding: '6px 8px', border: '1px solid #bbf7d0', borderRadius: '4px', fontSize: '12px'}} value={detailNewParticipant.service} onChange={e => setDetailNewParticipant(v => ({...v, service: e.target.value}))} /></div>
-                        <button onClick={addParticipantManuelDetail} disabled={isAddingDetailParticipant} style={{padding: '6px 10px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px', whiteSpace: 'nowrap'}}>+ Ajouter</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {(selectedReunion.participants || []).length === 0 ? <p style={{color: '#94a3b8', fontSize: '13px'}}>Aucun participant</p> : (
-                    <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px'}}>
-                      {(selectedReunion.participants || []).map(p => (
-                        <div key={p.id} style={{display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: p.type_presence === 'dsi' ? '#eff6ff' : '#f0fdf4', borderRadius: '20px', border: `1px solid ${p.type_presence === 'dsi' ? '#bfdbfe' : '#bbf7d0'}`, fontSize: '13px'}}>
-                          <span style={{fontWeight: '600'}}>{p.prenom ? `${p.prenom} ` : ''}{p.nom}</span>
-                          {p.service && <span style={{color: '#64748b', fontSize: '11px'}}>— {p.service}</span>}
-                          <button onClick={() => handleDeleteParticipant(p.id)} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '0 2px', lineHeight: 1}}><X size={12} /></button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Demandes */}
-                <h4 style={{margin: '0 0 10px', fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', borderTop: '1px solid #e2e8f0', paddingTop: '16px'}}>Demandes ({selectedReunion.demandes?.length || 0})</h4>
-                {(selectedReunion.demandes || []).length === 0 ? <p style={{color: '#94a3b8', fontSize: '13px'}}>Aucune demande — <span style={{color: '#2563eb', cursor: 'pointer'}} onClick={() => setShowCreateDemandeModal(true)}>en ajouter une</span></p> : (
-                  <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '13px'}}>
-                    <thead><tr style={{borderBottom: '1px solid #e2e8f0', background: '#f8fafc'}}>
-                      <th style={{padding: '8px 12px', textAlign: 'left', fontWeight: '600', color: '#475569'}}>Demande</th>
-                      <th style={{padding: '8px 12px', textAlign: 'left', fontWeight: '600', color: '#475569'}}>Direction / Service</th>
-                      <th style={{padding: '8px 12px', textAlign: 'left', fontWeight: '600', color: '#475569'}}>Type</th>
-                      <th style={{padding: '8px 12px', textAlign: 'left', fontWeight: '600', color: '#475569'}}>Statut</th>
-                    </tr></thead>
-                    <tbody>
-                      {(selectedReunion.demandes || []).map(d => (
-                        <tr key={d.id} style={{borderBottom: '1px solid #f1f5f9'}}>
-                          <td style={{padding: '8px 12px', fontWeight: '600', color: '#1e293b'}}>{d.titre}</td>
-                          <td style={{padding: '8px 12px', color: '#475569'}}>{d.direction}{d.service ? ` / ${d.service}` : ''}</td>
-                          <td style={{padding: '8px 12px', color: '#475569'}}>{d.type || '-'}</td>
-                          <td style={{padding: '8px 12px'}}><span style={{padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', background: '#fef3c7', color: '#92400e'}}>{d.statut}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-
-                {/* Section Pièces Jointes */}
-                <div style={{marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #e5e7eb'}}>
-                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
-                    <h4 style={{margin: 0, fontSize: '14px', fontWeight: '700', color: '#374151'}}>
-                      📎 Pièces jointes ({reunionAttachments.length})
-                    </h4>
-                    <button
-                      onClick={() => attachmentInputRef.current?.click()}
-                      disabled={isUploadingAttachment}
-                      style={{display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '600', cursor: 'pointer'}}
-                    >
-                      <Upload size={14} />
-                      {isUploadingAttachment ? 'Upload...' : 'Ajouter'}
-                    </button>
-                    <input
-                      ref={attachmentInputRef}
-                      type="file"
-                      multiple
-                      style={{display: 'none'}}
-                      onChange={(e) => handleUploadAttachment(e.target.files)}
-                    />
-                  </div>
-                  {reunionAttachments.length === 0 ? (
-                    <p style={{fontSize: '13px', color: '#9ca3af', margin: 0, fontStyle: 'italic'}}>Aucune pièce jointe</p>
-                  ) : (
-                    <div style={{display: 'flex', flexDirection: 'column', gap: '6px'}}>
-                      {reunionAttachments.map(att => (
-                        <div key={att.id} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px'}}>
-                          <div style={{display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0}}>
-                            <span style={{fontSize: '18px'}}>
-                              {att.mimetype?.includes('pdf') ? '📄' : att.mimetype?.includes('image') ? '🖼️' : att.mimetype?.includes('sheet') || att.original_name.endsWith('.xlsx') ? '📊' : '📎'}
-                            </span>
-                            <div style={{minWidth: 0}}>
-                              <a
-                                href={`/file_reunions/${att.filename}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{fontSize: '13px', color: '#2563eb', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}
-                                title={att.original_name}
-                              >
-                                {att.original_name}
-                              </a>
-                              <span style={{fontSize: '11px', color: '#9ca3af'}}>
-                                {att.size ? `${(att.size / 1024).toFixed(0)} Ko` : ''} · {att.uploaded_by}
-                              </span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => handleDeleteAttachment(att.id)}
-                            style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', flexShrink: 0}}
-                            title="Supprimer"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modale création demande dans une réunion */}
-        {showCreateDemandeModal && selectedReunion && (() => {
-          const demandeServices = [...new Set((selectedReunion?.participants || []).map(p => p.service).filter(Boolean))] as string[];
-          return (
-            <div style={{position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', zIndex: 4000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
-              <div style={{background: 'white', borderRadius: '14px', width: '100%', maxWidth: '600px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)'}}>
-                <div style={{padding: '20px 24px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                  <h3 style={{margin: 0, fontSize: '16px', fontWeight: '800', color: '#1e293b'}}>Nouvelle demande — {selectedReunion.titre}</h3>
-                  <button onClick={() => setShowCreateDemandeModal(false)} style={{background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '30px', height: '30px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}><X size={15} /></button>
-                </div>
-                <div style={{flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'grid', gridTemplateColumns: '1fr', gap: '14px'}}>
-                  <div>
-                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>TITRE DE LA DEMANDE *</label>
-                    <input type="text" style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newDemande.titre} onChange={e => setNewDemande(v => ({...v, titre: e.target.value}))} />
-                  </div>
-                  <div>
-                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>DIRECTION *</label>
-                    <select style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}} value={newDemande.direction} onChange={e => setNewDemande(v => ({...v, direction: e.target.value}))}>
-                      <option value="">-- Sélectionner --</option>
-                      {[...new Set((selectedReunion?.participants || []).map(p => p.direction).filter(Boolean))].map(d => <option key={d} value={d as string}>{d}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>SERVICE (depuis les participants)</label>
-                    <select style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}} value={newDemande.service} onChange={e => setNewDemande(v => ({...v, service: e.target.value}))}>
-                      <option value="">-- Sélectionner --</option>
-                      {demandeServices.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>TYPE</label>
-                    <select style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}} value={newDemande.type} onChange={e => setNewDemande(v => ({...v, type: e.target.value}))}>
-                      <option value="">-- Sélectionner --</option>
-                      {types.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                </div>
-                <div>
-                  <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '5px'}}>DESCRIPTION</label>
-                  <textarea rows={4} style={{width: '100%', padding: '9px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', resize: 'vertical'}} value={newDemande.description} onChange={e => setNewDemande(v => ({...v, description: e.target.value}))} />
-                </div>
-              </div>
-              <div style={{padding: '14px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '10px', justifyContent: 'flex-end'}}>
-                <button onClick={() => setShowCreateDemandeModal(false)} style={{padding: '9px 18px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#475569'}}>Annuler</button>
-                <button onClick={handleCreateDemande} style={{padding: '9px 20px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700'}}>✓ Créer la demande</button>
-              </div>
-            </div>
-          </div>
-        );
-        })()}
+        <ReunionDetailModal
+          isOpen={detailReunionId !== null}
+          reunionId={detailReunionId}
+          token={token}
+          userRole={user?.role}
+          currentUsername={user?.username}
+          directions={directions}
+          services={services}
+          onClose={() => setDetailReunionId(null)}
+          onUpdated={() => fetchReunions()}
+          onDemandeCreated={() => { fetchRencontres(); fetchReunions(); }}
+          onDeleted={() => { fetchReunions(); setDetailReunionId(null); }}
+        />
 
         <input
           type="file"
@@ -2146,8 +1594,8 @@ const styles = {
     backgroundColor: '#f4f4f4',
   },
   mainContent: {
-    padding: '40px 20px',
-    maxWidth: '1400px',
+    padding: '24px 12px',
+    maxWidth: '1600px',
     margin: '0 auto',
   },
   toolbar: {
@@ -2234,7 +1682,7 @@ const styles = {
     borderBottom: '1px solid #e5e7eb',
   } as React.CSSProperties,
   th: {
-    padding: '12px 16px',
+    padding: '10px 12px',
     textAlign: 'left',
     fontSize: '13px',
     fontWeight: '600',
@@ -2246,7 +1694,7 @@ const styles = {
     transition: 'background-color 0.2s',
   } as React.CSSProperties,
   td: {
-    padding: '12px 16px',
+    padding: '10px 12px',
     fontSize: '14px',
     color: '#1f2937',
   } as React.CSSProperties,

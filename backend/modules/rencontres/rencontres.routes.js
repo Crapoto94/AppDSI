@@ -51,7 +51,7 @@ reunionRouter.get('/:id', authenticateJWT, reunionsCtrl.getById);
 reunionRouter.post('/:id/compte-rendu', authenticateJWT, reunionsCtrl.sendCompteRendu);
 reunionRouter.put('/:id', authenticateJWT, reunionsCtrl.update);
 reunionRouter.delete('/:id', authenticateJWT, reunionsCtrl.deleteOne);
-reunionRouter.delete('/', authenticateJWT, reunionsCtrl.deleteAll);
+reunionRouter.delete('/', authenticateAdmin, reunionsCtrl.deleteAll);
 
 // Reunion participants
 reunionRouter.post('/:id/participants', authenticateJWT, reunionsCtrl.addParticipant);

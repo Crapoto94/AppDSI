@@ -483,6 +483,7 @@ async function setupDb() {
             type_presence TEXT DEFAULT 'metier',
             statut_presence TEXT DEFAULT 'present',
             ad_username TEXT,
+            commentaire TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE CASCADE
         );
@@ -559,6 +560,18 @@ async function setupDb() {
         }
     } catch (e) {
         console.warn('[DB Migration] Erreur ajout colonne reunion_id:', e.message);
+    }
+
+    // Migration: Ajouter la colonne commentaire à reunion_participants
+    try {
+        const result = await db.all("PRAGMA table_info(reunion_participants)");
+        const hasColumn = result.some(col => col.name === 'commentaire');
+        if (!hasColumn) {
+            await db.exec('ALTER TABLE reunion_participants ADD COLUMN commentaire TEXT');
+            console.log('[DB Migration] Colonne commentaire ajoutée à reunion_participants');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur ajout colonne commentaire:', e.message);
     }
 
     // Migration: Créer la tuile Rencontres si elle n'existe pas
