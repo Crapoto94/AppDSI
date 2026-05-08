@@ -3127,50 +3127,73 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       </div>
 
                       {/* Icône */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '16px', marginBottom: '20px', alignItems: 'end' }}>
-                        <div>
-                          <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Icône (lucide-react)</label>
-                          <input
-                            type="text"
-                            value={editingTile ? editingTile.icon || 'Box' : newTile.icon}
-                            onChange={(e) => {
-                              if (editingTile) {
-                                setEditingTile({ ...editingTile, icon: e.target.value });
-                              } else {
-                                setNewTile({ ...newTile, icon: e.target.value });
-                              }
-                            }}
-                            style={{
-                              width: '100%',
-                              padding: '12px 14px',
-                              border: '2px solid #7dd3fc',
-                              borderRadius: '10px',
-                              fontSize: '0.95rem',
-                              fontWeight: '600',
-                              color: '#0c4a6e',
-                              boxSizing: 'border-box',
-                              background: 'white',
-                              transition: 'all 0.2s'
-                            }}
-                            onFocus={(e) => {
-                              e.target.style.borderColor = '#0284c7';
-                              e.target.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.1)';
-                            }}
-                            onBlur={(e) => {
-                              e.target.style.borderColor = '#7dd3fc';
-                              e.target.style.boxShadow = 'none';
-                            }}
-                            placeholder="ex: BarChart3, Calendar, Box..."
-                          />
-                        </div>
-                        <div style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          width: '60px', height: '60px', background: 'white',
-                          border: '2px solid #7dd3fc', borderRadius: '12px',
-                          flexShrink: 0
-                        }}>
-                          {React.createElement(LucideIcons[(editingTile?.icon || newTile.icon || 'Box').charAt(0).toUpperCase() + (editingTile?.icon || newTile.icon || 'Box').slice(1)] || LucideIcons.Box, { size: 28 })}
-                        </div>
+                      <div style={{ marginBottom: '20px' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Icône (lucide-react)</label>
+                        {(() => {
+                          const ICON_LIST = ['Activity','BarChart3','Bell','Book','Box','Briefcase','Building','Calendar','CalendarDays','Camera','ChartBar','CheckCircle','Clipboard','Clock','Cloud','Code','Coffee','Compass','CreditCard','Crown','Database','Download','Edit','Eye','File','FileText','Film','Filter','Fingerprint','Flag','Folder','Gift','Globe','Grid','Hash','Headphones','Heart','HelpCircle','Home','Image','Inbox','Info','Key','Layers','Layout','LifeBuoy','Link','List','Loader','Lock','LogOut','Mail','Map','MapPin','Megaphone','Menu','MessageCircle','MessageSquare','Mic','Minus','Monitor','Moon','MoreHorizontal','Music','Navigation','Package','Paperclip','Pause','Pen','Phone','PieChart','Play','Plus','Podcast','Power','Printer','Radio','RefreshCw','Repeat','RotateCcw','Save','Scan','Scissors','Search','Send','Server','Settings','Share','Shield','ShieldAlert','ShoppingCart','Signal','Sliders','Smartphone','Smile','Speaker','Star','StopCircle','Sun','Tablet','Tag','Target','Terminal','ThumbsUp','Ticket','Timer','Tool','Trash2','TrendingUp','Truck','Tv','Twitch','Type','Umbrella','Underline','Undo','Unlink','Unlock','Upload','User','UserCheck','UserPlus','Users','Video','Voicemail','Volume2','Watch','Wifi','Wind','Wrench','X','Zap','ZoomIn','ZoomOut'];
+                          const currentIcon = editingTile ? editingTile.icon || 'Box' : newTile.icon || 'Box';
+                          const [search, setSearch] = React.useState('');
+                          const filtered = ICON_LIST.filter(n => n.toLowerCase().includes(search.toLowerCase()));
+                          const setIcon = (name) => {
+                            if (editingTile) {
+                              setEditingTile({ ...editingTile, icon: name });
+                            } else {
+                              setNewTile({ ...newTile, icon: name });
+                            }
+                          };
+                          return (
+                            <div>
+                              <input
+                                type="text"
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                style={{
+                                  width: '100%', padding: '10px 14px', marginBottom: '12px',
+                                  border: '2px solid #7dd3fc', borderRadius: '10px',
+                                  fontSize: '0.9rem', color: '#0c4a6e',
+                                  boxSizing: 'border-box', background: 'white',
+                                  outline: 'none'
+                                }}
+                                placeholder="Rechercher une icône..."
+                              />
+                              <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(10, 1fr)',
+                                gap: '6px',
+                                maxHeight: '320px',
+                                overflowY: 'auto',
+                                padding: '4px',
+                                border: '2px solid #e2e8f0',
+                                borderRadius: '10px',
+                                background: 'white'
+                              }}>
+                                {filtered.map(name => {
+                                  const isSelected = currentIcon === name;
+                                  return (
+                                    <div
+                                      key={name}
+                                      onClick={() => setIcon(name)}
+                                      title={name}
+                                      style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        width: '100%', aspectRatio: '1', minHeight: '44px',
+                                        background: isSelected ? '#e0f2fe' : '#f8fafc',
+                                        border: isSelected ? '2px solid #0284c7' : '2px solid transparent',
+                                        borderRadius: '8px', cursor: 'pointer',
+                                        transition: 'all 0.15s',
+                                        boxSizing: 'border-box'
+                                      }}
+                                      onMouseEnter={e => { if (!isSelected) { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#bae6fd'; } }}
+                                      onMouseLeave={e => { if (!isSelected) { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = 'transparent'; } }}
+                                    >
+                                      {React.createElement(LucideIcons[name] || LucideIcons.Box, { size: 20, color: isSelected ? '#0284c7' : '#475569' })}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       <div style={{ marginBottom: '20px' }}>
