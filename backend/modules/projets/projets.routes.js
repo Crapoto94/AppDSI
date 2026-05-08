@@ -136,4 +136,10 @@ router.post('/:id/dependances', authenticateJWT, ctrl.ajouterDependance);
 router.delete('/:id/dependances/:depId', authenticateJWT, ctrl.supprimerDependance);
 router.get('/:id/verifier-dependances', authenticateJWT, ctrl.verifierDependances);
 
+// ============================================
+// ATTENDUS DOCUMENTAIRES PAR PROJET
+// ============================================
+router.get('/:id/attendus', authenticateJWT, ctrl.getAttendus);
+router.put('/:id/attendus', authenticateJWT, ctrl.setAttendus);
+
 module.exports = router;

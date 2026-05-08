@@ -65,14 +65,23 @@ async function getControlesCompletude(projetId, statutCible) {
     const projet = await pgDb.get('SELECT * FROM projets WHERE id = $1', [projetId]);
     if (!projet) return [];
 
-    const typesAttendus = await pgDb.all(
-        `SELECT * FROM projet_types_documentaires WHERE (phase_concernee IS NULL OR phase_concernee = $1) AND actif = 1 ORDER BY ordre`,
-        [statutCible]
-    );
+    const typesGlobaux = await pgDb.all('SELECT * FROM projet_types_documentaires WHERE actif = 1 ORDER BY ordre');
+    const projetAttendus = await pgDb.all('SELECT * FROM projet_attendus WHERE projet_id = $1', [projetId]);
+
+    // Fusion : les attendus projet écrasent les globaux
+    const typesEffectifs = typesGlobaux.map(t => {
+        const pa = projetAttendus.find(a => a.type_code === t.code);
+        if (pa) {
+            return { ...t, obligatoire: pa.obligatoire, phase_concernee: pa.phase_concernee || t.phase_concernee };
+        }
+        return t;
+    });
 
     const controles = [];
-    for (const type of typesAttendus) {
+    for (const type of typesEffectifs) {
         if (type.obligatoire === 0) continue;
+        // Ne vérifier que si la phase correspond
+        if (type.phase_concernee && type.phase_concernee !== statutCible) continue;
         const docs = await pgDb.all(
             `SELECT d.id, d.type_documentaire, COUNT(v.id) as nb_versions,
                     BOOL_OR(v.est_version_courante = 1) as a_version_active
@@ -192,7 +201,9 @@ const getMesProjets = async (req, res) => {
             SELECT p.*,
                    (SELECT COUNT(*) FROM projet_roles pr WHERE pr.projet_id = p.id) as nb_roles,
                    (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
-                   (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions
+                   (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
+                   (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin < CURRENT_DATE) as nb_taches_en_retard,
+                   (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon < CURRENT_DATE) as nb_jalons_en_retard
             FROM projets p
             WHERE LOWER(p.created_by_username) = LOWER($1)
                OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1))
@@ -1412,6 +1423,50 @@ const verifierDependances = async (req, res) => {
     }
 };
 
+// ============================================
+// PROJET - Attendus documentaires par projet
+// ============================================
+
+const getAttendus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const globaux = await pgDb.all('SELECT * FROM projet_types_documentaires ORDER BY ordre');
+        const projetAttendus = await pgDb.all('SELECT * FROM projet_attendus WHERE projet_id = $1', [id]);
+        const result = globaux.map(g => {
+            const pa = projetAttendus.find(a => a.type_code === g.code);
+            return {
+                ...g,
+                attendu_pour_ce_projet: pa ? 1 : 0,
+                obligatoire_projet: pa ? pa.obligatoire : 0,
+                phase_projet: pa ? pa.phase_concernee : g.phase_concernee
+            };
+        });
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const setAttendus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { attendus } = req.body;
+        if (!Array.isArray(attendus)) return res.status(400).json({ error: 'attendus requis' });
+        await pgDb.run('DELETE FROM projet_attendus WHERE projet_id = $1', [id]);
+        for (const a of attendus) {
+            if (a.attendu) {
+                await pgDb.run(
+                    'INSERT INTO projet_attendus (projet_id, type_code, obligatoire, phase_concernee) VALUES ($1, $2, $3, $4)',
+                    [id, a.code, a.obligatoire ? 1 : 0, a.phase_concernee || null]
+                );
+            }
+        }
+        res.json({ message: 'Attendus mis à jour' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     setSendMail,
     getAll, getMesProjets, getById, create, update, remove,
@@ -1430,5 +1485,6 @@ module.exports = {
     getJalons, ajouterJalon, updateJalon, supprimerJalon,
     getGroupesTaches, ajouterGroupeTaches, supprimerGroupeTaches,
     getFavoris, ajouterFavori, supprimerFavori, ajouterFavoriBody, supprimerFavoriBody,
-    getDependances, ajouterDependance, supprimerDependance, verifierDependances
+    getDependances, ajouterDependance, supprimerDependance, verifierDependances,
+    getAttendus, setAttendus
 };
