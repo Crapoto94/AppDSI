@@ -753,12 +753,20 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                         {t.statut === 'terminee' && t.date_debut && t.date_fin && (
                           <div style={{ position: 'absolute', right: '2px', top: '2px', fontSize: '10px', zIndex: 3, color: 'white' }}>✓</div>
                         )}
-                        {/* Jalons dépendant explicitement de cette tâche */}
-                        {dependances.filter(d => d.depend_type === 'jalon' && d.depend_id === t.id).map(d => {
-                          const j = jalons.find(jj => jj.id === d.depend_id);
+                        {/* Jalons liés à cette tâche */}
+                        {dependances.filter(d => {
+                          // Cas 1: tâche dépend d'un jalon (source=tache, depend=jalon)
+                          if (d.source_type === 'tache' && d.source_id === t.id && d.depend_type === 'jalon') return true;
+                          // Cas 2: jalon dépend de cette tâche (source=jalon, depend=tache)
+                          if (d.source_type === 'jalon' && d.depend_type === 'tache' && d.depend_id === t.id) return true;
+                          return false;
+                        }).map(d => {
+                          const jalonId = d.depend_type === 'jalon' ? d.depend_id : d.source_id;
+                          const j = jalons.find(jj => jj.id === jalonId);
                           if (!j) return null;
                           return (
-                            <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '0px', transform: 'translateX(-50%)', fontSize: '16px', zIndex: 3 }} title={`📍 ${j.titre}`}>{j.atteint ? '✅' : '📍'}</div>
+                            <div key={d.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '0px', transform: 'translateX(-50%)', fontSize: '16px', zIndex: 3, cursor: 'pointer' }}
+                              title={`📍 ${j.titre} (lié à cette tâche)`}>{j.atteint ? '✅' : '📍'}</div>
                           );
                         })}
                         {/* Flèches de dépendance */}
