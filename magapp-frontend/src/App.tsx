@@ -38,6 +38,7 @@ interface AppDoc {
   title: string;
   doc_type: 'pdf' | 'youtube' | 'link';
   url: string;
+  description?: string;
   is_obsolete: boolean;
   is_favorite: boolean;
   is_technical: boolean;
@@ -77,7 +78,7 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
   const [allVersions, setAllVersions] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string; is_active: boolean }[]>([]);
@@ -95,7 +96,7 @@ function App() {
   const [observedTickets, setObservedTickets] = useState<{glpi_id: number, title: string, status_label: string, date_creation: string, type: string, status: string, solution: string, content: string, requester_name: string, requester_email: string}[]>([]);
   const [showClosedObserved, setShowClosedObserved] = useState(false);
   const [showRencontres, setShowRencontres] = useState(false);
-  const [rencontres, setRencontres] = useState<any[]>([]);
+  const [rencontres] = useState<any[]>([]);
   const [myDemandes, setMyDemandes] = useState<any[]>([]);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
   const [suiviList, setSuiviList] = useState<any[]>([]);
