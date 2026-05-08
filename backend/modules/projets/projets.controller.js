@@ -973,7 +973,8 @@ const getStats = async (req, res) => {
             par_niveau: parNiveau,
             par_priorite: parPriorite,
             score_moyen: scoreMoyen ? Math.round(scoreMoyen.moyenne || 0) : 0,
-            alertes_documentaires: alerteDocs.count
+            alertes_documentaires: alerteDocs.count,
+            alertes_retard: alertesRetard.count
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1274,7 +1275,7 @@ const getDependances = async (req, res) => {
         // Enrichir avec les titres
         const taches = await pgDb.all('SELECT id, titre FROM projet_taches WHERE projet_id = $1', [id]);
         const jalons = await pgDb.all('SELECT id, titre FROM projet_jalons WHERE projet_id = $1', [id]);
-        const lookup: Record<string, string> = {};
+        const lookup = {};
         for (const t of taches) { lookup[`tache_${t.id}`] = t.titre; }
         for (const j of jalons) { lookup[`jalon_${j.id}`] = j.titre; }
         const result = deps.map(d => ({
@@ -1339,18 +1340,16 @@ const verifierDependances = async (req, res) => {
         const deps = await pgDb.all('SELECT * FROM projet_dependances WHERE projet_id = $1', [id]);
         const taches = await pgDb.all('SELECT * FROM projet_taches WHERE projet_id = $1', [id]);
         const jalons = await pgDb.all('SELECT * FROM projet_jalons WHERE projet_id = $1', [id]);
-        const alerts: { message: string; source: string; severity: string }[] = [];
+        const alerts = [];
 
         for (const d of deps) {
             // Trouver la source (ce qui dépend)
-            let source: any = null;
-            if (d.source_type === 'tache') source = taches.find((t: any) => t.id === d.source_id);
-            else source = jalons.find((j: any) => j.id === d.source_id);
-
-            // Trouver la cible (ce dont on dépend)
-            let depend: any = null;
-            if (d.depend_type === 'tache') depend = taches.find((t: any) => t.id === d.depend_id);
-            else depend = jalons.find((j: any) => j.id === d.depend_id);
+            let source = null;
+            if (d.source_type === 'tache') source = taches.find(t => t.id === d.source_id);
+            else source = jalons.find(j => j.id === d.source_id);
+            let depend = null;
+            if (d.depend_type === 'tache') depend = taches.find(t => t.id === d.depend_id);
+            else depend = jalons.find(j => j.id === d.depend_id);
 
             if (!source || !depend) continue;
 
