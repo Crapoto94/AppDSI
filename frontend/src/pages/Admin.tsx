@@ -3145,7 +3145,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             <div>
                               <input
                                 type="text"
-                                value={search}
+                                  value={iconSearch}
                                   onChange={e => setIconSearch(e.target.value)}
                                 style={{
                                   width: '100%', padding: '10px 14px', marginBottom: '12px',
