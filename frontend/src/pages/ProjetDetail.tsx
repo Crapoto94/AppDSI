@@ -705,14 +705,14 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                         {t.statut === 'terminee' && t.date_debut && t.date_fin && (
                           <div style={{ position: 'absolute', right: '2px', top: '2px', fontSize: '10px', zIndex: 3, color: 'white' }}>✓</div>
                         )}
-                        {jalons.filter(j => {
-                          const jd = new Date(j.date_jalon).getTime();
-                          const td = t.date_debut ? new Date(t.date_debut).getTime() : 0;
-                          const tf = t.date_fin ? new Date(t.date_fin).getTime() : 0;
-                          return jd >= td && jd <= tf;
-                        }).map(j => (
-                          <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '2px', transform: 'translateX(-50%)', fontSize: '14px', zIndex: 2 }} title={`📍 ${j.titre}`}>{j.atteint ? '✅' : '📍'}</div>
-                        ))}
+                        {/* Jalons dépendant explicitement de cette tâche */}
+                        {dependances.filter(d => d.depend_type === 'jalon' && d.depend_id === t.id).map(d => {
+                          const j = jalons.find(jj => jj.id === d.depend_id);
+                          if (!j) return null;
+                          return (
+                            <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '0px', transform: 'translateX(-50%)', fontSize: '16px', zIndex: 3 }} title={`📍 ${j.titre}`}>{j.atteint ? '✅' : '📍'}</div>
+                          );
+                        })}
                         {/* Flèches de dépendance */}
                         {dependances.filter(d => d.source_type === 'tache' && d.source_id === t.id).map(d => {
                           const depT = taches.find(tc => tc.id === d.depend_id);
@@ -737,17 +737,21 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                 </div>
               );
             })}
-            {jalons.filter(j => !taches.some(t => { const jd = new Date(j.date_jalon).getTime(); return (t.date_debut ? new Date(t.date_debut).getTime() : 0) <= jd && (t.date_fin ? new Date(t.date_fin).getTime() : 0) >= jd; })).length > 0 && (
+            {jalons.length > 0 && (
               <div style={{ marginTop: '8px' }}>
-                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginLeft: '200px', marginBottom: '4px' }}>📍 Jalons seuls</div>
-                {jalons.filter(j => !taches.some(t => { const jd = new Date(j.date_jalon).getTime(); return (t.date_debut ? new Date(t.date_debut).getTime() : 0) <= jd && (t.date_fin ? new Date(t.date_fin).getTime() : 0) >= jd; })).map(j => (
-                  <div key={j.id} style={{ display: 'flex', alignItems: 'center', height: '24px' }}>
-                    <div style={{ width: '195px', paddingRight: '5px', fontSize: '12px', color: '#64748b' }}>{j.titre}</div>
-                    <div style={{ width: `${ganttW}px`, position: 'relative', height: '20px' }}>
-                      <div style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '2px', transform: 'translateX(-50%)', fontSize: '14px' }} title={`${j.titre}`}>{j.atteint ? '✅' : '📍'}</div>
-                    </div>
+                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginLeft: '200px', marginBottom: '4px' }}>📍 Jalons ({jalons.length})</div>
+                <div style={{ display: 'flex', alignItems: 'center', height: '24px' }}>
+                  <div style={{ width: '195px', paddingRight: '5px', fontSize: '11px', color: '#94a3b8' }}></div>
+                  <div style={{ width: `${ganttW}px`, position: 'relative', height: '20px' }}>
+                    {jalons.map(j => (
+                      <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '2px', transform: 'translateX(-50%)', fontSize: '16px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '2px' }}
+                        title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})`}>
+                        {j.atteint ? '✅' : '📍'}
+                        <span style={{ fontSize: '8px', color: '#64748b', whiteSpace: 'nowrap', maxWidth: '60px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.titre}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
               </div>
             )}
           </div>
