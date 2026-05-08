@@ -713,6 +713,24 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                         }).map(j => (
                           <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '2px', transform: 'translateX(-50%)', fontSize: '14px', zIndex: 2 }} title={`📍 ${j.titre}`}>{j.atteint ? '✅' : '📍'}</div>
                         ))}
+                        {/* Flèches de dépendance */}
+                        {dependances.filter(d => d.source_type === 'tache' && d.source_id === t.id).map(d => {
+                          const depT = taches.find(tc => tc.id === d.depend_id);
+                          if (!depT || !depT.date_fin || !t.date_debut) return null;
+                          const xFinDep = toX(depT.date_fin);
+                          const xDebSrc = toX(t.date_debut);
+                          if (xFinDep >= xDebSrc) return null;
+                          const arrowWidth = xDebSrc - xFinDep;
+                          const couleur = depT.statut === 'terminee' ? '#22c55e' : '#ef4444';
+                          return (
+                            <div key={d.id} style={{ position: 'absolute', left: `${xFinDep}px`, top: '8px', width: `${arrowWidth + 4}px`, height: '4px`, zIndex: 3, pointerEvents: 'none' }}>
+                              <svg width={arrowWidth + 4} height="4" style={{ display: 'block' }}>
+                                <line x1="0" y1="2" x2={arrowWidth} y2="2" stroke={couleur} strokeWidth="1.5" strokeDasharray="3,2" />
+                                <polygon points={`${arrowWidth - 1},0 ${arrowWidth - 1},4 ${arrowWidth + 4},2`} fill={couleur} />
+                              </svg>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>);
                   })}
