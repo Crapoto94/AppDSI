@@ -3134,7 +3134,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           const ICON_LIST = ['Activity','BarChart3','Bell','Book','Box','Briefcase','Building','Calendar','CalendarDays','Camera','ChartBar','CheckCircle','Clipboard','Clock','Cloud','Code','Coffee','Compass','CreditCard','Crown','Database','Download','Edit','Eye','File','FileText','Film','Filter','Fingerprint','Flag','Folder','Gift','Globe','Grid','Hash','Headphones','Heart','HelpCircle','Home','Image','Inbox','Info','Key','Layers','Layout','LifeBuoy','Link','List','Loader','Lock','LogOut','Mail','Map','MapPin','Megaphone','Menu','MessageCircle','MessageSquare','Mic','Minus','Monitor','Moon','MoreHorizontal','Music','Navigation','Package','Paperclip','Pause','Pen','Phone','PieChart','Play','Plus','Podcast','Power','Printer','Radio','RefreshCw','Repeat','RotateCcw','Save','Scan','Scissors','Search','Send','Server','Settings','Share','Shield','ShieldAlert','ShoppingCart','Signal','Sliders','Smartphone','Smile','Speaker','Star','StopCircle','Sun','Tablet','Tag','Target','Terminal','ThumbsUp','Ticket','Timer','Tool','Trash2','TrendingUp','Truck','Tv','Twitch','Type','Umbrella','Underline','Undo','Unlink','Unlock','Upload','User','UserCheck','UserPlus','Users','Video','Voicemail','Volume2','Watch','Wifi','Wind','Wrench','X','Zap','ZoomIn','ZoomOut'];
                           const currentIcon = editingTile ? editingTile.icon || 'Box' : newTile.icon || 'Box';
                           const filtered = ICON_LIST.filter(n => n.toLowerCase().includes(iconSearch.toLowerCase()));
-                          const setIcon = (name) => {
+                          const setIcon = (name: string) => {
                             if (editingTile) {
                               setEditingTile({ ...editingTile, icon: name });
                             } else {
@@ -3186,7 +3186,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                       onMouseEnter={e => { if (!isSelected) { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#bae6fd'; } }}
                                       onMouseLeave={e => { if (!isSelected) { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = 'transparent'; } }}
                                     >
-                                      {React.createElement(LucideIcons[name] || LucideIcons.Box, { size: 20, color: isSelected ? '#0284c7' : '#475569' })}
+                                      {React.createElement(LucideIcons[name as keyof typeof LucideIcons] || LucideIcons.Box, { size: 20, color: isSelected ? '#0284c7' : '#475569' })}
                                     </div>
                                   );
                                 })}
@@ -3487,7 +3487,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         <button className="icon-btn small" onClick={() => handleMoveTile(index, 'down')} disabled={index === tiles.length - 1}><ChevronDown size={12} /></button>
                                     </div>
                                 </td>
-                                <td><div className="avatar bg-gray-100">{React.createElement(LucideIcons[tile.icon?.charAt(0).toUpperCase() + tile.icon?.slice(1)] || LucideIcons.Box, { size: 18 })}</div></td>
+                                <td><div className="avatar bg-gray-100">{React.createElement(LucideIcons[(tile.icon?.charAt(0).toUpperCase() + tile.icon?.slice(1)) as keyof typeof LucideIcons] || LucideIcons.Box, { size: 18 })}</div></td>
                                 <td><span className="font-bold text-gray-900">{tile.title}</span></td>
                                 <td><span className="text-sm text-gray-500 line-clamp-1">{tile.description}</span></td>
                                 <td>
