@@ -24,6 +24,8 @@ services:
       - ./backend/file_certif:/app/file_certif
       - ./backend/file_telecom:/app/file_telecom
       - ./backend/magapp_img:/app/magapp_img
+      # Base de données SQLite persistée
+      - ./backend/data:/app/data
       # Dossier de logs pour éviter les conflits de montage de fichiers inexistants
       - ./backend/logs:/app/logs
     networks:

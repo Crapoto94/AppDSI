@@ -3,15 +3,18 @@ const { open } = require('sqlite');
 const path = require('path');
 
 async function setupDb() {
+    const dbDir = path.join(__dirname, '..', 'data');
+    require('fs').mkdirSync(dbDir, { recursive: true });
+
     const db = await open({
-        filename: path.join(__dirname, '..', 'database.sqlite'),
+        filename: path.join(dbDir, 'database.sqlite'),
         driver: sqlite3.Database
     });
 
     await db.exec('PRAGMA busy_timeout = 30000');
 
-    const gfDbPath = path.join(__dirname, '..', 'oracle_gf.sqlite');
-    const rhDbPath = path.join(__dirname, '..', 'oracle_rh.sqlite');
+    const gfDbPath = path.join(dbDir, 'oracle_gf.sqlite');
+    const rhDbPath = path.join(dbDir, 'oracle_rh.sqlite');
 
     try {
         await db.exec(`ATTACH DATABASE '${gfDbPath}' AS gf`);
