@@ -572,6 +572,14 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
           ))}
         </div>
       )}
+      {jalons.filter(j => !j.atteint && new Date(j.date_jalon) < today).length > 0 && (
+        <div style={{ background: '#fef2f2', borderRadius: '10px', border: '1px solid #fecaca', padding: '12px 16px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '13px', fontWeight: '700', color: '#dc2626' }}>⚠️ {jalons.filter(j => !j.atteint && new Date(j.date_jalon) < today).length} jalon(s) en retard</div>
+          {jalons.filter(j => !j.atteint && new Date(j.date_jalon) < today).slice(0, 5).map(j => (
+            <div key={j.id} style={{ fontSize: '12px', color: '#991b1b' }}>📍 {j.titre} (date: {new Date(j.date_jalon).toLocaleDateString('fr-FR')})</div>
+          ))}
+        </div>
+      )}
       {alertesDep.length > 0 && (
         <div style={{ background: '#fffbeb', borderRadius: '10px', border: '1px solid #fde68a', padding: '12px 16px', marginBottom: '16px' }}>
           <div style={{ fontSize: '13px', fontWeight: '700', color: '#92400e' }}>🔗 {alertesDep.length} alerte(s) de dépendance</div>
@@ -669,15 +677,16 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                 <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>📍 Jalons ({jalons.length})</div>
                 <div style={{ width: `${ganttW}px`, position: 'relative', height: '26px', background: '#faf5ff', borderRadius: '6px', padding: '2px 0' }}>
                   {jalons.map(j => {
+                    const estEnRetard = !j.atteint && new Date(j.date_jalon) < today;
                     const depTache = dependances.filter(d => d.depend_type === 'jalon' && d.depend_id === j.id);
                     const depVersTache = depTache.map(d => taches.find(tc => tc.id === d.source_id)).filter(Boolean);
-                    // Flèche depuis la tâche dont ce jalon dépend
                     const depDeTache = dependances.filter(d => d.source_type === 'jalon' && d.source_id === j.id);
                     return (
                       <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '3px', transform: 'translateX(-50%)', fontSize: '14px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
-                        title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})${depVersTache.length ? ' - Lié à: ' + depVersTache.map(t => t.titre).join(', ') : ''}${depDeTache.length ? ' - Dépend de tâche' : ''}`}>
-                        {j.atteint ? '✅' : '📍'}
-                        <span style={{ fontSize: '9px', color: '#6d28d9', fontWeight: '600', whiteSpace: 'nowrap', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.titre}</span>
+                        title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})${estEnRetard ? ' - EN RETARD!' : ''}${depVersTache.length ? ' - Lié à: ' + depVersTache.map(t => t.titre).join(', ') : ''}${depDeTache.length ? ' - Dépend de tâche' : ''}`}>
+                        {j.atteint ? '✅' : estEnRetard ? '🔴' : '📍'}
+                        <span style={{ fontSize: '9px', color: estEnRetard ? '#dc2626' : '#6d28d9', fontWeight: '600', whiteSpace: 'nowrap', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.titre}</span>
+                        {estEnRetard && <span style={{ fontSize: '8px', color: '#dc2626', fontWeight: '800' }}>⚠️</span>}
                       </div>
                     );
                   })}
