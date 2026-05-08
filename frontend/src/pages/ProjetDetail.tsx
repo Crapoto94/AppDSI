@@ -1277,17 +1277,127 @@ const ScoreTab: React.FC<{ projetId: number; token: string | null }> = ({ projet
           </div>
         ))}
       </div>
+    </div>
+  );
+};
+
+// ===== ONGLET INDICATEURS =====
+const IndicateursTab: React.FC<{ projetId: number; token: string | null }> = ({ projetId, token }) => {
+  const [indicateurs, setIndicateurs] = useState<any[]>([]);
+  useEffect(() => {
+    fetch(`/api/projets/${projetId}/indicateurs`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (Array.isArray(d)) setIndicateurs(d); }).catch(() => {});
+  }, [projetId, token]);
+  if (indicateurs.length === 0) return <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Aucun indicateur saisi</p>;
+  return (
+    <div style={{ display: 'grid', gap: '8px' }}>
+      {indicateurs.map(ind => (
+        <div key={ind.id} style={{ background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', textTransform: 'capitalize' }}>{ind.type_indicateur}</span>
+            {ind.commentaire && <span style={{ color: '#64748b', marginLeft: '8px', fontSize: '12px' }}>— {ind.commentaire}</span>}
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <span style={{ fontWeight: '700', color: '#2563eb' }}>{ind.valeur}</span>
+            <div style={{ fontSize: '11px', color: '#94a3b8' }}>{new Date(ind.date_saisie).toLocaleDateString('fr-FR')}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ===== ONGLET ADMIN =====
+const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Projet; onRefresh: () => void }> = ({ projetId, token, projet, onRefresh }) => {
+  const [controles, setControles] = useState<any[]>([]);
+  const [showAddRole, setShowAddRole] = useState(false);
+  const [newRoleUsername, setNewRoleUsername] = useState('');
+  const [newRoleName, setNewRoleName] = useState('');
+  const [newRoleRole, setNewRoleRole] = useState('equipe_projet');
+
+  useEffect(() => {
+    fetch(`/api/projets/${projetId}/controles`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (d.controles) setControles(d.controles); }).catch(() => {});
+  }, [projetId, token]);
+
+  const addRole = async () => {
+    if (!newRoleUsername) return;
+    await fetch(`/api/projets/${projetId}/roles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ username: newRoleUsername, role: newRoleRole, display_name: newRoleName || newRoleUsername })
+    });
+    setNewRoleUsername(''); setNewRoleName(''); setShowAddRole(false);
+    onRefresh();
+  };
+
+  const removeRole = async (roleId: number) => {
+    await fetch(`/api/projets/${projetId}/roles/${roleId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    onRefresh();
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Checklist documentaire</h3>
+        {controles.length === 0 ? (
+          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun document attendu pour la phase actuelle.</p>
+        ) : (
+          controles.map(c => (
+            <div key={c.type} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
+              <span style={{ fontSize: '16px' }}>{c.present ? '✅' : '⚠️'}</span>
+              <span style={{ flex: 1, color: '#1e293b', fontWeight: '500' }}>{c.label}</span>
+              <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: '600', background: c.present ? '#dcfce7' : '#fef3c7', color: c.present ? '#16a34a' : '#d97706' }}>
+                {c.present ? 'Présent' : 'Manquant'}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>
-            📋 Types documentaires attendus ({attendus.filter((a: any) => a.attendu_pour_ce_projet).length}/{attendus.length})
-          </h3>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button onClick={() => setShowNewType(!showNewType)} style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#475569' }}>+ Nouveau type</button>
-            <button onClick={saveAttendus} disabled={savingAttendus} style={{ padding: '5px 12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', opacity: savingAttendus ? 0.5 : 1 }}>
-              {savingAttendus ? '...' : '💾 Enregistrer'}
-            </button>
+          <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Parties prenantes ({projet.roles?.length || 0})</h3>
+          <button onClick={() => setShowAddRole(!showAddRole)}
+            style={{ padding: '6px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <UserPlus size={14} /> Ajouter
+          </button>
+        </div>
+        {showAddRole && (
+          <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input value={newRoleUsername} onChange={e => setNewRoleUsername(e.target.value)} placeholder="Login" style={{ flex: 1, padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+              <input value={newRoleName} onChange={e => setNewRoleName(e.target.value)} placeholder="Nom d'affichage" style={{ flex: 1, padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+              <select value={newRoleRole} onChange={e => setNewRoleRole(e.target.value)} style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
+                <option value="equipe_projet">Équipe</option>
+                <option value="partie_prenante">Partie prenante</option>
+                <option value="pour_info">Pour info</option>
+              </select>
+              <button onClick={addRole} style={{ padding: '7px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }}>+</button>
+            </div>
           </div>
+        )}
+        {(!projet.roles || projet.roles.length === 0) ? (
+          <p style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>Aucune personne assignée</p>
+        ) : projet.roles.map(r => (
+          <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
+            <div>
+              <span style={{ color: '#1e293b', fontWeight: '600' }}>{r.display_name || r.username}</span>
+              <span style={{ color: '#64748b', marginLeft: '8px', textTransform: 'capitalize' }}>({r.role === 'equipe_projet' ? 'Équipe' : r.role === 'partie_prenante' ? 'Partie prenante' : 'Pour info'})</span>
+            </div>
+            <button onClick={() => removeRole(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '13px', padding: '2px 6px', borderRadius: '4px' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>✕</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>
+          📋 Types documentaires attendus ({attendus.filter((a: any) => a.attendu_pour_ce_projet).length}/{attendus.length})
+        </h3>
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+          <button onClick={() => setShowNewType(!showNewType)} style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#475569' }}>+ Nouveau type</button>
+          <button onClick={saveAttendus} disabled={savingAttendus} style={{ padding: '5px 12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', opacity: savingAttendus ? 0.5 : 1 }}>
+            {savingAttendus ? '...' : '💾 Enregistrer'}
+          </button>
         </div>
         {showNewType && (
           <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -1295,7 +1405,7 @@ const ScoreTab: React.FC<{ projetId: number; token: string | null }> = ({ projet
             <input value={newTypeLabel} onChange={e => setNewTypeLabel(e.target.value)} placeholder="Libellé" style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '120px' }} />
             <select value={newTypePhase} onChange={e => setNewTypePhase(e.target.value)} style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
               <option value="">Toutes phases</option>
-              {STATUT_PHASES.filter(p => p.value).map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+              {[ { value: 'idee', label: 'Idée' }, { value: 'demande_initiale', label: 'Demande initiale' }, { value: 'etude_dsi', label: 'Étude DSI' }, { value: 'arbitrage', label: 'Arbitrage' }, { value: 'planification', label: 'Planification' }, { value: 'en_cours', label: 'En cours' }, { value: 'en_recette', label: 'En recette' }, { value: 'en_cloture', label: 'En clôture' }, { value: 'cloture', label: 'Clôturé' } ].map((p: any) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
             <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <input type="checkbox" checked={newTypeObligatoire} onChange={e => setNewTypeObligatoire(e.target.checked)} /> Obligatoire
@@ -1310,7 +1420,7 @@ const ScoreTab: React.FC<{ projetId: number; token: string | null }> = ({ projet
               <span style={{ flex: 1, color: '#1e293b', fontWeight: a.attendu_pour_ce_projet ? '600' : '400' }}>{a.label}</span>
               <select value={a.phase_projet || a.phase_concernee || ''} onChange={e => setPhase(a.code, e.target.value)}
                 style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', background: 'white', opacity: a.attendu_pour_ce_projet ? 1 : 0.5, maxWidth: '130px' }}>
-                {STATUT_PHASES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                {[ { value: '', label: 'Toutes phases' }, { value: 'idee', label: 'Idée' }, { value: 'demande_initiale', label: 'Demande initiale' }, { value: 'etude_dsi', label: 'Étude DSI' }, { value: 'arbitrage', label: 'Arbitrage' }, { value: 'planification', label: 'Planification' }, { value: 'en_cours', label: 'En cours' }, { value: 'en_recette', label: 'En recette' }, { value: 'en_cloture', label: 'En clôture' }, { value: 'cloture', label: 'Clôturé' } ].map((p: any) => <option key={p.value} value={p.value}>{p.label}</option>)}
               </select>
               <span style={{ fontSize: '10px', color: '#94a3b8', whiteSpace: 'nowrap' }}>({a.obligatoire ? 'obligatoire' : 'optionnel'})</span>
             </div>
