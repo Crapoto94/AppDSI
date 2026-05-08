@@ -566,12 +566,12 @@ const DOCUMENTS_DIR = path.join(__dirname, '..', '..', 'file_projets');
 const creerDocument = async (req, res) => {
     try {
         const { id } = req.params;
-        const { type_documentaire, phase_concernee, description, est_attendu } = req.body;
+        const { type_documentaire, phase_concernee, description, est_attendu, est_contractuel, url, type_vrac } = req.body;
         const username = req.user.username;
 
         const result = await pgDb.run(
-            `INSERT INTO projet_documents (projet_id, type_documentaire, phase_concernee, description, est_attendu, created_by_username) VALUES ($1, $2, $3, $4, $5, $6)`,
-            [id, type_documentaire, phase_concernee || null, description || null, est_attendu ? 1 : 0, username]
+            `INSERT INTO projet_documents (projet_id, type_documentaire, phase_concernee, description, est_attendu, est_contractuel, url, type_vrac, created_by_username) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [id, type_documentaire, phase_concernee || null, description || null, est_attendu ? 1 : 0, est_contractuel ? 1 : 0, url || null, type_vrac ? 1 : 0, username]
         );
 
         res.status(201).json({ id: result.lastID, message: 'Document créé' });
@@ -628,6 +628,37 @@ const uploadVersion = async (req, res) => {
         }
 
         res.status(201).json({ version: newVersion, message: 'Version déposée' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const uploadVersionsVrac = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const username = req.user.username;
+        if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'Aucun fichier' });
+
+        if (!fs.existsSync(DOCUMENTS_DIR)) fs.mkdirSync(DOCUMENTS_DIR, { recursive: true });
+
+        const results = [];
+        for (const file of req.files) {
+            const docResult = await pgDb.run(
+                `INSERT INTO projet_documents (projet_id, type_documentaire, type_vrac, created_by_username) VALUES ($1, 'documentation_en_vrac', 1, $2)`,
+                [id, username]
+            );
+            const did = docResult.lastID;
+            const ext = path.extname(file.originalname);
+            const stockage = `${Date.now()}_${did}${ext}`;
+            const destPath = path.join(DOCUMENTS_DIR, stockage);
+            fs.renameSync(file.path, destPath);
+            await pgDb.run(
+                `INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username) VALUES ($1, 'v1.0', $2, $3, $4, $5, 1, $6)`,
+                [did, stockage, file.originalname, file.size, file.mimetype, username]
+            );
+            results.push({ id: did, nom: file.originalname });
+        }
+        res.status(201).json({ count: results.length, documents: results });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1387,7 +1418,7 @@ module.exports = {
     getTransitionsPossibles, effectuerTransition, getControles,
     ajouterRole, supprimerRole,
     ajouterVisibilite, supprimerVisibilite,
-    creerDocument, uploadVersion, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
+    creerDocument, uploadVersion, uploadVersionsVrac, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
     enregistrerScore, getScores, getScoreCalcule,
     lierReunion, delierReunion, getReunionsLiees,
     getJournal, ajouterEntreeJournal,

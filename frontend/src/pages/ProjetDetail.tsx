@@ -995,52 +995,96 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
 // ===== ONGLET DOCUMENTS =====
 const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents: any[]; onVoirDocument: (url: string, nom: string) => void }> = ({ projetId, token, documents, onVoirDocument }) => {
   const [docs, setDocs] = useState(documents);
+  const [sousOnglet, setSousOnglet] = useState('documents');
   const [showUpload, setShowUpload] = useState(false);
   const [uploadType, setUploadType] = useState('');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadUrl, setUploadUrl] = useState('');
+  const [uploadContractuel, setUploadContractuel] = useState(false);
   const [uploadToJournal, setUploadToJournal] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => { setDocs(documents); }, [documents]);
 
   const handleUpload = async () => {
-    if (!uploadType || !uploadFile) return;
+    if (!uploadType || (!uploadFile && !uploadUrl)) return;
+    setUploading(true);
     const docRes = await fetch(`/api/projets/${projetId}/documents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ type_documentaire: uploadType })
+      body: JSON.stringify({ type_documentaire: uploadType, est_contractuel: uploadContractuel, url: uploadUrl || null })
     });
     const docData = await docRes.json();
-    if (!docData.id) return;
+    if (!docData.id) { setUploading(false); return; }
 
-    const form = new FormData();
-    form.append('file', uploadFile);
-    form.append('commentaire', '');
-    form.append('journal', uploadToJournal ? 'true' : 'false');
-    await fetch(`/api/projets/${projetId}/documents/${docData.id}/versions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form
-    });
+    if (uploadFile) {
+      const form = new FormData();
+      form.append('file', uploadFile);
+      form.append('commentaire', '');
+      form.append('journal', uploadToJournal ? 'true' : 'false');
+      await fetch(`/api/projets/${projetId}/documents/${docData.id}/versions`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
+      });
+    }
 
-    setShowUpload(false); setUploadFile(null); setUploadType('');
+    setShowUpload(false); setUploadFile(null); setUploadUrl(''); setUploadType(''); setUploadContractuel(false);
     const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
     const d = await r.json();
     if (Array.isArray(d)) setDocs(d);
+    setUploading(false);
   };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    setUploading(true);
+    const form = new FormData();
+    files.forEach(f => form.append('files', f));
+    await fetch(`/api/projets/${projetId}/documents/versions/vrac`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
+    });
+    const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json();
+    if (Array.isArray(d)) setDocs(d);
+    setUploading(false);
+  };
+
+  const docsFiltres = sousOnglet === 'contractuels' ? docs.filter(d => d.est_contractuel)
+    : sousOnglet === 'vrac' ? docs.filter(d => d.type_vrac)
+    : docs.filter(d => !d.type_vrac);
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-        <button onClick={() => setShowUpload(!showUpload)}
-          style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+      {/* Sous-onglets */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '14px', borderBottom: '2px solid #e2e8f0' }}>
+        {[
+          { key: 'documents', label: `Documents (${docs.filter(d => !d.type_vrac).length})` },
+          { key: 'contractuels', label: `📝 Contractuels (${docs.filter(d => d.est_contractuel).length})` },
+          { key: 'vrac', label: `📦 Vrac (${docs.filter(d => d.type_vrac).length})` }
+        ].map(t => (
+          <button key={t.key} onClick={() => setSousOnglet(t.key)} style={{
+            padding: '7px 14px', border: 'none', borderBottom: sousOnglet === t.key ? '2px solid #2563eb' : '2px solid transparent',
+            background: 'transparent', cursor: 'pointer', fontWeight: sousOnglet === t.key ? '700' : '500',
+            color: sousOnglet === t.key ? '#2563eb' : '#64748b', fontSize: '13px', marginBottom: '-2px'
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* Zone upload */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
+        <button onClick={() => setShowUpload(!showUpload)} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Upload size={16} /> Déposer un document
         </button>
       </div>
+
       {showUpload && (
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Type de document</label>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: '150px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Type</label>
               <select value={uploadType} onChange={e => setUploadType(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
                 <option value="">Sélectionner...</option>
                 {['fiche_idee','fiche_demande','charte_projet','note_arbitrage','plan_projet','plan_communication','compte_rendu','va','vsr','doc_fonctionnelle','doc_technique','bilan_cloture','autre'].map(t => (
@@ -1048,42 +1092,71 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
                 ))}
               </select>
             </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Fichier</label>
+            <div style={{ flex: 1, minWidth: '150px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Fichier (ou lien)</label>
               <input type="file" onChange={e => setUploadFile(e.target.files?.[0] || null)} style={{ width: '100%', padding: '6px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
             </div>
-            <button onClick={handleUpload} disabled={!uploadType || !uploadFile}
-              style={{ padding: '8px 18px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', opacity: (!uploadType || !uploadFile) ? 0.5 : 1 }}>Uploader</button>
+            <div style={{ flex: 1, minWidth: '150px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Ou lien URL</label>
+              <input value={uploadUrl} onChange={e => setUploadUrl(e.target.value)} placeholder="https://sharepoint/..." style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+            </div>
+            <button onClick={handleUpload} disabled={uploading || !uploadType || (!uploadFile && !uploadUrl)}
+              style={{ padding: '8px 18px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', opacity: (uploading || !uploadType || (!uploadFile && !uploadUrl)) ? 0.5 : 1, whiteSpace: 'nowrap' }}>{uploading ? '...' : 'Ajouter'}</button>
           </div>
-          <div style={{ marginTop: '10px' }}>
+          <div style={{ marginTop: '10px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
+              <input type="checkbox" checked={uploadContractuel} onChange={e => setUploadContractuel(e.target.checked)} style={{ cursor: 'pointer' }} />
+              Document contractuel
+            </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
               <input type="checkbox" checked={uploadToJournal} onChange={e => setUploadToJournal(e.target.checked)} style={{ cursor: 'pointer' }} />
               Ajouter au journal
             </label>
           </div>
-        </div>  
+        </div>
       )}
-      {docs.length === 0 ? (
-        <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Aucun document</p>
+
+      {/* Zone glisser-déposer vrac */}
+      <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
+        style={{ background: dragOver ? '#eff6ff' : '#f8fafc', borderRadius: '12px', border: `2px dashed ${dragOver ? '#2563eb' : '#e2e8f0'}`, padding: '30px', marginBottom: '16px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
+        <div style={{ fontSize: '13px', color: dragOver ? '#2563eb' : '#94a3b8', fontWeight: '600' }}>
+          📦 Glissez-déposez des fichiers ici<br />
+          <span style={{ fontSize: '11px', fontWeight: '400' }}>Ils seront classés comme "documentation en vrac"</span>
+        </div>
+      </div>
+
+      {/* Liste documents */}
+      {docsFiltres.length === 0 ? (
+        <p style={{ color: '#94a3b8', textAlign: 'center', padding: '30px', fontSize: '13px' }}>Aucun document</p>
       ) : (
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-              <thead><tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+            <thead><tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
               <th style={{ padding: '10px 14px', textAlign: 'left', color: '#475569', fontWeight: '700' }}>Type</th>
               <th style={{ padding: '10px 14px', textAlign: 'center', color: '#475569', fontWeight: '700' }}>Version</th>
-              <th style={{ padding: '10px 14px', textAlign: 'left', color: '#475569', fontWeight: '700' }}>Fichier</th>
+              <th style={{ padding: '10px 14px', textAlign: 'left', color: '#475569', fontWeight: '700' }}>Fichier / Lien</th>
               <th style={{ padding: '10px 14px', textAlign: 'left', color: '#475569', fontWeight: '700' }}>Date</th>
               <th style={{ padding: '10px 14px', textAlign: 'center', color: '#475569', fontWeight: '700' }}></th>
             </tr></thead>
             <tbody>
-              {docs.map(d => (
-                <tr key={d.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+              {docsFiltres.map(d => (
+                <tr key={d.id} style={{ borderBottom: '1px solid #f1f5f9', background: d.est_contractuel ? '#fffbeb' : 'white' }}>
                   <td style={{ padding: '10px 14px' }}>
-                    <div style={{ fontWeight: '600', color: '#1e293b', textTransform: 'capitalize' }}>{d.type_documentaire.replace(/_/g, ' ')}</div>
+                    <div style={{ fontWeight: '600', color: '#1e293b', textTransform: 'capitalize', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {d.type_documentaire.replace(/_/g, ' ')}
+                      {d.est_contractuel ? <span style={{ fontSize: '10px', padding: '1px 5px', background: '#fef3c7', borderRadius: '3px', color: '#92400e', fontWeight: '700' }}>C</span> : null}
+                    </div>
                     {d.phase_concernee && <div style={{ fontSize: '11px', color: '#94a3b8' }}>{d.phase_concernee}</div>}
                   </td>
                   <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: '700', color: d.version_courante ? '#2563eb' : '#94a3b8' }}>{d.version_courante || '—'}</td>
-                  <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>{d.fichier_nom_original || '—'}</td>
+                  <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>
+                    {d.url ? (
+                      <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: '3px' }}
+                        onClick={e => e.stopPropagation()}>
+                        🔗 {d.url.substring(0, 40)}...
+                      </a>
+                    ) : (d.fichier_nom_original || '—')}
+                  </td>
                   <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>{new Date(d.date_creation).toLocaleDateString('fr-FR')}</td>
                   <td style={{ padding: '10px 14px', textAlign: 'center' }}>
                     {d.version_courante_id ? (
@@ -1096,8 +1169,12 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
                           const viewerUrl = `/api/projets/${projetId}/documents/${d.id}/versions/${versionActive.id}/view?mode=inline&token=${token}`;
                           onVoirDocument(viewerUrl, `${d.type_documentaire.replace(/_/g, ' ')} ${versionActive.version}`);
                         }
-                      }} style={{ padding: '5px 12px', background: '#eff6ff', borderRadius: '6px', fontSize: '12px', fontWeight: '600', color: '#2563eb', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                      }} style={{ padding: '5px 12px', background: d.est_contractuel ? '#fef3c7' : '#eff6ff', borderRadius: '6px', fontSize: '12px', fontWeight: '600', color: '#2563eb', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
                         👁️ Voir
+                      </a>
+                    ) : d.url ? (
+                      <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 12px', background: '#fef3c7', borderRadius: '6px', fontSize: '12px', fontWeight: '600', color: '#2563eb', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        🔗 Ouvrir
                       </a>
                     ) : <span style={{ color: '#cbd5e1', fontSize: '12px' }}>—</span>}
                   </td>

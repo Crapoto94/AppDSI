@@ -775,21 +775,37 @@ async function setupPgDb() {
           END IF;
         END $$;
       `);
-      console.log('[PG DB] Colonne meteo ajoutée à projets.projets');
-    } catch (e) {
-      console.warn('[PG DB] Erreur ajout colonne meteo:', e.message);
-    }
+    } catch (e) {}
 
-    // Migration: Ajouter colonne groupe_id
+    // Migration: colonnes est_contractuel et url dans projet_documents
     try {
       await client.query(`
         DO $$ BEGIN
-          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_taches' AND column_name='groupe_id') THEN
-            ALTER TABLE projets.projet_taches ADD COLUMN groupe_id INTEGER REFERENCES projets.projet_groupes_taches(id) ON DELETE SET NULL;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_documents' AND column_name='est_contractuel') THEN
+            ALTER TABLE projets.projet_documents ADD COLUMN est_contractuel INTEGER DEFAULT 0;
           END IF;
         END $$;
       `);
-    } catch (e) {} 
+    } catch (e) {}
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_documents' AND column_name='url') THEN
+            ALTER TABLE projets.projet_documents ADD COLUMN url TEXT;
+          END IF;
+        END $$;
+      `);
+    } catch (e) {}
+    // Migration: colonne type_vrac pour distinguer les documents en vrac
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_documents' AND column_name='type_vrac') THEN
+            ALTER TABLE projets.projet_documents ADD COLUMN type_vrac INTEGER DEFAULT 0;
+          END IF;
+        END $$;
+      `);
+    } catch (e) {}
 
     // ============================================
     // PROJETS - Planning / Tâches
