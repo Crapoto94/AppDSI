@@ -52,6 +52,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
   const [showTileModal, setShowTileModal] = useState(false);
+  const [iconSearch, setIconSearch] = useState('');
   const [newTile, setNewTile] = useState({ title: '', icon: 'Box', description: '', status: 'active' as any, is_public: false });
   const [editingTile, setEditingTile] = useState<TileData | null>(null);
   const [editingLinks, setEditingLinks] = useState<any[]>([]);
@@ -3132,8 +3133,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         {(() => {
                           const ICON_LIST = ['Activity','BarChart3','Bell','Book','Box','Briefcase','Building','Calendar','CalendarDays','Camera','ChartBar','CheckCircle','Clipboard','Clock','Cloud','Code','Coffee','Compass','CreditCard','Crown','Database','Download','Edit','Eye','File','FileText','Film','Filter','Fingerprint','Flag','Folder','Gift','Globe','Grid','Hash','Headphones','Heart','HelpCircle','Home','Image','Inbox','Info','Key','Layers','Layout','LifeBuoy','Link','List','Loader','Lock','LogOut','Mail','Map','MapPin','Megaphone','Menu','MessageCircle','MessageSquare','Mic','Minus','Monitor','Moon','MoreHorizontal','Music','Navigation','Package','Paperclip','Pause','Pen','Phone','PieChart','Play','Plus','Podcast','Power','Printer','Radio','RefreshCw','Repeat','RotateCcw','Save','Scan','Scissors','Search','Send','Server','Settings','Share','Shield','ShieldAlert','ShoppingCart','Signal','Sliders','Smartphone','Smile','Speaker','Star','StopCircle','Sun','Tablet','Tag','Target','Terminal','ThumbsUp','Ticket','Timer','Tool','Trash2','TrendingUp','Truck','Tv','Twitch','Type','Umbrella','Underline','Undo','Unlink','Unlock','Upload','User','UserCheck','UserPlus','Users','Video','Voicemail','Volume2','Watch','Wifi','Wind','Wrench','X','Zap','ZoomIn','ZoomOut'];
                           const currentIcon = editingTile ? editingTile.icon || 'Box' : newTile.icon || 'Box';
-                          const [search, setSearch] = React.useState('');
-                          const filtered = ICON_LIST.filter(n => n.toLowerCase().includes(search.toLowerCase()));
+                          const filtered = ICON_LIST.filter(n => n.toLowerCase().includes(iconSearch.toLowerCase()));
                           const setIcon = (name) => {
                             if (editingTile) {
                               setEditingTile({ ...editingTile, icon: name });
@@ -3146,7 +3146,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                               <input
                                 type="text"
                                 value={search}
-                                onChange={e => setSearch(e.target.value)}
+                                  onChange={e => setIconSearch(e.target.value)}
                                 style={{
                                   width: '100%', padding: '10px 14px', marginBottom: '12px',
                                   border: '2px solid #7dd3fc', borderRadius: '10px',
