@@ -171,7 +171,9 @@ const getAll = async (req, res) => {
             SELECT p.*,
                    (SELECT COUNT(*) FROM projet_roles pr WHERE pr.projet_id = p.id) as nb_roles,
                    (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
-                   (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions
+                   (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
+                   (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin < CURRENT_DATE) as nb_taches_en_retard,
+                   (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon < CURRENT_DATE) as nb_jalons_en_retard
             FROM projets p
             ${where}
             ORDER BY ${orderBy}
@@ -954,6 +956,13 @@ const getStats = async (req, res) => {
                     JOIN projet_types_documentaires t ON t.code = d.type_documentaire
                     WHERE d.projet_id = p.id AND (t.phase_concernee IS NULL OR t.phase_concernee = p.statut) AND t.obligatoire = 1
                 )
+            )
+        `);
+        const alertesRetard = await pgDb.get(`
+            SELECT COUNT(*) as count FROM projets WHERE id IN (
+                SELECT DISTINCT pt.projet_id FROM projet_taches pt WHERE pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin < CURRENT_DATE
+                UNION
+                SELECT DISTINCT pj.projet_id FROM projet_jalons pj WHERE pj.atteint = 0 AND pj.date_jalon < CURRENT_DATE
             )
         `);
 

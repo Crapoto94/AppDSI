@@ -475,7 +475,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
     if (data.id && newJalon.depend_id) {
       await fetch(`/api/projets/${projetId}/dependances`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ source_type: newJalon.depend_type, source_id: parseInt(newJalon.depend_id), depend_type: 'jalon', depend_id: data.id })
+        body: JSON.stringify({ source_type: 'jalon', source_id: data.id, depend_type: newJalon.depend_type, depend_id: parseInt(newJalon.depend_id) })
       });
     }
     setNewJalon({ titre: '', date_jalon: '', type: 'jalon', depend_id: '', depend_type: 'tache' });

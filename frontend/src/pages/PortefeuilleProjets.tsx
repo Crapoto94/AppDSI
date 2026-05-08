@@ -10,10 +10,12 @@ interface Projet {
   niveau_projet: string; service_pilote: string; priorite: number;
   score_total: number; avancement: number; meteo: string; date_modification: string;
   nb_roles: number; nb_documents: number; nb_reunions: number;
+  nb_taches_en_retard: number; nb_jalons_en_retard: number;
 }
 
 interface Stats {
   total: number; score_moyen: number; alertes_documentaires: number;
+  alertes_retard: number;
   par_statut: { statut: string; count: number }[];
   par_service: { service_pilote: string; count: number }[];
   par_niveau: { niveau_projet: string; count: number }[];
@@ -134,6 +136,10 @@ const PortefeuilleProjets: React.FC = () => {
               <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase' }}>Alertes docs</div>
               <div style={{ fontSize: '28px', fontWeight: '800', color: (stats.alertes_documentaires || 0) > 0 ? '#dc2626' : '#16a34a' }}>{stats.alertes_documentaires || 0}</div>
             </div>
+            <div style={{ background: 'white', borderRadius: '10px', padding: '16px', border: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase' }}>En retard</div>
+              <div style={{ fontSize: '28px', fontWeight: '800', color: (stats.alertes_retard || 0) > 0 ? '#dc2626' : '#16a34a' }}>{stats.alertes_retard || 0}</div>
+            </div>
             {(stats.par_statut || []).filter((s: any) => s.statut === 'en_cours').map((s: any) => (
               <div key={s.statut} style={{ background: 'white', borderRadius: '10px', padding: '16px', border: '1px solid #e2e8f0' }}>
                 <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '600', textTransform: 'uppercase' }}>En cours</div>
@@ -192,6 +198,7 @@ const PortefeuilleProjets: React.FC = () => {
                   <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase' }}>Priorité</th>
                   <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase' }}>Score</th>
                   <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase' }}>Avancement</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase', width: '40px' }}>⚠️</th>
                   <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase', width: '40px' }}>⭐</th>
                 </tr>
               </thead>
@@ -230,6 +237,11 @@ const PortefeuilleProjets: React.FC = () => {
                         </div>
                       <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', minWidth: '35px' }}>{p.avancement}%</span>
                     </div>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    {(p.nb_taches_en_retard > 0 || p.nb_jalons_en_retard > 0) ? (
+                      <span style={{ fontSize: '16px', cursor: 'pointer' }} title={`${p.nb_taches_en_retard} tâche(s) et ${p.nb_jalons_en_retard} jalon(s) en retard`}>⚠️</span>
+                    ) : <span style={{ color: '#e2e8f0' }}>—</span>}
                   </td>
                   <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                     <span onClick={e => { e.stopPropagation(); toggleFavori(p.id, favoris.includes(p.id)); }} style={{ cursor: 'pointer', fontSize: '18px' }}>
