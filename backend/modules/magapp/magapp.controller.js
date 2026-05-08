@@ -853,10 +853,14 @@ const MagAppController = {
     deleteDoc: async (req, res) => {
         try {
             const { id } = req.params;
+            if (!id || isNaN(Number(id))) {
+                return res.status(400).json({ message: 'ID de document invalide' });
+            }
+            await pool.query('DELETE FROM magapp.doc_interactions WHERE doc_id = $1', [id]);
             await pool.query('DELETE FROM magapp.app_docs WHERE id = $1', [id]);
             res.json({ message: 'Document supprimé' });
         } catch (error) {
-            console.error('[MAGAPP] Error deleting doc:', error.message);
+            console.error('[MAGAPP] Error deleting doc:', error.message, error.stack);
             res.status(500).json({ message: 'Erreur lors de la suppression du document' });
         }
     },
