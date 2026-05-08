@@ -29,10 +29,11 @@ const Login: React.FC<LoginProps> = () => {
       const { user, accessToken } = response.data;
 
       // Sauvegarder les infos utilisateur
+      const resolvedEmail = user.email && user.email.trim() !== '' ? user.email : `${user.username}@ivry94.fr`;
       sessionStorage.setItem('magapp_user', JSON.stringify({
         username: user.username,
         displayName: user.displayName || user.username,
-        email: user.email || ''
+        email: resolvedEmail
       }));
 
       // Si un token JWT a été renvoyé (utilisateur reconnu localement)

@@ -96,8 +96,7 @@ function App() {
   const [showClosedObserved, setShowClosedObserved] = useState(false);
   const [showRencontres, setShowRencontres] = useState(false);
   const [rencontres, setRencontres] = useState<any[]>([]);
-  const [reunionsList, setReunionsList] = useState<any[]>([]);
-  const [hideEffectuees, setHideEffectuees] = useState(false);
+  const [myDemandes, setMyDemandes] = useState<any[]>([]);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
   const [suiviList, setSuiviList] = useState<any[]>([]);
   const [_tiles, setTiles] = useState<any[]>([]);
@@ -149,12 +148,13 @@ function App() {
         const sessionUser = sessionStorage.getItem('magapp_user');
         if (sessionUser) {
           const user = JSON.parse(sessionUser);
+          const resolvedEmail = user.email && user.email.trim() !== '' ? user.email : `${user.username}@ivry94.fr`;
           setWindowLogin(user.username);
           setDisplayName(user.displayName);
-          setUserEmail(user.email);
+          setUserEmail(resolvedEmail);
           setIsLoggedIn(true);
           setIsAutoLogging(false);
-          await loadAppData(user.username, user.email);
+          await loadAppData(user.username, resolvedEmail);
           await checkVersions();
           return;
         }
@@ -309,46 +309,21 @@ function App() {
     }
   };
 
-  // Load rencontres when modal opens
+  // Load my demandes when modal opens
   useEffect(() => {
-    if (showRencontres) {
-      const loadRencontres = async () => {
+    if (showRencontres && userEmail) {
+      const loadMyDemandes = async () => {
         try {
-          const token = localStorage.getItem('token');
-
-          // Charger toutes les demandes
-          const res = await axios.get(`${apiBase}/rencontres-budgetaires`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          const rencontresData = res.data || [];
-          setRencontres(rencontresData);
-
-          // Charger les réunions avec leurs demandes
-          const reunionsRes = await axios.get(`${apiBase}/rencontres-reunions`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          const reunionsBase = reunionsRes.data || [];
-
-          const reunionsWithDemandes = await Promise.all(
-            reunionsBase.map(async (r: any) => {
-              try {
-                const detail = await axios.get(`${apiBase}/rencontres-reunions/${r.id}`, {
-                  headers: { Authorization: `Bearer ${token}` }
-                });
-                return { ...r, demandes: detail.data?.demandes || [] };
-              } catch {
-                return { ...r, demandes: [] };
-              }
-            })
-          );
-          setReunionsList(reunionsWithDemandes);
+          const res = await axios.get(`${apiBase}/magapp/my-demandes?email=${encodeURIComponent(userEmail)}`);
+          setMyDemandes(res.data || []);
         } catch (e) {
-          console.error('Erreur chargement rencontres:', e);
-          setRencontres([]);
-          setReunionsList([]);
+          console.error('Erreur chargement mes demandes:', e);
+          setMyDemandes([]);
         }
       };
-      loadRencontres();
+      loadMyDemandes();
+    } else if (showRencontres) {
+      setMyDemandes([]);
     }
   }, [showRencontres]);
 
@@ -1201,164 +1176,104 @@ function App() {
               <p style={{ color: '#64748b', fontSize: '1rem', marginTop: '8px', marginBottom: '8px' }}>
                 Réunions et demandes par direction / service
               </p>
-              {rencontres && rencontres.length > 0 && (() => {
-                const nonClosed = rencontres.filter((r: any) => r.statut !== 'effectuée').length;
-                return (
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
-                    {nonClosed > 0 ? (
-                      <span style={{ display: 'inline-block', background: '#fef3c7', color: '#92400e', fontWeight: 700, fontSize: '0.8rem', padding: '4px 12px', borderRadius: '12px', border: '1px solid #fde68a' }}>
-                        {nonClosed} en cours
-                      </span>
-                    ) : (
-                      <span style={{ display: 'inline-block', background: '#dcfce7', color: '#166534', fontWeight: 700, fontSize: '0.8rem', padding: '4px 12px', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
-                        Tout traité
-                      </span>
-                    )}
-                    <button onClick={() => setHideEffectuees(h => !h)} style={{ background: hideEffectuees ? '#1e40af' : '#e2e8f0', color: hideEffectuees ? 'white' : '#475569', border: 'none', borderRadius: '12px', padding: '4px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
-                      {hideEffectuees ? 'Afficher les faites' : 'Masquer les faites'}
-                    </button>
-                  </div>
-                );
-              })()}
+
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', borderTop: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', paddingTop: '16px', paddingBottom: '20px' }}>
-              {(() => {
-                // Helper: grouper des demandes par direction puis service
-                const groupDemandes = (demandes: any[]) => {
-                  const byDir: Record<string, Record<string, any[]>> = {};
-                  demandes.forEach((r: any, idx: number) => {
-                    const dir = r.direction?.trim() || '—';
-                    const svc = r.service?.trim() || '—';
-                    if (!byDir[dir]) byDir[dir] = {};
-                    if (!byDir[dir][svc]) byDir[dir][svc] = [];
-                    byDir[dir][svc].push({ ...r, _idx: idx });
-                  });
-                  return byDir;
-                };
-
-                const renderDemandesTable = (demandes: any[], prefix: string) => {
-                  const filtered = hideEffectuees ? demandes.filter((r: any) => r.statut !== 'effectuée') : demandes;
-                  if (!filtered || filtered.length === 0) return <p style={{ color: '#94a3b8', fontSize: '0.82rem', margin: '6px 0 0 0' }}>{hideEffectuees ? 'Toutes les demandes sont faites' : 'Aucune demande'}</p>;
-                  const byDir = groupDemandes(filtered);
-                  return (
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                      <tbody>
-                        {Object.entries(byDir).map(([dir, services]) => (
-                          <>
-                            <tr key={`${prefix}-dir-${dir}`}>
-                              <td colSpan={3} style={{ padding: '7px 10px 5px', background: '#334155', color: '#e2e8f0', fontWeight: 800, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                                {dir}
-                              </td>
-                            </tr>
-                            {Object.entries(services).map(([svc, items]) => (
-                              <>
-                                {svc !== '—' && (
-                                  <tr key={`${prefix}-svc-${dir}-${svc}`}>
-                                    <td colSpan={3} style={{ padding: '4px 18px 3px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                                      {svc}
-                                    </td>
-                                  </tr>
-                                )}
-                                {items.map((r: any) => (
-                                  <tr key={`${prefix}-${r.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: r.statut === 'effectuée' ? '#f0fdf4' : 'white' }}>
-                                    <td style={{ padding: '8px 10px', color: '#1e293b' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        {r.statut === 'effectuée'
-                                          ? <CheckCircle2 size={14} color="#16a34a" />
-                                          : r.type?.toLowerCase() === 'projet' ? <Briefcase size={13} color="#7c3aed" /> : r.type?.toLowerCase() === 'incident' ? <AlertTriangle size={13} color="#dc2626" /> : <FileText size={13} color="#0284c7" />}
-                                        <span style={{ color: r.statut === 'effectuée' ? '#15803d' : '#1e293b' }}>{r.titre || r.description}</span>
-                                        {r.commentaires && (
-                                          <span
-                                            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', marginLeft: '4px', color: '#64748b' }}
-                                            onMouseEnter={e => {
-                                              const el = document.getElementById('comment-tooltip'); if (el) el.remove();
-                                              const tip = document.createElement('div');
-                                              tip.id = 'comment-tooltip';
-                                              tip.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#fff;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:360px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;white-space:pre-wrap;';
-                                              tip.textContent = r.commentaires;
-                                              document.body.appendChild(tip);
-                                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                              const tipH = tip.getBoundingClientRect().height;
-                                              const top = rect.bottom + 6 + tipH > window.innerHeight ? rect.top - tipH - 6 : rect.bottom + 6;
-                                              tip.style.top = top + 'px';
-                                              tip.style.left = Math.min(rect.left, window.innerWidth - 370) + 'px';
-                                            }}
-                                            onMouseLeave={() => { const el = document.getElementById('comment-tooltip'); if (el) el.remove(); }}
-                                          >
-                                            <MessageSquare size={13} />
+              <div>
+                {!myDemandes || myDemandes.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
+                      <p>Aucune demande liée à vos participations aux réunions</p>
+                    </div>
+                  ) : (() => {
+                    const byDir: Record<string, Record<string, any[]>> = {};
+                    for (const r of myDemandes) {
+                      const dir = r.direction || '—';
+                      const svc = r.service || '—';
+                      if (!byDir[dir]) byDir[dir] = {};
+                      if (!byDir[dir][svc]) byDir[dir][svc] = [];
+                      byDir[dir][svc].push(r);
+                    }
+                    return (
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ background: '#f1f5f9' }}>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Demande</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Suivi</th>
+                            <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Arbitrage</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(byDir).map(([dir, services]) => (
+                            <React.Fragment key={`my-dir-${dir}`}>
+                              <tr>
+                                <td colSpan={3} style={{ padding: '7px 10px 5px', background: '#334155', color: '#e2e8f0', fontWeight: 800, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                                  {dir}
+                                </td>
+                              </tr>
+                              {Object.entries(services).map(([svc, items]) => (
+                                <React.Fragment key={`my-svc-${dir}-${svc}`}>
+                                  {svc !== '—' && (
+                                    <tr>
+                                      <td colSpan={3} style={{ padding: '4px 18px 3px', background: '#f1f5f9', fontWeight: 700, color: '#0284c7', fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                        {svc}
+                                      </td>
+                                    </tr>
+                                  )}
+                                  {items.map((r: any) => (
+                                    <tr key={`my-${r.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: r.statut === 'effectuée' ? '#f0fdf4' : 'white' }}>
+                                      <td style={{ padding: '8px 10px', color: '#1e293b' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          {r.statut === 'effectuée'
+                                            ? <CheckCircle2 size={14} color="#16a34a" />
+                                            : r.type?.toLowerCase() === 'projet' ? <Briefcase size={13} color="#7c3aed" /> : r.type?.toLowerCase() === 'incident' ? <AlertTriangle size={13} color="#dc2626" /> : <FileText size={13} color="#0284c7" />}
+                                          <span style={{ color: r.statut === 'effectuée' ? '#15803d' : '#1e293b' }}>{r.titre || r.description}</span>
+                                          {r.commentaires && (
+                                            <span
+                                              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', marginLeft: '4px', color: '#64748b' }}
+                                              onMouseEnter={e => {
+                                                const el = document.getElementById('comment-tooltip'); if (el) el.remove();
+                                                const tip = document.createElement('div');
+                                                tip.id = 'comment-tooltip';
+                                                tip.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#fff;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:360px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;white-space:pre-wrap;';
+                                                tip.textContent = r.commentaires;
+                                                document.body.appendChild(tip);
+                                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                                const tipH = tip.getBoundingClientRect().height;
+                                                const top = rect.bottom + 6 + tipH > window.innerHeight ? rect.top - tipH - 6 : rect.bottom + 6;
+                                                tip.style.top = top + 'px';
+                                                tip.style.left = Math.min(rect.left, window.innerWidth - 370) + 'px';
+                                              }}
+                                              onMouseLeave={() => { const el = document.getElementById('comment-tooltip'); if (el) el.remove(); }}
+                                            >
+                                              <MessageSquare size={13} />
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: '8px 10px', color: '#475569', fontSize: '0.78rem', maxWidth: '200px', wordBreak: 'break-word' }}>{r.suivi || '—'}</td>
+                                      <td style={{ padding: '8px 10px' }}>
+                                        {r.arbitrage ? (
+                                          <span style={{
+                                            display: 'inline-block', padding: '2px 8px', borderRadius: '10px', fontSize: '0.72rem', fontWeight: 700,
+                                            background: r.arbitrage.includes('OK') ? '#dcfce7' : r.arbitrage.includes('NOK') || r.arbitrage.includes('Refus') ? '#fef2f2' : r.arbitrage.includes('DG') ? '#fef3c7' : r.arbitrage === '?' ? '#f1f5f9' : '#f0f9ff',
+                                            color: r.arbitrage.includes('OK') ? '#166534' : r.arbitrage.includes('NOK') || r.arbitrage.includes('Refus') ? '#991b1b' : r.arbitrage.includes('DG') ? '#92400e' : r.arbitrage === '?' ? '#64748b' : '#0369a1'
+                                          }}>
+                                            {r.arbitrage}
                                           </span>
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td style={{ padding: '8px 10px', color: '#475569', fontSize: '0.78rem', maxWidth: '200px', wordBreak: 'break-word' }}>{r.suivi || '—'}</td>
-                                    <td style={{ padding: '8px 10px' }}>
-                                      {r.arbitrage ? (
-                                        <span style={{ padding: '2px 7px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 600, background: r.arbitrage === 'OK DSI' ? '#dbeafe' : r.arbitrage === 'Refusé' ? '#fee2e2' : '#fef3c7', color: r.arbitrage === 'OK DSI' ? '#1d4ed8' : r.arbitrage === 'Refusé' ? '#dc2626' : '#92400e' }}>
-                                          {r.arbitrage}
-                                        </span>
-                                      ) : <span style={{ color: '#cbd5e1', fontSize: '0.75rem' }}>—</span>}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </>
-                            ))}
-                          </>
-                        ))}
-                      </tbody>
-                    </table>
-                  );
-                };
-
-                // IDs des demandes visibles par l'utilisateur
-                const userDemandeIds = new Set(rencontres.map((r: any) => r.id));
-
-                // Ne garder que les réunions ayant au moins une demande de l'utilisateur
-                // et n'afficher que les demandes de l'utilisateur dans chaque réunion
-                const visibleReunions = reunionsList
-                  .map((ru: any) => ({
-                    ...ru,
-                    demandes: (ru.demandes || []).filter((d: any) => userDemandeIds.has(d.id))
-                  }))
-                  .filter((ru: any) => ru.demandes.length > 0);
-
-                const reunionDemandeIds = new Set(visibleReunions.flatMap((ru: any) => ru.demandes.map((d: any) => d.id)));
-                const orphans = rencontres.filter((r: any) => !reunionDemandeIds.has(r.id));
-
-                if (visibleReunions.length === 0 && rencontres.length === 0) {
-                  return <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}><p>Aucune demande trouvée</p></div>;
-                }
-
-                return (
-                  <div>
-                    {visibleReunions.map((ru: any) => (
-                      <div key={ru.id} style={{ marginBottom: '16px', border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
-                        <div style={{ padding: '10px 14px', background: '#0f172a', display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'space-between' }}>
-                          <span style={{ fontWeight: 800, fontSize: '0.9rem', color: 'white' }}>{ru.titre}</span>
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            {ru.date_reunion && <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{new Date(ru.date_reunion).toLocaleDateString('fr-FR')}</span>}
-                            <span style={{ fontSize: '0.78rem', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '8px' }}>{ru.demandes.length} demande{ru.demandes.length !== 1 ? 's' : ''}</span>
-                          </div>
-                        </div>
-                        <div style={{ padding: '8px 0' }}>
-                          {renderDemandesTable(ru.demandes, `ru-${ru.id}`)}
-                        </div>
-                      </div>
-                    ))}
-                    {orphans.length > 0 && (
-                      <div style={{ marginBottom: '16px', border: '1px dashed #cbd5e1', borderRadius: '10px', overflow: 'hidden' }}>
-                        <div style={{ padding: '10px 14px', background: '#f8fafc', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#64748b' }}>Sans réunion associée</span>
-                          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{orphans.length} demande{orphans.length !== 1 ? 's' : ''}</span>
-                        </div>
-                        <div style={{ padding: '8px 0' }}>
-                          {renderDemandesTable(orphans, 'orphan')}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+                                        ) : '—'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </React.Fragment>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    );
+                  })()}
+                </div>
             </div>
 
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
