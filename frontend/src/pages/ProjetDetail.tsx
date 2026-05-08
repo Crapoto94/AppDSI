@@ -1314,10 +1314,19 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
   const [newRoleUsername, setNewRoleUsername] = useState('');
   const [newRoleName, setNewRoleName] = useState('');
   const [newRoleRole, setNewRoleRole] = useState('equipe_projet');
+  const [attendus, setAttendus] = useState<any[]>([]);
+  const [showNewType, setShowNewType] = useState(false);
+  const [newTypeCode, setNewTypeCode] = useState('');
+  const [newTypeLabel, setNewTypeLabel] = useState('');
+  const [newTypePhase, setNewTypePhase] = useState('');
+  const [newTypeObligatoire, setNewTypeObligatoire] = useState(false);
+  const [savingAttendus, setSavingAttendus] = useState(false);
 
   useEffect(() => {
     fetch(`/api/projets/${projetId}/controles`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { if (d.controles) setControles(d.controles); }).catch(() => {});
+    fetch(`/api/projets/${projetId}/attendus`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (Array.isArray(d)) setAttendus(d); }).catch(() => {});
   }, [projetId, token]);
 
   const addRole = async () => {
@@ -1334,6 +1343,36 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
   const removeRole = async (roleId: number) => {
     await fetch(`/api/projets/${projetId}/roles/${roleId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
     onRefresh();
+  };
+
+  const toggleAttendu = (code: string) => {
+    setAttendus(attendus.map((a: any) => a.code === code ? { ...a, attendu_pour_ce_projet: a.attendu_pour_ce_projet ? 0 : 1 } : a));
+  };
+  const setPhase = (code: string, phase: string) => {
+    setAttendus(attendus.map((a: any) => a.code === code ? { ...a, phase_projet: phase } : a));
+  };
+  const saveAttendus = async () => {
+    setSavingAttendus(true);
+    await fetch(`/api/projets/${projetId}/attendus`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ attendus: attendus.filter((a: any) => a.attendu_pour_ce_projet).map((a: any) => ({ code: a.code, obligatoire: a.obligatoire_projet || a.obligatoire, phase_concernee: a.phase_projet || a.phase_concernee })) })
+    });
+    setSavingAttendus(false);
+  };
+  const addNewType = async () => {
+    if (!newTypeCode || !newTypeLabel) return;
+    const existing = await fetch(`/api/projets/admin/types-documentaires`, { headers: { Authorization: `Bearer ${token}` } });
+    const types = await existing.json();
+    if (Array.isArray(types)) {
+      types.push({ code: newTypeCode, label: newTypeLabel, phase_concernee: newTypePhase || null, obligatoire: newTypeObligatoire ? 1 : 0, ordre: types.length, actif: 1 });
+      await fetch(`/api/projets/admin/types-documentaires`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ types })
+      });
+    }
+    setShowNewType(false); setNewTypeCode(''); setNewTypeLabel(''); setNewTypePhase('');
+    const r = await fetch(`/api/projets/${projetId}/attendus`, { headers: { Authorization: `Bearer ${token}` } });
+    const d = await r.json(); if (Array.isArray(d)) setAttendus(d);
   };
 
   return (
