@@ -9,6 +9,7 @@ import {
   Zap, History as HistoryIcon, Hash, Lock, Download, MessageSquare,
   Clock, Play
 } from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -3125,6 +3126,53 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         </div>
                       </div>
 
+                      {/* Icône */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '16px', marginBottom: '20px', alignItems: 'end' }}>
+                        <div>
+                          <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Icône (lucide-react)</label>
+                          <input
+                            type="text"
+                            value={editingTile ? editingTile.icon || 'Box' : newTile.icon}
+                            onChange={(e) => {
+                              if (editingTile) {
+                                setEditingTile({ ...editingTile, icon: e.target.value });
+                              } else {
+                                setNewTile({ ...newTile, icon: e.target.value });
+                              }
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '12px 14px',
+                              border: '2px solid #7dd3fc',
+                              borderRadius: '10px',
+                              fontSize: '0.95rem',
+                              fontWeight: '600',
+                              color: '#0c4a6e',
+                              boxSizing: 'border-box',
+                              background: 'white',
+                              transition: 'all 0.2s'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#0284c7';
+                              e.target.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.1)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = '#7dd3fc';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                            placeholder="ex: BarChart3, Calendar, Box..."
+                          />
+                        </div>
+                        <div style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          width: '60px', height: '60px', background: 'white',
+                          border: '2px solid #7dd3fc', borderRadius: '12px',
+                          flexShrink: 0
+                        }}>
+                          {React.createElement(LucideIcons[(editingTile?.icon || newTile.icon || 'Box').charAt(0).toUpperCase() + (editingTile?.icon || newTile.icon || 'Box').slice(1)] || LucideIcons.Box, { size: 28 })}
+                        </div>
+                      </div>
+
                       <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', background: 'white', padding: '12px', borderRadius: '10px', border: '2px solid #7dd3fc' }}>
                           <input 
@@ -3416,7 +3464,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         <button className="icon-btn small" onClick={() => handleMoveTile(index, 'down')} disabled={index === tiles.length - 1}><ChevronDown size={12} /></button>
                                     </div>
                                 </td>
-                                <td><div className="avatar bg-gray-100"><Box size={18} /></div></td>
+                                <td><div className="avatar bg-gray-100">{React.createElement(LucideIcons[tile.icon?.charAt(0).toUpperCase() + tile.icon?.slice(1)] || LucideIcons.Box, { size: 18 })}</div></td>
                                 <td><span className="font-bold text-gray-900">{tile.title}</span></td>
                                 <td><span className="text-sm text-gray-500 line-clamp-1">{tile.description}</span></td>
                                 <td>
