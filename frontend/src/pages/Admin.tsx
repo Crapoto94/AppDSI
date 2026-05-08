@@ -50,6 +50,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const { token } = useAuth();
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
+  const [showTileModal, setShowTileModal] = useState(false);
   const [newTile, setNewTile] = useState({ title: '', icon: 'Box', description: '', status: 'active' as any, is_public: false });
   const [editingTile, setEditingTile] = useState<TileData | null>(null);
   const [editingLinks, setEditingLinks] = useState<any[]>([]);
@@ -1223,6 +1224,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       setOriginalLinks([]);
       setNewLink({ label: '', url: '', is_internal: 0 });
       setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false });
+      setShowTileModal(false);
       fetchTiles();
     } catch (error) {
       console.error('Erreur lors de la sauvegarde:', error);
@@ -3019,13 +3021,13 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <h3 className="text-xl font-black">Configuration du Hub</h3>
                 <p className="text-sm text-gray-500">Gérez les briques de services et leur ordre d'affichage.</p>
               </div>
-              <button className="btn btn-primary" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); }}>
+              <button className="btn btn-primary" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(true); }}>
                 <Plus size={18} /> Ajouter une brique
               </button>
             </div>
 
-            {(editingTile || newTile.title !== '') && (
-              <div className="modal-overlay" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); }}>
+            {showTileModal && (
+              <div className="modal-overlay" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(false); }}>
                 <div className="modal-container" onClick={(e) => e.stopPropagation()}>
                   <div className="modal-header">
                     <div className="modal-header-info">
@@ -3035,7 +3037,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <p className="modal-subtitle">{editingTile?.title || 'Nouvelle brique'}</p>
                       </div>
                     </div>
-                    <button onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); }} className="icon-btn" style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer' }}>
+                    <button onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(false); }} className="icon-btn" style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer' }}>
                       <X size={20} />
                     </button>
                   </div>
@@ -3374,7 +3376,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                   <div className="modal-footer">
                     <button
-                      onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); }}
+                      onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(false); }}
                       className="btn btn-secondary"
                       style={{ background: '#e2e8f0', color: '#1e293b', border: 'none', cursor: 'pointer', padding: '10px 20px', borderRadius: '8px', fontWeight: '700' }}
                     >
@@ -3438,7 +3440,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 </td>
                                 <td><span className={`status-tag ${tile.status}`}>{tile.status}</span></td>
                                 <td className="actions">
-                                    <button className="icon-btn edit" onClick={() => { setEditingTile(tile); setEditingLinks(tile.links || []); setOriginalLinks(tile.links || []); setNewLink({ label: '', url: '', is_internal: 0 }); }}><Edit2 size={16} /></button>
+                                    <button className="icon-btn edit" onClick={() => { setEditingTile(tile); setEditingLinks(tile.links || []); setOriginalLinks(tile.links || []); setNewLink({ label: '', url: '', is_internal: 0 }); setShowTileModal(true); }}><Edit2 size={16} /></button>
                                     <button className="icon-btn delete" onClick={() => handleDeleteTile(tile.id)}><Trash2 size={16} /></button>
                                 </td>
                             </tr>
