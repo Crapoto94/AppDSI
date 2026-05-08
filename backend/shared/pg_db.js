@@ -22,7 +22,26 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!hub_rencontres\.)\brencontres_reunions\b/gi, 'hub_rencontres.rencontres_reunions')
                     .replace(/(?<!hub_rencontres\.)\breunion_participants\b/gi, 'hub_rencontres.reunion_participants')
                     .replace(/(?<!hub_rencontres\.)\breunion_attachments\b/gi, 'hub_rencontres.reunion_attachments')
-                    .replace(/(?<!hub_rencontres\.)\bdirection_emails\b/gi, 'hub_rencontres.direction_emails');
+                    .replace(/(?<!hub_rencontres\.)\bdirection_emails\b/gi, 'hub_rencontres.direction_emails')
+                    .replace(/(?<!projets\.)\bprojets\b/gi, 'projets.projets')
+                    .replace(/(?<!projets\.)\bprojet_services\b/gi, 'projets.projet_services')
+                    .replace(/(?<!projets\.)\bprojet_roles\b/gi, 'projets.projet_roles')
+                    .replace(/(?<!projets\.)\bprojet_visibilite\b/gi, 'projets.projet_visibilite')
+                    .replace(/(?<!projets\.)\bprojet_transitions\b/gi, 'projets.projet_transitions')
+                    .replace(/(?<!projets\.)\bprojet_documents\b/gi, 'projets.projet_documents')
+                    .replace(/(?<!projets\.)\bprojet_versions_document\b/gi, 'projets.projet_versions_document')
+                    .replace(/(?<!projets\.)\bprojet_scores\b/gi, 'projets.projet_scores')
+                    .replace(/(?<!projets\.)\bprojet_scoring_config\b/gi, 'projets.projet_scoring_config')
+                    .replace(/(?<!projets\.)\bprojet_reunions\b/gi, 'projets.projet_reunions')
+                    .replace(/(?<!projets\.)\bprojet_journal\b/gi, 'projets.projet_journal')
+                    .replace(/(?<!projets\.)\bprojet_indicateurs\b/gi, 'projets.projet_indicateurs')
+                    .replace(/(?<!projets\.)\bprojet_notifications\b/gi, 'projets.projet_notifications')
+                    .replace(/(?<!projets\.)\bprojet_types_documentaires\b/gi, 'projets.projet_types_documentaires')
+                    .replace(/(?<!projets\.)\bprojet_taches\b/gi, 'projets.projet_taches')
+                    .replace(/(?<!projets\.)\bprojet_jalons\b/gi, 'projets.projet_jalons')
+                    .replace(/(?<!projets\.)\bprojet_groupes_taches\b/gi, 'projets.projet_groupes_taches')
+                    .replace(/(?<!projets\.)\bprojet_favoris\b/gi, 'projets.projet_favoris')
+                    .replace(/(?<!projets\.)\bprojet_dependances\b/gi, 'projets.projet_dependances');
 
     newSql = newSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
     newSql = newSql.replace(/INSERT OR REPLACE INTO/gi, 'INSERT INTO');
@@ -69,6 +88,7 @@ async function setupPgDb() {
     await client.query('CREATE SCHEMA IF NOT EXISTS magapp;');
     await client.query('CREATE SCHEMA IF NOT EXISTS hub;');
     await client.query('CREATE SCHEMA IF NOT EXISTS glpi;');
+    await client.query('CREATE SCHEMA IF NOT EXISTS oracle;');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.categories (
@@ -536,6 +556,364 @@ async function setupPgDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_annee ON hub_rencontres.rencontres_budgetaires(annee);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_statut ON hub_rencontres.rencontres_budgetaires(statut);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_de_direction ON hub_rencontres.direction_emails(direction);`);
+
+    // ============================================
+    // PROJETS - Gestion de portefeuille projets
+    // ============================================
+    await client.query('CREATE SCHEMA IF NOT EXISTS projets;');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projets (
+        id SERIAL PRIMARY KEY,
+        code TEXT UNIQUE,
+        titre TEXT NOT NULL,
+        description TEXT,
+        niveau_projet TEXT DEFAULT 'standard',
+        statut TEXT DEFAULT 'idee',
+        statut_precedent TEXT,
+        service_pilote TEXT NOT NULL,
+        commanditaire_username TEXT,
+        chef_projet_username TEXT,
+        responsable_dsi_username TEXT,
+        representant_metier_username TEXT,
+        dpo_username TEXT,
+        date_debut_prevue TEXT,
+        date_fin_prevue TEXT,
+        date_debut_reelle TEXT,
+        date_fin_reelle TEXT,
+        priorite INTEGER DEFAULT 0,
+        score_total NUMERIC DEFAULT 0,
+        avancement NUMERIC DEFAULT 0,
+        risque_global TEXT,
+        satisfaction_metier INTEGER,
+        benefices_attendus TEXT,
+        benefices_realises TEXT,
+        notes_internes TEXT,
+        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        date_modification TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by_username TEXT,
+        modified_by_username TEXT
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_services (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        service_code TEXT NOT NULL,
+        UNIQUE(projet_id, service_code)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_roles (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        username TEXT NOT NULL,
+        role TEXT NOT NULL,
+        display_name TEXT,
+        email TEXT,
+        date_ajout TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ajoute_par_username TEXT,
+        UNIQUE(projet_id, username, role)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_visibilite (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        username TEXT NOT NULL,
+        display_name TEXT,
+        UNIQUE(projet_id, username)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_transitions (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        statut_avant TEXT NOT NULL,
+        statut_apres TEXT NOT NULL,
+        date_transition TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        username TEXT NOT NULL,
+        commentaire TEXT
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_documents (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        type_documentaire TEXT NOT NULL,
+        phase_concernee TEXT,
+        description TEXT,
+        est_attendu INTEGER DEFAULT 0,
+        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by_username TEXT
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_versions_document (
+        id SERIAL PRIMARY KEY,
+        document_id INTEGER NOT NULL REFERENCES projets.projet_documents(id) ON DELETE CASCADE,
+        version TEXT NOT NULL,
+        fichier_nom TEXT NOT NULL,
+        fichier_original TEXT NOT NULL,
+        fichier_taille INTEGER,
+        fichier_type TEXT,
+        commentaire TEXT,
+        est_version_courante INTEGER DEFAULT 1,
+        date_depot TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        depose_par_username TEXT
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_scores (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        critere TEXT NOT NULL,
+        note INTEGER NOT NULL CHECK(note >= 1 AND note <= 5),
+        justification TEXT,
+        date_notation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        note_par_username TEXT,
+        UNIQUE(projet_id, critere)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_scoring_config (
+        id SERIAL PRIMARY KEY,
+        critere TEXT UNIQUE NOT NULL,
+        label TEXT NOT NULL,
+        poids INTEGER NOT NULL DEFAULT 10,
+        actif INTEGER DEFAULT 1,
+        ordre INTEGER DEFAULT 0
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_reunions (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        reunion_id INTEGER NOT NULL,
+        type_gouvernance TEXT,
+        UNIQUE(projet_id, reunion_id)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_journal (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        type_entree TEXT NOT NULL,
+        message TEXT NOT NULL,
+        details TEXT,
+        username TEXT NOT NULL,
+        date_entree TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_indicateurs (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        type_indicateur TEXT NOT NULL,
+        valeur TEXT,
+        date_saisie TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        saisi_par_username TEXT,
+        commentaire TEXT
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_notifications (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        destinataire_username TEXT NOT NULL,
+        type_notification TEXT NOT NULL,
+        message TEXT,
+        envoye INTEGER DEFAULT 0,
+        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        date_envoi TIMESTAMP,
+        erreur TEXT
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_types_documentaires (
+        id SERIAL PRIMARY KEY,
+        code TEXT UNIQUE NOT NULL,
+        label TEXT NOT NULL,
+        phase_concernee TEXT,
+        obligatoire INTEGER DEFAULT 0,
+        ordre INTEGER DEFAULT 0,
+        actif INTEGER DEFAULT 1
+      );
+    `);
+
+    // Index
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projets_statut ON projets.projets(statut);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projets_service_pilote ON projets.projets(service_pilote);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projets_priorite ON projets.projets(priorite);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projets_score ON projets.projets(score_total);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_roles_user ON projets.projet_roles(projet_id, username);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_journal_p ON projets.projet_journal(projet_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_documents_p ON projets.projet_documents(projet_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_scores_p ON projets.projet_scores(projet_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_visibilite_u ON projets.projet_visibilite(projet_id, username);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_notif_dest ON projets.projet_notifications(destinataire_username, envoye);');
+
+    // Migration: Ajouter colonne meteo
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='meteo') THEN
+            ALTER TABLE projets.projets ADD COLUMN meteo TEXT DEFAULT 'neutre';
+          END IF;
+        END $$;
+      `);
+      console.log('[PG DB] Colonne meteo ajoutée à projets.projets');
+    } catch (e) {
+      console.warn('[PG DB] Erreur ajout colonne meteo:', e.message);
+    }
+
+    // Migration: Ajouter colonne groupe_id
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_taches' AND column_name='groupe_id') THEN
+            ALTER TABLE projets.projet_taches ADD COLUMN groupe_id INTEGER REFERENCES projets.projet_groupes_taches(id) ON DELETE SET NULL;
+          END IF;
+        END $$;
+      `);
+    } catch (e) {} 
+
+    // ============================================
+    // PROJETS - Planning / Tâches
+    // ============================================
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_taches (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        groupe_id INTEGER,
+        titre TEXT NOT NULL,
+        description TEXT,
+        date_debut DATE,
+        date_fin DATE,
+        statut TEXT DEFAULT 'a_faire',
+        responsable_username TEXT,
+        couleur TEXT DEFAULT '#3b82f6',
+        ordre INTEGER DEFAULT 0,
+        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_groupes_taches (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        titre TEXT NOT NULL,
+        couleur TEXT DEFAULT '#e2e8f0',
+        ordre INTEGER DEFAULT 0,
+        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_jalons (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        titre TEXT NOT NULL,
+        description TEXT,
+        date_jalon DATE NOT NULL,
+        type TEXT DEFAULT 'jalon',
+        atteint INTEGER DEFAULT 0,
+        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_taches_p ON projets.projet_taches(projet_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_jalons_p ON projets.projet_jalons(projet_id);');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_favoris (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        username TEXT NOT NULL,
+        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(projet_id, username)
+      );
+    `);
+
+    await client.query(`
+      DROP TABLE IF EXISTS projets.projet_dependances CASCADE;
+      CREATE TABLE IF NOT EXISTS projets.projet_dependances (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        source_type TEXT NOT NULL CHECK(source_type IN ('tache','jalon')),
+        source_id INTEGER NOT NULL,
+        depend_type TEXT NOT NULL CHECK(depend_type IN ('tache','jalon')),
+        depend_id INTEGER NOT NULL,
+        UNIQUE(source_type, source_id, depend_type, depend_id)
+      );
+    `);
+
+    // Seed default scoring config
+    const scoringCount = await client.query('SELECT COUNT(*) FROM projets.projet_scoring_config');
+    if (parseInt(scoringCount.rows[0].count) === 0) {
+      const defaultCriteria = [
+        ['alignement_strategique', 'Alignement stratégique', 15],
+        ['valeur_metier', 'Valeur métier / usagers', 15],
+        ['obligation_reglementaire', 'Obligation réglementaire', 15],
+        ['urgence', 'Urgence', 10],
+        ['risque_si_non_realise', 'Risque si non réalisé', 10],
+        ['faisabilite', 'Faisabilité', 10],
+        ['dependances', 'Dépendances', 5],
+        ['complexite', 'Complexité', 5],
+        ['cout_estimatif', 'Coût estimatif', 5],
+        ['impact_transverse', 'Impact transverse', 10]
+      ];
+      let critereOrdre = 0;
+      for (const [critere, label, poids] of defaultCriteria) {
+        await client.query(
+          'INSERT INTO projets.projet_scoring_config (critere, label, poids, ordre) VALUES ($1, $2, $3, $4)',
+          [critere, label, poids, critereOrdre++]
+        );
+      }
+    }
+
+    // Seed default document types
+    const docTypeCount = await client.query('SELECT COUNT(*) FROM projets.projet_types_documentaires');
+    if (parseInt(docTypeCount.rows[0].count) === 0) {
+      const defaultTypes = [
+        ['fiche_idee', 'Fiche idée', 'idee', 0],
+        ['fiche_demande', 'Fiche de demande', 'demande_initiale', 1],
+        ['charte_projet', 'Charte projet', 'etude_dsi', 1],
+        ['note_arbitrage', "Note d'arbitrage", 'arbitrage', 1],
+        ['plan_projet', 'Plan projet', 'planification', 1],
+        ['plan_communication', 'Plan de communication', 'planification', 0],
+        ['journal_projet', 'Journal projet', 'planification', 0],
+        ['compte_rendu', 'Compte rendu / MOM', null, 0],
+        ['va', 'VA', 'recette', 1],
+        ['vsr', 'VSR', 'recette', 1],
+        ['doc_fonctionnelle', 'Documentation fonctionnelle', null, 0],
+        ['doc_technique', 'Documentation technique', null, 0],
+        ['doc_exploitation', "Documentation d'exploitation", null, 0],
+        ['doc_support', 'Documentation support', null, 0],
+        ['bilan_cloture', 'Bilan de clôture', 'cloture', 1],
+        ['autre', 'Autre pièce jointe', null, 0]
+      ];
+      let docOrdre = 0;
+      for (const [code, label, phase, obligatoire] of defaultTypes) {
+        await client.query(
+          'INSERT INTO projets.projet_types_documentaires (code, label, phase_concernee, obligatoire, ordre) VALUES ($1, $2, $3, $4, $5)',
+          [code, label, phase, obligatoire, docOrdre++]
+        );
+      }
+    }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

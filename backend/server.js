@@ -239,7 +239,7 @@ async function getADUserInfo(username, config) {
 }
 
 // Configuration Multer dynamique
-const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img', 'file_telecom', 'file_reunions', 'logs'];
+const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img', 'file_telecom', 'file_reunions', 'file_projets', 'logs'];
 folders.forEach(f => {
     const dir = path.join(__dirname, f);
     if (!fs.existsSync(dir)) {
@@ -383,6 +383,7 @@ app.use('/file_certif', express.static(path.join(__dirname, 'file_certif')));
 app.use('/api/file_certif', express.static(path.join(__dirname, 'file_certif')));
 app.use('/file_reunions', express.static(path.join(__dirname, 'file_reunions')));
 app.use('/api/file_reunions', express.static(path.join(__dirname, 'file_reunions')));
+app.use('/api/file_projets', express.static(path.join(__dirname, 'file_projets')));
 
 app.use('/api', magappRouter);
 app.use('/api/admin/rh', rhRouter);
@@ -432,7 +433,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
                 WHERE ut.user_id = ?
             `, [user.id]);
 
-            const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions']); // Default allowed routes
+            const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions', '/portefeuille-projets', '/projets']); // Default allowed routes
             authorizedTiles.forEach(row => {
                 if (row.link_url) urls.add(row.link_url);
             });
@@ -1488,10 +1489,9 @@ app.post('/api/oracle/table-columns', authenticateAdmin, async (req, res) => {
 
         connection = await getOracleConnection(settings);
 
-        // Describe table to get column names
-        const result = await connection.execute(`SELECT COLUMN_NAME FROM ALL_TAB_COLUMNS WHERE TABLE_NAME = :t ORDER BY COLUMN_ID`, [tableName.toUpperCase()]);
-
-        const columns = result.rows.map(row => row[0]);
+        // Use SELECT WHERE 1=0 to get column metadata (works regardless of roles/privileges)
+        const result = await connection.execute(`SELECT * FROM ${tableName} WHERE 1=0`, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        const columns = result.metaData.map(m => m.name);
 
         res.json({
             success: true,
@@ -1762,7 +1762,7 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
 
                 const metaRes = await connection.execute(`SELECT * FROM ${tableName} WHERE 1=0`, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
                 const allTableColumns = metaRes.metaData.map(m => m.name);
-                const columnsToImport = (selectedCols && Array.isArray(selectedCols)) ? allTableColumns.filter(c => selectedCols.includes(c)) : allTableColumns;
+                const columnsToImport = (selectedCols && Array.isArray(selectedCols) && selectedCols.length > 0) ? allTableColumns.filter(c => selectedCols.includes(c)) : allTableColumns;
 
                 let selectParts = [];
                 let joinParts = [];
@@ -1861,23 +1861,24 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                     }
                 }
 
+                await pool.query('CREATE SCHEMA IF NOT EXISTS oracle');
                 const dbPrefixMap = { 'FINANCES': 'gf', 'RH': 'rh' };
                 const targetSchema = dbPrefixMap[type.toUpperCase()];
-                const dbPrefix = targetSchema ? `${targetSchema}.` : '';
-                const fullLocalTableName = `${dbPrefix}${localTableName}`;
+                const fullLocalTableName = `oracle.${targetSchema}_${localTableName}`;
 
-                await db.run(`DROP TABLE IF EXISTS ${fullLocalTableName}`);
+                await pool.query(`DROP TABLE IF EXISTS ${fullLocalTableName}`);
                 const pkLocalField = pkField ? `${mainPrefix}${pkField}` : null;
 
                 const createCols = columnsForSchema.map(col => `"${col}" TEXT${col === pkLocalField ? ' PRIMARY KEY' : ''}`).join(', ');
-                await db.run(`CREATE TABLE ${fullLocalTableName} (${createCols})`);
+                await pool.query(`CREATE TABLE ${fullLocalTableName} (${createCols})`);
 
                 if (result.rows.length > 0) {
-                    const placeholders = columnsForSchema.map(() => '?').join(',');
-                    const insertSql = `INSERT INTO ${fullLocalTableName} (${columnsForSchema.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`;
+                    const pgPlaceholders = columnsForSchema.map((_, i) => `$${i + 1}`).join(',');
+                    const insertSql = `INSERT INTO ${fullLocalTableName} (${columnsForSchema.map(c => `"${c}"`).join(',')}) VALUES (${pgPlaceholders})`;
 
-                    await db.run('BEGIN TRANSACTION');
+                    const client = await pool.connect();
                     try {
+                        await client.query('BEGIN');
                         for (const rowObj of result.rows) {
                             const fullValues = [];
 
@@ -1902,10 +1903,15 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                                 }
                             }
 
-                            await db.run(insertSql, fullValues);
+                            await client.query(insertSql, fullValues);
                         }
-                        await db.run('COMMIT');
-                    } catch (e) { await db.run('ROLLBACK'); throw e; }
+                        await client.query('COMMIT');
+                    } catch (e) {
+                        await client.query('ROLLBACK');
+                        throw e;
+                    } finally {
+                        client.release();
+                    }
                 }
                 report.push({ table: tableName, status: 'OK', count: result.rows.length, localTable: fullLocalTableName });
             } catch (err) {
@@ -2736,12 +2742,15 @@ app.get('/api/mes-reunions', authenticateJWT, async (req, res) => {
         const idPlaceholders = reunionIds.map(() => '?').join(',');
 
         const reunions = await pgDb.all(
-            `SELECT r.*, COUNT(DISTINCT p2.id) as participant_count, COUNT(DISTINCT a.id) as attachment_count
+            `SELECT r.*, COUNT(DISTINCT p2.id) as participant_count, COUNT(DISTINCT a.id) as attachment_count,
+                    pr2.projet_id as projet_lie_id, pj.code as projet_lie_code, pj.titre as projet_lie_titre
              FROM rencontres_reunions r
              LEFT JOIN reunion_participants p2 ON r.id = p2.reunion_id
              LEFT JOIN reunion_attachments a ON r.id = a.reunion_id
+             LEFT JOIN projet_reunions pr2 ON pr2.reunion_id = r.id
+             LEFT JOIN projets pj ON pj.id = pr2.projet_id
              WHERE r.id IN (${idPlaceholders})
-             GROUP BY r.id
+             GROUP BY r.id, pr2.projet_id, pj.code, pj.titre
              ORDER BY r.date_reunion DESC`,
             reunionIds
         );
@@ -4028,4 +4037,13 @@ app.delete('/api/rencontres-suivi/:id', authenticateJWT, rencontresCtrl.deleteSu
 app.delete('/api/reunion-participants/:id', authenticateJWT, reunionsCtrl.deleteParticipant);
 app.delete('/api/reunion-attachments/:id', authenticateJWT, reunionsCtrl.deleteAttachment);
 
-
+// ============================================
+// PROJETS - Gestion de portefeuille
+// ============================================
+const projetsRouter = require('./modules/projets/projets.routes');
+const projetsCtrl = require('./modules/projets/projets.controller');
+projetsCtrl.setSendMail(sendMail);
+
+app.use('/api/projets', projetsRouter);
+
+

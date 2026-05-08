@@ -16,6 +16,9 @@ interface Reunion {
   statut: string;
   participant_count: number;
   attachment_count: number;
+  projet_lie_id?: number;
+  projet_lie_code?: string;
+  projet_lie_titre?: string;
 }
 
 const MesReunions: React.FC = () => {
@@ -75,6 +78,11 @@ const MesReunions: React.FC = () => {
                     </div>
                     <div style={{flex: 1}}>
                       <h3 style={{margin: '0 0 4px', fontSize: '15px', fontWeight: '700', color: '#1e293b'}}>{reunion.titre}</h3>
+                      {reunion.projet_lie_code && (
+                        <div style={{fontSize: '11px', color: '#2563eb', fontWeight: '600', marginBottom: '2px'}}>
+                          📁 {reunion.projet_lie_code} — {reunion.projet_lie_titre}
+                        </div>
+                      )}
                       <div style={{display: 'flex', gap: '12px', fontSize: '12px', color: '#64748b'}}>
                         <span>{reunion.date_reunion ? new Date(reunion.date_reunion).toLocaleDateString('fr-FR', {day: 'numeric', month: 'long', year: 'numeric'}) : 'Date inconnue'}</span>
                         {reunion.lieu && <span>📍 {reunion.lieu}</span>}
