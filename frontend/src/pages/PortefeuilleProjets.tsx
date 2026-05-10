@@ -240,7 +240,12 @@ const PortefeuilleProjets: React.FC = () => {
                   </td>
                   <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                     {(p.nb_taches_en_retard > 0 || p.nb_jalons_en_retard > 0) ? (
-                      <span style={{ fontSize: '16px', cursor: 'pointer' }} title={`${p.nb_taches_en_retard} tâche(s) et ${p.nb_jalons_en_retard} jalon(s) en retard`}>⚠️</span>
+                      <span style={{ fontSize: '16px', cursor: 'pointer' }} title={
+                        (p.nb_taches_en_retard > 0 ? `${p.nb_taches_en_retard} tâche(s)` : '') +
+                        (p.nb_taches_en_retard > 0 && p.nb_jalons_en_retard > 0 ? ' et ' : '') +
+                        (p.nb_jalons_en_retard > 0 ? `${p.nb_jalons_en_retard} jalon(s)` : '') +
+                        ' en retard'
+                      }>⚠️</span>
                     ) : <span style={{ color: '#e2e8f0' }}>—</span>}
                   </td>
                   <td style={{ padding: '14px 16px', textAlign: 'center' }}>
