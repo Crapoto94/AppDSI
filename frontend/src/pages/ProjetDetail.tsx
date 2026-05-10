@@ -502,7 +502,7 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
   const [newMembre, setNewMembre] = useState({ prenom: '', nom: '', email: '', societe: '', fonction: '', role: '', telephone: '', ad_username: '' });
   const [adQuery, setAdQuery] = useState('');
   const [adResults, setAdResults] = useState<any[]>([]);
-  // const [adSearching, setAdSearching] = useState(false);
+  const [adSearching, setAdSearching] = useState(false); // eslint-disable-line @typescript-eslint/no-unused-vars
   const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -798,8 +798,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
   const ganttW = 600;
   const toX = (d: string) => ((new Date(d).getTime() - minDate.getTime()) / rangeMs) * ganttW;
   const toW = (d1: string, d2: string) => Math.max(((new Date(d2).getTime() - new Date(d1).getTime()) / rangeMs) * ganttW, 8);
-  const _barTop = (idx: number) => 2 + idx * 30;
-  const _getIdx = (tid: number) => taches.findIndex(t => t.id === tid);
+  // barTop and getIdx removed (unused)
 
   // const STATUT_LABELS_TACHE: Record<string, string> = { a_faire: 'À faire', en_cours: 'En cours', terminee: 'Terminée', bloquee: 'Bloquée' };
   const STATUT_COLORS_TACHE: Record<string, string> = { a_faire: '#94a3b8', en_cours: '#3b82f6', terminee: '#22c55e', bloquee: '#ef4444' };

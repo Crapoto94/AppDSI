@@ -30,7 +30,7 @@ interface CreateReunionModalProps {
   directions?: string[];
   services?: string[];
   source?: string;
-  comites?: { id: number; nom: string }[];
+  comites?: { id: number; nom: string; membres?: { nom: string; prenom?: string; email?: string; ad_username?: string; service?: string; direction?: string }[] }[];
 }
 
 const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose, onCreated, token: _token, directions = [], services = [], source = 'rencontres_budgetaires', comites = [] }) => {
@@ -43,7 +43,34 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
   const [adResults, setAdResults] = useState<ADUser[]>([]);
   const [adSearching, setAdSearching] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   const adSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleComiteChange = async (id: string) => {
+    setComiteId(id);
+    if (!id) return;
+    setLoadingMembers(true);
+    const comite = comites.find(c => String(c.id) === id);
+    if (comite && (comite as any).membres) {
+      const existingAdUsers = new Set(participants.filter(p => p.ad_username).map(p => p.ad_username));
+      const newParticipants: Participant[] = (comite as any).membres
+        .filter((m: any) => !existingAdUsers.has(m.ad_username))
+        .map((m: any) => ({
+          id: Date.now() + Math.random(),
+          reunion_id: 0,
+          nom: m.nom || m.ad_username || '',
+          prenom: m.prenom || '',
+          email: m.email || '',
+          service: m.service || '',
+          direction: m.direction || '',
+          type_presence: 'metier' as 'metier' | 'dsi',
+          statut_presence: 'present' as 'present' | 'excuse' | 'info',
+          ad_username: m.ad_username || ''
+        }));
+      setParticipants(prev => [...prev, ...newParticipants]);
+    }
+    setLoadingMembers(false);
+  };
 
   const searchAD = useCallback((q: string) => {
     setAdQuery(q);
