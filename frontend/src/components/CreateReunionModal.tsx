@@ -30,11 +30,13 @@ interface CreateReunionModalProps {
   directions?: string[];
   services?: string[];
   source?: string;
+  comites?: { id: number; nom: string }[];
 }
 
-const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose, onCreated, token: _token, directions = [], services = [], source = 'rencontres_budgetaires' }) => {
+const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose, onCreated, token: _token, directions = [], services = [], source = 'rencontres_budgetaires', comites = [] }) => {
   const token = _token || '';
   const [newReunion, setNewReunion] = useState({ titre: '', date_reunion: '', lieu: '' });
+  const [comiteId, setComiteId] = useState('');
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [newParticipant, setNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier' as 'metier' | 'dsi', statut_presence: 'present' as 'present' | 'excuse' | 'info' });
   const [adQuery, setAdQuery] = useState('');
@@ -96,6 +98,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
         const created = await res.json();
         setNewReunion({ titre: '', date_reunion: '', lieu: '' });
         setParticipants([]);
+        created._comite_id = comiteId ? parseInt(comiteId) : null;
         onCreated(created);
       } else {
         const err = await res.json();
@@ -236,8 +239,17 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
           <button onClick={handleCreate} disabled={isCreating} style={{padding: '10px 24px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700'}}>
             {isCreating ? '...' : '✓ Créer la réunion'}
           </button>
-        </div>
-      </div>
+            </div>
+            {source === 'projets' && comites.length > 0 && (
+              <div>
+                <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>COMITÉ</label>
+                <select value={comiteId} onChange={e => setComiteId(e.target.value)} style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}}>
+                  <option value="">Sans comité</option>
+                  {comites.map(c => <option key={c.id} value={String(c.id)}>{c.nom}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, Plus, Search, Star } from 'lucide-react';
+import { FolderOpen, Plus, Search } from 'lucide-react';
 import Header from '../components/Header';
 import CreerProjetModal from '../components/projets/CreerProjetModal';
 import { useAuth } from '../contexts/AuthContext';
@@ -50,7 +50,6 @@ const PortefeuilleProjets: React.FC = () => {
   const [filtreChefProjet, setFiltreChefProjet] = useState('');
   const [recherche, setRecherche] = useState('');
   const [modeMesProjets, setModeMesProjets] = useState(false);
-  const [modeFavoris, setModeFavoris] = useState(false);
   const [tri, setTri] = useState('date');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [favoris, setFavoris] = useState<number[]>([]);
@@ -213,7 +212,7 @@ const PortefeuilleProjets: React.FC = () => {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {[[-1, '⭐ Mes projets favoris'], [0, '🏆 En tant que commanditaire'], [1, '👨‍💼 En tant que chef de projet'], [2, '📋 Projets dans lesquels j\'ai un rôle'], [3, '📁 Autres projets']].map(([niveau, label]) => {
+            {([[-1, '⭐ Mes projets favoris'], [0, '🏆 En tant que commanditaire'], [1, '👨‍💼 En tant que chef de projet'], [2, '📋 Projets dans lesquels j\'ai un rôle'], [3, '📁 Autres projets']] as [number, string][]).map(([niveau, label]) => {
               const filtered = projetsTries.filter(p => {
                 const imp = niveauImplication(p);
                 if (niveau === -1) return favoris.includes(p.id);

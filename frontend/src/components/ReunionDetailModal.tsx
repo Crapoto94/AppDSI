@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Plus, Send, Upload, Trash2, FileText } from 'lucide-react';
+import TranscriptUploadModal from './TranscriptUploadModal';
+import TranscriptViewModal from './TranscriptViewModal';
 
 interface Reunion {
   id: number; titre: string; date_reunion: string; annee: number; lieu?: string;
@@ -513,7 +515,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
         onClose={() => setShowTranscriptUpload(false)}
         reunionId={reunionId || undefined}
         token={token}
-        onSuccess={(meetingId) => {
+        onSuccess={() => {
             setShowTranscriptUpload(false);
             fetchReunion();
             onTranscriptSuccess?.();

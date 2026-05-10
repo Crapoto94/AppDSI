@@ -23,6 +23,12 @@ interface Projet {
   roles: { id: number; username: string; role: string; display_name: string; email: string }[];
   visibilite: { id: number; username: string; display_name: string }[];
   documents: any[];
+  chef_projet_metier_username?: string;
+  dpd_requis?: boolean | number;
+  rssi_requis?: boolean | number;
+  commanditaire_display_name?: string;
+  chef_projet_display_name?: string;
+  chef_projet_metier_display_name?: string;
 }
 
 const STATUT_LABELS: Record<string, string> = {
@@ -60,11 +66,11 @@ const ProjetDetail: React.FC = () => {
   const [transitions, setTransitions] = useState<any[]>([]);
   const [showTransitionPicker, setShowTransitionPicker] = useState(false);
   const [transitionMsg, setTransitionMsg] = useState('');
-  const [showDocUpload, setShowDocUpload] = useState(false);
-  const [showAddMember, setShowAddMember] = useState(false);
+  // const [showDocUpload, setShowDocUpload] = useState(false);
+  // const [showAddMember, setShowAddMember] = useState(false);
   const [showCreateReunion, setShowCreateReunion] = useState(false);
   const [reunionDetailId, setReunionDetailId] = useState<number | null>(null);
-  const [editingGov, setEditingGov] = useState(false);
+  // const [editingGov, setEditingGov] = useState(false);
   const [govForm, setGovForm] = useState({ commanditaire_username: '', commanditaire_display: '', chef_projet_username: '', chef_projet_display: '', chef_projet_metier_username: '', chef_projet_metier_display: '', dpd_requis: false, rssi_requis: false });
   const [editingInfos, setEditingInfos] = useState(false);
 
@@ -75,6 +81,14 @@ const ProjetDetail: React.FC = () => {
   const TABS = ALL_TABS.filter(t => t.key !== 'admin' || peutVoirAdmin);
   const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
   const [viewerDoc, setViewerDoc] = useState<{ url: string; nom: string } | null>(null);
+  const [comites, setComites] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (projet?.id) {
+      fetch(`/api/projets/${projet.id}/comites`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(d => { if (Array.isArray(d)) setComites(d); }).catch(() => {});
+    }
+  }, [projet?.id, token]);
 
   const fetchProjet = useCallback(async () => {
     try {
@@ -266,10 +280,11 @@ const ProjetDetail: React.FC = () => {
   const renderIndicateurs = () => <IndicateursTab projetId={projet.id} token={token} />;
   const lierReunionApresCreation = async (reunion: any) => {
   if (reunion?.id) {
+    const comite_id = reunion._comite_id;
     await fetch(`/api/projets/${projet.id}/reunions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ reunion_id: reunion.id, type_gouvernance: 'coproj' })
+      body: JSON.stringify({ reunion_id: reunion.id, type_gouvernance: comite_id ? 'comite' : 'coproj', comite_id: comite_id || null })
     });
     setReunionDetailId(reunion.id);
     fetchProjet();
@@ -363,6 +378,7 @@ const renderAdmin = () => <AdminTab projetId={projet.id} token={token} projet={p
         onCreated={lierReunionApresCreation}
         token={token}
         source="projets"
+        comites={comites}
       />
       <ReunionDetailModal
         isOpen={reunionDetailId !== null}
@@ -398,7 +414,8 @@ const InfoRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, v
   </div>
 );
 
-const EditGovField: React.FC<{ label: string; value: string; onChange: (v: string) => void }> = ({ label, value, onChange }) => (
+// @ts-ignore - EditGovField kept for future use
+const _EditGovField: React.FC<{ label: string; value: string; onChange: (v: string) => void }> = ({ label, value, onChange }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
     <span style={{ color: '#64748b', fontWeight: '500', fontSize: '13px', minWidth: '120px' }}>{label}</span>
     <input value={value} onChange={e => onChange(e.target.value)} style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
@@ -485,7 +502,7 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
   const [newMembre, setNewMembre] = useState({ prenom: '', nom: '', email: '', societe: '', fonction: '', role: '', telephone: '', ad_username: '' });
   const [adQuery, setAdQuery] = useState('');
   const [adResults, setAdResults] = useState<any[]>([]);
-  const [adSearching, setAdSearching] = useState(false);
+  // const [adSearching, setAdSearching] = useState(false);
   const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -770,10 +787,10 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
   const ganttW = 600;
   const toX = (d: string) => ((new Date(d).getTime() - minDate.getTime()) / rangeMs) * ganttW;
   const toW = (d1: string, d2: string) => Math.max(((new Date(d2).getTime() - new Date(d1).getTime()) / rangeMs) * ganttW, 8);
-  const barTop = (idx: number) => 2 + idx * 30;
-  const getIdx = (tid: number) => taches.findIndex(t => t.id === tid);
+  const _barTop = (idx: number) => 2 + idx * 30;
+  const _getIdx = (tid: number) => taches.findIndex(t => t.id === tid);
 
-  const STATUT_LABELS_TACHE: Record<string, string> = { a_faire: 'À faire', en_cours: 'En cours', terminee: 'Terminée', bloquee: 'Bloquée' };
+  // const STATUT_LABELS_TACHE: Record<string, string> = { a_faire: 'À faire', en_cours: 'En cours', terminee: 'Terminée', bloquee: 'Bloquée' };
   const STATUT_COLORS_TACHE: Record<string, string> = { a_faire: '#94a3b8', en_cours: '#3b82f6', terminee: '#22c55e', bloquee: '#ef4444' };
 
   const tachesParGroupe = (groupeId: number | null) => {
@@ -782,7 +799,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
   };
   const groupesAvecTaches = [...groupes, { id: 0, titre: 'Sans groupe', couleur: '#f1f5f9', ordre: 999 } as GroupeTache].filter(g => g.id === 0 ? tachesParGroupe(null).length > 0 : tachesParGroupe(g.id).length > 0);
 
-  const allItems = [...taches.map(t => ({ type: 'tache' as const, id: t.id, titre: t.titre, date_debut: t.date_debut, date_fin: t.date_fin })), ...jalons.map(j => ({ type: 'jalon' as const, id: j.id, titre: j.titre, date_debut: j.date_jalon, date_fin: j.date_jalon }))];
+  // const allItems = [...taches.map(t => ({ type: 'tache' as const, id: t.id, titre: t.titre, date_debut: t.date_debut, date_fin: t.date_fin })), ...jalons.map(j => ({ type: 'jalon' as const, id: j.id, titre: j.titre, date_debut: j.date_jalon, date_fin: j.date_jalon }))];
 
   return (
     <div>
@@ -905,7 +922,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                     const depDeTache = dependances.filter(d => d.source_type === 'jalon' && d.source_id === j.id);
                     return (
                       <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '3px', transform: 'translateX(-50%)', fontSize: '14px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
-                        title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})${estEnRetard ? ' - EN RETARD!' : ''}${depVersTache.length ? ' - Lié à: ' + depVersTache.map(t => t.titre).join(', ') : ''}${depDeTache.length ? ' - Dépend de tâche' : ''}`}>
+                        title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})${estEnRetard ? ' - EN RETARD!' : ''}${depVersTache.length ? ' - Lié à: ' + depVersTache.map(t => t!.titre).join(', ') : ''}${depDeTache.length ? ' - Dépend de tâche' : ''}`}>
                         {j.atteint ? '✅' : estEnRetard ? '🔴' : '📍'}
                         <span style={{ fontSize: '9px', color: estEnRetard ? '#dc2626' : '#6d28d9', fontWeight: '600', whiteSpace: 'nowrap', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.titre}</span>
                         {estEnRetard && <span style={{ fontSize: '8px', color: '#dc2626', fontWeight: '800' }}>⚠️</span>}

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { X, Upload, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, Upload, AlertCircle, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 
 interface TranscriptUploadModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSuccess: (meetingId: number) => void;
+    onSuccess: (meetingId?: number) => void;
     reunionId?: number;
     token: string | null;
 }

@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
 import { 
-    ArrowLeft, Calendar, User, Clock, Send, Play, 
-    CheckCircle2, Circle, AlertCircle, RefreshCw, ChevronRight,
+    ArrowLeft, Calendar, Clock, Send, 
+    CheckCircle2, Circle, RefreshCw, 
     MessageSquare, ListTodo, FileText, Search, Users
 } from 'lucide-react';
 import axios from 'axios';

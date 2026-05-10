@@ -855,14 +855,14 @@ const getScoreCalcule = async (req, res) => {
 const lierReunion = async (req, res) => {
     try {
         const { id } = req.params;
-        const { reunion_id, type_gouvernance } = req.body;
+        const { reunion_id, type_gouvernance, comite_id } = req.body;
         const username = req.user.username;
 
         if (!reunion_id) return res.status(400).json({ error: 'reunion_id requis' });
 
         await pgDb.run(
-            `INSERT INTO projet_reunions (projet_id, reunion_id, type_gouvernance) VALUES ($1, $2, $3) ON CONFLICT (projet_id, reunion_id) DO NOTHING`,
-            [id, reunion_id, type_gouvernance || null]
+            `INSERT INTO projet_reunions (projet_id, reunion_id, type_gouvernance, comite_id) VALUES ($1, $2, $3, $4) ON CONFLICT (projet_id, reunion_id) DO UPDATE SET type_gouvernance = $3, comite_id = $4`,
+            [id, reunion_id, type_gouvernance || null, comite_id || null]
         );
 
         const projet = await pgDb.get('SELECT code FROM projets WHERE id = $1', [id]);
@@ -909,9 +909,17 @@ const getReunionsLiees = async (req, res) => {
             ORDER BY r.date_reunion DESC
         `, reunionIds);
 
+        // Get committee names
+        const comiteIds = liens.filter(l => l.comite_id).map(l => l.comite_id);
+        const comites = comiteIds.length > 0 ? await pgDb.all(
+            `SELECT id, nom FROM projet_comites WHERE id IN (${comiteIds.map((_, i) => `$${i + 1}`).join(',')})`,
+            comiteIds
+        ) : [];
+
         const result = reunions.map(r => {
             const lien = liens.find(l => l.reunion_id === r.id);
-            return { ...r, type_gouvernance: lien ? lien.type_gouvernance : null, lien_id: lien ? lien.id : null };
+            const comite = lien?.comite_id ? comites.find(c => c.id === lien.comite_id) : null;
+            return { ...r, type_gouvernance: lien ? lien.type_gouvernance : null, comite_id: lien ? lien.comite_id : null, comite_nom: comite?.nom || null, lien_id: lien ? lien.id : null };
         });
 
         res.json(result);
@@ -1517,6 +1525,16 @@ const getComites = async (req, res) => {
         const comites = await pgDb.all('SELECT * FROM projet_comites WHERE projet_id = $1 ORDER BY date_creation', [id]);
         for (const c of comites) {
             c.membres = await pgDb.all('SELECT * FROM projet_comites_membres WHERE comite_id = $1 ORDER BY nom', [c.id]);
+            // Add linked meetings
+            const liens = await pgDb.all('SELECT reunion_id FROM projet_reunions WHERE projet_id = $1 AND comite_id = $2', [id, c.id]);
+            if (liens.length > 0) {
+                const ids = liens.map(l => l.reunion_id);
+                // Use hub_rencontres schema for meetings
+                const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+                c.reunions = await pgDb.all(`SELECT id, titre, date_reunion FROM hub_rencontres.rencontres_reunions WHERE id IN (${placeholders}) ORDER BY date_reunion DESC`, ids);
+            } else {
+                c.reunions = [];
+            }
         }
         res.json(comites);
     } catch (error) {

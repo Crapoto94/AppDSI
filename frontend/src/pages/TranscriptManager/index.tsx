@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import Header from '../../components/Header';
 import { 
-    Calendar, FileText, Plus, Search, Trash2, Clock, 
-    ArrowRight, MessageSquare, ListTodo, Users, RefreshCw, UserCheck
+    Calendar, FileText, Plus, Search, Trash2, 
+    ArrowRight, Users, RefreshCw, UserCheck
 } from 'lucide-react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -20,15 +20,8 @@ interface Meeting {
     reunion_id?: number | null;
 }
 
-interface Task {
-    id: number;
-    description: string;
-    is_completed: boolean;
-}
-
 const TranscriptManager: React.FC = () => {
     const [meetings, setMeetings] = useState<Meeting[]>([]);
-    const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [isUploading, setIsUploading] = useState(false);
@@ -46,12 +39,8 @@ const TranscriptManager: React.FC = () => {
     const fetchData = async () => {
         if (!token) return;
         try {
-            const [mRes, tRes] = await Promise.all([
-                axios.get('/api/transcriptmanager/meetings', { headers: { Authorization: `Bearer ${token}` } }),
-                axios.get('/api/transcriptmanager/tasks', { headers: { Authorization: `Bearer ${token}` } })
-            ]);
+            const mRes = await axios.get('/api/transcriptmanager/meetings', { headers: { Authorization: `Bearer ${token}` } });
             setMeetings(mRes.data);
-            setTasks(tRes.data);
         } catch (err) {
             console.error(err);
         } finally {
