@@ -190,6 +190,43 @@ const ProjetDetail: React.FC = () => {
 
   const renderInfos = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {/* Fil d'Ariane des étapes */}
+      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', overflowX: 'auto' }}>
+        {[
+          { key: 'idee', label: 'Idée' },
+          { key: 'demande_initiale', label: 'Demande' },
+          { key: 'etude_dsi', label: 'Étude' },
+          { key: 'arbitrage', label: 'Arbitrage' },
+          { key: 'planification', label: 'Plan' },
+          { key: 'en_cours', label: 'Réalisation' },
+          { key: 'en_recette', label: 'Recette' },
+          { key: 'en_cloture', label: 'Clôture' },
+          { key: 'cloture', label: 'Terminé' },
+        ].map((phase, idx) => {
+          const ordre = ['idee','demande_initiale','etude_dsi','arbitrage','planification','en_cours','en_recette','en_cloture','cloture'];
+          const currentIdx = ordre.indexOf(projet.statut);
+          const phaseIdx = ordre.indexOf(phase.key);
+          const estPassee = phaseIdx < currentIdx;
+          const estCourante = phase.key === projet.statut;
+          return (
+            <div key={phase.key} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{
+                padding: '4px 12px', borderRadius: '14px', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap',
+                background: estCourante ? '#2563eb' : estPassee ? '#16a34a' : '#f1f5f9',
+                color: estCourante ? 'white' : estPassee ? 'white' : '#94a3b8',
+              }}>
+                {estCourante ? '📍 ' : estPassee ? '✅ ' : ''}{phase.label}
+              </div>
+              {idx < 8 && <span style={{ color: estPassee || estCourante ? '#94a3b8' : '#d1d5db', fontSize: '12px' }}>›</span>}
+            </div>
+          );
+        })}
+        {['refuse','suspendu','abandonne'].includes(projet.statut) && (
+          <span style={{ padding: '4px 12px', borderRadius: '14px', fontSize: '12px', fontWeight: '700', background: '#fee2e2', color: '#dc2626' }}>
+            {projet.statut === 'refuse' ? '🚫 Refusé' : projet.statut === 'suspendu' ? '⏸️ Suspendu' : '🗑️ Abandonné'}
+          </span>
+        )}
+      </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
         {editingInfos ? (
           <>
@@ -1648,6 +1685,45 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+        <h3 style={{ margin: '0 0 14px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📌 Étapes du projet</h3>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {[
+            { key: 'idee', label: 'Idée' },
+            { key: 'demande_initiale', label: 'Demande' },
+            { key: 'etude_dsi', label: 'Étude DSI' },
+            { key: 'arbitrage', label: 'Arbitrage' },
+            { key: 'planification', label: 'Planification' },
+            { key: 'en_cours', label: 'Réalisation' },
+            { key: 'en_recette', label: 'Recette' },
+            { key: 'en_cloture', label: 'Clôture' },
+            { key: 'cloture', label: 'Terminé' },
+          ].map((phase, idx) => {
+            const ordre = ['idee','demande_initiale','etude_dsi','arbitrage','planification','en_cours','en_recette','en_cloture','cloture'];
+            const currentIdx = ordre.indexOf(projet.statut);
+            const phaseIdx = ordre.indexOf(phase.key);
+            const estPassee = phaseIdx < currentIdx;
+            const estCourante = phase.key === projet.statut;
+            return (
+              <div key={phase.key} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{
+                  padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap',
+                  background: estCourante ? '#2563eb' : estPassee ? '#16a34a' : '#f1f5f9',
+                  color: estCourante ? 'white' : estPassee ? 'white' : '#94a3b8',
+                }}>
+                  {estCourante ? '📍 ' : estPassee ? '✅ ' : ''}{phase.label}
+                </div>
+                {idx < 8 && <span style={{ color: estPassee || estCourante ? '#94a3b8' : '#d1d5db', fontSize: '14px' }}>→</span>}
+              </div>
+            );
+          })}
+          {['refuse','suspendu','abandonne'].includes(projet.statut) && (
+            <span style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', background: '#fee2e2', color: '#dc2626' }}>
+              {projet.statut === 'refuse' ? '🚫 Refusé' : projet.statut === 'suspendu' ? '⏸️ Suspendu' : '🗑️ Abandonné'}
+            </span>
+          )}
+        </div>
+      </div>
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Parties prenantes ({projet.roles?.length || 0})</h3>
