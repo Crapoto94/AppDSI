@@ -401,20 +401,20 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
 
         if (isMagApp) {
             // Priority 1 for MagApp: PostgreSQL
-            user = await pgDb.get('SELECT username, role, is_approved FROM users WHERE username = ?', [req.user.username]);
+            user = await pgDb.get('SELECT id, username, role, is_approved, email FROM users WHERE username = ?', [req.user.username]);
             if (user) {
                 source = 'postgres';
             } else {
-                user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
+                user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement, email FROM users WHERE username = ?', [req.user.username]);
                 if (user) source = 'sqlite';
             }
         } else {
             // Priority 1 for Hub: SQLite
-            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
+            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement, email FROM users WHERE username = ?', [req.user.username]);
             if (user) {
                 source = 'sqlite';
             } else {
-                user = await pgDb.get('SELECT username, role, is_approved FROM users WHERE username = ?', [req.user.username]);
+                user = await pgDb.get('SELECT id, username, role, is_approved, email FROM users WHERE username = ?', [req.user.username]);
                 if (user) source = 'postgres';
             }
         }
@@ -422,7 +422,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
 
         // Force l'approbation pour les admins
-        if (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub') {
+        if (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub' || user.username.toLowerCase() === 'machevalier') {
             user.is_approved = 1;
             user.authorized_urls = ['*'];
         } else {
@@ -714,6 +714,7 @@ app.get('/api/auth/azure/callback', async (req, res) => {
             id: user.id,
             username: user.username,
             role: user.role,
+            email: email,
             service_code: user.service_code,
             service_complement: user.service_complement
         }, SECRET_KEY);
@@ -2677,23 +2678,25 @@ app.delete('/api/admin/settings/:key', authenticateAdmin, async (req, res) => {
 // Specialized AI settings
 app.get('/api/app-settings/transcript_manager', authenticateAdmin, async (req, res) => {
     try {
-        const rows = await db.all("SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('groq_api_key', 'default_model')");
-        const settings = {};
-        rows.forEach(r => settings[r.setting_key] = r.setting_value);
-        res.json(settings);
+        const keys = ['groq_api_key', 'default_model', 'ai_provider', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model'];
+        const config = {};
+        for (const key of keys) {
+            const setting = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
+            config[key] = setting ? setting.setting_value : '';
+        }
+        return res.json(config);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
 app.post('/api/app-settings/transcript_manager', authenticateAdmin, async (req, res) => {
-    const { groq_api_key, default_model } = req.body;
     try {
-        if (groq_api_key !== undefined) {
-            await db.run("INSERT INTO app_settings (setting_key, setting_value, description) VALUES ('groq_api_key', ?, 'Clé API Groq Cloud') ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value", [groq_api_key]);
-        }
-        if (default_model !== undefined) {
-            await db.run("INSERT INTO app_settings (setting_key, setting_value, description) VALUES ('default_model', ?, 'Modèle LLM par défaut') ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value", [default_model]);
+        for (const [key, value] of Object.entries(req.body)) {
+            await db.run(
+                'INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value',
+                [key, value]
+            );
         }
         res.json({ success: true });
     } catch (error) {
