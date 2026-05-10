@@ -8,6 +8,7 @@ interface User {
     service_code?: string;
     service_complement?: string;
     authorized_urls?: string[];
+    est_pmo?: boolean;
 }
 
 interface AuthContextType {

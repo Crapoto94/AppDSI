@@ -425,7 +425,11 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         if (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub') {
             user.is_approved = 1;
             user.authorized_urls = ['*'];
-        } else if (source === 'sqlite') {
+        } else {
+            // Build authorized URLs
+            const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions', '/portefeuille-projets', '/projets', '/transcriptmanager']); // Default allowed routes
+
+        if (source === 'sqlite') {
             // Get URLs from the tiles the user is authorized for (Hub only)
             const authorizedTiles = await db.all(`
                 SELECT tl.url as link_url
@@ -435,11 +439,13 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
                 WHERE ut.user_id = ?
             `, [user.id]);
 
-            const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions', '/portefeuille-projets', '/projets']); // Default allowed routes
             authorizedTiles.forEach(row => {
                 if (row.link_url) urls.add(row.link_url);
             });
-            // Also include URLs from public tiles
+        }
+
+        // Also include URLs from public tiles for EVERYONE
+        try {
             const publicTiles = await db.all(`
                 SELECT tl.url as link_url
                 FROM tiles t
@@ -449,11 +455,18 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             publicTiles.forEach(row => {
                 if (row.link_url) urls.add(row.link_url);
             });
-            user.authorized_urls = Array.from(urls);
-        } else {
-            // Utilisateur MagApp (PG) sans compte Hub SQLite
-            user.authorized_urls = ['/', '/profile']; // Accès minimal par défaut
+        } catch (e) {
+            console.error('Error fetching public tiles:', e);
         }
+
+        user.authorized_urls = Array.from(urls);
+        }
+
+        // Check if user is PMO (has "Mes projets" tile)
+        try {
+            const pmoCheck = await db.get('SELECT 1 FROM user_tiles WHERE user_id = ? AND tile_id = 24', [user.id]);
+            user.est_pmo = !!pmoCheck;
+        } catch { user.est_pmo = false; }
 
         res.json({ ...user, auth_source: source });
     } catch (error) {
@@ -2658,6 +2671,33 @@ app.delete('/api/admin/settings/:key', authenticateAdmin, async (req, res) => {
         res.json({ message: 'Paramètre supprimé' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur suppression paramètre', error: error.message });
+    }
+});
+
+// Specialized AI settings
+app.get('/api/app-settings/transcript_manager', authenticateAdmin, async (req, res) => {
+    try {
+        const rows = await db.all("SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('groq_api_key', 'default_model')");
+        const settings = {};
+        rows.forEach(r => settings[r.setting_key] = r.setting_value);
+        res.json(settings);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/app-settings/transcript_manager', authenticateAdmin, async (req, res) => {
+    const { groq_api_key, default_model } = req.body;
+    try {
+        if (groq_api_key !== undefined) {
+            await db.run("INSERT INTO app_settings (setting_key, setting_value, description) VALUES ('groq_api_key', ?, 'Clé API Groq Cloud') ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value", [groq_api_key]);
+        }
+        if (default_model !== undefined) {
+            await db.run("INSERT INTO app_settings (setting_key, setting_value, description) VALUES ('default_model', ?, 'Modèle LLM par défaut') ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value", [default_model]);
+        }
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 

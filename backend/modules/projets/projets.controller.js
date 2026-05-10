@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { pgDb } = require('../../shared/database');
+const { pgDb, getSqlite } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
 
 let sendMailFn = null;
@@ -9,6 +9,15 @@ const setSendMail = (fn) => { sendMailFn = fn; };
 // ============================================
 // UTILITAIRES
 // ============================================
+
+async function estPMO(username) {
+    try {
+        const db = getSqlite();
+        if (!db) return false;
+        const user = await db.get('SELECT u.id FROM user_tiles ut JOIN users u ON u.id = ut.user_id WHERE ut.tile_id = 24 AND u.username = ?', [username]);
+        return !!user;
+    } catch { return false; }
+}
 
 async function genererCodeProjet() {
     const annee = new Date().getFullYear();
@@ -148,12 +157,13 @@ const getAll = async (req, res) => {
         const { statut, service_pilote, niveau, priorite, q, tri } = req.query;
         const username = req.user.username;
         const isAdmin = req.user.role === 'admin';
+        const isPMO = await estPMO(username);
 
         let conditions = [];
         let params = [];
         let paramIdx = 1;
 
-        if (!isAdmin) {
+        if (!isAdmin && !isPMO) {
             conditions.push(`(
                 LOWER(p.created_by_username) = LOWER($${paramIdx++})
                 OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($${paramIdx-1}))
@@ -197,24 +207,43 @@ const getAll = async (req, res) => {
 const getMesProjets = async (req, res) => {
     try {
         const username = req.user.username;
-        const projets = await pgDb.all(`
-            SELECT p.*,
-                   (SELECT COUNT(*) FROM projet_roles pr WHERE pr.projet_id = p.id) as nb_roles,
-                   (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
-                   (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
-                   (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
-                   (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
-            FROM projets p
-            WHERE LOWER(p.created_by_username) = LOWER($1)
-               OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1))
-               OR EXISTS (SELECT 1 FROM projet_visibilite pv WHERE pv.projet_id = p.id AND LOWER(pv.username) = LOWER($1))
-               OR LOWER(p.commanditaire_username) = LOWER($1)
-               OR LOWER(p.chef_projet_username) = LOWER($1)
-               OR LOWER(p.responsable_dsi_username) = LOWER($1)
-               OR LOWER(p.representant_metier_username) = LOWER($1)
-               OR LOWER(p.dpo_username) = LOWER($1)
-            ORDER BY p.date_modification DESC
-        `, [username]);
+        const isPMO = await estPMO(username);
+
+        let query, params;
+        if (isPMO) {
+            query = `
+                SELECT p.*,
+                       (SELECT COUNT(*) FROM projet_roles pr WHERE pr.projet_id = p.id) as nb_roles,
+                       (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
+                       (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
+                       (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
+                       (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
+                FROM projets p
+                ORDER BY p.date_modification DESC
+            `;
+            params = [];
+        } else {
+            query = `
+                SELECT p.*,
+                       (SELECT COUNT(*) FROM projet_roles pr WHERE pr.projet_id = p.id) as nb_roles,
+                       (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
+                       (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
+                       (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
+                       (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
+                FROM projets p
+                WHERE LOWER(p.created_by_username) = LOWER($1)
+                   OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1))
+                   OR EXISTS (SELECT 1 FROM projet_visibilite pv WHERE pv.projet_id = p.id AND LOWER(pv.username) = LOWER($1))
+                   OR LOWER(p.commanditaire_username) = LOWER($1)
+                   OR LOWER(p.chef_projet_username) = LOWER($1)
+                   OR LOWER(p.responsable_dsi_username) = LOWER($1)
+                   OR LOWER(p.representant_metier_username) = LOWER($1)
+                   OR LOWER(p.dpo_username) = LOWER($1)
+                ORDER BY p.date_modification DESC
+            `;
+            params = [username];
+        }
+        const projets = await pgDb.all(query, params);
         res.json(projets);
     } catch (error) {
         res.status(500).json({ error: error.message });

@@ -39,7 +39,7 @@ const STATUT_COLORS: Record<string, string> = {
   refuse: '#ef4444', suspendu: '#eab308', abandonne: '#6b7280'
 };
 
-const TABS = [
+const ALL_TABS = [
   { key: 'infos', label: 'Informations', icon: FileText },
   { key: 'planning', label: 'Planning', icon: Calendar },
   { key: 'journal', label: 'Journal', icon: MessageSquare },
@@ -53,7 +53,7 @@ const TABS = [
 const ProjetDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [projet, setProjet] = useState<Projet | null>(null);
   const [loading, setLoading] = useState(true);
   const [ongletActif, setOngletActif] = useState('infos');
@@ -65,8 +65,13 @@ const ProjetDetail: React.FC = () => {
   const [showCreateReunion, setShowCreateReunion] = useState(false);
   const [reunionDetailId, setReunionDetailId] = useState<number | null>(null);
   const [editingGov, setEditingGov] = useState(false);
-  const [govForm, setGovForm] = useState({ commanditaire_username: '', commanditaire_display: '', chef_projet_username: '', chef_projet_display: '', chef_projet_metier_username: '', chef_projet_metier_display: '', dpd_requis: false, rssi_requis: false });
   const [editingInfos, setEditingInfos] = useState(false);
+
+  const isAdmin = user?.role === 'admin';
+  const isPMO = user?.est_pmo;
+  const isChefProjet = projet?.chef_projet_username === user?.username;
+  const peutVoirAdmin = isAdmin || isPMO || isChefProjet;
+  const TABS = ALL_TABS.filter(t => t.key !== 'admin' || peutVoirAdmin);
   const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
   const [viewerDoc, setViewerDoc] = useState<{ url: string; nom: string } | null>(null);
 
