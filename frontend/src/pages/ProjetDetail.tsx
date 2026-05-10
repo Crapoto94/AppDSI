@@ -492,7 +492,7 @@ const ADSearchField: React.FC<{ label: string; username: string; display: string
   );
 };
 
-interface Comite { id: number; nom: string; role: string; frequence: string; responsable_username: string; membres: any[]; }
+interface Comite { id: number; nom: string; role: string; frequence: string; responsable_username: string; membres: any[]; reunions?: any[]; }
 
 const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ projetId, token }) => {
   const [comites, setComites] = useState<Comite[]>([]);
@@ -502,7 +502,6 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
   const [newMembre, setNewMembre] = useState({ prenom: '', nom: '', email: '', societe: '', fonction: '', role: '', telephone: '', ad_username: '' });
   const [adQuery, setAdQuery] = useState('');
   const [adResults, setAdResults] = useState<any[]>([]);
-  const [adSearching, setAdSearching] = useState(false); // eslint-disable-line @typescript-eslint/no-unused-vars
   const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
