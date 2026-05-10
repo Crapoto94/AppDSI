@@ -109,7 +109,6 @@ const PortefeuilleProjets: React.FC = () => {
 
   const username = user?.username || '';
   const niveauImplication = (p: Projet) => {
-    if (favoris.includes(p.id)) return -1;
     if (p.commanditaire_username?.toLowerCase() === username.toLowerCase()) return 0;
     if (p.chef_projet_username?.toLowerCase() === username.toLowerCase()) return 1;
     if (p.user_est_intervenant) return 2;
@@ -117,6 +116,9 @@ const PortefeuilleProjets: React.FC = () => {
   };
 
   const projetsTries = [...projets].sort((a, b) => {
+    const aFav = favoris.includes(a.id) ? -1 : 0;
+    const bFav = favoris.includes(b.id) ? -1 : 0;
+    if (aFav !== bFav) return aFav - bFav;
     const impA = niveauImplication(a);
     const impB = niveauImplication(b);
     if (impA !== impB) return impA - impB;
@@ -218,9 +220,7 @@ const PortefeuilleProjets: React.FC = () => {
                 return imp === niveau;
               });
               if (filtered.length === 0) return null;
-              // Include favoris in the first applicable section
-              const avecFavoris = niveau === 0 ? projetsTries.filter(p => favoris.includes(p.id)) : [];
-              const items = niveau === 0 ? [...avecFavoris, ...filtered] : filtered;
+              const items = filtered;
               if (items.length === 0) return null;
               return (
                 <div key={niveau}>
