@@ -11,6 +11,7 @@ interface Projet {
   score_total: number; avancement: number; meteo: string; date_modification: string;
   nb_roles: number; nb_documents: number; nb_reunions: number;
   nb_taches_en_retard: number; nb_jalons_en_retard: number;
+  commanditaire_username?: string; chef_projet_username?: string;
 }
 
 interface Stats {
@@ -38,18 +39,20 @@ const STATUT_COLORS: Record<string, string> = {
 
 const PortefeuilleProjets: React.FC = () => {
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [projets, setProjets] = useState<Projet[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [filtreStatut, setFiltreStatut] = useState('');
   const [filtreService, setFiltreService] = useState('');
   const [filtreNiveau, setFiltreNiveau] = useState('');
+  const [filtreChefProjet, setFiltreChefProjet] = useState('');
   const [recherche, setRecherche] = useState('');
   const [modeMesProjets, setModeMesProjets] = useState(false);
   const [tri, setTri] = useState('date');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [favoris, setFavoris] = useState<number[]>([]);
+  const isPMO = user?.est_pmo || user?.role === 'admin';
 
   const fetchProjets = useCallback(async () => {
     try {
@@ -58,6 +61,7 @@ const PortefeuilleProjets: React.FC = () => {
       if (filtreStatut) params.set('statut', filtreStatut);
       if (filtreService) params.set('service_pilote', filtreService);
       if (filtreNiveau) params.set('niveau', filtreNiveau);
+      if (filtreChefProjet) params.set('chef_projet', filtreChefProjet);
       if (recherche) params.set('q', recherche);
       if (tri) params.set('tri', tri);
 
@@ -78,7 +82,7 @@ const PortefeuilleProjets: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [token, filtreStatut, filtreService, filtreNiveau, recherche, tri, modeMesProjets]);
+  }, [token, filtreStatut, filtreService, filtreNiveau, filtreChefProjet, recherche, tri, modeMesProjets]);
 
   const fetchFavoris = useCallback(async () => {
     try {
@@ -101,13 +105,25 @@ const PortefeuilleProjets: React.FC = () => {
   useEffect(() => { fetchProjets(); }, [fetchProjets]);
   useEffect(() => { fetchFavoris(); }, [fetchFavoris]);
 
+  const username = user?.username || '';
+  const niveauImplication = (p: Projet) => {
+    if (p.commanditaire_username?.toLowerCase() === username.toLowerCase()) return 0;
+    if (p.chef_projet_username?.toLowerCase() === username.toLowerCase()) return 1;
+    return 2;
+  };
+
   const projetsTries = [...projets].sort((a, b) => {
     const aFav = favoris.includes(a.id) ? 0 : 1;
     const bFav = favoris.includes(b.id) ? 0 : 1;
-    return aFav - bFav;
+    if (aFav !== bFav) return aFav - bFav;
+    const impA = niveauImplication(a);
+    const impB = niveauImplication(b);
+    if (impA !== impB) return impA - impB;
+    return 0;
   });
 
   const servicesList = projets.length > 0 ? [...new Set(projets.map(p => p.service_pilote))].sort() : [];
+  const chefsList = [...new Set(projets.filter(p => p.chef_projet_username).map(p => p.chef_projet_username))].sort() as string[];
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
@@ -168,6 +184,12 @@ const PortefeuilleProjets: React.FC = () => {
             <option value="standard">Standard</option>
             <option value="structurant">Structurant</option>
           </select>
+          {isPMO && (
+            <select value={filtreChefProjet} onChange={e => setFiltreChefProjet(e.target.value)} style={{ padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white', cursor: 'pointer' }}>
+              <option value="">Tous chefs de projet</option>
+              {chefsList.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
           <select value={tri} onChange={e => setTri(e.target.value)} style={{ padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white', cursor: 'pointer' }}>
             <option value="date">Date ▼</option>
             <option value="score">Score ▼</option>

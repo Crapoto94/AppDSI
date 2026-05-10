@@ -154,7 +154,7 @@ function getStatutLabel(statut) {
 
 const getAll = async (req, res) => {
     try {
-        const { statut, service_pilote, niveau, priorite, q, tri } = req.query;
+        const { statut, service_pilote, niveau, priorite, chef_projet, q, tri } = req.query;
         const username = req.user.username;
         const isAdmin = req.user.role === 'admin';
         const isPMO = await estPMO(username);
@@ -181,6 +181,7 @@ const getAll = async (req, res) => {
         if (service_pilote) { conditions.push(`p.service_pilote = $${paramIdx++}`); params.push(service_pilote); }
         if (niveau) { conditions.push(`p.niveau_projet = $${paramIdx++}`); params.push(niveau); }
         if (priorite) { conditions.push(`p.priorite = $${paramIdx++}`); params.push(parseInt(priorite)); }
+        if (chef_projet) { conditions.push(`LOWER(p.chef_projet_username) = LOWER($${paramIdx++})`); params.push(chef_projet); }
         if (q) { conditions.push(`(p.titre ILIKE $${paramIdx} OR p.code ILIKE $${paramIdx} OR p.description ILIKE $${paramIdx})`); params.push(`%${q}%`); paramIdx++; }
 
         const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
