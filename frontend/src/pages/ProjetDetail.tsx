@@ -526,10 +526,8 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
     setAdQuery(q);
     if (adTimerRef.current) clearTimeout(adTimerRef.current);
     if (q.length < 2) { setAdResults([]); return; }
-    setAdSearching(true);
     adTimerRef.current = setTimeout(async () => {
       try { const r = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } }); const d = await r.json(); setAdResults(Array.isArray(d) ? d : []); } catch { setAdResults([]); }
-      finally { setAdSearching(false); }
     }, 400);
   };
 
