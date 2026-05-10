@@ -64,6 +64,7 @@ const ProjetDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [ongletActif, setOngletActif] = useState('infos');
   const [transitions, setTransitions] = useState<any[]>([]);
+  const [etapesActives, setEtapesActives] = useState<string[]>([]);
   const [showTransitionPicker, setShowTransitionPicker] = useState(false);
   const [transitionStatutCible, setTransitionStatutCible] = useState('');
   const [transitionMsg, setTransitionMsg] = useState('');
@@ -136,9 +137,16 @@ const ProjetDetail: React.FC = () => {
 
   const fetchTransitions = useCallback(async () => {
     try {
-      const res = await fetch(`/api/projets/${id}/transitions`, { headers: { Authorization: `Bearer ${token}` } });
+      const [res, resEtapes] = await Promise.all([
+        fetch(`/api/projets/${id}/transitions`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/projets/${id}/etapes`, { headers: { Authorization: `Bearer ${token}` } })
+      ]);
       const data = await res.json();
       if (data.transitions) setTransitions(data.transitions);
+      const etapesData = await resEtapes.json();
+      if (Array.isArray(etapesData)) {
+        setEtapesActives(etapesData.filter((e: any) => e.actif).sort((a: any, b: any) => a.ordre - b.ordre).map((e: any) => e.etape));
+      }
     } catch (e) { console.error(e); }
   }, [id, token]);
 
@@ -384,18 +392,44 @@ const renderAdmin = () => <AdminTab projetId={projet.id} token={token} projet={p
               <select value={transitionStatutCible} onChange={e => setTransitionStatutCible(e.target.value)}
                 style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', background: 'white', marginBottom: '10px' }}>
                 <option value="">Sélectionner...</option>
-                {transitions.map((t: any) => (
-                  <option key={t.statut} value={t.statut} disabled={t.alertes?.length > 0}>
-                    {t.label}{t.alertes?.length > 0 ? ` (${t.alertes.length} alerte(s))` : ''}
-                  </option>
-                ))}
-                {/* Suspendu et Refusé toujours disponibles */}
-                {!transitions.find((t: any) => t.statut === 'suspendu') && projet.statut !== 'suspendu' && projet.statut !== 'refuse' && projet.statut !== 'abandonne' && projet.statut !== 'cloture' && (
-                  <option value="suspendu">⏸️ Suspendu</option>
-                )}
-                {!transitions.find((t: any) => t.statut === 'refuse') && projet.statut !== 'refuse' && projet.statut !== 'abandonne' && projet.statut !== 'cloture' && (
-                  <option value="refuse">🚫 Refusé</option>
-                )}
+                {(() => {
+                  const currentIdx = etapesActives.indexOf(projet.statut);
+                  const prevStatut = currentIdx > 0 ? etapesActives[currentIdx - 1] : null;
+                  const nextStatut = currentIdx >= 0 && currentIdx < etapesActives.length - 1 ? etapesActives[currentIdx + 1] : null;
+                  const result: { statut: string; label: string; alerte?: boolean }[] = [];
+                  // Toujours proposer l'étape précédente
+                  if (prevStatut && prevStatut !== projet.statut_precedent) {
+                    result.push({ statut: prevStatut, label: `← ${STATUT_LABELS[prevStatut] || prevStatut}` });
+                  }
+                  // Toujours proposer l'étape suivante
+                  if (nextStatut) {
+                    const t = transitions.find((t: any) => t.statut === nextStatut);
+                    result.push({ statut: nextStatut, label: `${STATUT_LABELS[nextStatut] || nextStatut} →`, alerte: (t?.alertes?.length || 0) > 0 });
+                  }
+                  // Ajouter les autres transitions (inclut suspendu/refuse du backend)
+                  transitions.forEach(t => {
+                    if (t.statut !== nextStatut) {
+                      result.push({ statut: t.statut, label: t.label, alerte: t.alertes?.length > 0 });
+                    }
+                  });
+                  // Suspendu et Refusé toujours disponibles (sauf déjà dedans)
+                  if (!result.find(r => r.statut === 'suspendu') && !['suspendu','refuse','abandonne','cloture'].includes(projet.statut))
+                    result.push({ statut: 'suspendu', label: '⏸️ Suspendu' });
+                  if (!result.find(r => r.statut === 'refuse') && !['refuse','abandonne','cloture'].includes(projet.statut))
+                    result.push({ statut: 'refuse', label: '🚫 Refusé' });
+                  // Retirer les doublons
+                  const seen = new Set<string>();
+                  return result.filter(r => {
+                    if (r.statut === projet.statut) return false;
+                    if (seen.has(r.statut)) return false;
+                    seen.add(r.statut);
+                    return true;
+                  }).map(r => (
+                    <option key={r.statut} value={r.statut}>
+                      {r.label}{r.alerte ? ' ⚠️' : ''}
+                    </option>
+                  ));
+                })()}
               </select>
               {/* Commentaire */}
               <input value={transitionMsg} onChange={e => setTransitionMsg(e.target.value)} placeholder="Commentaire (optionnel)" style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', marginBottom: '10px' }} />
