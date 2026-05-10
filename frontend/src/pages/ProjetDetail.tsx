@@ -65,6 +65,7 @@ const ProjetDetail: React.FC = () => {
   const [showCreateReunion, setShowCreateReunion] = useState(false);
   const [reunionDetailId, setReunionDetailId] = useState<number | null>(null);
   const [editingGov, setEditingGov] = useState(false);
+  const [govForm, setGovForm] = useState({ commanditaire_username: '', commanditaire_display: '', chef_projet_username: '', chef_projet_display: '', chef_projet_metier_username: '', chef_projet_metier_display: '', dpd_requis: false, rssi_requis: false });
   const [editingInfos, setEditingInfos] = useState(false);
 
   const isAdmin = user?.role === 'admin';
