@@ -579,6 +579,17 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
               </div>
             ))}
           </div>
+          {c.reunions && c.reunions.length > 0 && (
+            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '2px' }}>📅 Réunions ({c.reunions.length})</div>
+              {c.reunions.map((r: any) => (
+                <div key={r.id} style={{ padding: '3px 8px', background: '#f0fdf4', borderRadius: '4px', fontSize: '11px', color: '#166534', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{r.titre}</span>
+                  <span style={{ color: '#64748b' }}>{r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <button onClick={() => setShowMembreForm(showMembreForm === c.id ? null : c.id)} style={{ marginTop: '6px', padding: '4px 10px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#475569', fontWeight: '600' }}>+ Membre</button>
           {showMembreForm === c.id && (
             <div style={{ marginTop: '8px', padding: '10px', background: '#f8fafc', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1454,7 +1465,8 @@ const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterR
               <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '14px' }}>{r.titre}</div>
               <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
                 <span>📅 {r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '—'}</span>
-                {r.type_gouvernance && <span style={{ padding: '1px 6px', background: '#f1f5f9', borderRadius: '4px', fontSize: '11px', fontWeight: '600', color: '#2563eb' }}>{r.type_gouvernance}</span>}
+                {r.comite_nom && <span style={{ padding: '1px 6px', background: '#f0fdf4', borderRadius: '4px', fontSize: '11px', fontWeight: '600', color: '#16a34a' }}>�️ {r.comite_nom}</span>}
+                {r.type_gouvernance && !r.comite_nom && <span style={{ padding: '1px 6px', background: '#f1f5f9', borderRadius: '4px' }}>{r.type_gouvernance}</span>}
                 <span>👥 {r.participant_count} participants</span>
               </div>
             </div>
