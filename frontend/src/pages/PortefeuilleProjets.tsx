@@ -209,76 +209,95 @@ const PortefeuilleProjets: React.FC = () => {
             <p style={{ color: '#94a3b8', fontSize: '16px' }}>Aucun projet trouvé.</p>
           </div>
         ) : (
-          <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase' }}>Projet</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase', width: '60px' }}>Météo</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase' }}>Statut</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase' }}>Service</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase' }}>Priorité</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase' }}>Score</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase' }}>Avancement</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase', width: '40px' }}>⚠️</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '12px', textTransform: 'uppercase', width: '40px' }}>⭐</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projetsTries.map(p => (
-                  <tr key={p.id} onClick={() => navigate(`/projets/${p.id}`)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: favoris.includes(p.id) ? '#fffbeb' : 'transparent' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ fontWeight: '700', color: '#1e293b' }}>{p.titre}</div>
-                      <div style={{ fontSize: '12px', color: '#94a3b8' }}>{p.code}</div>
-                    </td>
-                    <td style={{ padding: '14px 16px', textAlign: 'center', fontSize: '20px' }}>
-                      {p.meteo === 'soleil' ? '☀️' : p.meteo === 'nuageux' ? '⛅' : p.meteo === 'orage' ? '⛈️' : '➖'}
-                    </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <span style={{ padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', background: `${STATUT_COLORS[p.statut] || '#94a3b8'}20`, color: STATUT_COLORS[p.statut] || '#94a3b8' }}>
-                        {STATUT_LABELS[p.statut] || p.statut}
-                      </span>
-                    </td>
-                    <td style={{ padding: '14px 16px', color: '#475569' }}>{p.service_pilote}</td>
-                    <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                      {p.priorite > 0 ? (
-                        <span style={{ fontWeight: '700', color: p.priorite >= 4 ? '#dc2626' : p.priorite >= 3 ? '#d97706' : '#16a34a' }}>
-                          {'★'.repeat(p.priorite)}{'☆'.repeat(5 - p.priorite)}
-                        </span>
-                      ) : (
-                        <span style={{ color: '#cbd5e1' }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '14px 16px', textAlign: 'center', fontWeight: '700', color: p.score_total >= 50 ? '#16a34a' : p.score_total >= 30 ? '#d97706' : '#dc2626' }}>{p.score_total}</td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ flex: 1, height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
-                          <div style={{ width: `${p.avancement}%`, height: '100%', background: p.avancement >= 80 ? '#22c55e' : p.avancement >= 40 ? '#3b82f6' : '#f59e0b', borderRadius: '3px', transition: 'width 0.3s' }} />
-                        </div>
-                      <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', minWidth: '35px' }}>{p.avancement}%</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                    {(p.nb_taches_en_retard > 0 || p.nb_jalons_en_retard > 0) ? (
-                      <span style={{ fontSize: '16px', cursor: 'pointer' }} title={
-                        (p.nb_taches_en_retard > 0 ? `${p.nb_taches_en_retard} tâche(s)` : '') +
-                        (p.nb_taches_en_retard > 0 && p.nb_jalons_en_retard > 0 ? ' et ' : '') +
-                        (p.nb_jalons_en_retard > 0 ? `${p.nb_jalons_en_retard} jalon(s)` : '') +
-                        ' en retard'
-                      }>⚠️</span>
-                    ) : <span style={{ color: '#e2e8f0' }}>—</span>}
-                  </td>
-                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                    <span onClick={e => { e.stopPropagation(); toggleFavori(p.id, favoris.includes(p.id)); }} style={{ cursor: 'pointer', fontSize: '18px' }}>
-                      {favoris.includes(p.id) ? '⭐' : '☆'}
-                    </span>
-                  </td>
-                </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {[[0, '🏆 En tant que commanditaire'], [1, '👨‍💼 En tant que chef de projet'], [2, '📋 Interventions'], [3, '📁 Autres projets']].map(([niveau, label]) => {
+              const filtered = projetsTries.filter(p => {
+                const imp = niveauImplication(p);
+                if (niveau === 3) return imp >= 2 && !favoris.includes(p.id);
+                return imp === niveau && (niveau < 2 || !favoris.includes(p.id));
+              });
+              if (filtered.length === 0) return null;
+              // Include favoris in the first applicable section
+              const avecFavoris = niveau === 0 ? projetsTries.filter(p => favoris.includes(p.id)) : [];
+              const items = niveau === 0 ? [...avecFavoris, ...filtered] : filtered;
+              if (items.length === 0) return null;
+              return (
+                <div key={niveau}>
+                  <div style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', borderRadius: '8px 8px 0 0', marginTop: niveau > 0 ? '12px' : 0 }}>
+                    {label} ({items.length})
+                  </div>
+                  <div style={{ background: 'white', borderRadius: niveau > 0 ? '0 0 8px 8px' : '0', overflow: 'hidden', border: '1px solid #e2e8f0', borderTop: 'none' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc' }}>
+                          <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Projet</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', width: '60px' }}>Météo</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Statut</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Service</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Priorité</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Score</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Avancement</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', width: '40px' }}>⚠️</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', width: '40px' }}>⭐</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map(p => (
+                          <tr key={p.id} onClick={() => navigate(`/projets/${p.id}`)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: favoris.includes(p.id) ? '#fffbeb' : 'transparent' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fef3c7' : '#f8fafc')}
+                            onMouseLeave={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fffbeb' : 'transparent')}>
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px' }}>{p.titre}</div>
+                              <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}</div>
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center', fontSize: '18px' }}>
+                              {p.meteo === 'soleil' ? '☀️' : p.meteo === 'nuageux' ? '⛅' : p.meteo === 'orage' ? '⛈️' : '➖'}
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <span style={{ padding: '2px 8px', borderRadius: '5px', fontSize: '11px', fontWeight: '600', background: `${STATUT_COLORS[p.statut] || '#94a3b8'}20`, color: STATUT_COLORS[p.statut] || '#94a3b8' }}>
+                                {STATUT_LABELS[p.statut] || p.statut}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px' }}>{p.service_pilote}</td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              {p.priorite > 0 ? (
+                                <span style={{ fontWeight: '700', color: p.priorite >= 4 ? '#dc2626' : p.priorite >= 3 ? '#d97706' : '#16a34a', fontSize: '13px' }}>
+                                  {'★'.repeat(p.priorite)}{'☆'.repeat(5 - p.priorite)}
+                                </span>
+                              ) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: '700', color: p.score_total >= 50 ? '#16a34a' : p.score_total >= 30 ? '#d97706' : '#dc2626', fontSize: '13px' }}>{p.score_total}</td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ flex: 1, height: '5px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div style={{ width: `${p.avancement}%`, height: '100%', background: p.avancement >= 80 ? '#22c55e' : p.avancement >= 40 ? '#3b82f6' : '#f59e0b', borderRadius: '3px' }} />
+                                </div>
+                                <span style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', minWidth: '30px' }}>{p.avancement}%</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              {(p.nb_taches_en_retard > 0 || p.nb_jalons_en_retard > 0) ? (
+                                <span style={{ fontSize: '14px', cursor: 'pointer' }} title={
+                                  (p.nb_taches_en_retard > 0 ? `${p.nb_taches_en_retard} tâche(s)` : '') +
+                                  (p.nb_taches_en_retard > 0 && p.nb_jalons_en_retard > 0 ? ' et ' : '') +
+                                  (p.nb_jalons_en_retard > 0 ? `${p.nb_jalons_en_retard} jalon(s)` : '') +
+                                  ' en retard'
+                                }>⚠️</span>
+                              ) : <span style={{ color: '#e2e8f0' }}>—</span>}
+                            </td>
+                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                              <span onClick={e => { e.stopPropagation(); toggleFavori(p.id, favoris.includes(p.id)); }} style={{ cursor: 'pointer', fontSize: '16px' }}>
+                                {favoris.includes(p.id) ? '⭐' : '☆'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
         <CreerProjetModal

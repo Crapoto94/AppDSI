@@ -405,12 +405,12 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             if (user) {
                 source = 'postgres';
             } else {
-                user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement, email FROM users WHERE username = ?', [req.user.username]);
+                user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
                 if (user) source = 'sqlite';
             }
         } else {
             // Priority 1 for Hub: SQLite
-            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement, email FROM users WHERE username = ?', [req.user.username]);
+            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
             if (user) {
                 source = 'sqlite';
             } else {
