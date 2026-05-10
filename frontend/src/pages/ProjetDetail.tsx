@@ -54,6 +54,7 @@ const ALL_TABS = [
   { key: 'score', label: 'Score', icon: BarChart3 },
   { key: 'indicateurs', label: 'Indicateurs', icon: Activity },
   { key: 'admin', label: 'Admin projet', icon: Settings },
+  { key: 'admin-generale', label: 'Admin générale', icon: Settings },
 ];
 
 const ProjetDetail: React.FC = () => {
@@ -80,7 +81,12 @@ const ProjetDetail: React.FC = () => {
   const isPMO = user?.est_pmo;
   const isChefProjet = projet?.chef_projet_username === user?.username;
   const peutVoirAdmin = isAdmin || isPMO || isChefProjet;
-  const TABS = ALL_TABS.filter(t => t.key !== 'admin' || peutVoirAdmin);
+  const peutVoirAdminGenerale = isAdmin || isPMO;
+  const TABS = ALL_TABS.filter(t => {
+    if (t.key === 'admin') return peutVoirAdmin;
+    if (t.key === 'admin-generale') return peutVoirAdminGenerale;
+    return true;
+  });
   const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
   const [viewerDoc, setViewerDoc] = useState<{ url: string; nom: string } | null>(null);
   const [comites, setComites] = useState<any[]>([]);
@@ -354,6 +360,7 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
 };
 
 const renderAdmin = () => <AdminTab projetId={projet.id} token={token} projet={projet} onRefresh={fetchProjet} />;
+const renderAdminGenerale = () => <AdminGeneraleTab token={token} />;
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
@@ -482,6 +489,7 @@ const renderAdmin = () => <AdminTab projetId={projet.id} token={token} projet={p
         {ongletActif === 'score' && renderScore()}
         {ongletActif === 'indicateurs' && renderIndicateurs()}
         {ongletActif === 'admin' && renderAdmin()}
+        {ongletActif === 'admin-generale' && renderAdminGenerale()}
       </div>
       <CreateReunionModal
         isOpen={showCreateReunion}
@@ -1865,4 +1873,122 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
     </div>
   );
 };
+
+// ===== ONGLET ADMIN GÉNÉRALE =====
+const AdminGeneraleTab: React.FC<{ token: string | null }> = ({ token }) => {
+  const [scoringConfig, setScoringConfig] = useState<any[]>([]);
+  const [docTypes, setDocTypes] = useState<any[]>([]);
+  const [tab, setTab] = useState('scoring');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetch('/api/projets/admin/scoring-config', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(d => { if (Array.isArray(d)) setScoringConfig(d); }).catch(() => {}),
+      fetch('/api/projets/admin/types-documentaires', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(d => { if (Array.isArray(d)) setDocTypes(d); }).catch(() => {}),
+    ]).finally(() => setLoading(false));
+  }, [token]);
+
+  const saveScoring = async () => {
+    await fetch('/api/projets/admin/scoring-config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ criteres: scoringConfig })
+    });
+  };
+
+  const saveDocTypes = async () => {
+    await fetch('/api/projets/admin/types-documentaires', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ types: docTypes })
+    });
+  };
+
+  if (loading) return <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Chargement...</p>;
+
+  return (
+    <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', gap: '2px', borderBottom: '2px solid #e2e8f0' }}>
+        {[
+          { key: 'scoring', label: '📊 Configuration scoring' },
+          { key: 'docTypes', label: '📄 Types documentaires' }
+        ].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} style={{
+            padding: '10px 18px', border: 'none', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent',
+            background: tab === t.key ? '#eff6ff' : 'transparent', cursor: 'pointer', fontWeight: tab === t.key ? '700' : '500',
+            color: tab === t.key ? '#2563eb' : '#64748b', fontSize: '13px', marginBottom: '-2px'
+          }}>{t.label}</button>
+        ))}
+      </div>
+
+      {tab === 'scoring' && (
+        <div style={{ padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#1e293b' }}>Critères de scoring</h3>
+            <button onClick={saveScoring} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>💾 Enregistrer</button>
+          </div>
+          {scoringConfig.map((c: any, i: number) => (
+            <div key={c.critere} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+              <span style={{ minWidth: '180px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>{c.label}</span>
+              <input value={c.poids} onChange={e => {
+                const newConfig = [...scoringConfig];
+                newConfig[i] = { ...newConfig[i], poids: parseInt(e.target.value) || 0 };
+                setScoringConfig(newConfig);
+              }} type="number" min="0" max="100" style={{ width: '60px', padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px', textAlign: 'center' }} />
+              <span style={{ fontSize: '12px', color: '#94a3b8' }}>%</span>
+              <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
+                <input type="checkbox" checked={c.actif} onChange={e => {
+                  const newConfig = [...scoringConfig];
+                  newConfig[i] = { ...newConfig[i], actif: e.target.checked ? 1 : 0 };
+                  setScoringConfig(newConfig);
+                }} /> Actif
+              </label>
+            </div>
+          ))}
+          <div style={{ marginTop: '12px', padding: '10px 14px', background: '#f8fafc', borderRadius: '8px', fontSize: '12px', color: '#64748b' }}>
+            Total des poids : {scoringConfig.reduce((sum: number, c: any) => sum + (c.poids || 0), 0)}/100
+          </div>
+        </div>
+      )}
+
+      {tab === 'docTypes' && (
+        <div style={{ padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#1e293b' }}>Types documentaires</h3>
+            <button onClick={saveDocTypes} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>💾 Enregistrer</button>
+          </div>
+          {docTypes.map((t: any, i: number) => (
+            <div key={t.code} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+              <span style={{ minWidth: '120px', fontSize: '12px', color: '#94a3b8' }}>{t.code}</span>
+              <input value={t.label} onChange={e => {
+                const newTypes = [...docTypes];
+                newTypes[i] = { ...newTypes[i], label: e.target.value };
+                setDocTypes(newTypes);
+              }} style={{ flex: 1, padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+              <select value={t.phase_concernee || ''} onChange={e => {
+                const newTypes = [...docTypes];
+                newTypes[i] = { ...newTypes[i], phase_concernee: e.target.value || null };
+                setDocTypes(newTypes);
+              }} style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
+                <option value="">Toutes phases</option>
+                {Object.entries(STATUT_LABELS).filter(([k]) => k !== 'refuse' && k !== 'suspendu' && k !== 'abandonne').map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
+                <input type="checkbox" checked={t.obligatoire} onChange={e => {
+                  const newTypes = [...docTypes];
+                  newTypes[i] = { ...newTypes[i], obligatoire: e.target.checked ? 1 : 0 };
+                  setDocTypes(newTypes);
+                }} /> Obligatoire
+              </label>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default ProjetDetail;
