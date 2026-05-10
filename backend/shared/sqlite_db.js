@@ -37,6 +37,7 @@ async function setupDb() {
             is_approved INTEGER DEFAULT 0,
             service_code TEXT,
             service_complement TEXT,
+            email TEXT,
             last_activity DATETIME
         );
 
@@ -271,7 +272,14 @@ async function setupDb() {
         INSERT OR IGNORE INTO app_settings (setting_key, setting_value, description)
         VALUES 
         ('budget_principal', '00001000000000001901000', 'Code du budget principal'),
-        ('url_sedit_fi', 'https://seditgfprod.ivry.local/SeditGfSMProd', 'URL de base Sedit Finances');
+        ('url_sedit_fi', 'https://seditgfprod.ivry.local/SeditGfSMProd', 'URL de base Sedit Finances'),
+        ('groq_api_key', 'gsk_h67R9mK9v8f4H7j2L3k5M1n0P9q8R7s6T5u4V3w2X1y0', 'Clé API Groq pour les résumés'),
+        ('ai_provider', 'groq', 'Fournisseur d''IA par défaut'),
+        ('gemini_api_key', '', 'Clé API Google Gemini'),
+        ('openrouter_api_key', '', 'Clé API OpenRouter'),
+        ('anthropic_api_key', '', 'Clé API Anthropic'),
+        ('ollama_host', 'http://localhost:11434', 'Hôte Ollama local'),
+        ('anthropic_model', 'claude-3-5-sonnet-20240620', 'Modèle Anthropic par défaut');
 
         CREATE TABLE IF NOT EXISTS rh.ad_proposals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -521,6 +529,40 @@ async function setupDb() {
         CREATE INDEX IF NOT EXISTS idx_rencontres_statut ON rencontres_budgetaires(statut);
         CREATE INDEX IF NOT EXISTS idx_direction_emails ON direction_emails(direction);
         CREATE INDEX IF NOT EXISTS idx_direction_emails_email ON direction_emails(email);
+
+        CREATE TABLE IF NOT EXISTS transcript_meetings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            summary TEXT,
+            meeting_date DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS transcript_cues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            meeting_id INTEGER,
+            speaker_name TEXT,
+            start_seconds REAL,
+            text TEXT,
+            FOREIGN KEY (meeting_id) REFERENCES transcript_meetings(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS transcript_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            meeting_id INTEGER,
+            description TEXT,
+            assignee TEXT,
+            requester TEXT,
+            deadline TEXT,
+            is_completed INTEGER DEFAULT 0,
+            origin TEXT,
+            start_seconds REAL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (meeting_id) REFERENCES transcript_meetings(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_transcript_cues_meeting ON transcript_cues(meeting_id);
+        CREATE INDEX IF NOT EXISTS idx_transcript_tasks_meeting ON transcript_tasks(meeting_id);
     `);
 
     try {
@@ -537,6 +579,14 @@ async function setupDb() {
               FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE CASCADE
             )
         `);
+    } catch (e) {}
+
+    try {
+        const result = await db.all("PRAGMA table_info(users)");
+        const hasEmailColumn = result.some(col => col.name === 'email');
+        if (!hasEmailColumn) {
+            await db.exec('ALTER TABLE users ADD COLUMN email TEXT');
+        }
     } catch (e) {}
 
     try {
@@ -576,6 +626,27 @@ async function setupDb() {
         const hasColumn = result.some(col => col.name === 'commentaire');
         if (!hasColumn) {
             await db.exec('ALTER TABLE reunion_participants ADD COLUMN commentaire TEXT');
+        }
+    } catch (e) {}
+
+    try {
+        const result = await db.all("PRAGMA table_info(transcript_meetings)");
+        const hasReunionIdColumn = result.some(col => col.name === 'reunion_id');
+        if (!hasReunionIdColumn) {
+            await db.exec('ALTER TABLE transcript_meetings ADD COLUMN reunion_id INTEGER');
+        }
+    } catch (e) {}
+
+    try {
+        const existingTile = await db.get("SELECT id FROM tiles WHERE title = 'Transcript Manager'");
+        if (!existingTile) {
+            const maxOrder = await db.get("SELECT MAX(sort_order) as max FROM tiles");
+            const result = await db.run(
+                "INSERT INTO tiles (title, icon, description, status, sort_order, is_public) VALUES (?, ?, ?, ?, ?, ?)",
+                ['Transcript Manager', 'FileText', 'Gérez vos réunions et générez des comptes-rendus IA', 'active', (maxOrder?.max || 999) + 1, 1]
+            );
+            const tileId = result.lastID;
+            await db.run("INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)", [tileId, 'Ouvrir', '/transcriptmanager', 1]);
         }
     } catch (e) {}
 

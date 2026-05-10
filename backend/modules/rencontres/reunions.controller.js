@@ -118,7 +118,12 @@ module.exports = {
     getById: async (req, res) => {
         try {
             const { id } = req.params;
-            const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+            const reunion = await pgDb.get(`
+                SELECT r.*, tm.id as transcript_id 
+                FROM rencontres_reunions r 
+                LEFT JOIN transcript_meetings tm ON tm.reunion_id = r.id 
+                WHERE r.id=?
+            `, [id]);
             if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
 
             reunion.participants = await pgDb.all('SELECT * FROM reunion_participants WHERE reunion_id=? ORDER BY nom', [id]);

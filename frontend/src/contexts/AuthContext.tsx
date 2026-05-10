@@ -4,6 +4,7 @@ interface User {
     id: number;
     username: string;
     role: string;
+    email?: string;
     is_approved?: number;
     service_code?: string;
     service_complement?: string;

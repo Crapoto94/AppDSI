@@ -19,6 +19,7 @@ interface Reunion {
   projet_lie_id?: number;
   projet_lie_code?: string;
   projet_lie_titre?: string;
+  transcript_id?: number | null;
 }
 
 const MesReunions: React.FC = () => {
@@ -90,7 +91,7 @@ const MesReunions: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
                     <span style={{padding: '3px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', background: reunion.statut === 'effectuée' ? '#dcfce7' : '#fef3c7', color: reunion.statut === 'effectuée' ? '#16a34a' : '#92400e'}}>{reunion.statut}</span>
                     <Eye size={16} color="#94a3b8" />
                   </div>
@@ -119,6 +120,7 @@ const MesReunions: React.FC = () => {
         onUpdated={() => fetchReunions()}
         onDemandeCreated={() => fetchReunions()}
         onDeleted={() => { setDetailReunionId(null); fetchReunions(); }}
+        onTranscriptSuccess={() => fetchReunions()}
       />
     </div>
   );

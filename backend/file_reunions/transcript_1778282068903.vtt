@@ -1,0 +1,3092 @@
+WEBVTT
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/457-0
+00:00:06.218 --> 00:00:11.296
+<v ABBAS Isabelle>Eh bien, écoute, si t'as fini Lucas,
+on va peut-être passer par à la suite,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/457-1
+00:00:11.296 --> 00:00:12.698
+<v ABBAS Isabelle>c'est-à-dire Vincent.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/517-0
+00:00:14.978 --> 00:00:20.980
+<v FILLAUX Vincent>OK donc Bonjour encore à tout le monde.
+Donc Ben pour nous aussi ça va être assez</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/517-1
+00:00:20.980 --> 00:00:26.323
+<v FILLAUX Vincent>court le qu'on a partagé avec tout le
+monde c'est par rapport au bastion</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/517-2
+00:00:26.323 --> 00:00:32.178
+<v FILLAUX Vincent>puisque bon y a quand même des attentes
+de d'accès là-dessus, donc on avait un.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/558-0
+00:00:32.298 --> 00:00:35.380
+<v FILLAUX Vincent>Un un problème de on a un
+dysfonctionnement,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/558-1
+00:00:35.380 --> 00:00:40.721
+<v FILLAUX Vincent>y a des choses qui ne qui marchaient,
+qui ne marchent plus donc on comprenait</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/558-2
+00:00:40.721 --> 00:00:44.692
+<v FILLAUX Vincent>pas trop pourquoi.
+Donc là on s'est fait une séance cette</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/558-3
+00:00:44.692 --> 00:00:48.458
+<v FILLAUX Vincent>semaine avec Djamel et donc déjà y a un
+constat c'est.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/606-0
+00:00:48.618 --> 00:00:55.108
+<v FILLAUX Vincent>Que donc apparemment il y a un certificat
+qui est expiré de plusieurs depuis</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/606-1
+00:00:55.108 --> 00:00:59.321
+<v FILLAUX Vincent>plusieurs semaines,
+ce qui pourrait expliquer les</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/606-2
+00:00:59.321 --> 00:01:04.462
+<v FILLAUX Vincent>dysfonctionnements donc.
+voilà donc le Djamel va résoudre ce</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/606-3
+00:01:04.462 --> 00:01:08.338
+<v FILLAUX Vincent>problème de certificat,
+mettre un certificat.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/653-0
+00:01:09.658 --> 00:01:15.066
+<v FILLAUX Vincent>Valide et on refera des tests et on va
+voir si ça débloque et que ça supprime</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/653-1
+00:01:15.066 --> 00:01:18.949
+<v FILLAUX Vincent>les dysfonctionnements. Si c'est le cas,
+bah très bien.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/653-2
+00:01:18.949 --> 00:01:23.872
+<v FILLAUX Vincent>On va pouvoir donc enchaîner et
+multiplier les accès donc on travaille</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/653-3
+00:01:23.872 --> 00:01:24.218
+<v FILLAUX Vincent>avec.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/711-0
+00:01:24.378 --> 00:01:30.155
+<v FILLAUX Vincent>Elena sur le sur le sujet,
+on pourra débloquer des accès sur la RH</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/711-1
+00:01:30.155 --> 00:01:34.984
+<v FILLAUX Vincent>gestion financière.
+On travaille aussi sur du panorama,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/711-2
+00:01:34.984 --> 00:01:39.898
+<v FILLAUX Vincent>sur du addict.
+Voilà donc on pourra multiplier les accès</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/711-3
+00:01:39.898 --> 00:01:43.778
+<v FILLAUX Vincent>et là on peut se considérer en phase un
+peu.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/764-0
+00:01:43.858 --> 00:01:49.060
+<v FILLAUX Vincent>De pré prod avec Thibaut,
+faudra qu'on finalise un peu les</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/764-1
+00:01:49.060 --> 00:01:55.319
+<v FILLAUX Vincent>procédures et les documentations.
+Donc là on travaille sur la solution</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/764-2
+00:01:55.319 --> 00:02:01.578
+<v FILLAUX Vincent>payante qui est provit et ensuite bah
+faudra qu'on prenne le temps de.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/814-0
+00:02:01.818 --> 00:02:07.281
+<v FILLAUX Vincent>De travailler aussi.
+Donc irs nous a mis à disposition une</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/814-1
+00:02:07.281 --> 00:02:14.039
+<v FILLAUX Vincent>version de bastion du une solution de
+libre. Donc on verra avec Thibaut,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/814-2
+00:02:14.039 --> 00:02:21.538
+<v FILLAUX Vincent>on fera des tests et si c'est convaincant,
+Ben on pourra basculer ou équilibrer.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/860-0
+00:02:21.738 --> 00:02:27.563
+<v FILLAUX Vincent>Entre les 2 solutions puisque bon pro vit
+on l'a pillé donc on va quand même</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/860-1
+00:02:27.563 --> 00:02:33.388
+<v FILLAUX Vincent>l'utiliser et ensuite ça pourra peut-être
+nous permettre d'ici la fin de des</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/860-2
+00:02:33.388 --> 00:02:37.018
+<v FILLAUX Vincent>licences pro vit de basculer sur cette
+version.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/888-0
+00:02:37.738 --> 00:02:41.189
+<v FILLAUX Vincent>Et d'avoir une version en libre,
+voilà qui coûte,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/888-1
+00:02:41.189 --> 00:02:45.950
+<v FILLAUX Vincent>qui nous coûtera pas grand-chose,
+donc on vous tiendra au courant de</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/888-2
+00:02:45.950 --> 00:02:46.778
+<v FILLAUX Vincent>l'évolution.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/904-0
+00:02:48.458 --> 00:02:52.413
+<v ABBAS Isabelle>Donc ça voudrait dire, Vincent,
+que moi je renouvellerai pas trop vite en</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/895-0
+00:02:48.858 --> 00:02:50.378
+<v FILLAUX Vincent>Non, oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/904-1
+00:02:52.413 --> 00:02:53.428
+<v ABBAS Isabelle>fin d'année alors ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/963-0
+00:02:53.938 --> 00:02:56.839
+<v FILLAUX Vincent>Attends, attends, attends, attends.
+Pour l'instant,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/921-0
+00:02:56.298 --> 00:02:57.178
+<v ABBAS Isabelle>Pas encore sûr.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/963-1
+00:02:56.839 --> 00:03:01.190
+<v FILLAUX Vincent>pour l'instant on continue. Voilà,
+on continue avec pro vite puisque du coup,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/963-2
+00:03:01.190 --> 00:03:03.867
+<v FILLAUX Vincent>donc c'est la,
+c'est la version sur laquelle on</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/963-3
+00:03:03.867 --> 00:03:06.600
+<v FILLAUX Vincent>travaille. On a finalisé,
+on y a passé du temps,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/963-4
+00:03:06.600 --> 00:03:10.058
+<v FILLAUX Vincent>donc pour l'instant on va là-dessus et
+ensuite parallèlement.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1021-0
+00:03:10.298 --> 00:03:15.615
+<v FILLAUX Vincent>On va faire donc les tests sur la version
+libre et donc d'ici la fin de l'année,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1021-1
+00:03:15.615 --> 00:03:20.669
+<v FILLAUX Vincent>je pense que on aura eu le temps de faire
+nos tests et on fera le point à ce</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1021-2
+00:03:20.669 --> 00:03:25.461
+<v FILLAUX Vincent>moment-là et si effectivement ça nous
+satisfait et qu'on part là-dessus,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/995-0
+00:03:22.138 --> 00:03:22.498
+<v ABBAS Isabelle>Ok.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1021-3
+00:03:25.461 --> 00:03:27.298
+<v FILLAUX Vincent>on renouvelle pas trop vite.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1033-0
+00:03:28.018 --> 00:03:30.538
+<v ABBAS Isabelle>Ok, d'accord,
+donc me tenir au courant là-dessus quoi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1028-0
+00:03:28.618 --> 00:03:29.338
+<v FILLAUX Vincent>Ah oui, voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1070-0
+00:03:30.738 --> 00:03:34.245
+<v FILLAUX Vincent>Oui oui, on te tiendra au courant.
+Oui oui oui, tout à fait.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1070-1
+00:03:34.245 --> 00:03:37.292
+<v FILLAUX Vincent>Comme toute validation de renouvellement
+de licence,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1070-2
+00:03:37.292 --> 00:03:41.604
+<v FILLAUX Vincent>on te tient au courant quand même.
+Voilà pour te dire si on continue ou si</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1064-0
+00:03:39.298 --> 00:03:40.698
+<v ABBAS Isabelle>Ok, ouais, ça marche.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1070-3
+00:03:41.604 --> 00:03:42.178
+<v FILLAUX Vincent>on arrête.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1071-0
+00:03:42.538 --> 00:03:44.138
+<v ABBAS Isabelle>Ouais, OK, merci.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1074-0
+00:03:45.498 --> 00:03:46.058
+<v FILLAUX Vincent>Donc.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1086-0
+00:03:48.338 --> 00:03:51.418
+<v FILLAUX Vincent>Y a pas, voilà,
+on n'a pas d'autres choses à partager.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1092-0
+00:03:53.258 --> 00:03:54.458
+<v FILLAUX Vincent>Donc si y a pas de question.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1115-0
+00:03:55.618 --> 00:03:58.778
+<v ABBAS Isabelle>Eh bien si y a pas de question passe, oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1119-0
+00:03:55.698 --> 00:04:00.098
+<v FILLAUX Vincent>On passe, on passe la main, ça va,
+ça va être rapide.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1118-0
+00:03:58.938 --> 00:04:00.298
+<v BADOUD Mourad>Excusez-moi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1124-0
+00:04:00.458 --> 00:04:01.258
+<v ABBAS Isabelle>À Franck.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1184-0
+00:04:01.498 --> 00:04:05.435
+<v BADOUD Mourad>Non, je voulais parler.
+Ouais non mais je voulais simplement</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1136-0
+00:04:01.818 --> 00:04:03.618
+<v PLICHART Franck>Attends, il y a des questions.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1137-0
+00:04:02.938 --> 00:04:03.698
+<v FILLAUX Vincent>Non, c'est Mourad.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1143-0
+00:04:04.218 --> 00:04:04.898
+<v TARAKI Yassine>Mourad, je crois.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1184-1
+00:04:05.435 --> 00:04:09.887
+<v BADOUD Mourad>avancer sur le projet là de Vincent
+Djamel. Comme vous êtes tous là,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1184-2
+00:04:09.887 --> 00:04:12.726
+<v BADOUD Mourad>c'est par rapport à des droits
+spécifiques,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1184-3
+00:04:12.726 --> 00:04:17.178
+<v BADOUD Mourad>à certains agents qui nous pour nous,
+ce sont des référents de site.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1236-0
+00:04:17.338 --> 00:04:20.907
+<v BADOUD Mourad>Ou de services pour leur donner des
+droits d'installation,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1236-1
+00:04:20.907 --> 00:04:25.504
+<v BADOUD Mourad>de mise à jour de certains outils
+informatiques qu'ils faisaient auparavant</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1236-2
+00:04:25.504 --> 00:04:29.859
+<v BADOUD Mourad>et suite à la modification des droits.
+Là ils ne peuvent plus le faire.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1236-3
+00:04:29.859 --> 00:04:32.338
+<v BADOUD Mourad>Et je voulais savoir déjà première chose.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1316-0
+00:04:32.618 --> 00:04:36.434
+<v BADOUD Mourad>Au niveau sécurité pour Vincent Fillot
+qui donne un aval à un truc écrit,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1316-1
+00:04:36.434 --> 00:04:40.662
+<v BADOUD Mourad>Djamel Gauthier de voir les possibilités.
+Alors Marc, lui, dans un premier temps,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1253-0
+00:04:37.498 --> 00:04:37.978
+<v FILLAUX Vincent>Benjamin.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1316-2
+00:04:40.662 --> 00:04:44.786
+<v BADOUD Mourad>j'avais échangé avec lui, il était pour,
+mais qu'il fallait faire le point avec</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1316-3
+00:04:44.786 --> 00:04:47.983
+<v BADOUD Mourad>vous, Vincent et Djamel,
+de savoir comment on peut mettre ces</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1304-0
+00:04:46.578 --> 00:04:48.578
+<v FILLAUX Vincent>Mais moi j'ai fait, j'ai fait une réponse.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1316-4
+00:04:47.983 --> 00:04:50.818
+<v BADOUD Mourad>gens-là dans un groupe avec un des droits
+spécifiques.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1317-0
+00:04:51.178 --> 00:04:52.738
+<v FILLAUX Vincent>J'ai fait une réponse Mourad.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1332-0
+00:04:53.658 --> 00:04:56.538
+<v FILLAUX Vincent>Alors je sais plus si c'est par mail ou
+dans je me souviens plus.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1339-0
+00:04:57.498 --> 00:04:59.258
+<v FILLAUX Vincent>Et j'ai fait une réponse favorable.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1412-0
+00:05:00.098 --> 00:05:03.535
+<v BADOUD Mourad>OK alors c'est Djamel,
+c'est à toi de trouver la solution pour</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1412-1
+00:05:03.535 --> 00:05:07.844
+<v BADOUD Mourad>et voir aussi certains autres agents.
+S'il y a des personnes autour de nous là</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1412-2
+00:05:07.844 --> 00:05:11.989
+<v BADOUD Mourad>je sais pas moi je sais pas si Martin lui
+fait des certaines choses qui les</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1412-3
+00:05:11.989 --> 00:05:16.298
+<v BADOUD Mourad>bloquaient en droit d'administrateur.
+Je sais pas quels sont le truc mais s'il</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1412-4
+00:05:16.298 --> 00:05:17.498
+<v BADOUD Mourad>y a quelqu'un d'autre.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1417-0
+00:05:17.778 --> 00:05:20.628
+<v BADOUD Mourad>Qu'il faudra éventuellement rajouter,
+faudrait le préciser quoi ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1461-0
+00:05:21.578 --> 00:05:27.688
+<v FILLAUX Vincent>Par contre oui effectivement le parce que
+moi je enfin nous on a un fichier des</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1461-1
+00:05:27.688 --> 00:05:33.797
+<v FILLAUX Vincent>comptes à privilège donc où on recense
+effectivement les droits d'accès donc ça</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1461-2
+00:05:33.797 --> 00:05:35.858
+<v FILLAUX Vincent>faudra pas oublier de nous.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1520-0
+00:05:37.338 --> 00:05:42.094
+<v FILLAUX Vincent>De nous les signaler parce que ce
+fichier-là bon faut qu'on le tienne à</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1520-1
+00:05:42.094 --> 00:05:45.727
+<v FILLAUX Vincent>jour le plus possible donc faut qu'on
+soit au courant.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1520-2
+00:05:45.727 --> 00:05:48.897
+<v FILLAUX Vincent>C'est des informations qu'on peut pas
+inventer.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1520-3
+00:05:48.897 --> 00:05:53.785
+<v FILLAUX Vincent>Donc quand y a un compte effectivement
+avec des droits spécifiques de des</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1520-4
+00:05:53.785 --> 00:05:55.898
+<v FILLAUX Vincent>utilisateurs à pouvoir comme on.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1550-0
+00:05:56.018 --> 00:05:58.840
+<v FILLAUX Vincent>Aurélie,
+c'est pas forcément des droits de</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1550-1
+00:05:58.840 --> 00:06:02.581
+<v FILLAUX Vincent>d'administration,
+mais c'est des utilisateurs à pouvoir.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1550-2
+00:06:02.581 --> 00:06:07.634
+<v FILLAUX Vincent>Il faut quand il faut nous le signaler
+pour qu'on puisse mettre à jour notre</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1550-3
+00:06:07.634 --> 00:06:08.618
+<v FILLAUX Vincent>fichier. Voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1556-0
+00:06:11.458 --> 00:06:12.938
+<v FILLAUX Vincent>Donc c'est une bonne remarque Mourad.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1571-0
+00:06:16.778 --> 00:06:20.058
+<v PLICHART Franck>Ouais mais ça veut dire quoi actuellement
+là, on n'a pas encore de groupe.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1572-0
+00:06:20.778 --> 00:06:20.898
+<v FILLAUX Vincent>SL</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1613-0
+00:06:23.258 --> 00:06:25.988
+<v FILLAUX Vincent>Non, pour l'instant c'est pas en place.
+C'était un.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1613-1
+00:06:25.988 --> 00:06:30.083
+<v FILLAUX Vincent>C'est un questionnement qui est apparu
+suite à la modification des droits sur</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1601-0
+00:06:29.978 --> 00:06:30.378
+<v PLICHART Franck>Oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1613-2
+00:06:30.083 --> 00:06:32.603
+<v FILLAUX Vincent>les postes.
+Voilà donc c'est à mettre en place,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1606-0
+00:06:31.738 --> 00:06:31.898
+<v PLICHART Franck>Oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1613-3
+00:06:32.603 --> 00:06:33.338
+<v FILLAUX Vincent>c'est à faire.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1623-0
+00:06:34.498 --> 00:06:37.138
+<v FILLAUX Vincent>Pour l'instant y a pas de groupe,
+enfin pas que je sache.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1640-0
+00:06:37.458 --> 00:06:41.116
+<v PLICHART Franck>Bah vous Notez ça dans vos tablettes là
+parce que ça fait 2 mois quand même les</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1640-1
+00:06:41.116 --> 00:06:41.618
+<v PLICHART Franck>groupes là.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1665-0
+00:06:42.298 --> 00:06:46.578
+<v FILLAUX Vincent>Bah je sais pas, je sais pas où ça,
+si ça a avancé ou pas.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1683-0
+00:06:46.298 --> 00:06:50.836
+<v PLICHART Franck>Il y a un gars qui a débarqué là.
+Ben ça fait 2 mois qu'ils sont emmerdés.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1683-1
+00:06:50.836 --> 00:06:53.498
+<v PLICHART Franck>Après c'est pas le mec et les besoins
+mais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1696-0
+00:06:55.098 --> 00:06:57.757
+<v PLICHART Franck>Mais voilà,
+faudrait avoir ce groupe-là et puis qu'on</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1696-1
+00:06:57.757 --> 00:06:58.988
+<v PLICHART Franck>puisse l'alimenter quoi ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1758-0
+00:07:00.898 --> 00:07:04.719
+<v FILLAUX Vincent>Parce qu'après ouais,
+nous faudrait que irs nous donne le nom</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1758-1
+00:07:04.719 --> 00:07:07.553
+<v FILLAUX Vincent>des groupes.
+Après nous on fait l'inventaire,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1758-2
+00:07:07.553 --> 00:07:11.620
+<v FILLAUX Vincent>on s'en dépatouille après.
+Mais qu'on connaisse au moins les noms</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1758-3
+00:07:11.620 --> 00:07:15.378
+<v FILLAUX Vincent>des groupes des comptes à privilèges des
+à pouvoirs. Pardon.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1779-0
+00:07:15.738 --> 00:07:20.710
+<v PLICHART Franck>Je sais pas si utilisateur avec pouvoir
+ça suffit pour faire ce qu'ils veulent,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1761-0
+00:07:16.498 --> 00:07:17.338
+<v FILLAUX Vincent>Oui, oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1774-0
+00:07:20.378 --> 00:07:21.018
+<v FILLAUX Vincent>Je ne sais pas.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1779-1
+00:07:20.710 --> 00:07:22.698
+<v PLICHART Franck>mais ce sera une base de départ.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1791-0
+00:07:23.898 --> 00:07:25.338
+<v FILLAUX Vincent>Ah oui, oui, tout à fait.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1794-0
+00:07:23.898 --> 00:07:25.818
+<v PLICHART Franck>Mais au moins qu'on puisse rester.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1801-0
+00:07:27.418 --> 00:07:29.058
+<v FILLAUX Vincent>Là, faut voir avec l'équipe à Djamel.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1809-0
+00:07:33.258 --> 00:07:35.818
+<v PLICHART Franck>Bon bah bonne transition pour irs.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1814-0
+00:07:39.498 --> 00:07:40.818
+<v FILLAUX Vincent>Normalement, c'était toi après.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1824-0
+00:07:42.098 --> 00:07:43.498
+<v FILLAUX Vincent>C'est pas moi le maître du temps.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1830-0
+00:07:43.818 --> 00:07:45.498
+<v ABBAS Isabelle>Si, c'est toi Franck.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1859-0
+00:07:46.618 --> 00:07:50.660
+<v PLICHART Franck>Rapide, ce qu'on peut partager,
+c'est chaud bouillant.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1843-0
+00:07:46.698 --> 00:07:48.778
+<v ABBAS Isabelle>On suit l'ordre, voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1859-1
+00:07:50.660 --> 00:07:53.378
+<v PLICHART Franck>On est sur les élections. J moins 15.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1861-0
+00:07:53.978 --> 00:07:54.418
+<v ABBAS Isabelle>Ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1890-0
+00:07:55.178 --> 00:07:59.433
+<v PLICHART Franck>Donc bon, pour l'instant tout va bien,
+moi j'espère qu'il y aura 2 tours,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1890-1
+00:07:59.433 --> 00:08:02.538
+<v PLICHART Franck>ça nous laissera plus de temps pour
+équiper nos élus.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1908-0
+00:08:04.218 --> 00:08:07.018
+<v PLICHART Franck>Parce que là, c'est 15 jours Isabelle.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1903-0
+00:08:04.618 --> 00:08:05.578
+<v ABBAS Isabelle>Y te acabo de t.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1911-0
+00:08:07.818 --> 00:08:08.458
+<v ABBAS Isabelle>C'est aussi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1936-0
+00:08:08.778 --> 00:08:15.338
+<v PLICHART Franck>Ouais donc bah ouais donc voilà j moins
+15, rien de général.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1920-0
+00:08:09.778 --> 00:08:10.738
+<v ABBAS Isabelle>On le sait.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1956-0
+00:08:16.618 --> 00:08:21.578
+<v PLICHART Franck>On a bossé sur pas mal de donc ça,
+j'ai vu Thibaut sur le socle là.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1981-0
+00:08:22.938 --> 00:08:26.456
+<v PLICHART Franck>C'est un peu pénible là ces alertes là,
+on n'arrive pas à traiter les trucs donc</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1981-1
+00:08:26.456 --> 00:08:29.018
+<v PLICHART Franck>je sais pas comment on peut s'organiser
+mieux que ça mais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/1987-0
+00:08:31.098 --> 00:08:32.298
+<v PLICHART Franck>Qu'on mette ça à plat.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2018-0
+00:08:33.978 --> 00:08:37.649
+<v PLICHART Franck>Qu'est-ce qui concerne le collectif ?
+Ben la situation de crise.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2018-1
+00:08:37.649 --> 00:08:40.698
+<v PLICHART Franck>Donc on a publié un truc là ce matin pour
+cegedim là.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2057-0
+00:08:41.778 --> 00:08:44.762
+<v PLICHART Franck>Donc je sais pas dans quel État c'est au
+CMS.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2057-1
+00:08:44.762 --> 00:08:49.820
+<v PLICHART Franck>Moi j'ai pas de nouvelles mais ça a pas
+l'air de s'être amélioré depuis hier.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2042-0
+00:08:49.578 --> 00:08:50.018
+<v TARAKI Yassine>Benjamin.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2057-2
+00:08:49.820 --> 00:08:52.738
+<v PLICHART Franck>Un truc général.
+Allez-y si quelqu'un a des.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2087-0
+00:08:53.018 --> 00:08:56.198
+<v TARAKI Yassine>Ouais excuse-moi je t'avais coupé,
+c'est juste dire effectivement j'allais</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2087-1
+00:08:56.198 --> 00:08:59.632
+<v TARAKI Yassine>aborder le point lorsque ce sera autour
+de MCO le projet mais je te je te laisse</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2069-0
+00:08:57.258 --> 00:08:57.578
+<v PLICHART Franck>Ma.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2087-2
+00:08:59.632 --> 00:09:00.818
+<v TARAKI Yassine>la parole, y a pas de souci.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2148-0
+00:09:01.018 --> 00:09:04.974
+<v PLICHART Franck>Sinon non, truc général,
+y a un truc sympa qui est en train de se</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2148-1
+00:09:04.974 --> 00:09:08.449
+<v PLICHART Franck>passer là c'est au niveau RH.
+Donc j'en parlais ce matin,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2148-2
+00:09:08.449 --> 00:09:12.105
+<v PLICHART Franck>on a on était en réunion dehors en fait
+j'en parlais dehors.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2148-3
+00:09:12.105 --> 00:09:15.880
+<v PLICHART Franck>C'est au niveau des durées de CDD pour
+les non non titulaires,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2148-4
+00:09:15.880 --> 00:09:17.498
+<v PLICHART Franck>donc pour les contractuels.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2196-0
+00:09:17.978 --> 00:09:22.370
+<v PLICHART Franck>Et là ça y est, ça bouge.
+Au niveau RH on ils sont en train de se</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2196-1
+00:09:22.370 --> 00:09:26.563
+<v PLICHART Franck>mettre en conformité,
+ce qui fait que a priori il y aurait des</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2196-2
+00:09:26.563 --> 00:09:31.554
+<v PLICHART Franck>prolongations de durée de CDD et de la
+CDI SATION en fonction d'un certain</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2196-3
+00:09:31.554 --> 00:09:32.618
+<v PLICHART Franck>nombre d'années.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2251-0
+00:09:32.698 --> 00:09:36.307
+<v PLICHART Franck>Donc voilà,
+ça peut intéresser un paquet de monde qui</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2251-1
+00:09:36.307 --> 00:09:41.118
+<v PLICHART Franck>sont pas titulaires chez nous.
+Donc les prochains comment on appelle ça</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2251-2
+00:09:41.118 --> 00:09:46.598
+<v PLICHART Franck>chaque année-là il y a un proposition de
+renouvellement de contrat et là ça y est</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2251-3
+00:09:46.598 --> 00:09:49.738
+<v PLICHART Franck>ça change.
+Ce n'est plus que des CDD de un an.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2270-0
+00:09:50.298 --> 00:09:54.885
+<v PLICHART Franck>Vitam aeternam,
+c'est on peut prolonger la durée à 2 ans,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2270-1
+00:09:54.885 --> 00:09:57.098
+<v PLICHART Franck>3 ans jusqu'à la cerisation.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2275-0
+00:09:57.778 --> 00:09:58.778
+<v GOUDJIL Reda>Ah bah c'est une bonne nouvelle ça.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2302-0
+00:09:58.858 --> 00:10:01.799
+<v PLICHART Franck>Bah ouais, c'est une super,
+ça date d'hier donc c'est tout chaud.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2302-1
+00:10:01.799 --> 00:10:04.338
+<v PLICHART Franck>J'ai pas eu le temps de mettre ça nulle
+part mais voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2315-0
+00:10:04.498 --> 00:10:07.698
+<v TARAKI Yassine>C'était que prolongé d'un an quand
+c'était proposé, c'est ça que des un an.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2332-0
+00:10:07.218 --> 00:10:10.578
+<v PLICHART Franck>Alors ça fait 8 8 ans que j'ai un CDD
+d'un an donc.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2334-0
+00:10:10.498 --> 00:10:11.738
+<v TARAKI Yassine>D'accord, OK.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2398-0
+00:10:10.498 --> 00:10:12.836
+<v GOUDJIL Reda>Ouais,
+en fait il y a une exception dans la</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2398-1
+00:10:12.836 --> 00:10:16.078
+<v GOUDJIL Reda>fonction publique.
+Normalement dans le privé c'est interdit,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2347-0
+00:10:14.178 --> 00:10:14.578
+<v TARAKI Yassine>Ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2353-0
+00:10:15.698 --> 00:10:15.818
+<v PLICHART Franck>Ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2398-2
+00:10:16.078 --> 00:10:19.266
+<v GOUDJIL Reda>c'est fort le moins interdit.
+Au bout du 3e renouvellement,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2368-0
+00:10:18.578 --> 00:10:18.978
+<v PLICHART Franck>Alors.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2398-3
+00:10:19.266 --> 00:10:22.719
+<v GOUDJIL Reda>t'es obligé de le CDIER.
+Et dans la fonction publique il y avait</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2378-0
+00:10:19.338 --> 00:10:20.338
+<v ABBAS Isabelle>Que c'est déguisé.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2398-4
+00:10:22.719 --> 00:10:24.738
+<v GOUDJIL Reda>une sorte plus ou moins de dérogation.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2458-0
+00:10:24.938 --> 00:10:27.979
+<v MASSON Martin>On t'avais des gens qui étaient en sous
+contrat pendant 20 ans quoi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2458-1
+00:10:27.979 --> 00:10:30.932
+<v MASSON Martin>C'est vraiment scandaleux quoi.
+Ouais c'est je pense que c'est pas</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2413-0
+00:10:28.658 --> 00:10:28.978
+<v PLICHART Franck>No.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2422-0
+00:10:28.818 --> 00:10:30.858
+<v TARAKI Yassine>D'accord ? Ah ouais, OK.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2458-2
+00:10:30.932 --> 00:10:33.884
+<v MASSON Martin>exactement une interrogation.
+En plus c'est un truc illégal qui se</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2458-3
+00:10:33.884 --> 00:10:35.999
+<v MASSON Martin>faisait quand même parce que parce que de
+fait,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2458-4
+00:10:35.999 --> 00:10:37.938
+<v MASSON Martin>je peux croire que moi je suis en CDI
+quoi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2469-0
+00:10:40.018 --> 00:10:42.130
+<v MASSON Martin>Parce que j'ai été 6 ans aussi,
+mais qu'au bout de 6 ans aussi,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2469-1
+00:10:42.130 --> 00:10:42.658
+<v MASSON Martin>il m'a dit, Ben.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2528-0
+00:10:43.938 --> 00:10:49.617
+<v PLICHART Franck>Ah ouais sauf que ici non tu vois.
+Et là la bonne nouvelle c'est que ça y</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2471-0
+00:10:44.578 --> 00:10:44.978
+<v GOUDJIL Reda>Ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2492-0
+00:10:45.938 --> 00:10:47.618
+<v MASSON Martin>Ouais mais c'est.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2484-0
+00:10:46.258 --> 00:10:46.818
+<v TARAKI Yassine>Ah, si, tío.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2497-0
+00:10:47.938 --> 00:10:48.658
+<v TARAKI Yassine>Pas un buen nouvel.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2528-1
+00:10:49.617 --> 00:10:53.454
+<v PLICHART Franck>est, ça bouge.
+Ouais donc y a Daniel qui a réagi,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2506-0
+00:10:51.458 --> 00:10:51.698
+<v TARAKI Yassine>Toc.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2528-2
+00:10:53.454 --> 00:10:58.978
+<v PLICHART Franck>Ben il est concerné oui prochainement.
+Donc voilà, bonne nouvelle pour.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2526-0
+00:10:57.938 --> 00:10:58.378
+<v RIGOULAT Lucas>Ah.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2531-0
+00:10:59.138 --> 00:10:59.378
+<v PLICHART Franck>Nour</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2585-0
+00:11:00.098 --> 00:11:03.374
+<v RIGOULAT Lucas>Juste pour les catégories A,
+c'était déjà le cas depuis un certain</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2585-1
+00:11:03.374 --> 00:11:07.090
+<v RIGOULAT Lucas>temps je crois depuis l'année dernière et
+peut-être que là ça s'élargit aux</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2585-2
+00:11:07.090 --> 00:11:10.316
+<v RIGOULAT Lucas>catégories B Je sais pas,
+mais moi l'année dernière quand j'avais</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2585-3
+00:11:10.316 --> 00:11:13.298
+<v RIGOULAT Lucas>eu un renouvellement de mon contrat,
+il était passé à 2 ans.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2586-0
+00:11:15.378 --> 00:11:15.938
+<v PLICHART Franck>Au bout d'un an.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2616-0
+00:11:16.738 --> 00:11:19.865
+<v RIGOULAT Lucas>Après non, ça faisait 2 ans,
+du coup ça c'était 2 ans, 2 ans,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2616-1
+00:11:19.865 --> 00:11:22.738
+<v RIGOULAT Lucas>2 ans moi, mais en général ils font un an,
+2 ans, 3 ans.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2643-0
+00:11:22.738 --> 00:11:29.192
+<v PLICHART Franck>Voilà c'est réglementé donc là je dois
+les revoir mais normalement au bout de 6</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2643-1
+00:11:29.192 --> 00:11:32.338
+<v PLICHART Franck>ans donc c'est parti pour civilisation.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2679-0
+00:11:34.418 --> 00:11:37.027
+<v PLICHART Franck>Voilà voilà sinon bah rien de 9 sous le
+soleil.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2660-0
+00:11:35.898 --> 00:11:36.738
+<v TARAKI Yassine>Merci pour l'info.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2679-1
+00:11:37.027 --> 00:11:41.158
+<v PLICHART Franck>J'ai pas eu le temps de mettre à jour
+tous les tous les indicateurs mais je</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2679-2
+00:11:41.158 --> 00:11:44.418
+<v PLICHART Franck>suis en train de le faire donc vous
+verrez ça à l'occasion.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2682-0
+00:11:46.898 --> 00:11:47.538
+<v PLICHART Franck>Voilà, voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2699-0
+00:11:48.858 --> 00:11:51.828
+<v ABBAS Isabelle>Ça veut dire Franck que t'as fini ou de
+même pas 5 Min ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2733-0
+00:11:50.858 --> 00:11:54.491
+<v PLICHART Franck>Mais oui j'ai rien à dire,
+j'ai pas pris mon temps voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2701-0
+00:11:52.618 --> 00:11:53.148
+<v TARAKI Yassine>Quoi ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2726-0
+00:11:53.698 --> 00:11:56.828
+<v ABBAS Isabelle>Waouh alors là t'as fait un sacré effort ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2733-1
+00:11:54.491 --> 00:11:58.498
+<v PLICHART Franck>Et sur les élections je suis désolé,
+c'est 200% nous c'est pas.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2773-0
+00:11:59.538 --> 00:12:04.042
+<v GOUDJIL Reda>Bah tu vois comme quoi il y en a qui sont
+médisants Franck il parle tout le temps</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2760-0
+00:12:03.698 --> 00:12:04.178
+<v PLICHART Franck>C'est Damien.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2775-0
+00:12:03.698 --> 00:12:07.458
+<v ABBAS Isabelle>Ouais, tu vois, voilà ouais,
+même pas 5 Min.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2773-1
+00:12:04.042 --> 00:12:06.348
+<v GOUDJIL Reda>sans arrêt machin bah tu vois comme quoi ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2805-0
+00:12:06.818 --> 00:12:10.478
+<v PLICHART Franck>Ah non, moi je passe la main. Allez-y.
+S'il y a pas de question,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2805-1
+00:12:10.478 --> 00:12:15.094
+<v PLICHART Franck>on va pas détailler tout ce qu'on fait.
+On est sur les élections, c'est sûr quoi,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2788-0
+00:12:11.378 --> 00:12:11.658
+<v ABBAS Isabelle>Ok.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2805-2
+00:12:15.094 --> 00:12:15.938
+<v PLICHART Franck>c'est ça notre.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2817-0
+00:12:15.098 --> 00:12:20.738
+<v ABBAS Isabelle>Eh bien écoute, le prochain c'est Djamel,
+allez Chrono pour toi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2824-0
+00:12:21.538 --> 00:12:23.218
+<v GAULTIER Djamel>Ça va aller très vite.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2821-0
+00:12:21.978 --> 00:12:22.978
+<v ABBAS Isabelle>On t'écoute.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2825-0
+00:12:23.858 --> 00:12:24.818
+<v ABBAS Isabelle>À toi aussi, bon.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2864-0
+00:12:27.058 --> 00:12:31.118
+<v GAULTIER Djamel>Non bah juste pour le coup là c'est
+plutôt au niveau RH là.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2864-1
+00:12:31.118 --> 00:12:36.462
+<v GAULTIER Djamel>Du coup on a Maki et Rachid qui sont pas
+là jusqu'au 20 mars donc ils ont posé</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2864-2
+00:12:36.462 --> 00:12:38.018
+<v GAULTIER Djamel>leurs grandes vacances.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2862-0
+00:12:40.058 --> 00:12:40.908
+<v PLICHART Franck>Rachid de qui ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2889-0
+00:12:41.418 --> 00:12:46.538
+<v GAULTIER Djamel>Et Maki Ouais bah en fait je pense que
+c'est les dates du ramadan en fait.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2868-0
+00:12:42.178 --> 00:12:42.578
+<v TARAKI Yassine>Emmanuel.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2894-0
+00:12:46.498 --> 00:12:48.658
+<v ABBAS Isabelle>Du Ramadan ? Ouais, t'as fait ça, ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2941-0
+00:12:47.778 --> 00:12:52.535
+<v GAULTIER Djamel>Donc voilà.
+Sinon pour la semaine prochaine on va</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2941-1
+00:12:52.535 --> 00:12:57.577
+<v GAULTIER Djamel>essayer de finaliser le déploiement des
+bornes wifi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2941-2
+00:12:57.577 --> 00:13:04.427
+<v GAULTIER Djamel>Non de la TOIP plutôt sur les sites.
+Il restait quelques sites encore à</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2941-3
+00:13:04.427 --> 00:13:05.378
+<v GAULTIER Djamel>finaliser.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2982-0
+00:13:05.698 --> 00:13:09.836
+<v GAULTIER Djamel>Alors au niveau réseau,
+Pierre a fait la configuration.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2982-1
+00:13:09.836 --> 00:13:15.007
+<v GAULTIER Djamel>Ben c'est plutôt Youssef qui va
+maintenant déployer les postes sur le</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2982-2
+00:13:15.007 --> 00:13:20.326
+<v GAULTIER Djamel>reste de ces de ces sites-là.
+Voilà et puis et puis puis alors pour moi</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2982-3
+00:13:20.326 --> 00:13:21.138
+<v GAULTIER Djamel>c'est tout.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2992-0
+00:13:22.098 --> 00:13:25.538
+<v GAULTIER Djamel>Donc je sais pas, Pierre est pas là,
+mais je sais plus si.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/2994-0
+00:13:28.138 --> 00:13:28.658
+<v GAULTIER Djamel>Marwin est là.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3010-0
+00:13:30.578 --> 00:13:34.677
+<v GAULTIER Djamel>Sinon, eux,
+ils sont en train de travailler sur une</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3010-1
+00:13:34.677 --> 00:13:35.938
+<v GAULTIER Djamel>solution radius.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3048-0
+00:13:37.018 --> 00:13:42.060
+<v GAULTIER Djamel>Donc ils ont bien avancé sur cette
+solution donc qui est en phase de test en</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3048-1
+00:13:42.060 --> 00:13:46.054
+<v GAULTIER Djamel>fait pour faire simple,
+c'est en fait c'est une solution qui</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3048-2
+00:13:46.054 --> 00:13:48.018
+<v GAULTIER Djamel>permet de sécuriser le réseau.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3103-0
+00:13:50.938 --> 00:13:55.259
+<v GAULTIER Djamel>Enfin l'utilisation du réseau. En gros,
+c'est ce qu'avait constaté un peu Marc</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3103-1
+00:13:55.259 --> 00:13:59.635
+<v GAULTIER Djamel>quand il avait branché son ordinateur,
+qu'il avait pu récupérer une adresse IP,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3103-2
+00:13:59.635 --> 00:14:02.808
+<v GAULTIER Djamel>aller sur Internet,
+se connecter à des à des applications</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3103-3
+00:14:02.808 --> 00:14:07.129
+<v GAULTIER Djamel>métiers, et cetera, et cetera. Ben là,
+c'est une solution qui permet justement</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3103-4
+00:14:07.129 --> 00:14:08.058
+<v GAULTIER Djamel>d'éviter tout ça.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3167-0
+00:14:09.298 --> 00:14:13.456
+<v GAULTIER Djamel>En gros on vient avec son ordinateur,
+l'ordinateur s'il est-il est pas connu de</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3167-1
+00:14:13.456 --> 00:14:15.898
+<v GAULTIER Djamel>la DSI ou du système d'information en
+général.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3167-2
+00:14:15.898 --> 00:14:20.004
+<v GAULTIER Djamel>Ben en fait le l'ordinateur il récupère
+aucune IP, il est dans un vélan isolé,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3167-3
+00:14:20.004 --> 00:14:23.745
+<v GAULTIER Djamel>il peut pas aller sur Internet,
+il peut rien faire en fait. Donc voilà,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3167-4
+00:14:23.745 --> 00:14:27.747
+<v GAULTIER Djamel>c'est l'idée c'est de mettre ça en place
+pour sécuriser définitivement notre</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3167-5
+00:14:27.747 --> 00:14:28.578
+<v GAULTIER Djamel>réseau physique.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3196-0
+00:14:29.738 --> 00:14:35.236
+<v GAULTIER Djamel>Mais on vous en dira un peu plus quand le
+quand le projet sera arrivé. Pas à terme,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3196-1
+00:14:35.236 --> 00:14:39.491
+<v GAULTIER Djamel>mais disons qu'il aura bien avancé.
+On pourra vous présenter les</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3196-2
+00:14:39.491 --> 00:14:42.828
+<v GAULTIER Djamel>fonctionnalités, et cetera,
+puis puis voilà quoi ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3198-0
+00:14:44.338 --> 00:14:45.098
+<v GAULTIER Djamel>Voilà pour moi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3208-0
+00:14:48.178 --> 00:14:49.778
+<v GAULTIER Djamel>Et je crois que.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3218-0
+00:14:50.978 --> 00:14:54.058
+<v ABBAS Isabelle>La personne qui veut intervenir,
+c'est toi donc.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3249-0
+00:14:53.618 --> 00:15:00.778
+<v GAULTIER Djamel>Bah y a plus y a pas grand monde,
+la Pierre elle est pas là et Marie, y a.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3224-0
+00:14:55.618 --> 00:14:55.778
+<v PLICHART Franck>La</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3235-0
+00:14:59.218 --> 00:14:59.538
+<v ABBAS Isabelle>Y.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3257-0
+00:14:59.458 --> 00:15:04.458
+<v BRASSELEUR Marwin>Bon après moi c'est juste pour dire que
+voilà au niveau du.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3255-0
+00:15:02.938 --> 00:15:04.138
+<v ABBAS Isabelle>Christophe, ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3306-0
+00:15:06.298 --> 00:15:09.103
+<v BRASSELEUR Marwin>Il y a le problème toujours de
+synchronisation.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3306-1
+00:15:09.103 --> 00:15:13.602
+<v BRASSELEUR Marwin>Là j'ai reçu le en milieu de semaine,
+j'ai reçu le mail de support Microsoft</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3306-2
+00:15:13.602 --> 00:15:17.341
+<v BRASSELEUR Marwin>avec le plan d'action.
+Donc du coup là la prochaine étape c'est</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3306-3
+00:15:17.341 --> 00:15:21.138
+<v BRASSELEUR Marwin>de voir avec une personne pour des
+petites personnes concernées.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3308-0
+00:15:21.538 --> 00:15:22.578
+<v BRASSELEUR Marwin>Parc impersonnel.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3353-0
+00:15:25.298 --> 00:15:29.400
+<v BRASSELEUR Marwin>D'un jour,
+il n'est pas là pour qu'on puisse faire</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3353-1
+00:15:29.400 --> 00:15:33.742
+<v BRASSELEUR Marwin>en fait le test,
+enfin le plan d'action préconisé par</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3353-2
+00:15:33.742 --> 00:15:39.451
+<v BRASSELEUR Marwin>Microsoft et si ce plan d'action s'avère
+s'avère du coup satisfaisant,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3353-3
+00:15:39.451 --> 00:15:40.898
+<v BRASSELEUR Marwin>alors du coup pas.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3375-0
+00:15:42.018 --> 00:15:45.573
+<v BRASSELEUR Marwin>Faire cela sur les autres comptes
+concernés donc là normalement je pense</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3375-1
+00:15:45.573 --> 00:15:47.618
+<v BRASSELEUR Marwin>que semaine prochaine j'aurai une réponse.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3408-0
+00:15:50.498 --> 00:15:55.304
+<v BRASSELEUR Marwin>Le début de semaine pour faire au moins
+un test en milieu de semaine avec le</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3408-1
+00:15:55.304 --> 00:15:59.985
+<v BRASSELEUR Marwin>support Microsoft si c'est OK Ben on
+avance pas sur ça et ça sera du point</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3408-2
+00:15:59.985 --> 00:16:00.858
+<v BRASSELEUR Marwin>après clôturé.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3415-0
+00:16:04.378 --> 00:16:06.898
+<v BRASSELEUR Marwin>Si après Christophe t'as quelque à
+rajouter.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3425-0
+00:16:10.098 --> 00:16:12.764
+<v SPEECKAERT Christophe>Non, non, non,
+rien à partager de particulier pour cette</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3425-1
+00:16:12.764 --> 00:16:13.138
+<v SPEECKAERT Christophe>semaine.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3451-0
+00:16:15.058 --> 00:16:21.618
+<v PLICHART Franck>Moi j'ai une question c'est sur bon j'ai
+vu là pour le les Remote Control Windows</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3451-1
+00:16:21.618 --> 00:16:22.898
+<v PLICHART Franck>10 là c'est bon.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3464-0
+00:16:24.338 --> 00:16:27.412
+<v PLICHART Franck>Donc ça avait été fait déjà la semaine
+dernière,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3464-1
+00:16:27.412 --> 00:16:29.858
+<v PLICHART Franck>merci le pont entre les écoles et nous.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3470-0
+00:16:32.098 --> 00:16:33.618
+<v PLICHART Franck>Le pont réseau pour G.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3497-0
+00:16:34.738 --> 00:16:38.138
+<v GAULTIER Djamel>Ouais Bah faut oui faut.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3528-0
+00:16:34.778 --> 00:16:40.282
+<v BRASSELEUR Marwin>Pour l'instant c'est on en a parlé avec
+parce qu'on en a parlé aussi avec Pierre</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3528-1
+00:16:40.282 --> 00:16:45.650
+<v BRASSELEUR Marwin>mais faut qu'on fasse une réunion avec
+Djamel parce que du coup y a pas mal de</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3528-2
+00:16:45.650 --> 00:16:50.338
+<v BRASSELEUR Marwin>choses par rapport au bah au pont du coup
+à voir comment on le fait.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3526-0
+00:16:50.498 --> 00:16:50.868
+<v PLICHART Franck>D'accord ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3542-0
+00:16:50.898 --> 00:16:54.338
+<v BRASSELEUR Marwin>Et donc c'est dans les t'inquiète pas.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3613-0
+00:16:54.818 --> 00:16:59.088
+<v PLICHART Franck>Ah non mais je m'inquiète pas.
+Mais je le rappelle quoi nous l'intérêt,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3548-0
+00:16:56.818 --> 00:16:57.218
+<v BRASSELEUR Marwin>T'inquiète.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3613-1
+00:16:59.088 --> 00:17:03.476
+<v PLICHART Franck>l'intérêt du truc c'est qu'ils vont enfin
+ils vont-ils nous en parleront.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3564-0
+00:16:59.778 --> 00:17:00.578
+<v BRASSELEUR Marwin>Mourad</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3613-2
+00:17:03.476 --> 00:17:07.804
+<v PLICHART Franck>Bon ils vont être à la fin de leur
+intégration AD là de tous les postes,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3613-3
+00:17:07.804 --> 00:17:11.658
+<v PLICHART Franck>une fois qu'il y a ça on peut pousser par
+GPO le client GLPI 10.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3641-0
+00:17:12.498 --> 00:17:17.161
+<v PLICHART Franck>Ils sont même en avance sur nous et là si
+on les voit remonter au niveau tâches de</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3641-1
+00:17:17.161 --> 00:17:20.418
+<v PLICHART Franck>gestion pour Mourad et moi, là ça y est,
+c'est Noël quoi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3644-0
+00:17:21.738 --> 00:17:22.938
+<v BRASSELEUR Marwin>Bah c'est grave, je comprends.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3655-0
+00:17:23.218 --> 00:17:25.863
+<v PLICHART Franck>Voilà,
+c'est pour ça que on me demande à chaque</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3655-1
+00:17:25.863 --> 00:17:26.138
+<v PLICHART Franck>fois.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3694-0
+00:17:28.018 --> 00:17:30.991
+<v FILLAUX Vincent>Et puis ça permet aussi,
+c'est la question qu'on a posé depuis un</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3665-0
+00:17:28.338 --> 00:17:28.578
+<v PLICHART Franck>Emmeline.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3694-1
+00:17:30.991 --> 00:17:34.458
+<v FILLAUX Vincent>bon bout de temps aussi de d'utiliser
+cyberwatch sur le sur la partie école.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3695-0
+00:17:35.218 --> 00:17:36.258
+<v GOUDJIL Reda>Tout à fait.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3723-0
+00:17:37.218 --> 00:17:40.218
+<v GAULTIER Djamel>Ouais mais en fait c'est la, c'est la,
+c'est la même problématique en vrai.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3722-0
+00:17:37.618 --> 00:17:39.378
+<v BRASSELEUR Marwin>Ouais, je pense que ça va des 2 choses.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3732-0
+00:17:43.458 --> 00:17:44.338
+<v PLICHART Franck>Ok, OK.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3735-0
+00:17:43.618 --> 00:17:44.938
+<v FILLAUX Vincent>Oui, oui, c'est la même attente, ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3793-0
+00:17:45.818 --> 00:17:49.856
+<v GOUDJIL Reda>Bah de toute façon là on termine.
+Bon c'est pas mon tour de parler.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3793-1
+00:17:49.856 --> 00:17:54.369
+<v GOUDJIL Reda>Mais ce que je veux dire pour compléter
+ça c'est que on attend la fin de la</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3793-2
+00:17:54.369 --> 00:17:59.178
+<v GOUDJIL Reda>migration de sur le domaine école de tous
+les postes de l'intégralité des postes</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3793-3
+00:17:59.178 --> 00:18:02.978
+<v GOUDJIL Reda>pour pouvoir effectivement commencer à
+intégrer bah cyberwatch.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3803-0
+00:18:03.498 --> 00:18:07.030
+<v GOUDJIL Reda>GLPI, et cetera, et cetera. Mais bon,
+je vous en parlerai un petit peu plus</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3803-1
+00:18:07.030 --> 00:18:08.098
+<v GOUDJIL Reda>quand ça sera mon tour.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3814-0
+00:18:12.698 --> 00:18:14.818
+<v ABBAS Isabelle>Yann Djamel donc c'est bon,
+on a fait le tour.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3815-0
+00:18:15.138 --> 00:18:15.978
+<v GAULTIER Djamel>Ouais, c'est bon pour moi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3838-0
+00:18:17.178 --> 00:18:24.178
+<v ABBAS Isabelle>Ok Ben écoute côté projet. Bon,
+je sais que Farouk est en formation donc.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3917-0
+00:18:24.018 --> 00:18:28.320
+<v TARAKI Yassine>Ouais je vais prendre la parole,
+je vais commencer super merci Lisa alors</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3843-0
+00:18:25.658 --> 00:18:26.178
+<v ABBAS Isabelle>Oui, voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3917-1
+00:18:28.320 --> 00:18:32.621
+<v TARAKI Yassine>pour bureau des projets alors moi je
+serai en congé la semaine prochaine.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3917-2
+00:18:32.621 --> 00:18:37.504
+<v TARAKI Yassine>Une petite semaine concernant tout ce qui
+était MCO alors donc tout ce qui est CMS.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3917-3
+00:18:37.504 --> 00:18:41.922
+<v TARAKI Yassine>Donc comme l'a dit tout à l'heure Franck
+qui a eu un un incident concernant</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3917-4
+00:18:41.922 --> 00:18:43.258
+<v TARAKI Yassine>l'application crossway.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3969-0
+00:18:43.458 --> 00:18:47.709
+<v TARAKI Yassine>Houssein c'est l'application médicale,
+donc depuis hier fin de matinée c'était</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3969-1
+00:18:47.709 --> 00:18:51.906
+<v TARAKI Yassine>Océane qui m'a informé qu'il y avait un
+médecin qui avait un un problème donc</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3969-2
+00:18:51.906 --> 00:18:55.887
+<v TARAKI Yassine>j'avais fait un petit communiqué
+notamment sur le fil crise pour informer</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/3969-3
+00:18:55.887 --> 00:18:58.738
+<v TARAKI Yassine>que c'était un serveur hds qui était
+tombé chez eux.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4040-0
+00:18:59.618 --> 00:19:03.716
+<v TARAKI Yassine>Apparemment c'était revenu vers 15h30.
+Cependant y a quand même eu un médecin</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4040-1
+00:19:03.716 --> 00:19:06.815
+<v TARAKI Yassine>qui a alerté la hotline pour dire Ben que
+ça fonctionnait.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4040-2
+00:19:06.815 --> 00:19:10.492
+<v TARAKI Yassine>Mais par contre y avait des
+fonctionnalités manquantes et que c'était</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4040-3
+00:19:10.492 --> 00:19:13.119
+<v TARAKI Yassine>très lent.
+Donc j'ai demandé à cegedim un rapport</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4040-4
+00:19:13.119 --> 00:19:17.058
+<v TARAKI Yassine>d'incident et je voulais comprendre si
+l'incident était totalement résolu.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4090-0
+00:19:17.258 --> 00:19:21.807
+<v TARAKI Yassine>Alors c'est pas le cas parce que ce matin
+ils nous ont informé qu'il est toujours</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4090-1
+00:19:21.807 --> 00:19:25.911
+<v TARAKI Yassine>en cours de résolution et Franck est
+tombé ce matin sur une sur en ligne,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4090-2
+00:19:25.911 --> 00:19:28.407
+<v TARAKI Yassine>une information concernant une
+cyberattaque,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4090-3
+00:19:28.407 --> 00:19:32.178
+<v TARAKI Yassine>une fuite massive de données médicales
+dont la victime est cegedim.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4167-0
+00:19:32.738 --> 00:19:37.325
+<v TARAKI Yassine>Alors je saurais pas vous dire si c'est
+en lien avec ce qui s'est passé hier je</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4167-1
+00:19:37.325 --> 00:19:39.675
+<v TARAKI Yassine>pense.
+Mais voilà je suis pas sûr à 100%</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4167-2
+00:19:39.675 --> 00:19:44.090
+<v TARAKI Yassine>apparemment y a une fuite de données donc
+c'est peut-être sûrement lié à ça.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4167-3
+00:19:44.090 --> 00:19:47.243
+<v TARAKI Yassine>Donc là ils sont encore en train de
+travailler dessus.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4167-4
+00:19:47.243 --> 00:19:51.772
+<v TARAKI Yassine>Donc concernant après tout ce qui est
+projet toujours galaxie médicale donc on</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4167-5
+00:19:51.772 --> 00:19:52.058
+<v TARAKI Yassine>a eu.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4238-0
+00:19:52.338 --> 00:19:56.942
+<v TARAKI Yassine>Une réunion concernant la reprise des
+données cette semaine avec le prestataire,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4238-1
+00:19:56.942 --> 00:20:01.317
+<v TARAKI Yassine>on a une première réunion parce que
+l'objectif c'était Ben de lui donner des</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4238-2
+00:20:01.317 --> 00:20:04.898
+<v TARAKI Yassine>exemples par rapport aux données qui
+manquaient sur nos tests.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4238-3
+00:20:04.898 --> 00:20:07.739
+<v TARAKI Yassine>A savoir que Pour rappel,
+il y a voilà une forte,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4238-4
+00:20:07.739 --> 00:20:10.978
+<v TARAKI Yassine>une forte inquiétude des praticiens par
+rapport à cette.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4317-0
+00:20:11.298 --> 00:20:15.249
+<v TARAKI Yassine>Cette application et on a eu encore une
+réunion hier concernant tout ce qui était</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4317-1
+00:20:15.249 --> 00:20:18.236
+<v TARAKI Yassine>partie fonctionnelle.
+Quand je dis partie fonctionnelle c'est</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4317-2
+00:20:18.236 --> 00:20:21.897
+<v TARAKI Yassine>concernant l'utilisation de l'application
+ou lors de notre premier atelier.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4317-3
+00:20:21.897 --> 00:20:25.414
+<v TARAKI Yassine>Bah on a eu beaucoup de remontées en
+disant Bah par rapport à l'ancienne</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4317-4
+00:20:25.414 --> 00:20:27.631
+<v TARAKI Yassine>application qui est crossway c'est plus
+long.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4317-5
+00:20:27.631 --> 00:20:30.858
+<v TARAKI Yassine>Il y a des choses qui sont pas claires
+donc on a une réunion hier.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4374-0
+00:20:31.138 --> 00:20:36.518
+<v TARAKI Yassine>Il y a un vrai questionnement à savoir
+est-ce que au niveau de l'application on</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4374-1
+00:20:36.518 --> 00:20:40.015
+<v TARAKI Yassine>va aller sur ça ou pas ?
+C'est encore encore débat.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4374-2
+00:20:40.015 --> 00:20:43.781
+<v TARAKI Yassine>On a une réunion,
+une rencontre futur utilisateur qui a</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4374-3
+00:20:43.781 --> 00:20:47.210
+<v TARAKI Yassine>lieu cet après-midi en présence de
+Monsieur Badia.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4374-4
+00:20:47.210 --> 00:20:49.698
+<v TARAKI Yassine>Donc il y aura aussi Martial solagne.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4431-0
+00:20:50.578 --> 00:20:54.752
+<v TARAKI Yassine>Ça se trouve y aura vraiment une décision.
+Alors quand je dis une décision c'est</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4431-1
+00:20:54.752 --> 00:20:58.719
+<v TARAKI Yassine>l'avis des professionnels de santé.
+Pour rappel ça sera ensuite présenté à y</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4431-2
+00:20:58.719 --> 00:21:02.738
+<v TARAKI Yassine>a une restriction qui sera fait au maire
+à la date pour le moment du 20 mars,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4431-3
+00:21:02.738 --> 00:21:05.778
+<v TARAKI Yassine>même si je sais pas si cette date est
+vraiment définitive.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4495-0
+00:21:06.178 --> 00:21:10.820
+<v TARAKI Yassine>Où la décision sera prise par Monsieur
+Bouissou savoir si bah on continue sur</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4495-1
+00:21:10.820 --> 00:21:15.521
+<v TARAKI Yassine>cette application et si c'est le cas,
+on devra mettre en place des formations,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4495-2
+00:21:15.521 --> 00:21:18.437
+<v TARAKI Yassine>et cetera,
+ou si bah finalement on laisse tomber</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4495-3
+00:21:18.437 --> 00:21:21.353
+<v TARAKI Yassine>galaxie médicale,
+on s'oriente vers un une autre</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4495-4
+00:21:21.353 --> 00:21:23.138
+<v TARAKI Yassine>application, ce qui veut dire.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4543-0
+00:21:23.378 --> 00:21:26.209
+<v TARAKI Yassine>Benjamin,
+ce qui veut dire prolongement de</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4543-1
+00:21:26.209 --> 00:21:31.147
+<v TARAKI Yassine>l'application actuelle crossway.
+Donc beaucoup de choses à mettre en place</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4543-2
+00:21:31.147 --> 00:21:36.282
+<v TARAKI Yassine>en perspective. Mon ressenti à moi,
+c'est que là, à l'heure où je vous parle,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4543-3
+00:21:36.282 --> 00:21:39.178
+<v TARAKI Yassine>je voilà,
+j'ai moi qui suis souvent en CMS.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4612-0
+00:21:39.618 --> 00:21:44.111
+<v TARAKI Yassine>Je pense que l'avis des médecins va être
+plutôt bah négatif par rapport à tout ce</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4612-1
+00:21:44.111 --> 00:21:46.851
+<v TARAKI Yassine>qu'il y a eu.
+Voilà nous en tout cas le but c'est</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4612-2
+00:21:46.851 --> 00:21:50.412
+<v TARAKI Yassine>vraiment de fournir des éléments comme
+l'a dit l'avait dit Marc,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4612-3
+00:21:50.412 --> 00:21:54.740
+<v TARAKI Yassine>pas se contenter de simplement des avis
+qui consistent à dire Bah c'est un peu</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4612-4
+00:21:54.740 --> 00:21:58.083
+<v TARAKI Yassine>plus long qu'avant.
+J'aime pas trop l'interface parce que ça</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4612-5
+00:21:58.083 --> 00:21:59.178
+<v TARAKI Yassine>effectivement c'est.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4661-0
+00:21:59.178 --> 00:22:04.395
+<v TARAKI Yassine>C'est pas des raisons mais le l'important
+c'est vraiment peser le pour et le contre</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4661-1
+00:22:04.395 --> 00:22:09.487
+<v TARAKI Yassine>et la décision après sera prise et 2nde
+chose concernant aztec donc juste pour un</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4661-2
+00:22:09.487 --> 00:22:13.895
+<v TARAKI Yassine>rappel il y aura la mise à jour qui va
+avoir lieu qui va avoir lieu en</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4661-3
+00:22:13.895 --> 00:22:14.578
+<v TARAKI Yassine>production.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4722-0
+00:22:14.978 --> 00:22:20.031
+<v TARAKI Yassine>Jeudi 12 mars prochain et elle sera
+effectuée alors Rachid sera est en congé</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4722-1
+00:22:20.031 --> 00:22:25.346
+<v TARAKI Yassine>mais je l'effectuerai avec Albino donc
+qui sera qui va arriver dès lundi au sein</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4722-2
+00:22:25.346 --> 00:22:30.333
+<v TARAKI Yassine>du service bureau des projets donc il
+m'accompagnera pour que je puisse lui</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4722-3
+00:22:30.333 --> 00:22:32.498
+<v TARAKI Yassine>présenter un petit peu en détail.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4727-0
+00:22:32.898 --> 00:22:35.618
+<v TARAKI Yassine>Comment se passe une mise à jour ?
+Je crois que Vincent t'as levé la main.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4780-0
+00:22:37.778 --> 00:22:43.345
+<v FILLAUX Vincent>Ouais ce que je vous ai mis dans la
+conversation en fait le communiqué de</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4751-0
+00:22:42.658 --> 00:22:42.978
+<v TARAKI Yassine>Voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4780-1
+00:22:43.345 --> 00:22:47.858
+<v FILLAUX Vincent>presse de la de cegedim.
+Voilà donc pour Info qui confirme.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4758-0
+00:22:44.138 --> 00:22:44.338
+<v TARAKI Yassine>Super.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4847-0
+00:22:45.938 --> 00:22:48.741
+<v TARAKI Yassine>Voilà je l'avais partagé aussi sur le fil
+crise mais voilà ça.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4847-1
+00:22:48.741 --> 00:22:51.944
+<v TARAKI Yassine>Ouais je l'avais partagé ce matin
+maintenant t'as bien fait aussi de le</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4791-0
+00:22:49.458 --> 00:22:50.858
+<v FILLAUX Vincent>Ah oui, d'accord, OK.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4847-2
+00:22:51.944 --> 00:22:54.880
+<v TARAKI Yassine>mettre dans la Conf comme ça tout le
+monde est au courant. Voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4815-0
+00:22:52.418 --> 00:22:53.298
+<v FILLAUX Vincent>Ah ouais, voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4847-3
+00:22:54.880 --> 00:22:58.127
+<v TARAKI Yassine>Donc je pense que c'est lié à ça,
+en espérant que le qu'il rétablisse ça</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4847-4
+00:22:58.127 --> 00:23:00.084
+<v TARAKI Yassine>vite.
+Moi j'ai posé la question au métier à</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4847-5
+00:23:00.084 --> 00:23:02.708
+<v TARAKI Yassine>savoir est-ce que actuellement la
+solution est bloquante ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4889-0
+00:23:03.058 --> 00:23:05.666
+<v TARAKI Yassine>Ou gênantes.
+J'attends un retour pour suivre ça.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4889-1
+00:23:05.666 --> 00:23:09.657
+<v TARAKI Yassine>Voilà et après c'était tout pour moi.
+Je laisse peut-être la parole à Anne</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4889-2
+00:23:09.657 --> 00:23:14.074
+<v TARAKI Yassine>Nadir ou à Elena si ils ont des éléments
+à apporter vu que Christophe est en congé</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4889-3
+00:23:14.074 --> 00:23:15.298
+<v TARAKI Yassine>et Farouk en formation.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4895-0
+00:23:20.658 --> 00:23:21.148
+<v KRON El&#233;na>Alors ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4902-0
+00:23:20.818 --> 00:23:22.618
+<v TARAKI Yassine>Sinon passe la main ou je sais pas si.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4897-0
+00:23:21.258 --> 00:23:21.458
+<v CHEMAME Nadir>Quentin.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4930-0
+00:23:23.138 --> 00:23:28.851
+<v PLICHART Franck>Y a du nouveau là pour enfin,
+c'est Marc qui vient d'envoyer le</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4930-1
+00:23:28.851 --> 00:23:31.618
+<v PLICHART Franck>communiqué de presse de Cecile.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4932-0
+00:23:32.338 --> 00:23:32.818
+<v TARAKI Yassine>Ok.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4950-0
+00:23:36.738 --> 00:23:40.348
+<v ABBAS Isabelle>Elena, t'as des choses à porter, OK ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4946-0
+00:23:37.658 --> 00:23:39.218
+<v KRON El&#233;na>Oui, oui, oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4993-0
+00:23:40.178 --> 00:23:45.526
+<v KRON El&#233;na>Alors pas beaucoup mais quand même.
+Donc grâce à Marwin on a,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4993-1
+00:23:45.526 --> 00:23:52.339
+<v KRON El&#233;na>on a tous les éléments et tout a été mis
+en place pour l'installation de la 3e</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/4993-2
+00:23:52.339 --> 00:23:55.098
+<v KRON El&#233;na>base de données pour SAIDANITRH.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5030-0
+00:23:55.538 --> 00:24:01.659
+<v KRON El&#233;na>Donc ça c'est en cours.
+J'aurais donc potentiellement besoin si</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5030-1
+00:24:01.659 --> 00:24:09.215
+<v KRON El&#233;na>jamais ça se passe pas forcément de la
+façon prévue de du concours de l'équipe</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5030-2
+00:24:09.215 --> 00:24:10.458
+<v KRON El&#233;na>SIRH. Pardon.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5067-0
+00:24:11.018 --> 00:24:15.019
+<v KRON El&#233;na>L'équipe ?
+Ben irsh aussi mais irses la semaine</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5067-1
+00:24:15.019 --> 00:24:19.270
+<v KRON El&#233;na>prochaine. Mais bon,
+pour l'instant rien de prévu.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5067-2
+00:24:19.270 --> 00:24:23.021
+<v KRON El&#233;na>D'autres installations vont être
+planifiées,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5067-3
+00:24:23.021 --> 00:24:25.938
+<v KRON El&#233;na>notamment le SSO pour ces dites RH.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5116-0
+00:24:26.658 --> 00:24:32.847
+<v KRON El&#233;na>Récemment y a une installation du bus
+blesse pour donc c'est dit TRH mais ça</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5116-1
+00:24:32.847 --> 00:24:38.875
+<v KRON El&#233;na>n'a pas occasionné spécialement de
+d'action et si RS parce que c'est juste</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5116-2
+00:24:38.875 --> 00:24:43.858
+<v KRON El&#233;na>un paramétrage à faire dans l'outil et
+c'est et c'est du SAS.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5120-0
+00:24:44.178 --> 00:24:46.258
+<v KRON El&#233;na>Voilà donc pour information.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5134-0
+00:24:48.738 --> 00:24:51.468
+<v MASSON Martin>T'as pas encore de date pour le pour la
+base ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5141-0
+00:24:52.658 --> 00:24:53.868
+<v KRON El&#233;na>Pour la base, c'est-à-dire ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5142-0
+00:24:53.618 --> 00:24:54.498
+<v MASSON Martin>La 3e.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5149-0
+00:24:55.858 --> 00:24:56.578
+<v KRON El&#233;na>C'est en cours.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5182-0
+00:24:56.858 --> 00:25:00.394
+<v MASSON Martin>Oui c'est oui c'est ça,
+mais t'as pas de c'est tu t'as dit dans</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5182-1
+00:25:00.394 --> 00:25:02.658
+<v MASSON Martin>la semaine prochaine mais sans non c'est.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5215-0
+00:25:00.658 --> 00:25:06.688
+<v KRON El&#233;na>Ben non je comme c'est la première fois
+qu'on le fait vraiment entièrement</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5215-1
+00:25:06.688 --> 00:25:10.707
+<v KRON El&#233;na>manuellement.
+Nous je sais pas si tu sais en plus</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5215-2
+00:25:10.707 --> 00:25:17.138
+<v KRON El&#233;na>l'import de l'import de la base c'est pas
+quelque chose qui est dans les clous.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5204-0
+00:25:15.138 --> 00:25:15.458
+<v MASSON Martin>Oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5255-0
+00:25:17.218 --> 00:25:21.560
+<v KRON El&#233;na>Si tu veux dans l'outil c'est pas dans
+l'outil BL on a toujours pas la procédure</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5241-0
+00:25:20.218 --> 00:25:22.658
+<v MASSON Martin>Ah non, ça c'est sûr, oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5255-1
+00:25:21.560 --> 00:25:25.258
+<v KRON El&#233;na>donc ça va être ça va être hoots en fait
+on va voir ce que ça donne.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5278-0
+00:25:24.378 --> 00:25:28.445
+<v MASSON Martin>Oui oui non mais y a un truc à faire en
+plus sur les droits sur le oui oui je</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5278-1
+00:25:28.445 --> 00:25:30.738
+<v MASSON Martin>sais que c'est pas,
+c'est pas trivial quoi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5302-0
+00:25:29.458 --> 00:25:34.098
+<v KRON El&#233;na>Oui oui donc voilà,
+c'est juste parce que c'est dites que</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5315-0
+00:25:33.778 --> 00:25:35.488
+<v MASSON Martin>Non,
+c'était juste pour savoir s'il y avait un</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5302-1
+00:25:34.098 --> 00:25:34.898
+<v KRON El&#233;na>c'est pas.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5315-1
+00:25:35.488 --> 00:25:36.978
+<v MASSON Martin>jour où c'était prévu ou bien si c'était.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5358-0
+00:25:37.218 --> 00:25:40.645
+<v KRON El&#233;na>Je suis pas en mesure de planifier très
+proprement,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5358-1
+00:25:40.645 --> 00:25:45.126
+<v KRON El&#233;na>enfin de d'estimer très proprement ce que
+j'ai jamais fait en fait,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5358-2
+00:25:45.126 --> 00:25:48.618
+<v KRON El&#233;na>et ce sur quoi on m'a donné aucune
+procédure, voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5377-0
+00:25:47.178 --> 00:25:51.907
+<v MASSON Martin>Oui non non non, c'était pas ma demande,
+c'était pas quand est-ce que c'est fini ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5377-1
+00:25:51.907 --> 00:25:56.578
+<v MASSON Martin>C'était quand est-ce que ça commence ?
+Mais c'est déjà très bien. Parfait. Merci.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5388-0
+00:25:52.938 --> 00:25:56.415
+<v KRON El&#233;na>Si je suis déjà c'est en cours.
+Voilà merci.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5388-1
+00:25:56.415 --> 00:26:00.818
+<v KRON El&#233;na>J'ai pas d'autres points à partager pour
+l'instant donc.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5391-0
+00:26:03.058 --> 00:26:03.858
+<v KRON El&#233;na>Donc je passe la main.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5415-0
+00:26:07.458 --> 00:26:11.508
+<v CHEMAME Nadir>Merci Elena.
+Bah pour moi y a rien à signaler de</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5415-1
+00:26:11.508 --> 00:26:14.978
+<v CHEMAME Nadir>particulier donc je vais être très concis.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5425-0
+00:26:16.738 --> 00:26:20.898
+<v ABBAS Isabelle>C'est parfait, merci Nadir à toi Reda.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5473-0
+00:26:22.858 --> 00:26:27.505
+<v GOUDJIL Reda>Oui alors ouais secteur école.
+Donc comme je le marque c'est les</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5434-0
+00:26:23.618 --> 00:26:24.498
+<v ABBAS Isabelle>Nous t'écoutons.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5473-1
+00:26:27.505 --> 00:26:32.938
+<v GOUDJIL Reda>vacances scolaires donc ça a été calme
+cette semaine on a Cyrille a fait le</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5473-2
+00:26:32.938 --> 00:26:37.298
+<v GOUDJIL Reda>déplacement des 2 photocopieurs demandés
+par l'enseignement.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5524-0
+00:26:37.858 --> 00:26:41.611
+<v GOUDJIL Reda>Sur l'école barbusse donc,
+il a vérifié le brassage, les prises,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5524-1
+00:26:41.611 --> 00:26:46.287
+<v GOUDJIL Reda>enfin il a fait le boulot. Tout est OK.
+On poursuit la poursuite de la migration</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5524-2
+00:26:46.287 --> 00:26:49.347
+<v GOUDJIL Reda>de domaine,
+les changements des postes de direction.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5524-3
+00:26:49.347 --> 00:26:53.618
+<v GOUDJIL Reda>Bah ça reprend dès lundi prochain parce
+que pour les postes de direction.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5585-0
+00:26:53.698 --> 00:27:00.495
+<v GOUDJIL Reda>On préfère être présent avec eux pour la
+migration domaine et changement du poste</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5585-1
+00:27:00.495 --> 00:27:04.142
+<v GOUDJIL Reda>du PC.
+Et puis sinon on est toujours sur la</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5585-2
+00:27:04.142 --> 00:27:09.860
+<v GOUDJIL Reda>tournée des vérifications des
+photocopieurs école donc parce qu'on a</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5585-3
+00:27:09.860 --> 00:27:13.258
+<v GOUDJIL Reda>quelques photocopieurs école qui ne sont.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5635-0
+00:27:13.338 --> 00:27:17.517
+<v GOUDJIL Reda>Pas ni peut être branché,
+ni branché ou alors ni brassé.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5635-1
+00:27:17.517 --> 00:27:22.355
+<v GOUDJIL Reda>Voilà donc Cyrille fait une petite
+tournée pour vérifier tout ça.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5635-2
+00:27:22.355 --> 00:27:28.146
+<v GOUDJIL Reda>Et puis les adresses, les adresses IP,
+voilà concordance des adresses IP entre</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5635-3
+00:27:28.146 --> 00:27:29.538
+<v GOUDJIL Reda>le tableau qu'on a.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5675-0
+00:27:30.018 --> 00:27:34.994
+<v GOUDJIL Reda>Nous secteur école,
+le tableau qu'a Isabelle et Marc et</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5675-1
+00:27:34.994 --> 00:27:39.258
+<v GOUDJIL Reda>cetera.
+Et puis oui concernant le effectivement</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5675-2
+00:27:39.258 --> 00:27:46.455
+<v GOUDJIL Reda>GLPI et tout ce qu'on mettra à partir du
+moment où tous les postes seront sur le</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5675-3
+00:27:46.455 --> 00:27:47.698
+<v GOUDJIL Reda>domaine école.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5720-0
+00:27:48.898 --> 00:27:52.716
+<v GOUDJIL Reda>Alors moi Djamel,
+j'aimerais bien participer Cyrille et moi,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5720-1
+00:27:52.716 --> 00:27:57.284
+<v GOUDJIL Reda>si vous faites des réunions entre
+guillemets techniques sur le sujet qui</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5720-2
+00:27:57.284 --> 00:28:01.789
+<v GOUDJIL Reda>concerne les écoles, moi j'aimerais bien,
+j'aimerais bien y participer.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5720-3
+00:28:01.789 --> 00:28:05.418
+<v GOUDJIL Reda>Ou alors Cyrille,
+enfin que l'un des 2 soit soit présent.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5721-0
+00:28:06.658 --> 00:28:06.938
+<v GAULTIER Djamel>Ok.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5736-0
+00:28:09.058 --> 00:28:11.948
+<v GOUDJIL Reda>Et puis sinon je regarde,
+je sais pas Cyrille, t'as un truc ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5726-0
+00:28:09.458 --> 00:28:09.778
+<v NEMORIN Cyrille>Ya.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5800-0
+00:28:12.418 --> 00:28:17.980
+<v NEMORIN Cyrille>Ouais après concernant GLPI et puis
+peut-être cyberwatch on peut de toute</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5800-1
+00:28:17.980 --> 00:28:23.691
+<v NEMORIN Cyrille>façon lancer un tu sais faire un une
+phase de test donc sur juste un groupe</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5800-2
+00:28:23.691 --> 00:28:29.102
+<v NEMORIN Cyrille>scolaire ou voilà histoire de voir
+comment ça se passe derrière et puis</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5800-3
+00:28:29.102 --> 00:28:29.628
+<v NEMORIN Cyrille>après ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5829-0
+00:28:30.418 --> 00:28:36.394
+<v NEMORIN Cyrille>Le déployer pour tout le monde après,
+mais là déjà on peut dès que c'est OK du</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5829-1
+00:28:36.394 --> 00:28:38.738
+<v NEMORIN Cyrille>côté SCRS, on peut déjà lancer.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5848-0
+00:28:39.458 --> 00:28:43.253
+<v GOUDJIL Reda>Ouais t'as raison,
+on avait parlé de l'expérimentation sur</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5848-1
+00:28:43.253 --> 00:28:47.241
+<v GOUDJIL Reda>quelques écoles, mais ça,
+qui peut nous filer un coup de main</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5848-2
+00:28:47.241 --> 00:28:47.948
+<v GOUDJIL Reda>là-dessus ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5852-0
+00:28:52.258 --> 00:28:52.588
+<v GAULTIER Djamel>Te dire ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5912-0
+00:28:53.418 --> 00:28:56.655
+<v GOUDJIL Reda>Oh, il y a des volontaires ?
+Bah si on fait les tests,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5856-0
+00:28:53.498 --> 00:28:53.778
+<v NEMORIN Cyrille>Mehdi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5912-1
+00:28:56.655 --> 00:29:00.010
+<v GOUDJIL Reda>on choisit 2 écoles.
+Comment on va rajouter cyberwatch ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5912-2
+00:29:00.010 --> 00:29:03.129
+<v GOUDJIL Reda>Comment on va rajouter GLPI ?
+Sachant que nous on a,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5912-3
+00:29:03.129 --> 00:29:06.778
+<v GOUDJIL Reda>on est toujours en attente d'une
+formation, on sait pas trop.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5930-0
+00:29:06.618 --> 00:29:12.818
+<v NEMORIN Cyrille>Bah nous après on le on balance le truc
+par GPO et puis on vérifie que.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5931-0
+00:29:11.218 --> 00:29:14.668
+<v GOUDJIL Reda>D'accord, et ça et ça,
+tu peux le faire dès maintenant alors ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5958-0
+00:29:16.018 --> 00:29:20.258
+<v NEMORIN Cyrille>Non, ça va être plutôt côté SIRS,
+mais il faut qu'il fasse aussi le.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5942-0
+00:29:18.178 --> 00:29:18.618
+<v KRON El&#233;na>Ahmed.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5973-0
+00:29:19.218 --> 00:29:21.716
+<v GOUDJIL Reda>Voilà,
+et c'est pour ça que je disais que on a</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5963-0
+00:29:21.458 --> 00:29:21.698
+<v KRON El&#233;na>Oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5973-1
+00:29:21.716 --> 00:29:26.180
+<v GOUDJIL Reda>besoin d'un petit coup de main là-dessus,
+donc faut voir ça avec l'équipe du Djamel</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5973-2
+00:29:26.180 --> 00:29:26.498
+<v GOUDJIL Reda>alors.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5987-0
+00:29:27.938 --> 00:29:30.358
+<v KRON El&#233;na>Bah normalement ils sont encore bons
+c'est ça ? Je comprends pas,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5987-1
+00:29:30.358 --> 00:29:31.458
+<v KRON El&#233;na>c'est ce que j'ai à mon écran.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/5998-0
+00:29:32.498 --> 00:29:35.458
+<v ABBAS Isabelle>Elena, ton micro, s'il te plaît, merci.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6014-0
+00:29:36.018 --> 00:29:38.178
+<v GOUDJIL Reda>Et sinon donc bah pour nous c'est bon.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6016-0
+00:29:36.538 --> 00:29:38.538
+<v KRON El&#233;na>Si ça marche pas,
+je vais redémarrer le PC mais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6022-0
+00:29:40.418 --> 00:29:41.218
+<v KRON El&#233;na>J'ai la connexion.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6049-0
+00:29:41.298 --> 00:29:46.367
+<v ABBAS Isabelle>Bon très bien. Merci Reda.
+Ah bah oui là je crois que c'est plus</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6034-0
+00:29:42.578 --> 00:29:43.338
+<v GOUDJIL Reda>Ça a été rapide.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6049-1
+00:29:46.367 --> 00:29:47.458
+<v ABBAS Isabelle>rapide que ça.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6048-0
+00:29:46.818 --> 00:29:48.338
+<v GOUDJIL Reda>On va ***** un record là.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6067-0
+00:29:51.218 --> 00:29:54.210
+<v ABBAS Isabelle>Valérie,
+t'as des choses à rajouter pour la partie</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6067-1
+00:29:54.210 --> 00:29:55.148
+<v ABBAS Isabelle>administrative ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6069-0
+00:30:01.538 --> 00:30:02.258
+<v ABBAS Isabelle>Valérie.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6134-0
+00:30:06.698 --> 00:30:12.103
+<v ABBAS Isabelle>Donc moi je voulais simplement faire un
+petit point concernant donc les commandes</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6134-1
+00:30:12.103 --> 00:30:15.267
+<v ABBAS Isabelle>de matériel.
+Bah pour les élus du futur mandat,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6134-2
+00:30:15.267 --> 00:30:19.749
+<v ABBAS Isabelle>bien jusqu'à présent donc on avance en
+douceur. Comme a dit Franck,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6134-3
+00:30:19.749 --> 00:30:23.836
+<v ABBAS Isabelle>on est en plein dessus mais tout est pas
+fini pour l'instant.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6134-4
+00:30:23.836 --> 00:30:26.538
+<v ABBAS Isabelle>Donc en gros moi on a réceptionné les 60.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6151-0
+00:30:27.098 --> 00:30:33.893
+<v ABBAS Isabelle>Sandrine des forfaits 30 gigas,
+la livraison des chargeurs qui sont en</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6151-1
+00:30:33.893 --> 00:30:34.658
+<v ABBAS Isabelle>attente.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6171-0
+00:30:35.858 --> 00:30:40.148
+<v ABBAS Isabelle>Les licences timides,
+on attend aussi le retour de CFI pour</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6171-1
+00:30:40.148 --> 00:30:41.578
+<v ABBAS Isabelle>qu'elle soit active.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6172-0
+00:30:42.378 --> 00:30:43.828
+<v FOURB&#201;  Val&#233;rie>Coucou Lisa, je peux te couper ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6183-0
+00:30:44.858 --> 00:30:46.058
+<v ABBAS Isabelle>Ben écoute, si.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6197-0
+00:30:45.738 --> 00:30:49.822
+<v FOURB&#201;  Val&#233;rie>Excuse-moi,
+c'est parce que je suis en visio avec SFR</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6197-1
+00:30:49.822 --> 00:30:51.258
+<v FOURB&#201;  Val&#233;rie>donc rien pour moi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6200-0
+00:30:51.818 --> 00:30:53.858
+<v ABBAS Isabelle>Ok, d'accord, très bien, merci.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6199-0
+00:30:52.858 --> 00:30:53.418
+<v FOURB&#201;  Val&#233;rie>Chau.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6220-0
+00:30:55.498 --> 00:30:59.456
+<v ABBAS Isabelle>Nous avons aussi les 30 doubles SIM qui
+avaient besoin,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6220-1
+00:30:59.456 --> 00:31:01.858
+<v ABBAS Isabelle>on a reçu aussi les 10 fer phones.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6285-0
+00:31:03.658 --> 00:31:09.309
+<v ABBAS Isabelle>Par contre la commande est en attente de
+saisie pour l'instant parce que j'ai pas</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6285-1
+00:31:09.309 --> 00:31:14.339
+<v ABBAS Isabelle>encore eu le temps de la passer.
+On a je vais demander aussi 10 licences</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6285-2
+00:31:14.339 --> 00:31:19.507
+<v ABBAS Isabelle>pour les fairphones parce que on
+attendait un retour de Marc là-dessus que</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6285-3
+00:31:19.507 --> 00:31:22.538
+<v ABBAS Isabelle>Franck a demandé et il veut absolument
+que.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6288-0
+00:31:23.138 --> 00:31:24.538
+<v ABBAS Isabelle>Les cerfones sont enroulés.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6305-0
+00:31:25.098 --> 00:31:27.765
+<v GOUDJIL Reda>Excuse-moi, excuse-moi,
+il a une petite question,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6305-1
+00:31:27.765 --> 00:31:29.098
+<v GOUDJIL Reda>on commande toujours des.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6303-0
+00:31:27.978 --> 00:31:28.258
+<v ABBAS Isabelle>Ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6320-0
+00:31:29.578 --> 00:31:33.258
+<v ABBAS Isabelle>Eh bien écoute là oui,
+on va en commander 10 pour les élus.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6323-0
+00:31:33.658 --> 00:31:34.698
+<v PLICHART Franck>C'est pour les adjoints.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6330-0
+00:31:34.938 --> 00:31:35.858
+<v ABBAS Isabelle>Les adjoints, ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6367-0
+00:31:35.338 --> 00:31:38.137
+<v GOUDJIL Reda>D'accord ? Non,
+parce que je crois que si ils étaient pas</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6367-1
+00:31:38.137 --> 00:31:41.178
+<v GOUDJIL Reda>encore tout à fait au point.
+On a eu des enfin moi à l'époque,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6368-0
+00:31:40.178 --> 00:31:44.138
+<v ABBAS Isabelle>Eh bien là, c'est la génération 6,
+c'est la dernière génération.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6367-2
+00:31:41.178 --> 00:31:42.818
+<v GOUDJIL Reda>on avait des problèmes quand même.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6373-0
+00:31:45.258 --> 00:31:46.698
+<v ABBAS Isabelle>Après, c'est une demande de Marc.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6397-0
+00:31:47.538 --> 00:31:50.485
+<v MASSON Martin>La semaine dernière,
+il nous avait dit que c'était politique,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6380-0
+00:31:47.578 --> 00:31:48.218
+<v GOUDJIL Reda>D'accord.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6397-1
+00:31:50.485 --> 00:31:51.578
+<v MASSON Martin>le choix, il me semble.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6394-0
+00:31:51.338 --> 00:31:53.018
+<v RIGOULAT Lucas>C'est une demande de ***** et même.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6439-0
+00:31:53.418 --> 00:31:57.550
+<v ABBAS Isabelle>Ah mais a dit, Ah oui, carrément.
+Bon Ben écoute, voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6439-1
+00:31:57.550 --> 00:32:02.987
+<v ABBAS Isabelle>Donc on les a reçus déjà. Voilà.
+Et donc il va falloir mettre des licences</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6415-0
+00:31:59.658 --> 00:31:59.938
+<v GOUDJIL Reda>Ok.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6439-2
+00:32:02.987 --> 00:32:06.538
+<v ABBAS Isabelle>tiny que je vais demander là aujourd'hui.
+Voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6430-0
+00:32:05.018 --> 00:32:05.338
+<v TARAKI Yassine>Véronique.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6434-0
+00:32:07.178 --> 00:32:07.658
+<v TARAKI Yassine>No.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6499-0
+00:32:07.738 --> 00:32:13.437
+<v ABBAS Isabelle>Et par contre pour la grosse commande des
+60 tablettes je rencontre un petit souci</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6499-1
+00:32:13.437 --> 00:32:18.655
+<v ABBAS Isabelle>parce que suivant les devis j'avais
+trouvé donc les devis intéressants donc</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6499-2
+00:32:18.655 --> 00:32:24.216
+<v ABBAS Isabelle>c'était on gagnait 3000€ par rapport à
+donc c'était ça c'est un devis CFI via le</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6499-3
+00:32:24.216 --> 00:32:26.138
+<v ABBAS Isabelle>la centrale d'achat le resa.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6554-0
+00:32:27.178 --> 00:32:33.344
+<v ABBAS Isabelle>Et j'avais demandé en même temps donc scc
+via siperec et y a 3000€ de différence</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6554-1
+00:32:33.344 --> 00:32:39.433
+<v ABBAS Isabelle>mais sauf que là pour passer la commande
+avec le resa il faut une convention et</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6554-2
+00:32:39.433 --> 00:32:45.293
+<v ABBAS Isabelle>bien y a un petit souci au niveau des
+pièces de marché que je n'ai pas si je</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6554-3
+00:32:45.293 --> 00:32:45.978
+<v ABBAS Isabelle>n'ai pas.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6588-0
+00:32:46.458 --> 00:32:51.935
+<v ABBAS Isabelle>Passé la Convention donc j'ai peur point
+de vue délai on soit trop juste donc je</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6588-1
+00:32:51.935 --> 00:32:56.938
+<v ABBAS Isabelle>fais un point lundi avec Marc en ce
+sens-là pour savoir ce que l'on fait.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6641-0
+00:32:57.818 --> 00:33:02.916
+<v GOUDJIL Reda>Re Isa désolé,
+encore une petite question concernant je</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6596-0
+00:32:59.578 --> 00:33:00.058
+<v ABBAS Isabelle>Ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6641-1
+00:33:02.916 --> 00:33:09.835
+<v GOUDJIL Reda>j'ai vu que tu avais parlé de tini
+concernant les licences écoles on a on a</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6606-0
+00:33:03.578 --> 00:33:04.058
+<v ABBAS Isabelle>Oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6628-0
+00:33:08.818 --> 00:33:10.578
+<v ABBAS Isabelle>Oui, les 632.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6641-2
+00:33:09.835 --> 00:33:13.658
+<v GOUDJIL Reda>tout. Ouais les 6 sont on a toujours bien.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6651-0
+00:33:13.978 --> 00:33:16.868
+<v GOUDJIL Reda>Un tarif préférentiel ou on paye le même
+prix ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6677-0
+00:33:16.058 --> 00:33:19.879
+<v ABBAS Isabelle>Alors oui,
+quand j'ai fait la demande de</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6677-1
+00:33:19.879 --> 00:33:24.258
+<v ABBAS Isabelle>renouvellement donc pour la l'année 2026
+2027.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6680-0
+00:33:24.218 --> 00:33:25.778
+<v GOUDJIL Reda>Parce que je l'avais bien négocié à
+l'époque.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6703-0
+00:33:26.218 --> 00:33:31.071
+<v ABBAS Isabelle>Ouais et sauf que Ben ça c'est un petit
+peu perdu les années précédentes.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6703-1
+00:33:31.071 --> 00:33:34.218
+<v ABBAS Isabelle>Sauf non,
+l'année dernière j'avais eu un tarif.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6754-0
+00:33:36.298 --> 00:33:41.030
+<v ABBAS Isabelle>Identique aux autres.
+Mais l'année d'avant j'avais un bon tarif.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6719-0
+00:33:38.538 --> 00:33:39.508
+<v GOUDJIL Reda>Ah bon, OK ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6754-1
+00:33:41.030 --> 00:33:46.417
+<v ABBAS Isabelle>Ouais et là j'ai redemandé en spécifiant
+comme quoi c'était bien un tarif</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6754-2
+00:33:46.417 --> 00:33:51.658
+<v ABBAS Isabelle>préférentiel qu'on avait depuis le début
+avec Kenny et c'était spécial.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6776-0
+00:33:51.778 --> 00:33:56.430
+<v ABBAS Isabelle>Pour l'éducation et là,
+ils ont fait un geste encore et a gagné</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6759-0
+00:33:53.258 --> 00:33:53.658
+<v GOUDJIL Reda>Ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6801-0
+00:33:56.178 --> 00:33:59.042
+<v GOUDJIL Reda>Oui, en fait,
+j'ai l'impression qu'il faut le réclamer</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6776-1
+00:33:56.430 --> 00:33:56.938
+<v ABBAS Isabelle>encore.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6801-1
+00:33:59.042 --> 00:34:02.218
+<v GOUDJIL Reda>tous les ans, sinon si on le réclame pas,
+si on insiste pas.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6804-0
+00:33:59.338 --> 00:34:03.321
+<v ABBAS Isabelle>Voilà tout à fait,
+ils mettent les mêmes tarifs que les</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6804-1
+00:34:03.321 --> 00:34:04.458
+<v ABBAS Isabelle>autres licences.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6867-0
+00:34:05.818 --> 00:34:11.560
+<v ABBAS Isabelle>Ouais et ça c'est bon grâce à Franck qui
+m'a dit vois là-dessus et j'ai demandé et</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6812-0
+00:34:05.978 --> 00:34:06.628
+<v GOUDJIL Reda>D'accord ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6867-1
+00:34:11.560 --> 00:34:15.088
+<v ABBAS Isabelle>ils m'ont,
+ils m'ont accordé un tarif intéressant.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6867-2
+00:34:15.088 --> 00:34:18.271
+<v ABBAS Isabelle>Voilà,
+on va dire un peu plus intéressant que</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6888-0
+00:34:15.378 --> 00:34:18.657
+<v GOUDJIL Reda>D'accord, parce que moi,
+quand j'avais souci le contrat,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6867-3
+00:34:18.271 --> 00:34:20.138
+<v ABBAS Isabelle>ceux de des autres comptes.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6888-1
+00:34:18.657 --> 00:34:22.165
+<v GOUDJIL Reda>c'était un tarif,
+un un tarif un petit peu entre guillemets,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6888-2
+00:34:22.165 --> 00:34:25.098
+<v GOUDJIL Reda>éducation nationale, enfin école,
+on m'avait bien.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6887-0
+00:34:23.658 --> 00:34:26.098
+<v ABBAS Isabelle>Ouais, mais c'est minime quand même,
+ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6951-0
+00:34:26.258 --> 00:34:31.775
+<v GOUDJIL Reda>Ouais mais on m'avait bien précisé. Voilà,
+on m'avait bien précisé que ce tarif</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6903-0
+00:34:27.178 --> 00:34:28.298
+<v ABBAS Isabelle>Mais c'est toujours ça de gagner.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6951-1
+00:34:31.775 --> 00:34:37.568
+<v GOUDJIL Reda>resterait toujours un tarif préférentiel.
+Donc si maintenant on oublie, puis voilà,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6919-0
+00:34:33.738 --> 00:34:34.618
+<v ABBAS Isabelle>Ouais, baby.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6997-0
+00:34:37.098 --> 00:34:40.928
+<v ABBAS Isabelle>Ouais Ben non,
+maintenant je ouais je redemanderai</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6951-2
+00:34:37.568 --> 00:34:41.498
+<v GOUDJIL Reda>on insiste pas, et cetera. Ouais voilà,
+faut l'avoir de.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6997-1
+00:34:40.928 --> 00:34:45.359
+<v ABBAS Isabelle>encore pour l'année prochaine et puis
+ainsi de suite quoi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6967-0
+00:34:43.738 --> 00:34:45.418
+<v GOUDJIL Reda>Ok, OK, ça marche.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6997-2
+00:34:45.359 --> 00:34:51.367
+<v ABBAS Isabelle>Parce que là en licence Kenny on est à
+1438 licences quand même pour l'ensemble</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7037-0
+00:34:51.258 --> 00:34:54.560
+<v GOUDJIL Reda>Ah quand même.
+Alors tu sais que en passant directement</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6997-3
+00:34:51.367 --> 00:34:52.418
+<v ABBAS Isabelle>des 4 comptes.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/6999-0
+00:34:52.538 --> 00:34:52.818
+<v ABBAS Isabelle>Ouais.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7037-1
+00:34:54.560 --> 00:34:57.625
+<v GOUDJIL Reda>avec eux,
+chose qu'on ne peut pas faire parce qu'on</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7037-2
+00:34:57.625 --> 00:35:01.987
+<v GOUDJIL Reda>est obligé de passer par un marché,
+mais en passant directement avec eux,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7023-0
+00:35:00.058 --> 00:35:00.378
+<v ABBAS Isabelle>Oui.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7037-3
+00:35:01.987 --> 00:35:03.578
+<v GOUDJIL Reda>c'est 10 ou 15% moins cher.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7039-0
+00:35:05.258 --> 00:35:06.618
+<v GOUDJIL Reda>Voilà, mais on peut pas.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7043-0
+00:35:07.458 --> 00:35:08.138
+<v GOUDJIL Reda>Malheureusement.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7045-0
+00:35:09.138 --> 00:35:09.578
+<v ABBAS Isabelle>Quentin.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7056-0
+00:35:11.138 --> 00:35:12.058
+<v GOUDJIL Reda>Ok, merci Lisa.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7060-0
+00:35:11.258 --> 00:35:13.498
+<v ABBAS Isabelle>Est soumis au central d'achat ou au
+marché.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7063-0
+00:35:14.058 --> 00:35:14.298
+<v GOUDJIL Reda>E.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7067-0
+00:35:14.418 --> 00:35:16.138
+<v ABBAS Isabelle>Voilà donc j'ai fait le tour pour moi.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7099-0
+00:35:19.538 --> 00:35:23.559
+<v ABBAS Isabelle>Si y a personne qui a ajouté quelque
+chose,</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7099-1
+00:35:23.559 --> 00:35:28.218
+<v ABBAS Isabelle>bien on va pouvoir clore la séance à
+10h10, voilà.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7081-0
+00:35:23.938 --> 00:35:24.378
+<v GOUDJIL Reda>Damien.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7100-0
+00:35:25.618 --> 00:35:28.089
+<v GOUDJIL Reda>Qu'est-ce qui m'arrive ?
+Qu'est-ce qui m'arrive ?</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7100-1
+00:35:28.089 --> 00:35:29.818
+<v GOUDJIL Reda>Je parle presque autant que Franck.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7107-0
+00:35:31.018 --> 00:35:32.618
+<v GOUDJIL Reda>Ça va pas, faut que je me ressaisisse là.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7119-0
+00:35:34.818 --> 00:35:38.338
+<v ABBAS Isabelle>Bon et bien bonne journée à tout le monde.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7180-0
+00:35:39.018 --> 00:35:42.538
+<v TARAKI Yassine>Bonne journée à tous et bon courage et
+bon appétit.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7214-0
+00:35:40.298 --> 00:35:45.171
+<v MASSON Martin>Bonne journée merci bonne journée et
+bonnes vacances pour ceux qui partent.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7208-0
+00:35:40.538 --> 00:35:44.879
+<v CHEMAME Nadir>Et à bientôt. Ouais, ciao,
+ciao et bon à 12h00.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7224-0
+00:35:40.618 --> 00:35:46.026
+<v TARAKI Yassine>Bonne journée, bonne journée, bon appétit.
+Bon Ah oui mais là il est bon appétit.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7208-1
+00:35:44.879 --> 00:35:48.858
+<v CHEMAME Nadir>D'habitude on dit bon appétit,
+bon appétit.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7214-1
+00:35:45.171 --> 00:35:48.440
+<v MASSON Martin>Merci oui c'est ça.
+Bon appui c'est un peu tôt là.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7224-1
+00:35:46.026 --> 00:35:50.378
+<v TARAKI Yassine>Bon petit déj. Ah oui non là bon appétit,
+c'est un petit peu tôt.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7206-0
+00:35:47.098 --> 00:35:49.338
+<v BRUN Florian>Bonnes vacances et 10h10.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7214-2
+00:35:48.440 --> 00:35:49.658
+<v MASSON Martin>Bon petit déjeuner.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7232-0
+00:35:50.778 --> 00:35:52.898
+<v GOUDJIL Reda>10h10, on pourra faire mieux.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7216-0
+00:35:50.858 --> 00:35:51.258
+<v MASSON Martin>List.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7223-0
+00:35:50.898 --> 00:35:51.738
+<v NEMORIN Cyrille>Bon week-end.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7234-0
+00:35:52.258 --> 00:35:54.458
+<v TARAKI Yassine>Bon petit déjeuner lors du pastis.</v>
+
+8e31ccc3-23d6-4d4a-a588-d6df76437be2/7233-0
+00:35:53.498 --> 00:35:54.538
+<v CHEMAME Nadir>Lors du pastis.</v>

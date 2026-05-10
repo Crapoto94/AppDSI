@@ -410,7 +410,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             }
         } else {
             // Priority 1 for Hub: SQLite
-            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
+            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement, email FROM users WHERE username = ?', [req.user.username]);
             if (user) {
                 source = 'sqlite';
             } else {
@@ -2788,12 +2788,14 @@ app.get('/api/mes-reunions', authenticateJWT, async (req, res) => {
 
         const reunions = await pgDb.all(
             `SELECT r.*, COUNT(DISTINCT p2.id) as participant_count, COUNT(DISTINCT a.id) as attachment_count,
-                    pr2.projet_id as projet_lie_id, pj.code as projet_lie_code, pj.titre as projet_lie_titre
+                    pr2.projet_id as projet_lie_id, pj.code as projet_lie_code, pj.titre as projet_lie_titre,
+                    MIN(tm.id) as transcript_id
              FROM rencontres_reunions r
              LEFT JOIN reunion_participants p2 ON r.id = p2.reunion_id
              LEFT JOIN reunion_attachments a ON r.id = a.reunion_id
              LEFT JOIN projet_reunions pr2 ON pr2.reunion_id = r.id
              LEFT JOIN projets pj ON pj.id = pr2.projet_id
+             LEFT JOIN transcript_meetings tm ON tm.reunion_id = r.id
              WHERE r.id IN (${idPlaceholders})
              GROUP BY r.id, pr2.projet_id, pj.code, pj.titre
              ORDER BY r.date_reunion DESC`,

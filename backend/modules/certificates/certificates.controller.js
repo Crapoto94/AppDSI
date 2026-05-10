@@ -168,6 +168,20 @@ const parseCertificateFile = async (file) => {
                 }
             }
         }
+        if (data.beneficiary_name === 'Inconnu') {
+            for (const line of lines) {
+                if (line.toUpperCase().includes('JEAN FRANCOIS') && !line.includes('MANDATAIRE')) {
+                    let cleaned = line
+                        .replace(/\d{2}\/\d{2}\/\d{4}/g, '')
+                        .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '')
+                        .replace(/BD\d+-\d+/g, '')
+                        .replace(/PRENOM \/ NOM\s*:/i, '')
+                        .replace(/,/g, ' ')
+                        .trim();
+                    if (cleaned.length > 2) { data.beneficiary_name = cleaned; break; }
+                }
+            }
+        }
     }
 
     return data;

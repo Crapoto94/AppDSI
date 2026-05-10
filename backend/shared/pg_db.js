@@ -43,6 +43,9 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!projets\.)\bprojet_favoris\b/gi, 'projets.projet_favoris')
                     .replace(/(?<!projets\.)\bprojet_dependances\b/gi, 'projets.projet_dependances')
                     .replace(/(?<!projets\.)\bprojet_attendus\b/gi, 'projets.projet_attendus')
+                    .replace(/(?<!transcript\.)\btranscript_meetings\b/gi, 'transcript.meetings')
+                    .replace(/(?<!transcript\.)\btranscript_cues\b/gi, 'transcript.cues')
+                    .replace(/(?<!transcript\.)\btranscript_tasks\b/gi, 'transcript.tasks')
                     .replace(/(?<!projets\.)\bprojet_comites\b/gi, 'projets.projet_comites')
                     .replace(/(?<!projets\.)\bprojet_comites_membres\b/gi, 'projets.projet_comites_membres');
 

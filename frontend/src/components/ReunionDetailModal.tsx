@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Plus, Send, Upload, Trash2 } from 'lucide-react';
+import { X, Plus, Send, Upload, Trash2, FileText } from 'lucide-react';
 
 interface Reunion {
   id: number; titre: string; date_reunion: string; annee: number; lieu?: string;
   description?: string; releve_decision?: string; liste_taches?: string;
   statut: string; created_by?: string; participants?: any[]; demandes?: any[];
+  transcript_id?: number | null;
 }
 
 interface ADUser {
@@ -26,9 +27,10 @@ interface Props {
   onUpdated?: () => void;
   onDemandeCreated?: () => void;
   onDeleted?: () => void;
+  onTranscriptSuccess?: () => void;
 }
 
-const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRole, currentUsername, onClose, onUpdated, onDemandeCreated, onDeleted }) => {
+const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRole, currentUsername, onClose, onUpdated, onDemandeCreated, onDeleted, onTranscriptSuccess }) => {
   const [selectedReunion, setSelectedReunion] = useState<Reunion | null>(null);
   const [detailReunionData, setDetailReunionData] = useState({ description: '', releve_decision: '', liste_taches: '' });
   const [reunionAttachments, setReunionAttachments] = useState<Attachment[]>([]);
@@ -44,6 +46,8 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [isSavingReunion, setIsSavingReunion] = useState(false);
   const [sendingCompteRendu, setSendingCompteRendu] = useState(false);
   const [showCreateDemandeModal, setShowCreateDemandeModal] = useState(false);
+  const [showTranscriptUpload, setShowTranscriptUpload] = useState(false);
+  const [showTranscriptView, setShowTranscriptView] = useState(false);
   const [newDemande, setNewDemande] = useState({ titre: '', direction: '', service: '', type: '', description: '' });
   const derouleRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
@@ -244,6 +248,21 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
             <p style={{margin: 0, fontSize: '13px', color: '#64748b'}}>{selectedReunion.date_reunion ? new Date(selectedReunion.date_reunion).toLocaleDateString('fr-FR') : ''}{selectedReunion.lieu ? ` — ${selectedReunion.lieu}` : ''}</p>
           </div>
           <div style={{display: 'flex', gap: '8px'}}>
+            {selectedReunion.transcript_id ? (
+                <button 
+                    onClick={() => setShowTranscriptView(true)} 
+                    style={{padding: '8px 14px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px'}}
+                >
+                    <FileText size={14} /> Transcript
+                </button>
+            ) : (
+                <button 
+                    onClick={() => setShowTranscriptUpload(true)} 
+                    style={{padding: '8px 14px', background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px'}}
+                >
+                    <Plus size={14} /> Transcript
+                </button>
+            )}
             <button onClick={() => setShowCreateDemandeModal(true)} style={{padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px'}}><Plus size={14} /> Demande</button>
             <button onClick={handleSendCompteRendu} disabled={sendingCompteRendu} style={{padding: '8px 14px', background: '#ecfdf5', color: '#059669', border: '1px solid #6ee7b7', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', opacity: sendingCompteRendu ? 0.6 : 1}} title="Envoyer le compte rendu par email à tous les participants">
               <Send size={14} /> {sendingCompteRendu ? 'Envoi...' : 'Compte rendu'}
@@ -488,6 +507,25 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
           </div>
         </div>
       )}
+
+      <TranscriptUploadModal
+        isOpen={showTranscriptUpload}
+        onClose={() => setShowTranscriptUpload(false)}
+        reunionId={reunionId || undefined}
+        token={token}
+        onSuccess={(meetingId) => {
+            setShowTranscriptUpload(false);
+            fetchReunion();
+            onTranscriptSuccess?.();
+        }}
+      />
+
+      <TranscriptViewModal
+        isOpen={showTranscriptView}
+        transcriptId={selectedReunion.transcript_id || null}
+        token={token}
+        onClose={() => setShowTranscriptView(false)}
+      />
     </div>
   );
 };

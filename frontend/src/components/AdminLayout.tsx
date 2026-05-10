@@ -42,6 +42,7 @@ const AdminLayout: React.FC = () => {
     { title: "Idées MAGAPP", icon: Lightbulb, path: "/admin/ideas" },
     { title: "Paramètres", icon: Sliders, path: "/admin/settings" },
     { title: "SMS Frizbi", icon: MessageSquare, path: "/admin/frizbi" },
+    { title: "Intelligence Artificielle", icon: MessageSquare, path: "/admin/transcript" },
     { title: "Liaison AD", icon: Monitor, path: "/admin/ad" },
     { title: "Azure AD (Entra)", icon: Shield, path: "/admin/azure-ad" },
     { title: "Liaison GLPI", icon: Database, path: "/admin/glpi" },

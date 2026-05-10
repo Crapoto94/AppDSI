@@ -4,7 +4,7 @@ import {
   ChevronUp, ChevronDown, 
   Loader2, Search, ShieldCheck, Radio, Save,
   CheckCircle2, Activity, Database, Euro,
-  ShieldAlert, Box, LayoutGrid,
+  ShieldAlert, Box, LayoutGrid, Brain, Sparkles,
   Globe, Key, Fingerprint, Check, AlertTriangle, BarChart3,
   Zap, History as HistoryIcon, Hash, Lock, Download, MessageSquare,
   Clock, Play
@@ -44,7 +44,7 @@ interface UserData {
 }
 
 interface AdminProps {
-  section?: 'main' | 'tiles' | 'users' | 'ad' | 'azure-ad' | 'glpi' | 'oracle' | 'mariadb';
+  section?: 'main' | 'tiles' | 'users' | 'ad' | 'azure-ad' | 'glpi' | 'oracle' | 'mariadb' | 'transcript';
 }
 
 const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
@@ -72,6 +72,16 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     required_group: 'gantto',
     bind_dn: 'CN=testo,OU=IRS,OU=IVRY,DC=ivry,DC=local',
     bind_password: ''
+  });
+  const [transcriptConfig, setTranscriptConfig] = useState({
+    groq_api_key: '',
+    default_model: 'llama-3.3-70b-versatile',
+    ai_provider: 'groq',
+    gemini_api_key: '',
+    openrouter_api_key: '',
+    anthropic_api_key: '',
+    ollama_host: 'http://localhost:11434',
+    anthropic_model: 'claude-3-5-sonnet-20240620'
   });
   const [azureConfig, setAzureConfig] = useState({
     is_enabled: false,
@@ -431,6 +441,29 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     } catch (e) {}
   };
 
+  const fetchTranscriptSettings = async () => {
+    try {
+      const response = await fetch('/api/transcript-settings', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setTranscriptConfig({
+          groq_api_key: data.groq_api_key ? '••••••••' : '',
+          default_model: data.default_model || 'llama-3.3-70b-versatile',
+          ai_provider: data.ai_provider || 'groq',
+          gemini_api_key: data.gemini_api_key ? '••••••••' : '',
+          openrouter_api_key: data.openrouter_api_key ? '••••••••' : '',
+          anthropic_api_key: data.anthropic_api_key ? '••••••••' : '',
+          ollama_host: data.ollama_host || 'http://localhost:11434',
+          anthropic_model: data.anthropic_model || 'claude-3-5-sonnet-20240620'
+        });
+      }
+    } catch (error) {
+      console.error('Erreur chargement Transcript settings:', error);
+    }
+  };
+
   const fetchOracleSettings = async () => {
     try {
       const res = await fetch('/api/oracle-settings', { headers: { 'Authorization': `Bearer ${token}` } });
@@ -524,6 +557,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     if (section === 'glpi') { fetchGLPISettings(); fetchSyncLogs(); fetchScheduledSyncs(); }
     if (section === 'oracle') fetchOracleSettings();
     if (section === 'mariadb') fetchMariaDBSettings();
+    if (section === 'transcript') fetchTranscriptSettings();
     if (section === 'main') { fetchTiles(); fetchUsers(); }
   }, [section, token]);
 
@@ -1070,6 +1104,25 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       }
     } catch (error) {
       setTestResult({ success: false, message: 'Erreur de connexion Azure AD.' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveTranscript = async () => {
+    setIsSaving(true);
+    try {
+      const response = await fetch('/api/transcript-settings', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(transcriptConfig)
+      });
+      if (response.ok) {
+        alert('Configuration Transcript enregistrée');
+        fetchTranscriptSettings();
+      } else {
+        alert('Erreur lors de l\'enregistrement');
+      }
     } finally {
       setIsSaving(false);
     }
@@ -2104,6 +2157,153 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         )}
                     </div>
                 </div>
+            </div>
+          </div>
+        )}
+
+        {section === 'transcript' && (
+          <div className="admin-ad-container">
+            <div className="ad-layout-grid">
+              <div className="ad-main-column">
+                <div className="admin-card ad-config-card">
+                  <div className="card-banner" style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }}>
+                    <div className="banner-info">
+                      <h3 className="banner-title">Intelligence Artificielle</h3>
+                      <p className="banner-subtitle">Configuration des services de transcription et d'analyse.</p>
+                    </div>
+                    <div className="banner-controls">
+                       <Brain size={24} color="white" />
+                    </div>
+                  </div>
+
+                  <div className="card-content">
+                    <div className="form-responsive-grid">
+                      <div className="form-field full-width">
+                        <label className="field-label"><Zap size={14} /> Fournisseur d'IA par défaut</label>
+                        <select 
+                          className="admin-input"
+                          value={transcriptConfig.ai_provider}
+                          onChange={e => setTranscriptConfig({...transcriptConfig, ai_provider: e.target.value})}
+                        >
+                          <option value="groq">Groq (Llama 3 / Mixtral)</option>
+                          <option value="gemini">Google Gemini</option>
+                          <option value="openrouter">OpenRouter (Tous modèles)</option>
+                          <option value="anthropic">Anthropic (Claude)</option>
+                          <option value="ollama">Ollama (Local)</option>
+                        </select>
+                      </div>
+
+                      {transcriptConfig.ai_provider === 'groq' && (
+                        <>
+                          <div className="form-field full-width">
+                            <label className="field-label"><Key size={14} /> Clé API Groq</label>
+                            <input 
+                              type="password"
+                              className="admin-input font-mono text-xs"
+                              value={transcriptConfig.groq_api_key}
+                              onChange={e => setTranscriptConfig({...transcriptConfig, groq_api_key: e.target.value})}
+                              placeholder="gsk_..."
+                            />
+                          </div>
+                          <div className="form-field full-width">
+                            <label className="field-label"><Sparkles size={14} /> Modèle Groq</label>
+                            <input 
+                              className="admin-input font-mono text-xs"
+                              value={transcriptConfig.default_model}
+                              onChange={e => setTranscriptConfig({...transcriptConfig, default_model: e.target.value})}
+                              placeholder="llama-3.3-70b-versatile"
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {transcriptConfig.ai_provider === 'gemini' && (
+                        <div className="form-field full-width">
+                          <label className="field-label"><Key size={14} /> Clé API Gemini</label>
+                          <input 
+                            type="password"
+                            className="admin-input font-mono text-xs"
+                            value={transcriptConfig.gemini_api_key}
+                            onChange={e => setTranscriptConfig({...transcriptConfig, gemini_api_key: e.target.value})}
+                            placeholder="AIza..."
+                          />
+                        </div>
+                      )}
+
+                      {transcriptConfig.ai_provider === 'openrouter' && (
+                        <div className="form-field full-width">
+                          <label className="field-label"><Key size={14} /> Clé API OpenRouter</label>
+                          <input 
+                            type="password"
+                            className="admin-input font-mono text-xs"
+                            value={transcriptConfig.openrouter_api_key}
+                            onChange={e => setTranscriptConfig({...transcriptConfig, openrouter_api_key: e.target.value})}
+                            placeholder="sk-or-v1-..."
+                          />
+                        </div>
+                      )}
+
+                      {transcriptConfig.ai_provider === 'anthropic' && (
+                        <>
+                          <div className="form-field full-width">
+                            <label className="field-label"><Key size={14} /> Clé API Anthropic</label>
+                            <input 
+                              type="password"
+                              className="admin-input font-mono text-xs"
+                              value={transcriptConfig.anthropic_api_key}
+                              onChange={e => setTranscriptConfig({...transcriptConfig, anthropic_api_key: e.target.value})}
+                              placeholder="sk-ant-..."
+                            />
+                          </div>
+                          <div className="form-field full-width">
+                            <label className="field-label"><Sparkles size={14} /> Modèle Anthropic</label>
+                            <input 
+                              className="admin-input font-mono text-xs"
+                              value={transcriptConfig.anthropic_model}
+                              onChange={e => setTranscriptConfig({...transcriptConfig, anthropic_model: e.target.value})}
+                              placeholder="claude-3-5-sonnet-20240620"
+                            />
+                          </div>
+                        </>
+                      )}
+
+                      {transcriptConfig.ai_provider === 'ollama' && (
+                        <div className="form-field full-width">
+                          <label className="field-label"><Globe size={14} /> Hôte Ollama</label>
+                          <input 
+                            className="admin-input font-mono text-xs"
+                            value={transcriptConfig.ollama_host}
+                            onChange={e => setTranscriptConfig({...transcriptConfig, ollama_host: e.target.value})}
+                            placeholder="http://localhost:11434"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="card-footer-btns">
+                      <button className="btn-admin-primary" onClick={handleSaveTranscript} disabled={isSaving} style={{ backgroundColor: '#6366f1' }}>
+                        {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                        Enregistrer la configuration IA
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="ad-side-column">
+                <div className="admin-side-card info-card" style={{ background: '#f5f3ff', border: '1px solid #ddd6fe' }}>
+                  <h3 className="side-card-title" style={{ color: '#5b21b6' }}><Sparkles size={18} /> Aide</h3>
+                  <p className="side-card-desc" style={{ color: '#6d28d9' }}>
+                    Ces paramètres configurent l'intelligence artificielle utilisée pour résumer les réunions et identifier les intervenants.
+                  </p>
+                  <ul style={{ fontSize: '0.8rem', color: '#7c3aed', paddingLeft: '20px', marginTop: '10px' }}>
+                    <li style={{ marginBottom: '8px' }}><strong>Groq :</strong> Très rapide, idéal pour le temps réel.</li>
+                    <li style={{ marginBottom: '8px' }}><strong>Gemini :</strong> Excellente compréhension du contexte long.</li>
+                    <li style={{ marginBottom: '8px' }}><strong>Anthropic :</strong> Modèles Claude très qualitatifs.</li>
+                    <li style={{ marginBottom: '8px' }}><strong>Ollama :</strong> Solution locale (RGPD compliant).</li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         )}
