@@ -284,7 +284,7 @@ const ProjetDetail: React.FC = () => {
     await fetch(`/api/projets/${projet.id}/reunions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ reunion_id: reunion.id, type_gouvernance: comite_id ? 'comite' : 'coproj', comite_id: comite_id || null })
+      body: JSON.stringify({ reunion_id: reunion.id, type_gouvernance: comite_id ? 'comite' : null, comite_id: comite_id || null })
     });
     setReunionDetailId(reunion.id);
     fetchProjet();

@@ -160,6 +160,18 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
             </div>
           </div>
 
+          {source === 'projets' && comites.length > 0 && (
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>
+                🗓️ COMITÉ DE RATTACHEMENT {loadingMembers && <span style={{ color: '#94a3b8', fontWeight: '400', fontSize: '12px' }}>(membres ajoutés aux participants...)</span>}
+              </label>
+              <select value={comiteId} onChange={e => handleComiteChange(e.target.value)} style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white' }}>
+                <option value="">Sans comité</option>
+                {comites.map(c => <option key={c.id} value={String(c.id)}>{c.nom}</option>)}
+              </select>
+            </div>
+          )}
+
           <h3 style={{margin: '0 0 14px', fontSize: '14px', fontWeight: '700', color: '#1e293b', borderTop: '1px solid #e2e8f0', paddingTop: '16px'}}>Participants ({participants.length})</h3>
 
           <div style={{background: '#eff6ff', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
@@ -195,8 +207,8 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
                 <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>DIRECTION</label>
                 <input type="text" placeholder='Direction' list="suggest-dir" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.direction} onChange={e => setNewParticipant(v => ({...v, direction: e.target.value}))} />
                 <datalist id="suggest-dir">{directions.map(d => <option key={d} value={d} />)}</datalist>
-              </div>
-              <div>
+            </div>
+            <div>
                 <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>SERVICE</label>
                 <input type="text" placeholder='Service' list="suggest-svc" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.service} onChange={e => setNewParticipant(v => ({...v, service: e.target.value}))} />
                 <datalist id="suggest-svc">{services.map(s => <option key={s} value={s} />)}</datalist>
@@ -267,15 +279,6 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
             {isCreating ? '...' : '✓ Créer la réunion'}
           </button>
             </div>
-            {source === 'projets' && comites.length > 0 && (
-              <div>
-                <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>COMITÉ</label>
-                <select value={comiteId} onChange={e => setComiteId(e.target.value)} style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white'}}>
-                  <option value="">Sans comité</option>
-                  {comites.map(c => <option key={c.id} value={String(c.id)}>{c.nom}</option>)}
-                </select>
-              </div>
-            )}
           </div>
     </div>
   );
