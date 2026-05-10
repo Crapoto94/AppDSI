@@ -1467,6 +1467,87 @@ const setAttendus = async (req, res) => {
     }
 };
 
+// ============================================
+// COMITÉS
+// ============================================
+
+const getComites = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const comites = await pgDb.all('SELECT * FROM projet_comites WHERE projet_id = $1 ORDER BY date_creation', [id]);
+        for (const c of comites) {
+            c.membres = await pgDb.all('SELECT * FROM projet_comites_membres WHERE comite_id = $1 ORDER BY nom', [c.id]);
+        }
+        res.json(comites);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const ajouterComite = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nom, role, frequence, responsable_username } = req.body;
+        if (!nom) return res.status(400).json({ error: 'Nom requis' });
+        const result = await pgDb.run(
+            'INSERT INTO projet_comites (projet_id, nom, role, frequence, responsable_username) VALUES ($1, $2, $3, $4, $5)',
+            [id, nom, role || null, frequence || null, responsable_username || null]
+        );
+        res.status(201).json({ id: result.lastID });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const updateComite = async (req, res) => {
+    try {
+        const { id, comiteId } = req.params;
+        const { nom, role, frequence, responsable_username } = req.body;
+        await pgDb.run(
+            'UPDATE projet_comites SET nom = COALESCE($1, nom), role = COALESCE($2, role), frequence = COALESCE($3, frequence), responsable_username = COALESCE($4, responsable_username) WHERE id = $5 AND projet_id = $6',
+            [nom, role, frequence, responsable_username, comiteId, id]
+        );
+        res.json({ message: 'Comité mis à jour' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const supprimerComite = async (req, res) => {
+    try {
+        const { id, comiteId } = req.params;
+        await pgDb.run('DELETE FROM projet_comites WHERE id = $1 AND projet_id = $2', [comiteId, id]);
+        res.json({ message: 'Comité supprimé' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const ajouterMembreComite = async (req, res) => {
+    try {
+        const { id, comiteId } = req.params;
+        const { prenom, nom, email, societe, fonction, telephone, ad_username } = req.body;
+        if (!nom) return res.status(400).json({ error: 'Nom requis' });
+        const result = await pgDb.run(
+            'INSERT INTO projet_comites_membres (comite_id, prenom, nom, email, societe, fonction, telephone, ad_username) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+            [comiteId, prenom || null, nom, email || null, societe || null, fonction || null, telephone || null, ad_username || null]
+        );
+        res.status(201).json({ id: result.lastID });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const supprimerMembreComite = async (req, res) => {
+    try {
+        const { id, comiteId, membreId } = req.params;
+        await pgDb.run('DELETE FROM projet_comites_membres WHERE id = $1 AND comite_id = $2', [membreId, comiteId]);
+        res.json({ message: 'Membre supprimé' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     setSendMail,
     getAll, getMesProjets, getById, create, update, remove,
@@ -1486,5 +1567,7 @@ module.exports = {
     getGroupesTaches, ajouterGroupeTaches, supprimerGroupeTaches,
     getFavoris, ajouterFavori, supprimerFavori, ajouterFavoriBody, supprimerFavoriBody,
     getDependances, ajouterDependance, supprimerDependance, verifierDependances,
-    getAttendus, setAttendus
+    getAttendus, setAttendus,
+    getComites, ajouterComite, updateComite, supprimerComite,
+    ajouterMembreComite, supprimerMembreComite
 };

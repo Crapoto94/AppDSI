@@ -65,7 +65,7 @@ const ProjetDetail: React.FC = () => {
   const [showCreateReunion, setShowCreateReunion] = useState(false);
   const [reunionDetailId, setReunionDetailId] = useState<number | null>(null);
   const [editingGov, setEditingGov] = useState(false);
-  const [govForm, setGovForm] = useState({ commanditaire_username: '', chef_projet_username: '', responsable_dsi_username: '', representant_metier_username: '', dpo_username: '', service_pilote: '' });
+  const [govForm, setGovForm] = useState({ commanditaire_username: '', commanditaire_display: '', chef_projet_username: '', chef_projet_display: '', dpd_requis: false, rssi_requis: false });
   const [editingInfos, setEditingInfos] = useState(false);
   const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
   const [viewerDoc, setViewerDoc] = useState<{ url: string; nom: string } | null>(null);
@@ -87,11 +87,11 @@ const ProjetDetail: React.FC = () => {
     if (projet) {
       setGovForm({
         commanditaire_username: projet.commanditaire_username || '',
+        commanditaire_display: projet.commanditaire_username || '',
         chef_projet_username: projet.chef_projet_username || '',
-        responsable_dsi_username: projet.responsable_dsi_username || '',
-        representant_metier_username: projet.representant_metier_username || '',
-        dpo_username: projet.dpo_username || '',
-        service_pilote: projet.service_pilote || ''
+        chef_projet_display: projet.chef_projet_username || '',
+        dpd_requis: !!projet.dpd_requis,
+        rssi_requis: !!projet.rssi_requis
       });
       setInfosForm({
         titre: projet.titre || '',
@@ -214,14 +214,16 @@ const ProjetDetail: React.FC = () => {
           </div>
           {editingGov ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <EditGovField label="Commanditaire" value={govForm.commanditaire_username} onChange={v => setGovForm({...govForm, commanditaire_username: v})} />
-              <EditGovField label="Chef de projet" value={govForm.chef_projet_username} onChange={v => setGovForm({...govForm, chef_projet_username: v})} />
-              <EditGovField label="Responsable DSI" value={govForm.responsable_dsi_username} onChange={v => setGovForm({...govForm, responsable_dsi_username: v})} />
-              <EditGovField label="Rep. métier" value={govForm.representant_metier_username} onChange={v => setGovForm({...govForm, representant_metier_username: v})} />
-              <EditGovField label="DPO" value={govForm.dpo_username} onChange={v => setGovForm({...govForm, dpo_username: v})} />
-              <EditGovField label="Service pilote" value={govForm.service_pilote} onChange={v => setGovForm({...govForm, service_pilote: v})} />
+              <ADSearchField label="Commanditaire" username={govForm.commanditaire_username} display={govForm.commanditaire_display} token={token} onSelect={(u, d) => setGovForm({...govForm, commanditaire_username: u, commanditaire_display: d})} onClear={() => setGovForm({...govForm, commanditaire_username: '', commanditaire_display: ''})} />
+              <ADSearchField label="Chef de projet" username={govForm.chef_projet_username} display={govForm.chef_projet_display} token={token} onSelect={(u, d) => setGovForm({...govForm, chef_projet_username: u, chef_projet_display: d})} onClear={() => setGovForm({...govForm, chef_projet_username: '', chef_projet_display: ''})} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#475569', cursor: 'pointer' }}>
+                <input type="checkbox" checked={govForm.dpd_requis} onChange={e => setGovForm({...govForm, dpd_requis: e.target.checked})} /> DPD requis
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#475569', cursor: 'pointer' }}>
+                <input type="checkbox" checked={govForm.rssi_requis} onChange={e => setGovForm({...govForm, rssi_requis: e.target.checked})} /> RSSI requis
+              </label>
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                <button onClick={async () => { await fetch(`/api/projets/${projet.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(govForm) }); setEditingGov(false); fetchProjet(); }} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Enregistrer</button>
+                <button onClick={async () => { await fetch(`/api/projets/${projet.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ commanditaire_username: govForm.commanditaire_username || null, chef_projet_username: govForm.chef_projet_username || null, dpd_requis: govForm.dpd_requis ? 1 : 0, rssi_requis: govForm.rssi_requis ? 1 : 0 }) }); setEditingGov(false); fetchProjet(); }} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Enregistrer</button>
                 <button onClick={() => setEditingGov(false)} style={{ padding: '7px 16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#64748b' }}>Annuler</button>
               </div>
             </div>
@@ -229,32 +231,14 @@ const ProjetDetail: React.FC = () => {
             <>
               <InfoRow label="Commanditaire" value={projet.commanditaire_username || '—'} />
               <InfoRow label="Chef de projet" value={projet.chef_projet_username || '—'} />
-              <InfoRow label="Responsable DSI" value={projet.responsable_dsi_username || '—'} />
-              <InfoRow label="Rep. métier" value={projet.representant_metier_username || '—'} />
-              <InfoRow label="DPO" value={projet.dpo_username || '—'} />
+              <InfoRow label="DPD requis" value={projet.dpd_requis ? '✅ Oui' : '❌ Non'} />
+              <InfoRow label="RSSI requis" value={projet.rssi_requis ? '✅ Oui' : '❌ Non'} />
               <InfoRow label="Créé par" value={projet.created_by_username} />
               <InfoRow label="Créé le" value={projet.date_creation ? new Date(projet.date_creation).toLocaleDateString('fr-FR') : '—'} />
             </>
           )}
         </div>
-        {editingInfos ? (
-          <div style={{ gridColumn: '1 / -1', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-            <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Description & notes</h3>
-            <EditField label="Description" value={infosForm.description} onChange={v => setInfosForm({...infosForm, description: v})} type="textarea" />
-            <div style={{ marginTop: '8px' }}><EditField label="Bénéfices attendus" value={infosForm.benefices_attendus} onChange={v => setInfosForm({...infosForm, benefices_attendus: v})} type="textarea" /></div>
-            <div style={{ marginTop: '8px' }}><EditField label="Bénéfices réalisés" value={infosForm.benefices_realises} onChange={v => setInfosForm({...infosForm, benefices_realises: v})} type="textarea" /></div>
-            <div style={{ marginTop: '8px' }}><EditField label="Notes internes" value={infosForm.notes_internes} onChange={v => setInfosForm({...infosForm, notes_internes: v})} type="textarea" /></div>
-          </div>
-        ) : (
-          <>
-            {projet.description && (
-              <div style={{ gridColumn: '1 / -1', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Description</h3>
-                <p style={{ margin: 0, color: '#475569', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{projet.description}</p>
-              </div>
-            )}
-          </>
-        )}
+        <ComitesSection projetId={projet.id} token={token} />
       </div>
     </div>
   );
@@ -420,6 +404,187 @@ const EditField: React.FC<{ label: string; value: string; onChange: (v: string) 
     )}
   </div>
 );
+
+const ADSearchField: React.FC<{ label: string; username: string; display: string; token: string | null; onSelect: (username: string, displayName: string) => void; onClear: () => void }> = ({ label, username, display, token, onSelect, onClear }) => {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState('');
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const search = (query: string) => {
+    setQ(query);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (query.length < 2) { setResults([]); return; }
+    setSearching(true);
+    timerRef.current = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/ad/search?q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } });
+        const d = await r.json();
+        setResults(Array.isArray(d) ? d : []);
+        if (!r.ok) { setError('AD indisponible'); }
+        else setError('');
+      } catch { setResults([]); setError('Erreur'); }
+      finally { setSearching(false); }
+    }, 400);
+  };
+
+  return (
+    <div>
+      <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '3px' }}>{label}</label>
+      {username ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: '#f8fafc' }}>
+          <span style={{ flex: 1 }}>{display || username}</span>
+          <button onClick={onClear} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', fontSize: '14px' }}>✕</button>
+        </div>
+      ) : (
+        <div style={{ position: 'relative' }}>
+          <input value={q} onChange={e => search(e.target.value)} placeholder="Rechercher dans l'annuaire..." style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+          {searching && <div style={{ fontSize: '11px', color: '#94a3b8', padding: '2px 0' }}>Recherche...</div>}
+          {error && <div style={{ fontSize: '11px', color: '#d97706', padding: '2px 0' }}>{error}</div>}
+          {results.length > 0 && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', marginTop: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, maxHeight: '150px', overflow: 'auto' }}>
+              {results.map(u => (
+                <div key={u.username} onClick={() => { onSelect(u.username, u.displayName); setQ(''); setResults([]); }}
+                  style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+                  <div style={{ fontWeight: '600', color: '#1e293b' }}>{u.displayName}</div>
+                  <div style={{ color: '#94a3b8', fontSize: '11px' }}>{u.email} {u.service ? `· ${u.service}` : ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface Comite { id: number; nom: string; role: string; frequence: string; responsable_username: string; membres: any[]; }
+
+const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ projetId, token }) => {
+  const [comites, setComites] = useState<Comite[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [newComite, setNewComite] = useState({ nom: '', role: '', frequence: '', responsable_username: '' });
+  const [showMembreForm, setShowMembreForm] = useState<number | null>(null);
+  const [newMembre, setNewMembre] = useState({ prenom: '', nom: '', email: '', societe: '', fonction: '', telephone: '', ad_username: '' });
+  const [adQuery, setAdQuery] = useState('');
+  const [adResults, setAdResults] = useState<any[]>([]);
+  const [adSearching, setAdSearching] = useState(false);
+  const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const load = useCallback(async () => {
+    try { const r = await fetch(`/api/projets/${projetId}/comites`, { headers: { Authorization: `Bearer ${token}` } }); const d = await r.json(); if (Array.isArray(d)) setComites(d); } catch {}
+  }, [projetId, token]);
+  useEffect(() => { load(); }, [load]);
+
+  const addComite = async () => {
+    if (!newComite.nom) return;
+    await fetch(`/api/projets/${projetId}/comites`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(newComite) });
+    setNewComite({ nom: '', role: '', frequence: '', responsable_username: '' }); setShowForm(false); load();
+  };
+  const supprimerComite = async (comiteId: number) => { await fetch(`/api/projets/${projetId}/comites/${comiteId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); load(); };
+  const addMembre = async (comiteId: number) => {
+    if (!newMembre.nom) return;
+    await fetch(`/api/projets/${projetId}/comites/${comiteId}/membres`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(newMembre) });
+    setNewMembre({ prenom: '', nom: '', email: '', societe: '', fonction: '', telephone: '', ad_username: '' }); setShowMembreForm(null); load();
+  };
+  const supprimerMembre = async (comiteId: number, membreId: number) => { await fetch(`/api/projets/${projetId}/comites/${comiteId}/membres/${membreId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); load(); };
+
+  const searchAD = (q: string) => {
+    setAdQuery(q);
+    if (adTimerRef.current) clearTimeout(adTimerRef.current);
+    if (q.length < 2) { setAdResults([]); return; }
+    setAdSearching(true);
+    adTimerRef.current = setTimeout(async () => {
+      try { const r = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } }); const d = await r.json(); setAdResults(Array.isArray(d) ? d : []); } catch { setAdResults([]); }
+      finally { setAdSearching(false); }
+    }, 400);
+  };
+
+  return (
+    <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginTop: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📋 Comités ({comites.length})</h3>
+        <button onClick={() => setShowForm(!showForm)} style={{ padding: '6px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>+ Ajouter un comité</button>
+      </div>
+      {showForm && (
+        <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <input value={newComite.nom} onChange={e => setNewComite({...newComite, nom: e.target.value})} placeholder="Nom (ex: COPIL)" style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '100px' }} />
+          <input value={newComite.role} onChange={e => setNewComite({...newComite, role: e.target.value})} placeholder="Rôle" style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '100px' }} />
+          <input value={newComite.frequence} onChange={e => setNewComite({...newComite, frequence: e.target.value})} placeholder="Fréquence" style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '100px' }} />
+          <input value={newComite.responsable_username} onChange={e => setNewComite({...newComite, responsable_username: e.target.value})} placeholder="Responsable" style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '100px' }} />
+          <button onClick={addComite} disabled={!newComite.nom} style={{ padding: '6px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', opacity: newComite.nom ? 1 : 0.5 }}>Ajouter</button>
+        </div>
+      )}
+      {comites.length === 0 ? (
+        <p style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>Aucun comité défini</p>
+      ) : comites.map(c => (
+        <div key={c.id} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontWeight: '700', fontSize: '14px', color: '#1e293b' }}>{c.nom}</div>
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                {c.role && <span>{c.role}</span>}
+                {c.frequence && <span> · {c.frequence}</span>}
+                {c.responsable_username && <span> · Resp: {c.responsable_username}</span>}
+              </div>
+            </div>
+            <button onClick={() => supprimerComite(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px', fontSize: '13px' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}>✕</button>
+          </div>
+          {/* Membres */}
+          <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {(c.membres || []).map(m => (
+              <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', background: '#f8fafc', borderRadius: '4px', fontSize: '12px' }}>
+                <span style={{ color: '#1e293b', fontWeight: '500' }}>{m.prenom ? `${m.prenom} ${m.nom}` : m.nom}{m.fonction ? ` (${m.fonction})` : ''}{m.societe ? ` - ${m.societe}` : ''}</span>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  {m.email && <span style={{ color: '#2563eb', fontSize: '11px' }}>{m.email}</span>}
+                  {m.telephone && <span style={{ color: '#64748b', fontSize: '11px' }}>{m.telephone}</span>}
+                  <button onClick={() => supprimerMembre(c.id, m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '0', fontSize: '12px' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}>✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setShowMembreForm(showMembreForm === c.id ? null : c.id)} style={{ marginTop: '6px', padding: '4px 10px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#475569', fontWeight: '600' }}>+ Membre</button>
+          {showMembreForm === c.id && (
+            <div style={{ marginTop: '8px', padding: '10px', background: '#f8fafc', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <input value={newMembre.prenom} onChange={e => setNewMembre({...newMembre, prenom: e.target.value})} placeholder="Prénom" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '80px' }} />
+                <input value={newMembre.nom} onChange={e => setNewMembre({...newMembre, nom: e.target.value})} placeholder="Nom *" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '80px' }} />
+                <input value={newMembre.email} onChange={e => setNewMembre({...newMembre, email: e.target.value})} placeholder="Email" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '120px' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <input value={newMembre.societe} onChange={e => setNewMembre({...newMembre, societe: e.target.value})} placeholder="Société" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1 }} />
+                <input value={newMembre.fonction} onChange={e => setNewMembre({...newMembre, fonction: e.target.value})} placeholder="Fonction" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1 }} />
+                <input value={newMembre.telephone} onChange={e => setNewMembre({...newMembre, telephone: e.target.value})} placeholder="Téléphone" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1 }} />
+              </div>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input value={adQuery} onChange={e => searchAD(e.target.value)} placeholder="Rechercher dans l'annuaire..." style={{ width: '100%', padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                  {adResults.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', marginTop: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, maxHeight: '120px', overflow: 'auto' }}>
+                      {adResults.map(u => (
+                        <div key={u.username} onClick={() => { setNewMembre({...newMembre, nom: u.displayName, email: u.email, ad_username: u.username }); setAdQuery(''); setAdResults([]); }}
+                          style={{ padding: '5px 8px', cursor: 'pointer', fontSize: '11px', borderBottom: '1px solid #f1f5f9' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+                          <div style={{ fontWeight: '600' }}>{u.displayName}</div>
+                          <div style={{ color: '#94a3b8' }}>{u.email}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => addMembre(c.id)} disabled={!newMembre.nom} style={{ padding: '5px 12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px', opacity: newMembre.nom ? 1 : 0.5 }}>Ajouter</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
 
 // ===== ONGLET PLANNING =====
 interface GroupeTache { id: number; titre: string; couleur: string; ordre: number; }

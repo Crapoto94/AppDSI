@@ -142,4 +142,14 @@ router.get('/:id/verifier-dependances', authenticateJWT, ctrl.verifierDependance
 router.get('/:id/attendus', authenticateJWT, ctrl.getAttendus);
 router.put('/:id/attendus', authenticateJWT, ctrl.setAttendus);
 
+// ============================================
+// COMITÉS
+// ============================================
+router.get('/:id/comites', authenticateJWT, ctrl.getComites);
+router.post('/:id/comites', authenticateJWT, ctrl.ajouterComite);
+router.put('/:id/comites/:comiteId', authenticateJWT, ctrl.updateComite);
+router.delete('/:id/comites/:comiteId', authenticateJWT, ctrl.supprimerComite);
+router.post('/:id/comites/:comiteId/membres', authenticateJWT, ctrl.ajouterMembreComite);
+router.delete('/:id/comites/:comiteId/membres/:membreId', authenticateJWT, ctrl.supprimerMembreComite);
+
 module.exports = router;

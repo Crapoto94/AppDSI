@@ -42,7 +42,14 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!projets\.)\bprojet_groupes_taches\b/gi, 'projets.projet_groupes_taches')
                     .replace(/(?<!projets\.)\bprojet_favoris\b/gi, 'projets.projet_favoris')
                     .replace(/(?<!projets\.)\bprojet_dependances\b/gi, 'projets.projet_dependances')
-                    .replace(/(?<!projets\.)\bprojet_attendus\b/gi, 'projets.projet_attendus');
+                    .replace(/(?<!projets\.)\bprojet_attendus\b/gi, 'projets.projet_attendus')
+                    .replace(/(?<!projets\.)\bprojet_comites\b/gi, 'projets.projet_comites')
+                    .replace(/(?<!projets\.)\bprojet_comites_membres\b/gi, 'projets.projet_comites_membres');
+
+    newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
+                    .replace(/transcript_cues/gi, 'transcript.cues')
+                    .replace(/transcript_tasks/gi, 'transcript.tasks')
+                    .replace(/transcript_settings/gi, 'transcript.settings');
 
     newSql = newSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
     newSql = newSql.replace(/INSERT OR REPLACE INTO/gi, 'INSERT INTO');
@@ -90,6 +97,7 @@ async function setupPgDb() {
     await client.query('CREATE SCHEMA IF NOT EXISTS hub;');
     await client.query('CREATE SCHEMA IF NOT EXISTS glpi;');
     await client.query('CREATE SCHEMA IF NOT EXISTS oracle;');
+    await client.query('CREATE SCHEMA IF NOT EXISTS transcript;');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.categories (
@@ -798,11 +806,81 @@ async function setupPgDb() {
       `);
     } catch (e) {}
     // Migration: colonne type_vrac pour distinguer les documents en vrac
+    // ============================================
+    // TRANSCRIPT - Gestion des transcripts
+    // ============================================
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS transcript.meetings (
+        id SERIAL PRIMARY KEY,
+        title TEXT,
+        summary TEXT,
+        meeting_date TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS transcript.cues (
+        id SERIAL PRIMARY KEY,
+        meeting_id INTEGER REFERENCES transcript.meetings(id) ON DELETE CASCADE,
+        speaker_name TEXT,
+        speaker_username TEXT,
+        speaker_email TEXT,
+        start_seconds REAL,
+        text TEXT
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS transcript.tasks (
+        id SERIAL PRIMARY KEY,
+        meeting_id INTEGER REFERENCES transcript.meetings(id) ON DELETE CASCADE,
+        description TEXT,
+        assignee TEXT,
+        requester TEXT,
+        deadline TEXT,
+        is_completed INTEGER DEFAULT 0,
+        origin TEXT,
+        start_seconds REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS transcript.settings (
+        id SERIAL PRIMARY KEY,
+        setting_key TEXT UNIQUE,
+        setting_value TEXT,
+        description TEXT
+      );
+    `);
+    await client.query(`
+      INSERT INTO transcript.settings (setting_key, setting_value, description)
+      VALUES ('groq_api_key', 'gsk_h67R9mK9v8f4H7j2L3k5M1n0P9q8R7s6T5u4V3w2X1y0', 'Clé API Groq pour les résumés')
+      ON CONFLICT (setting_key) DO NOTHING;
+    `);
     try {
       await client.query(`
         DO $$ BEGIN
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_documents' AND column_name='type_vrac') THEN
             ALTER TABLE projets.projet_documents ADD COLUMN type_vrac INTEGER DEFAULT 0;
+          END IF;
+        END $$;
+      `);
+    } catch (e) {}
+
+    // Migration: colonnes dpd_requis et rssi_requis
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='dpd_requis') THEN
+            ALTER TABLE projets.projets ADD COLUMN dpd_requis INTEGER DEFAULT 0;
+          END IF;
+        END $$;
+      `);
+    } catch (e) {}
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='rssi_requis') THEN
+            ALTER TABLE projets.projets ADD COLUMN rssi_requis INTEGER DEFAULT 0;
           END IF;
         END $$;
       `);
@@ -873,6 +951,33 @@ async function setupPgDb() {
         obligatoire INTEGER DEFAULT 0,
         phase_concernee TEXT,
         UNIQUE(projet_id, type_code)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_comites (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        nom TEXT NOT NULL,
+        role TEXT,
+        frequence TEXT,
+        responsable_username TEXT,
+        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_comites_membres (
+        id SERIAL PRIMARY KEY,
+        comite_id INTEGER NOT NULL REFERENCES projets.projet_comites(id) ON DELETE CASCADE,
+        prenom TEXT,
+        nom TEXT NOT NULL,
+        email TEXT,
+        societe TEXT,
+        fonction TEXT,
+        telephone TEXT,
+        ad_username TEXT,
+        date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
