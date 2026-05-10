@@ -27,6 +27,7 @@ const authenticateJWTQuery = (req, res, next) => {
 router.get('/', authenticateJWT, ctrl.getAll);
 router.get('/mes-projets', authenticateJWT, ctrl.getMesProjets);
 router.get('/stats', authenticateJWT, ctrl.getStats);
+router.get('/favoris', authenticateJWT, ctrl.getFavoris);
 router.get('/admin/scoring-config', authenticateAdmin, ctrl.getScoringConfig);
 router.get('/admin/types-documentaires', authenticateAdmin, ctrl.getTypesDocumentaires);
 router.put('/admin/scoring-config', authenticateAdmin, ctrl.updateScoringConfig);
@@ -35,6 +36,8 @@ router.get('/:id', authenticateJWT, ctrl.getById);
 router.post('/', authenticateJWT, ctrl.create);
 router.put('/:id', authenticateJWT, ctrl.update);
 router.delete('/:id', authenticateAdmin, ctrl.remove);
+router.post('/:id/favoris', authenticateJWT, ctrl.ajouterFavori);
+router.delete('/:id/favoris', authenticateJWT, ctrl.supprimerFavori);
 
 // ============================================
 // WORKFLOW
@@ -120,13 +123,6 @@ router.delete('/:id/jalons/:jalonId', authenticateJWT, ctrl.supprimerJalon);
 router.get('/:id/groupes-taches', authenticateJWT, ctrl.getGroupesTaches);
 router.post('/:id/groupes-taches', authenticateJWT, ctrl.ajouterGroupeTaches);
 router.delete('/:id/groupes-taches/:groupeId', authenticateJWT, ctrl.supprimerGroupeTaches);
-
-// ============================================
-// FAVORIS
-// ============================================
-router.get('/favoris', authenticateJWT, ctrl.getFavoris);
-router.post('/:id/favoris', authenticateJWT, ctrl.ajouterFavori);
-router.delete('/:id/favoris', authenticateJWT, ctrl.supprimerFavori);
 
 // ============================================
 // DÉPENDANCES

@@ -12,6 +12,7 @@ interface Projet {
   nb_roles: number; nb_documents: number; nb_reunions: number;
   nb_taches_en_retard: number; nb_jalons_en_retard: number;
   commanditaire_username?: string; chef_projet_username?: string;
+  user_est_intervenant?: boolean;
 }
 
 interface Stats {
@@ -49,6 +50,7 @@ const PortefeuilleProjets: React.FC = () => {
   const [filtreChefProjet, setFiltreChefProjet] = useState('');
   const [recherche, setRecherche] = useState('');
   const [modeMesProjets, setModeMesProjets] = useState(false);
+  const [modeFavoris, setModeFavoris] = useState(false);
   const [tri, setTri] = useState('date');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [favoris, setFavoris] = useState<number[]>([]);
@@ -107,15 +109,14 @@ const PortefeuilleProjets: React.FC = () => {
 
   const username = user?.username || '';
   const niveauImplication = (p: Projet) => {
+    if (favoris.includes(p.id)) return -1;
     if (p.commanditaire_username?.toLowerCase() === username.toLowerCase()) return 0;
     if (p.chef_projet_username?.toLowerCase() === username.toLowerCase()) return 1;
-    return 2;
+    if (p.user_est_intervenant) return 2;
+    return 3;
   };
 
   const projetsTries = [...projets].sort((a, b) => {
-    const aFav = favoris.includes(a.id) ? 0 : 1;
-    const bFav = favoris.includes(b.id) ? 0 : 1;
-    if (aFav !== bFav) return aFav - bFav;
     const impA = niveauImplication(a);
     const impB = niveauImplication(b);
     if (impA !== impB) return impA - impB;
@@ -210,11 +211,11 @@ const PortefeuilleProjets: React.FC = () => {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {[[0, '🏆 En tant que commanditaire'], [1, '👨‍💼 En tant que chef de projet'], [2, '📋 Interventions'], [3, '📁 Autres projets']].map(([niveau, label]) => {
+            {[[-1, '⭐ Mes projets favoris'], [0, '🏆 En tant que commanditaire'], [1, '👨‍💼 En tant que chef de projet'], [2, '📋 Projets dans lesquels j\'ai un rôle'], [3, '📁 Autres projets']].map(([niveau, label]) => {
               const filtered = projetsTries.filter(p => {
                 const imp = niveauImplication(p);
-                if (niveau === 3) return imp >= 2 && !favoris.includes(p.id);
-                return imp === niveau && (niveau < 2 || !favoris.includes(p.id));
+                if (niveau === -1) return favoris.includes(p.id);
+                return imp === niveau;
               });
               if (filtered.length === 0) return null;
               // Include favoris in the first applicable section
