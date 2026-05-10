@@ -181,8 +181,8 @@ const getAll = async (req, res) => {
                    (SELECT COUNT(*) FROM projet_roles pr WHERE pr.projet_id = p.id) as nb_roles,
                    (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
                    (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
-                   (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin < (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
-                   (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon < (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
+                   (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
+                   (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
             FROM projets p
             ${where}
             ORDER BY ${orderBy}
@@ -202,8 +202,8 @@ const getMesProjets = async (req, res) => {
                    (SELECT COUNT(*) FROM projet_roles pr WHERE pr.projet_id = p.id) as nb_roles,
                    (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
                    (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
-                   (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin < (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
-                   (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon < (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
+                   (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
+                   (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
             FROM projets p
             WHERE LOWER(p.created_by_username) = LOWER($1)
                OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1))
@@ -1002,9 +1002,9 @@ const getStats = async (req, res) => {
         `);
         const alertesRetard = await pgDb.get(`
             SELECT COUNT(*) as count FROM projets WHERE id IN (
-                SELECT DISTINCT pt.projet_id FROM projet_taches pt WHERE pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin < (NOW() AT TIME ZONE 'Europe/Paris')::date
+                SELECT DISTINCT pt.projet_id FROM projet_taches pt WHERE pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date
                 UNION
-                SELECT DISTINCT pj.projet_id FROM projet_jalons pj WHERE pj.atteint = 0 AND pj.date_jalon < (NOW() AT TIME ZONE 'Europe/Paris')::date
+                SELECT DISTINCT pj.projet_id FROM projet_jalons pj WHERE pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date
             )
         `);
 
