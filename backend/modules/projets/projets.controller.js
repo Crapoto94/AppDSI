@@ -1502,12 +1502,10 @@ const setAttendus = async (req, res) => {
         if (!Array.isArray(attendus)) return res.status(400).json({ error: 'attendus requis' });
         await pgDb.run('DELETE FROM projet_attendus WHERE projet_id = $1', [id]);
         for (const a of attendus) {
-            if (a.attendu) {
-                await pgDb.run(
-                    'INSERT INTO projet_attendus (projet_id, type_code, obligatoire, phase_concernee) VALUES ($1, $2, $3, $4)',
-                    [id, a.code, a.obligatoire ? 1 : 0, a.phase_concernee || null]
-                );
-            }
+            await pgDb.run(
+                'INSERT INTO projet_attendus (projet_id, type_code, obligatoire, phase_concernee) VALUES ($1, $2, $3, $4)',
+                [id, a.code, a.obligatoire ? 1 : 0, a.phase_concernee || null]
+            );
         }
         res.json({ message: 'Attendus mis à jour' });
     } catch (error) {
