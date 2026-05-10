@@ -66,6 +66,8 @@ const ProjetDetail: React.FC = () => {
   const [reunionDetailId, setReunionDetailId] = useState<number | null>(null);
   const [editingGov, setEditingGov] = useState(false);
   const [govForm, setGovForm] = useState({ commanditaire_username: '', chef_projet_username: '', responsable_dsi_username: '', representant_metier_username: '', dpo_username: '', service_pilote: '' });
+  const [editingInfos, setEditingInfos] = useState(false);
+  const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
   const [viewerDoc, setViewerDoc] = useState<{ url: string; nom: string } | null>(null);
 
   const fetchProjet = useCallback(async () => {
@@ -90,6 +92,21 @@ const ProjetDetail: React.FC = () => {
         representant_metier_username: projet.representant_metier_username || '',
         dpo_username: projet.dpo_username || '',
         service_pilote: projet.service_pilote || ''
+      });
+      setInfosForm({
+        titre: projet.titre || '',
+        description: projet.description || '',
+        niveau_projet: projet.niveau_projet || 'standard',
+        service_pilote: projet.service_pilote || '',
+        priorite: projet.priorite || 0,
+        avancement: projet.avancement || 0,
+        risque_global: projet.risque_global || '',
+        satisfaction_metier: projet.satisfaction_metier || 0,
+        date_debut_prevue: projet.date_debut_prevue || '',
+        date_fin_prevue: projet.date_fin_prevue || '',
+        benefices_attendus: projet.benefices_attendus || '',
+        benefices_realises: projet.benefices_realises || '',
+        notes_internes: projet.notes_internes || ''
       });
     }
   }, [projet]);
@@ -129,105 +146,114 @@ const ProjetDetail: React.FC = () => {
     </div>
   );
 
+  const saveInfos = async () => {
+    await fetch(`/api/projets/${projet.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(infosForm)
+    });
+    setEditingInfos(false);
+    fetchProjet();
+  };
+
   const renderInfos = () => (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-        <h3 style={{ margin: '0 0 16px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Général</h3>
-        <InfoRow label="Code" value={projet.code} />
-        <InfoRow label="Statut" value={<span style={{ padding: '2px 8px', borderRadius: '5px', fontSize: '12px', fontWeight: '600', background: `${STATUT_COLORS[projet.statut] || '#94a3b8'}20`, color: STATUT_COLORS[projet.statut] || '#94a3b8' }}>{STATUT_LABELS[projet.statut] || projet.statut}</span>} />
-        <InfoRow label="Niveau" value={projet.niveau_projet} />
-        <InfoRow label="Service pilote" value={projet.service_pilote} />
-        <InfoRow label="Services associés" value={projet.services?.map(s => s.service_code).join(', ') || '—'} />
-        <InfoRow label="Priorité" value={projet.priorite > 0 ? '★'.repeat(projet.priorite) + '☆'.repeat(5 - projet.priorite) : '—'} />
-        <InfoRow label="Avancement" value={`${projet.avancement}%`} />
-        <InfoRow label="Météo" value={
-          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <select value={projet.meteo || 'neutre'} onChange={async (e) => {
-              await fetch(`/api/projets/${projet.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ meteo: e.target.value })
-              });
-              fetchProjet();
-            }} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white', cursor: 'pointer' }}>
-              <option value="soleil">☀️ Soleil</option>
-              <option value="nuageux">⛅ Nuageux</option>
-              <option value="orage">⛈️ Orage</option>
-              <option value="neutre">➖ Neutre</option>
-            </select>
-          </span>
-        } />
-        <InfoRow label="Score" value={`${projet.score_total}/100`} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+        {editingInfos ? (
+          <>
+            <button onClick={saveInfos} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>💾 Enregistrer</button>
+            <button onClick={() => setEditingInfos(false)} style={{ padding: '7px 16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b' }}>Annuler</button>
+          </>
+        ) : (
+          <button onClick={() => setEditingInfos(true)} style={{ padding: '7px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#475569' }}>✏️ Modifier tout</button>
+        )}
       </div>
-      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Gouvernance</h3>
-          <button onClick={() => setEditingGov(true)} style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#475569' }}>✏️ Modifier</button>
-        </div>
-        {editingGov ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <EditGovField label="Commanditaire" value={govForm.commanditaire_username} onChange={v => setGovForm({...govForm, commanditaire_username: v})} />
-            <EditGovField label="Chef de projet" value={govForm.chef_projet_username} onChange={v => setGovForm({...govForm, chef_projet_username: v})} />
-            <EditGovField label="Responsable DSI" value={govForm.responsable_dsi_username} onChange={v => setGovForm({...govForm, responsable_dsi_username: v})} />
-            <EditGovField label="Rep. métier" value={govForm.representant_metier_username} onChange={v => setGovForm({...govForm, representant_metier_username: v})} />
-            <EditGovField label="DPO" value={govForm.dpo_username} onChange={v => setGovForm({...govForm, dpo_username: v})} />
-            <EditGovField label="Service pilote" value={govForm.service_pilote} onChange={v => setGovForm({...govForm, service_pilote: v})} />
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-              <button onClick={async () => {
-                await fetch(`/api/projets/${projet.id}`, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                  body: JSON.stringify(govForm)
-                });
-                setEditingGov(false);
-                fetchProjet();
-              }} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>
-                Enregistrer
-              </button>
-              <button onClick={() => setEditingGov(false)} style={{ padding: '7px 16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#64748b' }}>
-                Annuler
-              </button>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Général</h3>
+          {editingInfos ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <EditField label="Titre" value={infosForm.titre} onChange={v => setInfosForm({...infosForm, titre: v})} />
+              <EditField label="Niveau" value={infosForm.niveau_projet} onChange={v => setInfosForm({...infosForm, niveau_projet: v})} type="select" options={[{v:'mineur',l:'Mineur'},{v:'standard',l:'Standard'},{v:'structurant',l:'Structurant'}]} />
+              <EditField label="Service pilote" value={infosForm.service_pilote} onChange={v => setInfosForm({...infosForm, service_pilote: v})} />
+              <EditField label="Priorité (1-5)" value={String(infosForm.priorite)} onChange={v => setInfosForm({...infosForm, priorite: parseInt(v) || 0})} type="number" />
+              <EditField label="Avancement %" value={String(infosForm.avancement)} onChange={v => setInfosForm({...infosForm, avancement: parseInt(v) || 0})} type="number" />
+              <EditField label="Début prévu" value={infosForm.date_debut_prevue} onChange={v => setInfosForm({...infosForm, date_debut_prevue: v})} type="date" />
+              <EditField label="Fin prévue" value={infosForm.date_fin_prevue} onChange={v => setInfosForm({...infosForm, date_fin_prevue: v})} type="date" />
+              <EditField label="Risque global" value={infosForm.risque_global} onChange={v => setInfosForm({...infosForm, risque_global: v})} type="select" options={[{v:'',l:'Non défini'},{v:'faible',l:'Faible'},{v:'moyen',l:'Moyen'},{v:'élevé',l:'Élevé'},{v:'critique',l:'Critique'}]} />
+              <EditField label="Météo" value={projet.meteo || 'neutre'} onChange={v => { fetch(`/api/projets/${projet.id}`, { method: 'PUT', headers: {'Content-Type':'application/json', Authorization: `Bearer ${token}`}, body: JSON.stringify({meteo: v}) }).then(() => fetchProjet()); }} type="select" options={[{v:'soleil',l:'☀️ Soleil'},{v:'nuageux',l:'⛅ Nuageux'},{v:'orage',l:'⛈️ Orage'},{v:'neutre',l:'➖ Neutre'}]} />
             </div>
+          ) : (
+            <>
+              <InfoRow label="Code" value={projet.code} />
+              <InfoRow label="Statut" value={<span style={{ padding: '2px 8px', borderRadius: '5px', fontSize: '12px', fontWeight: '600', background: `${STATUT_COLORS[projet.statut] || '#94a3b8'}20`, color: STATUT_COLORS[projet.statut] || '#94a3b8' }}>{STATUT_LABELS[projet.statut] || projet.statut}</span>} />
+              <InfoRow label="Niveau" value={projet.niveau_projet} />
+              <InfoRow label="Service pilote" value={projet.service_pilote} />
+              <InfoRow label="Services associés" value={projet.services?.map(s => s.service_code).join(', ') || '—'} />
+              <InfoRow label="Priorité" value={projet.priorite > 0 ? '★'.repeat(projet.priorite) + '☆'.repeat(5 - projet.priorite) : '—'} />
+              <InfoRow label="Avancement" value={`${projet.avancement}%`} />
+              <InfoRow label="Début prévu" value={projet.date_debut_prevue ? new Date(projet.date_debut_prevue).toLocaleDateString('fr-FR') : '—'} />
+              <InfoRow label="Fin prévue" value={projet.date_fin_prevue ? new Date(projet.date_fin_prevue).toLocaleDateString('fr-FR') : '—'} />
+              <InfoRow label="Risque global" value={projet.risque_global || '—'} />
+              <InfoRow label="Météo" value={
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>{projet.meteo === 'soleil' ? '☀️' : projet.meteo === 'nuageux' ? '⛅' : projet.meteo === 'orage' ? '⛈️' : '➖'}</span>
+                  <select value={projet.meteo || 'neutre'} onChange={async (e) => { await fetch(`/api/projets/${projet.id}`, { method: 'PUT', headers: {'Content-Type':'application/json', Authorization: `Bearer ${token}`}, body: JSON.stringify({meteo: e.target.value}) }); fetchProjet(); }} style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white', cursor: 'pointer' }}>
+                    <option value="soleil">☀️ Soleil</option><option value="nuageux">⛅ Nuageux</option><option value="orage">⛈️ Orage</option><option value="neutre">➖ Neutre</option>
+                  </select>
+                </span>
+              } />
+              <InfoRow label="Score" value={`${projet.score_total}/100`} />
+            </>
+          )}
+        </div>
+        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Gouvernance</h3>
+            {!editingInfos && <button onClick={() => setEditingGov(true)} style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#475569' }}>✏️ Modifier</button>}
+          </div>
+          {editingGov ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <EditGovField label="Commanditaire" value={govForm.commanditaire_username} onChange={v => setGovForm({...govForm, commanditaire_username: v})} />
+              <EditGovField label="Chef de projet" value={govForm.chef_projet_username} onChange={v => setGovForm({...govForm, chef_projet_username: v})} />
+              <EditGovField label="Responsable DSI" value={govForm.responsable_dsi_username} onChange={v => setGovForm({...govForm, responsable_dsi_username: v})} />
+              <EditGovField label="Rep. métier" value={govForm.representant_metier_username} onChange={v => setGovForm({...govForm, representant_metier_username: v})} />
+              <EditGovField label="DPO" value={govForm.dpo_username} onChange={v => setGovForm({...govForm, dpo_username: v})} />
+              <EditGovField label="Service pilote" value={govForm.service_pilote} onChange={v => setGovForm({...govForm, service_pilote: v})} />
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                <button onClick={async () => { await fetch(`/api/projets/${projet.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(govForm) }); setEditingGov(false); fetchProjet(); }} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Enregistrer</button>
+                <button onClick={() => setEditingGov(false)} style={{ padding: '7px 16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#64748b' }}>Annuler</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <InfoRow label="Commanditaire" value={projet.commanditaire_username || '—'} />
+              <InfoRow label="Chef de projet" value={projet.chef_projet_username || '—'} />
+              <InfoRow label="Responsable DSI" value={projet.responsable_dsi_username || '—'} />
+              <InfoRow label="Rep. métier" value={projet.representant_metier_username || '—'} />
+              <InfoRow label="DPO" value={projet.dpo_username || '—'} />
+              <InfoRow label="Créé par" value={projet.created_by_username} />
+              <InfoRow label="Créé le" value={projet.date_creation ? new Date(projet.date_creation).toLocaleDateString('fr-FR') : '—'} />
+            </>
+          )}
+        </div>
+        {editingInfos ? (
+          <div style={{ gridColumn: '1 / -1', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Description & notes</h3>
+            <EditField label="Description" value={infosForm.description} onChange={v => setInfosForm({...infosForm, description: v})} type="textarea" />
+            <div style={{ marginTop: '8px' }}><EditField label="Bénéfices attendus" value={infosForm.benefices_attendus} onChange={v => setInfosForm({...infosForm, benefices_attendus: v})} type="textarea" /></div>
+            <div style={{ marginTop: '8px' }}><EditField label="Bénéfices réalisés" value={infosForm.benefices_realises} onChange={v => setInfosForm({...infosForm, benefices_realises: v})} type="textarea" /></div>
+            <div style={{ marginTop: '8px' }}><EditField label="Notes internes" value={infosForm.notes_internes} onChange={v => setInfosForm({...infosForm, notes_internes: v})} type="textarea" /></div>
           </div>
         ) : (
           <>
-            <InfoRow label="Commanditaire" value={projet.commanditaire_username || '—'} />
-            <InfoRow label="Chef de projet" value={projet.chef_projet_username || '—'} />
-            <InfoRow label="Responsable DSI" value={projet.responsable_dsi_username || '—'} />
-            <InfoRow label="Rep. métier" value={projet.representant_metier_username || '—'} />
-            <InfoRow label="DPO" value={projet.dpo_username || '—'} />
-            <InfoRow label="Créé par" value={projet.created_by_username} />
-            <InfoRow label="Créé le" value={projet.date_creation ? new Date(projet.date_creation).toLocaleDateString('fr-FR') : '—'} />
-          </>
-        )}
-      </div>
-      {projet.description && (
-        <div style={{ gridColumn: '1 / -1', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-          <h3 style={{ margin: '0 0 8px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Description</h3>
-          <p style={{ margin: 0, color: '#475569', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{projet.description}</p>
-        </div>
-      )}
-      <div style={{ gridColumn: '1 / -1', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-        <h3 style={{ margin: '0 0 8px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Équipe & Parties prenantes</h3>
-        {projet.roles?.length === 0 ? (
-          <p style={{ color: '#94a3b8', fontStyle: 'italic' }}>Aucune personne assignée</p>
-        ) : (
-          ['equipe_projet', 'partie_prenante', 'pour_info'].map(role => {
-            const membres = projet.roles?.filter(r => r.role === role) || [];
-            if (membres.length === 0) return null;
-            return (
-              <div key={role} style={{ marginBottom: '8px' }}>
-                <strong style={{ fontSize: '13px', color: '#64748b', textTransform: 'capitalize' }}>
-                  {role === 'equipe_projet' ? 'Équipe projet' : role === 'partie_prenante' ? 'Parties prenantes' : 'Pour information'} :
-                </strong>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
-                  {membres.map(m => (
-                    <span key={m.id} style={{ padding: '3px 10px', background: '#f1f5f9', borderRadius: '6px', fontSize: '12px', color: '#475569' }}>{m.display_name || m.username}</span>
-                  ))}
-                </div>
+            {projet.description && (
+              <div style={{ gridColumn: '1 / -1', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Description</h3>
+                <p style={{ margin: 0, color: '#475569', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{projet.description}</p>
               </div>
-            );
-          })
+            )}
+          </>
         )}
       </div>
     </div>
@@ -377,6 +403,21 @@ const EditGovField: React.FC<{ label: string; value: string; onChange: (v: strin
   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
     <span style={{ color: '#64748b', fontWeight: '500', fontSize: '13px', minWidth: '120px' }}>{label}</span>
     <input value={value} onChange={e => onChange(e.target.value)} style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+  </div>
+);
+
+const EditField: React.FC<{ label: string; value: string; onChange: (v: string) => void; type?: string; options?: {v: string; l: string}[] }> = ({ label, value, onChange, type, options }) => (
+  <div style={{ marginBottom: '8px' }}>
+    <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '3px' }}>{label}</label>
+    {type === 'select' && options ? (
+      <select value={value} onChange={e => onChange(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
+        {options.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+      </select>
+    ) : type === 'textarea' ? (
+      <textarea value={value} onChange={e => onChange(e.target.value)} rows={3} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', resize: 'vertical' }} />
+    ) : (
+      <input type={type || 'text'} value={value} onChange={e => onChange(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+    )}
   </div>
 );
 
@@ -1284,32 +1325,56 @@ const ScoreTab: React.FC<{ projetId: number; token: string | null }> = ({ projet
 // ===== ONGLET INDICATEURS =====
 const IndicateursTab: React.FC<{ projetId: number; token: string | null }> = ({ projetId, token }) => {
   const [indicateurs, setIndicateurs] = useState<any[]>([]);
+  const [controles, setControles] = useState<any[]>([]);
+
   useEffect(() => {
     fetch(`/api/projets/${projetId}/indicateurs`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { if (Array.isArray(d)) setIndicateurs(d); }).catch(() => {});
+    fetch(`/api/projets/${projetId}/controles`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (d.controles) setControles(d.controles); }).catch(() => {});
   }, [projetId, token]);
-  if (indicateurs.length === 0) return <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Aucun indicateur saisi</p>;
+
   return (
-    <div style={{ display: 'grid', gap: '8px' }}>
-      {indicateurs.map(ind => (
-        <div key={ind.id} style={{ background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', textTransform: 'capitalize' }}>{ind.type_indicateur}</span>
-            {ind.commentaire && <span style={{ color: '#64748b', marginLeft: '8px', fontSize: '12px' }}>— {ind.commentaire}</span>}
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <span style={{ fontWeight: '700', color: '#2563eb' }}>{ind.valeur}</span>
-            <div style={{ fontSize: '11px', color: '#94a3b8' }}>{new Date(ind.date_saisie).toLocaleDateString('fr-FR')}</div>
-          </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Checklist documentaire</h3>
+        {controles.length === 0 ? (
+          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun document attendu pour la phase actuelle.</p>
+        ) : (
+          controles.map(c => (
+            <div key={c.type} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
+              <span style={{ fontSize: '16px' }}>{c.present ? '✅' : '⚠️'}</span>
+              <span style={{ flex: 1, color: '#1e293b', fontWeight: '500' }}>{c.label}</span>
+              <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: '600', background: c.present ? '#dcfce7' : '#fef3c7', color: c.present ? '#16a34a' : '#d97706' }}>
+                {c.present ? 'Présent' : 'Manquant'}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+      {indicateurs.length > 0 && (
+        <div style={{ display: 'grid', gap: '8px' }}>
+          {indicateurs.map(ind => (
+            <div key={ind.id} style={{ background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', textTransform: 'capitalize' }}>{ind.type_indicateur}</span>
+                {ind.commentaire && <span style={{ color: '#64748b', marginLeft: '8px', fontSize: '12px' }}>— {ind.commentaire}</span>}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontWeight: '700', color: '#2563eb' }}>{ind.valeur}</span>
+                <div style={{ fontSize: '11px', color: '#94a3b8' }}>{new Date(ind.date_saisie).toLocaleDateString('fr-FR')}</div>
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
+      {indicateurs.length === 0 && <p style={{ color: '#94a3b8', textAlign: 'center', padding: '20px', fontSize: '13px' }}>Aucun indicateur saisi.</p>}
     </div>
   );
 };
 
 // ===== ONGLET ADMIN =====
 const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Projet; onRefresh: () => void }> = ({ projetId, token, projet, onRefresh }) => {
-  const [controles, setControles] = useState<any[]>([]);
   const [showAddRole, setShowAddRole] = useState(false);
   const [newRoleUsername, setNewRoleUsername] = useState('');
   const [newRoleName, setNewRoleName] = useState('');
@@ -1323,8 +1388,6 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
   const [savingAttendus, setSavingAttendus] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/projets/${projetId}/controles`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json()).then(d => { if (d.controles) setControles(d.controles); }).catch(() => {});
     fetch(`/api/projets/${projetId}/attendus`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { if (Array.isArray(d)) setAttendus(d); }).catch(() => {});
   }, [projetId, token]);
@@ -1377,22 +1440,6 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Checklist documentaire</h3>
-        {controles.length === 0 ? (
-          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun document attendu pour la phase actuelle.</p>
-        ) : (
-          controles.map(c => (
-            <div key={c.type} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
-              <span style={{ fontSize: '16px' }}>{c.present ? '✅' : '⚠️'}</span>
-              <span style={{ flex: 1, color: '#1e293b', fontWeight: '500' }}>{c.label}</span>
-              <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', fontWeight: '600', background: c.present ? '#dcfce7' : '#fef3c7', color: c.present ? '#16a34a' : '#d97706' }}>
-                {c.present ? 'Présent' : 'Manquant'}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Parties prenantes ({projet.roles?.length || 0})</h3>
