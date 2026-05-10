@@ -266,8 +266,10 @@ const ProjetDetail: React.FC = () => {
               <InfoRow label="Créé le" value={projet.date_creation ? new Date(projet.date_creation).toLocaleDateString('fr-FR') : '—'} />
             </>
           )}
+          <div style={{ marginTop: '12px' }}>
+            <ComitesSection projetId={projet.id} token={token} />
+          </div>
         </div>
-        <ComitesSection projetId={projet.id} token={token} />
       </div>
     </div>
   );
@@ -532,9 +534,9 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
   };
 
   return (
-    <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginTop: '16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📋 Comités ({comites.length})</h3>
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <h4 style={{ margin: 0, fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📋 Comités ({comites.length})</h4>
         <button onClick={() => setShowForm(!showForm)} style={{ padding: '6px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>+ Ajouter un comité</button>
       </div>
       {showForm && (
