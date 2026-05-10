@@ -187,17 +187,20 @@ const getAll = async (req, res) => {
         const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
         const orderBy = tri === 'score' ? 'p.score_total DESC' : tri === 'priorite' ? 'p.priorite DESC' : tri === 'statut' ? 'p.statut' : 'p.date_modification DESC';
 
+        const userCheckParam = params.length + 1;
+
         const projets = await pgDb.all(`
             SELECT p.*,
                    (SELECT COUNT(*) FROM projet_roles pr WHERE pr.projet_id = p.id) as nb_roles,
                    (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
                    (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
                    (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
-                   (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
+                   (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard,
+                   EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($${userCheckParam})) as user_est_intervenant
             FROM projets p
             ${where}
             ORDER BY ${orderBy}
-        `, params);
+        `, [...params, username]);
 
         res.json(projets);
     } catch (error) {
@@ -218,11 +221,12 @@ const getMesProjets = async (req, res) => {
                        (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
                        (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
                        (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
-                       (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
+                       (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard,
+                       EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1)) as user_est_intervenant
                 FROM projets p
                 ORDER BY p.date_modification DESC
             `;
-            params = [];
+            params = [username];
         } else {
             query = `
                 SELECT p.*,
@@ -230,7 +234,8 @@ const getMesProjets = async (req, res) => {
                        (SELECT COUNT(*) FROM projet_documents pd WHERE pd.projet_id = p.id) as nb_documents,
                        (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
                        (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
-                       (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard
+                       (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard,
+                       EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1)) as user_est_intervenant
                 FROM projets p
                 WHERE LOWER(p.created_by_username) = LOWER($1)
                    OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1))
@@ -353,6 +358,7 @@ const update = async (req, res) => {
             date_debut_prevue, date_fin_prevue, date_debut_reelle, date_fin_reelle,
             priorite, risque_global, avancement, satisfaction_metier, meteo,
             benefices_attendus, benefices_realises, notes_internes,
+            commanditaire_display_name, chef_projet_display_name, chef_projet_metier_display_name,
             services_associes
         } = req.body;
         const username = req.user.username;
@@ -384,9 +390,12 @@ const update = async (req, res) => {
                 benefices_realises = COALESCE($20, benefices_realises),
                 notes_internes = COALESCE($21, notes_internes),
                 meteo = COALESCE($22, meteo),
-                modified_by_username = $23,
+                commanditaire_display_name = COALESCE($23, commanditaire_display_name),
+                chef_projet_display_name = COALESCE($24, chef_projet_display_name),
+                chef_projet_metier_display_name = COALESCE($25, chef_projet_metier_display_name),
+                modified_by_username = $26,
                 date_modification = CURRENT_TIMESTAMP
-            WHERE id = $24
+            WHERE id = $27
         `, [titre, description, niveau_projet, statut, service_pilote,
             commanditaire_username, chef_projet_username, responsable_dsi_username,
             representant_metier_username, dpo_username,
@@ -394,6 +403,7 @@ const update = async (req, res) => {
             priorite, risque_global, avancement, satisfaction_metier,
             benefices_attendus, benefices_realises, notes_internes,
             meteo,
+            commanditaire_display_name || null, chef_projet_display_name || null, chef_projet_metier_display_name || null,
             username, id]);
 
         if (Array.isArray(services_associes)) {

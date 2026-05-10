@@ -158,7 +158,17 @@ const ProjetDetail: React.FC = () => {
     await fetch(`/api/projets/${projet.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(infosForm)
+      body: JSON.stringify({
+        ...infosForm,
+        commanditaire_username: govForm.commanditaire_username || null,
+        chef_projet_username: govForm.chef_projet_username || null,
+        chef_projet_metier_username: govForm.chef_projet_metier_username || null,
+        commanditaire_display_name: govForm.commanditaire_display || null,
+        chef_projet_display_name: govForm.chef_projet_display || null,
+        chef_projet_metier_display_name: govForm.chef_projet_metier_display || null,
+        dpd_requis: govForm.dpd_requis ? 1 : 0,
+        rssi_requis: govForm.rssi_requis ? 1 : 0
+      })
     });
     setEditingInfos(false);
     fetchProjet();
@@ -173,7 +183,7 @@ const ProjetDetail: React.FC = () => {
             <button onClick={() => setEditingInfos(false)} style={{ padding: '7px 16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b' }}>Annuler</button>
           </>
         ) : (
-          <button onClick={() => setEditingInfos(true)} style={{ padding: '7px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#475569' }}>✏️ Modifier tout</button>
+          <button onClick={() => setEditingInfos(true)} style={{ padding: '7px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#475569' }}>✏️ Modifier</button>
         )}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
@@ -218,9 +228,8 @@ const ProjetDetail: React.FC = () => {
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Gouvernance</h3>
-            {!editingInfos && <button onClick={() => setEditingGov(true)} style={{ padding: '5px 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#475569' }}>✏️ Modifier</button>}
           </div>
-          {editingGov ? (
+          {editingInfos ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <ADSearchField label="Commanditaire" username={govForm.commanditaire_username} display={govForm.commanditaire_display} token={token} onSelect={(u, d) => setGovForm({...govForm, commanditaire_username: u, commanditaire_display: d})} onClear={() => setGovForm({...govForm, commanditaire_username: '', commanditaire_display: ''})} />
               <ADSearchField label="Chef de projet" username={govForm.chef_projet_username} display={govForm.chef_projet_display} token={token} onSelect={(u, d) => setGovForm({...govForm, chef_projet_username: u, chef_projet_display: d})} onClear={() => setGovForm({...govForm, chef_projet_username: '', chef_projet_display: ''})} />
@@ -231,16 +240,12 @@ const ProjetDetail: React.FC = () => {
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#475569', cursor: 'pointer' }}>
                 <input type="checkbox" checked={govForm.rssi_requis} onChange={e => setGovForm({...govForm, rssi_requis: e.target.checked})} /> RSSI requis
               </label>
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                <button onClick={async () => { await fetch(`/api/projets/${projet.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ commanditaire_username: govForm.commanditaire_username || null, chef_projet_username: govForm.chef_projet_username || null, chef_projet_metier_username: govForm.chef_projet_metier_username || null, dpd_requis: govForm.dpd_requis ? 1 : 0, rssi_requis: govForm.rssi_requis ? 1 : 0 }) }); setEditingGov(false); fetchProjet(); }} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Enregistrer</button>
-                <button onClick={() => setEditingGov(false)} style={{ padding: '7px 16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#64748b' }}>Annuler</button>
-              </div>
             </div>
           ) : (
             <>
-              <InfoRow label="Commanditaire" value={projet.commanditaire_username || '—'} />
-              <InfoRow label="Chef de projet" value={projet.chef_projet_username || '—'} />
-              <InfoRow label="Chef de projet métier" value={projet.chef_projet_metier_username || '—'} />
+              <InfoRow label="Commanditaire" value={projet.commanditaire_display_name || projet.commanditaire_username || '—'} />
+              <InfoRow label="Chef de projet" value={projet.chef_projet_display_name || projet.chef_projet_username || '—'} />
+              <InfoRow label="Chef de projet métier" value={projet.chef_projet_metier_display_name || projet.chef_projet_metier_username || '—'} />
               <InfoRow label="DPD requis" value={projet.dpd_requis ? '✅ Oui' : '❌ Non'} />
               <InfoRow label="RSSI requis" value={projet.rssi_requis ? '✅ Oui' : '❌ Non'} />
               <InfoRow label="Créé par" value={projet.created_by_username} />

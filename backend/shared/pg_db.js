@@ -829,6 +829,26 @@ async function setupPgDb() {
         text TEXT
       );
     `);
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='meeting_date') THEN
+            ALTER TABLE transcript.meetings ADD COLUMN meeting_date TIMESTAMP;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='cues' AND column_name='speaker_username') THEN
+            ALTER TABLE transcript.cues ADD COLUMN speaker_username TEXT;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='cues' AND column_name='speaker_email') THEN
+            ALTER TABLE transcript.cues ADD COLUMN speaker_email TEXT;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='reunion_id') THEN
+            ALTER TABLE transcript.meetings ADD COLUMN reunion_id INTEGER;
+          END IF;
+        END $$;
+      `);
+    } catch (e) {
+        console.error('Error migrating transcript tables:', e.message);
+    }
     await client.query(`
       CREATE TABLE IF NOT EXISTS transcript.tasks (
         id SERIAL PRIMARY KEY,
@@ -853,7 +873,14 @@ async function setupPgDb() {
     `);
     await client.query(`
       INSERT INTO transcript.settings (setting_key, setting_value, description)
-      VALUES ('groq_api_key', 'gsk_h67R9mK9v8f4H7j2L3k5M1n0P9q8R7s6T5u4V3w2X1y0', 'Clé API Groq pour les résumés')
+      VALUES 
+      ('groq_api_key', 'gsk_h67R9mK9v8f4H7j2L3k5M1n0P9q8R7s6T5u4V3w2X1y0', 'Clé API Groq pour les résumés'),
+      ('ai_provider', 'groq', 'Fournisseur d''IA par défaut'),
+      ('gemini_api_key', '', 'Clé API Google Gemini'),
+      ('openrouter_api_key', '', 'Clé API OpenRouter'),
+      ('anthropic_api_key', '', 'Clé API Anthropic'),
+      ('ollama_host', 'http://localhost:11434', 'Hôte Ollama local'),
+      ('anthropic_model', 'claude-3-5-sonnet-20240620', 'Modèle Anthropic par défaut')
       ON CONFLICT (setting_key) DO NOTHING;
     `);
     try {
@@ -903,6 +930,13 @@ async function setupPgDb() {
         END $$;
       `);
     } catch (e) {}
+
+    // Migration: colonnes display_name gouvernance
+    try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='commanditaire_display_name') THEN ALTER TABLE projets.projets ADD COLUMN commanditaire_display_name TEXT; END IF; END $$;`); } catch (e) {}
+    try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='chef_projet_display_name') THEN ALTER TABLE projets.projets ADD COLUMN chef_projet_display_name TEXT; END IF; END $$;`); } catch (e) {}
+    try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='chef_projet_metier_display_name') THEN ALTER TABLE projets.projets ADD COLUMN chef_projet_metier_display_name TEXT; END IF; END $$;`); } catch (e) {}
+    // Migration: comite_id dans projet_reunions
+    try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_reunions' AND column_name='comite_id') THEN ALTER TABLE projets.projet_reunions ADD COLUMN comite_id INTEGER REFERENCES projets.projet_comites(id) ON DELETE SET NULL; END IF; END $$;`); } catch (e) {}
 
     // ============================================
     // PROJETS - Planning / Tâches
