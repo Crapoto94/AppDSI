@@ -65,7 +65,7 @@ const ProjetDetail: React.FC = () => {
   const [showCreateReunion, setShowCreateReunion] = useState(false);
   const [reunionDetailId, setReunionDetailId] = useState<number | null>(null);
   const [editingGov, setEditingGov] = useState(false);
-  const [govForm, setGovForm] = useState({ commanditaire_username: '', commanditaire_display: '', chef_projet_username: '', chef_projet_display: '', dpd_requis: false, rssi_requis: false });
+  const [govForm, setGovForm] = useState({ commanditaire_username: '', commanditaire_display: '', chef_projet_username: '', chef_projet_display: '', chef_projet_metier_username: '', chef_projet_metier_display: '', dpd_requis: false, rssi_requis: false });
   const [editingInfos, setEditingInfos] = useState(false);
   const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
   const [viewerDoc, setViewerDoc] = useState<{ url: string; nom: string } | null>(null);
@@ -90,6 +90,8 @@ const ProjetDetail: React.FC = () => {
         commanditaire_display: projet.commanditaire_username || '',
         chef_projet_username: projet.chef_projet_username || '',
         chef_projet_display: projet.chef_projet_username || '',
+        chef_projet_metier_username: projet.chef_projet_metier_username || '',
+        chef_projet_metier_display: projet.chef_projet_metier_username || '',
         dpd_requis: !!projet.dpd_requis,
         rssi_requis: !!projet.rssi_requis
       });
@@ -216,6 +218,7 @@ const ProjetDetail: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <ADSearchField label="Commanditaire" username={govForm.commanditaire_username} display={govForm.commanditaire_display} token={token} onSelect={(u, d) => setGovForm({...govForm, commanditaire_username: u, commanditaire_display: d})} onClear={() => setGovForm({...govForm, commanditaire_username: '', commanditaire_display: ''})} />
               <ADSearchField label="Chef de projet" username={govForm.chef_projet_username} display={govForm.chef_projet_display} token={token} onSelect={(u, d) => setGovForm({...govForm, chef_projet_username: u, chef_projet_display: d})} onClear={() => setGovForm({...govForm, chef_projet_username: '', chef_projet_display: ''})} />
+              <ADSearchField label="Chef de projet métier" username={govForm.chef_projet_metier_username} display={govForm.chef_projet_metier_display} token={token} onSelect={(u, d) => setGovForm({...govForm, chef_projet_metier_username: u, chef_projet_metier_display: d})} onClear={() => setGovForm({...govForm, chef_projet_metier_username: '', chef_projet_metier_display: ''})} />
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#475569', cursor: 'pointer' }}>
                 <input type="checkbox" checked={govForm.dpd_requis} onChange={e => setGovForm({...govForm, dpd_requis: e.target.checked})} /> DPD requis
               </label>
@@ -223,7 +226,7 @@ const ProjetDetail: React.FC = () => {
                 <input type="checkbox" checked={govForm.rssi_requis} onChange={e => setGovForm({...govForm, rssi_requis: e.target.checked})} /> RSSI requis
               </label>
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
-                <button onClick={async () => { await fetch(`/api/projets/${projet.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ commanditaire_username: govForm.commanditaire_username || null, chef_projet_username: govForm.chef_projet_username || null, dpd_requis: govForm.dpd_requis ? 1 : 0, rssi_requis: govForm.rssi_requis ? 1 : 0 }) }); setEditingGov(false); fetchProjet(); }} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Enregistrer</button>
+                <button onClick={async () => { await fetch(`/api/projets/${projet.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ commanditaire_username: govForm.commanditaire_username || null, chef_projet_username: govForm.chef_projet_username || null, chef_projet_metier_username: govForm.chef_projet_metier_username || null, dpd_requis: govForm.dpd_requis ? 1 : 0, rssi_requis: govForm.rssi_requis ? 1 : 0 }) }); setEditingGov(false); fetchProjet(); }} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>Enregistrer</button>
                 <button onClick={() => setEditingGov(false)} style={{ padding: '7px 16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#64748b' }}>Annuler</button>
               </div>
             </div>
@@ -231,6 +234,7 @@ const ProjetDetail: React.FC = () => {
             <>
               <InfoRow label="Commanditaire" value={projet.commanditaire_username || '—'} />
               <InfoRow label="Chef de projet" value={projet.chef_projet_username || '—'} />
+              <InfoRow label="Chef de projet métier" value={projet.chef_projet_metier_username || '—'} />
               <InfoRow label="DPD requis" value={projet.dpd_requis ? '✅ Oui' : '❌ Non'} />
               <InfoRow label="RSSI requis" value={projet.rssi_requis ? '✅ Oui' : '❌ Non'} />
               <InfoRow label="Créé par" value={projet.created_by_username} />
@@ -467,7 +471,7 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
   const [showForm, setShowForm] = useState(false);
   const [newComite, setNewComite] = useState({ nom: '', role: '', frequence: '', responsable_username: '' });
   const [showMembreForm, setShowMembreForm] = useState<number | null>(null);
-  const [newMembre, setNewMembre] = useState({ prenom: '', nom: '', email: '', societe: '', fonction: '', telephone: '', ad_username: '' });
+  const [newMembre, setNewMembre] = useState({ prenom: '', nom: '', email: '', societe: '', fonction: '', role: '', telephone: '', ad_username: '' });
   const [adQuery, setAdQuery] = useState('');
   const [adResults, setAdResults] = useState<any[]>([]);
   const [adSearching, setAdSearching] = useState(false);
@@ -487,7 +491,7 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
   const addMembre = async (comiteId: number) => {
     if (!newMembre.nom) return;
     await fetch(`/api/projets/${projetId}/comites/${comiteId}/membres`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(newMembre) });
-    setNewMembre({ prenom: '', nom: '', email: '', societe: '', fonction: '', telephone: '', ad_username: '' }); setShowMembreForm(null); load();
+    setNewMembre({ prenom: '', nom: '', email: '', societe: '', fonction: '', role: '', telephone: '', ad_username: '' }); setShowMembreForm(null); load();
   };
   const supprimerMembre = async (comiteId: number, membreId: number) => { await fetch(`/api/projets/${projetId}/comites/${comiteId}/membres/${membreId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); load(); };
 
@@ -537,7 +541,7 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
           <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {(c.membres || []).map(m => (
               <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', background: '#f8fafc', borderRadius: '4px', fontSize: '12px' }}>
-                <span style={{ color: '#1e293b', fontWeight: '500' }}>{m.prenom ? `${m.prenom} ${m.nom}` : m.nom}{m.fonction ? ` (${m.fonction})` : ''}{m.societe ? ` - ${m.societe}` : ''}</span>
+                <span style={{ color: '#1e293b', fontWeight: '500' }}>{m.prenom ? `${m.prenom} ${m.nom}` : m.nom}{m.role ? ` (${m.role})` : m.fonction ? ` (${m.fonction})` : ''}{m.societe ? ` - ${m.societe}` : ''}</span>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   {m.email && <span style={{ color: '#2563eb', fontSize: '11px' }}>{m.email}</span>}
                   {m.telephone && <span style={{ color: '#64748b', fontSize: '11px' }}>{m.telephone}</span>}
@@ -554,6 +558,7 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
                 <input value={newMembre.prenom} onChange={e => setNewMembre({...newMembre, prenom: e.target.value})} placeholder="Prénom" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '80px' }} />
                 <input value={newMembre.nom} onChange={e => setNewMembre({...newMembre, nom: e.target.value})} placeholder="Nom *" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '80px' }} />
                 <input value={newMembre.email} onChange={e => setNewMembre({...newMembre, email: e.target.value})} placeholder="Email" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '120px' }} />
+                <input value={newMembre.role} onChange={e => setNewMembre({...newMembre, role: e.target.value})} placeholder="Rôle" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1, minWidth: '80px' }} />
               </div>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 <input value={newMembre.societe} onChange={e => setNewMembre({...newMembre, societe: e.target.value})} placeholder="Société" style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', flex: 1 }} />

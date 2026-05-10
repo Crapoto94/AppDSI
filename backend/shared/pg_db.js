@@ -885,6 +885,24 @@ async function setupPgDb() {
         END $$;
       `);
     } catch (e) {}
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='chef_projet_metier_username') THEN
+            ALTER TABLE projets.projets ADD COLUMN chef_projet_metier_username TEXT;
+          END IF;
+        END $$;
+      `);
+    } catch (e) {}
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_comites_membres' AND column_name='role') THEN
+            ALTER TABLE projets.projet_comites_membres ADD COLUMN role TEXT;
+          END IF;
+        END $$;
+      `);
+    } catch (e) {}
 
     // ============================================
     // PROJETS - Planning / Tâches

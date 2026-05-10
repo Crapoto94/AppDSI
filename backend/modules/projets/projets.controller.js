@@ -1526,11 +1526,11 @@ const supprimerComite = async (req, res) => {
 const ajouterMembreComite = async (req, res) => {
     try {
         const { id, comiteId } = req.params;
-        const { prenom, nom, email, societe, fonction, telephone, ad_username } = req.body;
+        const { prenom, nom, email, societe, fonction, telephone, ad_username, role } = req.body;
         if (!nom) return res.status(400).json({ error: 'Nom requis' });
         const result = await pgDb.run(
-            'INSERT INTO projet_comites_membres (comite_id, prenom, nom, email, societe, fonction, telephone, ad_username) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-            [comiteId, prenom || null, nom, email || null, societe || null, fonction || null, telephone || null, ad_username || null]
+            'INSERT INTO projet_comites_membres (comite_id, prenom, nom, email, societe, fonction, telephone, ad_username, role) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+            [comiteId, prenom || null, nom, email || null, societe || null, fonction || null, telephone || null, ad_username || null, role || null]
         );
         res.status(201).json({ id: result.lastID });
     } catch (error) {
