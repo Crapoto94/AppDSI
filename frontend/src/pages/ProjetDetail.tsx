@@ -65,6 +65,7 @@ const ProjetDetail: React.FC = () => {
   const [ongletActif, setOngletActif] = useState('infos');
   const [transitions, setTransitions] = useState<any[]>([]);
   const [showTransitionPicker, setShowTransitionPicker] = useState(false);
+  const [transitionStatutCible, setTransitionStatutCible] = useState('');
   const [transitionMsg, setTransitionMsg] = useState('');
   // const [showDocUpload, setShowDocUpload] = useState(false);
   // const [showAddMember, setShowAddMember] = useState(false);
@@ -362,40 +363,63 @@ const renderAdmin = () => <AdminTab projetId={projet.id} token={token} projet={p
               <span>{projet.service_pilote}</span>
             </div>
           </div>
-          <button onClick={() => { setShowTransitionPicker(!showTransitionPicker); if (!transitions.length) fetchTransitions(); }}
+          <button onClick={() => {
+            if (!transitions.length) fetchTransitions();
+            setShowTransitionPicker(!showTransitionPicker);
+            if (!showTransitionPicker) setTransitionStatutCible('');
+          }}
             style={{ padding: '9px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <ArrowRight size={16} /> Changer le statut
           </button>
           {showTransitionPicker && (
-            <div style={{ position: 'absolute', top: '100%', right: '0', marginTop: '4px', background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 50, minWidth: '300px', padding: '14px' }}>
-              <div style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', marginBottom: '10px' }}>🔄 Changer le statut</div>
-              {/* Statut précédent */}
-              {projet.statut_precedent && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: '#f8fafc', borderRadius: '6px', marginBottom: '6px', fontSize: '12px' }}>
-                  <span style={{ color: '#64748b', fontWeight: '500' }}>← Précédent :</span>
-                  <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', background: `${STATUT_COLORS[projet.statut_precedent] || '#94a3b8'}20`, color: STATUT_COLORS[projet.statut_precedent] || '#94a3b8' }}>{STATUT_LABELS[projet.statut_precedent] || projet.statut_precedent}</span>
+            <div style={{ position: 'absolute', top: '100%', right: '0', marginTop: '4px', background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 50, minWidth: '320px', padding: '16px' }}>
+              <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px' }}>🔄 Changer le statut</div>
+              {/* Statut actuel */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: '#eff6ff', borderRadius: '6px', marginBottom: '10px', fontSize: '13px' }}>
+                <span style={{ color: '#2563eb', fontWeight: '700' }}>📍 Actuel :</span>
+                <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', background: `${STATUT_COLORS[projet.statut] || '#2563eb'}20`, color: STATUT_COLORS[projet.statut] || '#2563eb' }}>{STATUT_LABELS[projet.statut] || projet.statut}</span>
+              </div>
+              {/* Liste déroulante des statuts disponibles */}
+              <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', display: 'block', marginBottom: '4px' }}>Nouveau statut :</label>
+              <select value={transitionStatutCible} onChange={e => setTransitionStatutCible(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', background: 'white', marginBottom: '10px' }}>
+                <option value="">Sélectionner...</option>
+                {transitions.map((t: any) => (
+                  <option key={t.statut} value={t.statut} disabled={t.alertes?.length > 0}>
+                    {t.label}{t.alertes?.length > 0 ? ` (${t.alertes.length} alerte(s))` : ''}
+                  </option>
+                ))}
+                {/* Suspendu et Refusé toujours disponibles */}
+                {!transitions.find((t: any) => t.statut === 'suspendu') && projet.statut !== 'suspendu' && projet.statut !== 'refuse' && projet.statut !== 'abandonne' && projet.statut !== 'cloture' && (
+                  <option value="suspendu">⏸️ Suspendu</option>
+                )}
+                {!transitions.find((t: any) => t.statut === 'refuse') && projet.statut !== 'refuse' && projet.statut !== 'abandonne' && projet.statut !== 'cloture' && (
+                  <option value="refuse">🚫 Refusé</option>
+                )}
+              </select>
+              {/* Commentaire */}
+              <input value={transitionMsg} onChange={e => setTransitionMsg(e.target.value)} placeholder="Commentaire (optionnel)" style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', marginBottom: '10px' }} />
+              {/* Alertes */}
+              {transitionStatutCible && transitions.find((t: any) => t.statut === transitionStatutCible)?.alertes?.length > 0 && (
+                <div style={{ padding: '8px 12px', background: '#fef3c7', borderRadius: '6px', marginBottom: '10px', fontSize: '12px', color: '#92400e' }}>
+                  ⚠️ Documents manquants :
+                  {transitions.find((t: any) => t.statut === transitionStatutCible).alertes.map((a: any) => (
+                    <div key={a.type}>· {a.label}</div>
+                  ))}
+                  <div style={{ marginTop: '4px', fontStyle: 'italic' }}>Vous pouvez tout de même effectuer la transition.</div>
                 </div>
               )}
-              {/* Statut actuel */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: '#eff6ff', borderRadius: '6px', marginBottom: '8px', fontSize: '12px' }}>
-                <span style={{ color: '#2563eb', fontWeight: '700' }}>📍 Actuel :</span>
-                <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', background: `${STATUT_COLORS[projet.statut] || '#2563eb'}20`, color: STATUT_COLORS[projet.statut] || '#2563eb' }}>{STATUT_LABELS[projet.statut] || projet.statut}</span>
+              {/* Boutons */}
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowTransitionPicker(false)} style={{ padding: '8px 16px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b' }}>Annuler</button>
+                <button onClick={async () => {
+                  if (!transitionStatutCible) return;
+                  await effectuerTransition(transitionStatutCible);
+                }} disabled={!transitionStatutCible}
+                  style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', opacity: transitionStatutCible ? 1 : 0.5 }}>
+                  Enregistrer
+                </button>
               </div>
-              {/* Transitions disponibles */}
-              <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Vers :</div>
-              {transitions.length === 0 ? (
-                <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>Aucune transition disponible</p>
-              ) : transitions.map((t: any) => (
-                <div key={t.statut} style={{ marginBottom: '4px' }}>
-                  <button onClick={() => effectuerTransition(t.statut)}
-                    style={{ width: '100%', padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>{t.label}</span>
-                    {t.alertes?.length > 0 && <span style={{ fontSize: '11px', padding: '2px 6px', background: '#fef3c7', color: '#d97706', borderRadius: '4px', fontWeight: '700' }}>{t.alertes.length} alerte(s)</span>}
-                  </button>
-                </div>
-              ))}
-              <input value={transitionMsg} onChange={e => setTransitionMsg(e.target.value)} placeholder="Commentaire (optionnel)" style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', marginTop: '8px' }} />
-              <button onClick={() => setShowTransitionPicker(false)} style={{ width: '100%', padding: '6px', background: 'white', border: 'none', cursor: 'pointer', fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Fermer</button>
             </div>
           )}
         </div>
