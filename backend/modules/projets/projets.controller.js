@@ -865,8 +865,16 @@ const lierReunion = async (req, res) => {
             [id, reunion_id, type_gouvernance || null, comite_id || null]
         );
 
-        const projet = await pgDb.get('SELECT code FROM projets WHERE id = $1', [id]);
-        await ajouterJournal(id, 'reunion_liee', `Réunion #${reunion_id} liée au projet`, { reunion_id, type_gouvernance }, username);
+        const [projet, reunion, comite] = await Promise.all([
+            pgDb.get('SELECT code FROM projets WHERE id = $1', [id]),
+            pgDb.get('SELECT titre, date_reunion FROM hub_rencontres.rencontres_reunions WHERE id = $1', [reunion_id]),
+            comite_id ? pgDb.get('SELECT nom FROM projet_comites WHERE id = $1', [comite_id]) : Promise.resolve(null)
+        ]);
+
+        const dateStr = reunion?.date_reunion ? new Date(reunion.date_reunion).toLocaleDateString('fr-FR') : '';
+        const comiteStr = comite ? ` · ${comite.nom}` : '';
+        const msg = `📅 Réunion liée : ${reunion?.titre || '#' + reunion_id}${dateStr ? ' (' + dateStr + ')' : ''}${comiteStr}`;
+        await ajouterJournal(id, 'reunion_liee', msg, { reunion_id, type_gouvernance, comite_id, reunion_titre: reunion?.titre }, username);
 
         res.status(201).json({ message: 'Réunion liée au projet' });
     } catch (error) {
