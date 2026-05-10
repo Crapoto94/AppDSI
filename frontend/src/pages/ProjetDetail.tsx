@@ -367,8 +367,22 @@ const renderAdmin = () => <AdminTab projetId={projet.id} token={token} projet={p
             <ArrowRight size={16} /> Changer le statut
           </button>
           {showTransitionPicker && (
-            <div style={{ position: 'absolute', top: '100%', right: '0', marginTop: '4px', background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 50, minWidth: '280px', padding: '14px' }}>
-              <div style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', marginBottom: '8px' }}>Nouveau statut</div>
+            <div style={{ position: 'absolute', top: '100%', right: '0', marginTop: '4px', background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 50, minWidth: '300px', padding: '14px' }}>
+              <div style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b', marginBottom: '10px' }}>🔄 Changer le statut</div>
+              {/* Statut précédent */}
+              {projet.statut_precedent && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: '#f8fafc', borderRadius: '6px', marginBottom: '6px', fontSize: '12px' }}>
+                  <span style={{ color: '#64748b', fontWeight: '500' }}>← Précédent :</span>
+                  <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', background: `${STATUT_COLORS[projet.statut_precedent] || '#94a3b8'}20`, color: STATUT_COLORS[projet.statut_precedent] || '#94a3b8' }}>{STATUT_LABELS[projet.statut_precedent] || projet.statut_precedent}</span>
+                </div>
+              )}
+              {/* Statut actuel */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: '#eff6ff', borderRadius: '6px', marginBottom: '8px', fontSize: '12px' }}>
+                <span style={{ color: '#2563eb', fontWeight: '700' }}>📍 Actuel :</span>
+                <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600', background: `${STATUT_COLORS[projet.statut] || '#2563eb'}20`, color: STATUT_COLORS[projet.statut] || '#2563eb' }}>{STATUT_LABELS[projet.statut] || projet.statut}</span>
+              </div>
+              {/* Transitions disponibles */}
+              <div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>Vers :</div>
               {transitions.length === 0 ? (
                 <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>Aucune transition disponible</p>
               ) : transitions.map((t: any) => (
@@ -1631,11 +1645,22 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
   const [newTypePhase, setNewTypePhase] = useState('');
   const [newTypeObligatoire, setNewTypeObligatoire] = useState(false);
   const [savingAttendus, setSavingAttendus] = useState(false);
+  const [etapes, setEtapes] = useState<any[]>([]);
 
   useEffect(() => {
     fetch(`/api/projets/${projetId}/attendus`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { if (Array.isArray(d)) setAttendus(d); }).catch(() => {});
+    fetch(`/api/projets/${projetId}/etapes`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (Array.isArray(d)) setEtapes(d); }).catch(() => {});
   }, [projetId, token]);
+
+  const toggleEtape = async (etape: string, actif: boolean) => {
+    await fetch(`/api/projets/${projetId}/etapes`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ etape, actif })
+    });
+    setEtapes(etapes.map(e => e.etape === etape ? { ...e, actif: actif ? 1 : 0 } : e));
+  };
 
   const addRole = async () => {
     if (!newRoleUsername) return;
@@ -1687,42 +1712,24 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
         <h3 style={{ margin: '0 0 14px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📌 Étapes du projet</h3>
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {[
-            { key: 'idee', label: 'Idée' },
-            { key: 'demande_initiale', label: 'Demande' },
-            { key: 'etude_dsi', label: 'Étude DSI' },
-            { key: 'arbitrage', label: 'Arbitrage' },
-            { key: 'planification', label: 'Planification' },
-            { key: 'en_cours', label: 'Réalisation' },
-            { key: 'en_recette', label: 'Recette' },
-            { key: 'en_cloture', label: 'Clôture' },
-            { key: 'cloture', label: 'Terminé' },
-          ].map((phase, idx) => {
-            const ordre = ['idee','demande_initiale','etude_dsi','arbitrage','planification','en_cours','en_recette','en_cloture','cloture'];
-            const currentIdx = ordre.indexOf(projet.statut);
-            const phaseIdx = ordre.indexOf(phase.key);
-            const estPassee = phaseIdx < currentIdx;
-            const estCourante = phase.key === projet.statut;
-            return (
-              <div key={phase.key} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <div style={{
-                  padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap',
-                  background: estCourante ? '#2563eb' : estPassee ? '#16a34a' : '#f1f5f9',
-                  color: estCourante ? 'white' : estPassee ? 'white' : '#94a3b8',
-                }}>
-                  {estCourante ? '📍 ' : estPassee ? '✅ ' : ''}{phase.label}
+        {etapes.length === 0 ? (
+          <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucune étape définie</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {etapes.sort((a: any, b: any) => a.ordre - b.ordre).map((e: any) => {
+              const label = STATUT_LABELS[e.etape] || e.etape;
+              const color = STATUT_COLORS[e.etape] || '#94a3b8';
+              return (
+                <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <input type="checkbox" checked={!!e.actif} onChange={() => toggleEtape(e.etape, !e.actif)} style={{ cursor: 'pointer' }} />
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: color }} />
+                  <span style={{ flex: 1, fontSize: '13px', fontWeight: e.actif ? '600' : '400', color: e.actif ? '#1e293b' : '#94a3b8' }}>{label}</span>
+                  {e.etape === projet.statut && <span style={{ fontSize: '11px', padding: '1px 6px', background: '#eff6ff', borderRadius: '4px', color: '#2563eb', fontWeight: '600' }}>Actuel</span>}
                 </div>
-                {idx < 8 && <span style={{ color: estPassee || estCourante ? '#94a3b8' : '#d1d5db', fontSize: '14px' }}>→</span>}
-              </div>
-            );
-          })}
-          {['refuse','suspendu','abandonne'].includes(projet.statut) && (
-            <span style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '700', background: '#fee2e2', color: '#dc2626' }}>
-              {projet.statut === 'refuse' ? '🚫 Refusé' : projet.statut === 'suspendu' ? '⏸️ Suspendu' : '🗑️ Abandonné'}
-            </span>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>

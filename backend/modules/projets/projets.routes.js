@@ -148,4 +148,10 @@ router.delete('/:id/comites/:comiteId', authenticateJWT, ctrl.supprimerComite);
 router.post('/:id/comites/:comiteId/membres', authenticateJWT, ctrl.ajouterMembreComite);
 router.delete('/:id/comites/:comiteId/membres/:membreId', authenticateJWT, ctrl.supprimerMembreComite);
 
+// ============================================
+// ÉTAPES PROJET
+// ============================================
+router.get('/:id/etapes', authenticateJWT, ctrl.getEtapes);
+router.put('/:id/etapes', authenticateJWT, ctrl.toggleEtape);
+
 module.exports = router;

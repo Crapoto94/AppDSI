@@ -461,7 +461,13 @@ const getTransitionsPossibles = async (req, res) => {
         const projet = await pgDb.get('SELECT * FROM projets WHERE id = $1', [id]);
         if (!projet) return res.status(404).json({ error: 'Projet non trouvé' });
 
-        const statutsSuivants = getStatutsSuivants(projet.statut);
+        let statutsSuivants = getStatutsSuivants(projet.statut);
+        // Filtrer par étapes actives du projet
+        const etapes = await pgDb.all('SELECT * FROM projet_etapes WHERE projet_id = $1 AND actif = 1 ORDER BY ordre', [id]);
+        if (etapes.length > 0) {
+            const actives = new Set(etapes.map(e => e.etape));
+            statutsSuivants = statutsSuivants.filter(s => actives.has(s));
+        }
         const transitions = [];
         for (const statut of statutsSuivants) {
             const controles = await getControlesCompletude(id, statut);
@@ -1612,6 +1618,47 @@ const supprimerMembreComite = async (req, res) => {
     }
 };
 
+// ============================================
+// ÉTAPES PROJET
+// ============================================
+
+const ETAPES_PAR_DEFAUT = ['idee','demande_initiale','etude_dsi','arbitrage','planification','en_cours','en_recette','en_cloture','cloture'];
+
+const getEtapes = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const etapes = await pgDb.all('SELECT * FROM projet_etapes WHERE projet_id = $1 ORDER BY ordre', [id]);
+        if (etapes.length === 0) {
+            for (let i = 0; i < ETAPES_PAR_DEFAUT.length; i++) {
+                await pgDb.run(
+                    'INSERT INTO projet_etapes (projet_id, etape, actif, ordre) VALUES ($1, $2, 1, $3) ON CONFLICT DO NOTHING',
+                    [id, ETAPES_PAR_DEFAUT[i], i]
+                );
+            }
+            const etapes = await pgDb.all('SELECT * FROM projet_etapes WHERE projet_id = $1 ORDER BY ordre', [id]);
+            return res.json(etapes);
+        }
+        res.json(etapes);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const toggleEtape = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { etape, actif } = req.body;
+        if (!etape) return res.status(400).json({ error: 'etape requis' });
+        await pgDb.run(
+            'INSERT INTO projet_etapes (projet_id, etape, actif, ordre) VALUES ($1, $2, $3, $4) ON CONFLICT (projet_id, etape) DO UPDATE SET actif = $3',
+            [id, etape, actif ? 1 : 0, ETAPES_PAR_DEFAUT.indexOf(etape)]
+        );
+        res.json({ message: 'Étape mise à jour' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     setSendMail,
     getAll, getMesProjets, getById, create, update, remove,
@@ -1633,5 +1680,6 @@ module.exports = {
     getDependances, ajouterDependance, supprimerDependance, verifierDependances,
     getAttendus, setAttendus,
     getComites, ajouterComite, updateComite, supprimerComite,
-    ajouterMembreComite, supprimerMembreComite
+    ajouterMembreComite, supprimerMembreComite,
+    getEtapes, toggleEtape
 };

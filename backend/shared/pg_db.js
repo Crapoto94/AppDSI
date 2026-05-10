@@ -47,7 +47,8 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!transcript\.)\btranscript_cues\b/gi, 'transcript.cues')
                     .replace(/(?<!transcript\.)\btranscript_tasks\b/gi, 'transcript.tasks')
                     .replace(/(?<!projets\.)\bprojet_comites\b/gi, 'projets.projet_comites')
-                    .replace(/(?<!projets\.)\bprojet_comites_membres\b/gi, 'projets.projet_comites_membres');
+                    .replace(/(?<!projets\.)\bprojet_comites_membres\b/gi, 'projets.projet_comites_membres')
+                    .replace(/(?<!projets\.)\bprojet_etapes\b/gi, 'projets.projet_etapes');
 
     newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
                     .replace(/transcript_cues/gi, 'transcript.cues')
@@ -1033,6 +1034,17 @@ async function setupPgDb() {
         telephone TEXT,
         ad_username TEXT,
         date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_etapes (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        etape TEXT NOT NULL,
+        actif INTEGER DEFAULT 1,
+        ordre INTEGER DEFAULT 0,
+        UNIQUE(projet_id, etape)
       );
     `);
 
