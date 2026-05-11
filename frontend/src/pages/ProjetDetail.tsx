@@ -1991,6 +1991,33 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
           ))}
         </div>
       </div>
+      {/* Suppression du projet (admin/PMO only) */}
+      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', borderLeft: '4px solid #ef4444' }}>
+        <h3 style={{ margin: '0 0 8px', fontSize: '14px', fontWeight: '700', color: '#dc2626', textTransform: 'uppercase' }}>🗑️ Zone dangereuse</h3>
+        <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 12px' }}>
+          Supprimer définitivement ce projet et toutes ses dépendances (tâches, jalons, documents, comités, etc.).<br />
+          <strong>Cette action est irréversible.</strong>
+        </p>
+        <button onClick={async () => {
+          const confirm1 = window.prompt('Tapez le code du projet pour confirmer la suppression :');
+          if (!confirm1 || confirm1 !== projet.code) return;
+          const confirm2 = window.confirm(`Êtes-vous absolument sûr de vouloir supprimer "${projet.titre}" (${projet.code}) ? Cette action supprimera également tous les sous-projets, documents, tâches et comités associés.`);
+          if (!confirm2) return;
+          try {
+            const res = await fetch(`/api/projets/${projetId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+            const data = await res.json();
+            if (data.message) {
+              window.location.href = '/portefeuille-projets';
+            } else {
+              alert(data.error || 'Erreur lors de la suppression');
+            }
+          } catch (e) {
+            alert('Erreur lors de la suppression');
+          }
+        }} style={{ padding: '8px 18px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>
+          🗑️ Supprimer le projet
+        </button>
+      </div>
     </div>
   );
 };
