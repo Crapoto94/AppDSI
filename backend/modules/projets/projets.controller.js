@@ -706,6 +706,21 @@ const creerDocument = async (req, res) => {
     }
 };
 
+const updateDocumentType = async (req, res) => {
+    try {
+        const { id, did } = req.params;
+        const { type_documentaire, type_vrac } = req.body;
+        if (!type_documentaire) return res.status(400).json({ error: 'type_documentaire requis' });
+        await pgDb.run(
+            'UPDATE projet_documents SET type_documentaire = $1, type_vrac = $2 WHERE id = $3 AND projet_id = $4',
+            [type_documentaire, type_vrac ? 1 : 0, did, id]
+        );
+        res.json({ message: 'Document mis à jour' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 const uploadVersion = async (req, res) => {
     try {
         const { id, did } = req.params;
@@ -1794,7 +1809,7 @@ module.exports = {
     getTransitionsPossibles, effectuerTransition, getControles,
     ajouterRole, supprimerRole,
     ajouterVisibilite, supprimerVisibilite,
-    creerDocument, uploadVersion, uploadVersionsVrac, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
+    creerDocument, updateDocumentType, uploadVersion, uploadVersionsVrac, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
     enregistrerScore, getScores, getScoreCalcule,
     lierReunion, delierReunion, getReunionsLiees,
     getJournal, ajouterEntreeJournal,

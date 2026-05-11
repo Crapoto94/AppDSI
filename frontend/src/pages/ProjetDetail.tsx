@@ -1490,6 +1490,10 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
   const [uploadToJournal, setUploadToJournal] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [uploadTotalFiles, setUploadTotalFiles] = useState(0);
+  const [editDocType, setEditDocType] = useState<{ id: number; currentType: string } | null>(null);
 
   useEffect(() => { setDocs(documents); }, [documents]);
 
@@ -1527,15 +1531,21 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
     setUploading(true);
+    setUploadProgress(0);
+    setUploadedFiles(files.map(f => f.name));
+    setUploadTotalFiles(files.length);
     const form = new FormData();
     files.forEach(f => form.append('files', f));
+    setUploadProgress(30);
     await fetch(`/api/projets/${projetId}/documents/versions/vrac`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
     });
+    setUploadProgress(80);
     const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
     const d = await r.json();
     if (Array.isArray(d)) setDocs(d);
-    setUploading(false);
+    setUploadProgress(100);
+    setTimeout(() => { setUploading(false); setUploadProgress(0); setUploadedFiles([]); }, 2500);
   };
 
   const docsFiltres = sousOnglet === 'contractuels' ? docs.filter(d => d.est_contractuel)
@@ -1603,13 +1613,30 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
       )}
 
       {/* Zone glisser-déposer vrac */}
-      <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
-        style={{ background: dragOver ? '#eff6ff' : '#f8fafc', borderRadius: '12px', border: `2px dashed ${dragOver ? '#2563eb' : '#e2e8f0'}`, padding: '30px', marginBottom: '16px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
-        <div style={{ fontSize: '13px', color: dragOver ? '#2563eb' : '#94a3b8', fontWeight: '600' }}>
-          📦 Glissez-déposez des fichiers ici<br />
-          <span style={{ fontSize: '11px', fontWeight: '400' }}>Ils seront classés comme "documentation en vrac"</span>
+      {!uploading ? (
+        <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
+          style={{ background: dragOver ? '#eff6ff' : '#f8fafc', borderRadius: '12px', border: `2px dashed ${dragOver ? '#2563eb' : '#e2e8f0'}`, padding: '30px', marginBottom: '16px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
+          <div style={{ fontSize: '13px', color: dragOver ? '#2563eb' : '#94a3b8', fontWeight: '600' }}>
+            📦 Glissez-déposez des fichiers ici<br />
+            <span style={{ fontSize: '11px', fontWeight: '400' }}>Ils seront classés comme "documentation en vrac"</span>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div style={{ background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', marginBottom: '10px' }}>📤 Upload en cours... ({uploadProgress}%)</div>
+          <div style={{ height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', marginBottom: '10px' }}>
+            <div style={{ width: `${uploadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #2563eb, #3b82f6)', borderRadius: '4px', transition: 'width 0.3s ease' }} />
+          </div>
+          <div style={{ fontSize: '12px', color: '#64748b' }}>
+            {uploadedFiles.map((name, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0' }}>
+                <span style={{ color: uploadProgress >= 100 ? '#16a34a' : '#94a3b8' }}>{uploadProgress >= 100 ? '✅' : '⏳'}</span>
+                {name}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Liste documents */}
       {docsFiltres.length === 0 ? (
@@ -1663,6 +1690,36 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
                         🔗 Ouvrir
                       </a>
                     ) : <span style={{ color: '#cbd5e1', fontSize: '12px' }}>—</span>}
+                    {d.type_vrac && (
+                      <>
+                        {editDocType?.id === d.id ? (
+                          <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                            <select value={editDocType.currentType} onChange={e => setEditDocType({...editDocType, currentType: e.target.value})}
+                              style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', background: 'white', width: '120px' }}>
+                              {['fiche_idee','fiche_demande','charte_projet','note_arbitrage','plan_projet','plan_communication','compte_rendu','va','vsr','doc_fonctionnelle','doc_technique','bilan_cloture','autre'].map(t => (
+                                <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+                              ))}
+                            </select>
+                            <button onClick={async () => {
+                              await fetch(`/api/projets/${projetId}/documents/${d.id}/type`, {
+                                method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                body: JSON.stringify({ type_documentaire: editDocType.currentType, type_vrac: 0 })
+                              });
+                              setEditDocType(null);
+                              const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
+                              const rd = await r.json();
+                              if (Array.isArray(rd)) setDocs(rd);
+                            }} style={{ padding: '3px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: '600' }}>OK</button>
+                            <button onClick={() => setEditDocType(null)} style={{ padding: '3px 8px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}>✕</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setEditDocType({ id: d.id, currentType: d.type_documentaire })}
+                            style={{ padding: '3px 8px', background: '#f1f5f9', borderRadius: '4px', fontSize: '10px', color: '#475569', border: 'none', cursor: 'pointer', fontWeight: '600', display: 'block', marginTop: '4px' }}>
+                            ✏️ Classer
+                          </button>
+                        )}
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}

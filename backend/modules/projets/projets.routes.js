@@ -62,6 +62,7 @@ router.delete('/:id/visibilite/:vid', authenticateJWT, ctrl.supprimerVisibilite)
 // DOCUMENTS
 // ============================================
 router.post('/:id/documents', authenticateJWT, ctrl.creerDocument);
+router.put('/:id/documents/:did/type', authenticateJWT, ctrl.updateDocumentType);
 router.post('/:id/documents/versions/vrac', authenticateJWT, uploadDoc.array('files', 20), ctrl.uploadVersionsVrac);
 router.get('/:id/documents', authenticateJWT, ctrl.getDocuments);
 router.get('/:id/documents/controles', authenticateJWT, ctrl.getControlesDocuments);
