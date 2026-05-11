@@ -56,7 +56,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const detailAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingTaskIndex, setEditingTaskIndex] = useState<number | null>(null);
   const [editTaskData, setEditTaskData] = useState({ tache: '', responsable: '', echeance: '', statut: 'a_faire' });
-  const [taskAdQuery, setTaskAdQuery] = useState('');
+
   const [taskAdResults, setTaskAdResults] = useState<ADUser[]>([]);
   const [taskAdSearching, setTaskAdSearching] = useState(false);
   const taskAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -89,7 +89,6 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   }, [token]);
 
   const searchADForTask = useCallback((q: string) => {
-    setTaskAdQuery(q);
     if (taskAdSearchTimerRef.current) clearTimeout(taskAdSearchTimerRef.current);
     if (q.length < 2) { setTaskAdResults([]); return; }
     setTaskAdSearching(true);
@@ -106,7 +105,6 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
     const items = JSON.parse(detailReunionData.liste_taches || '[]') as any[];
     setEditingTaskIndex(index);
     setEditTaskData({ ...items[index] });
-    setTaskAdQuery(items[index].responsable || '');
     setTaskAdResults([]);
   };
 
@@ -117,14 +115,12 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
     setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)}));
     setEditingTaskIndex(null);
     setTaskAdResults([]);
-    setTaskAdQuery('');
     setTimeout(autoSave, 0);
   };
 
   const cancelEditTask = () => {
     setEditingTaskIndex(null);
     setTaskAdResults([]);
-    setTaskAdQuery('');
   };
 
   const fetchAttachments = async (id: number) => {

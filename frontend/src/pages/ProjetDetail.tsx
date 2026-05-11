@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, ArrowUpDown, X } from 'lucide-react';
+import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X } from 'lucide-react';
 import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
@@ -84,7 +84,6 @@ const ProjetDetail: React.FC = () => {
   const isPMO = user?.est_pmo;
   const isChefProjet = projet?.chef_projet_username === user?.username || projet?.responsable_dsi_username === user?.username || (projet?.roles || []).some(r => r.username === user?.username && r.role === 'chef_projet');
   const peutVoirAdmin = isAdmin || isPMO || isChefProjet;
-  const peutVoirAdminGenerale = isAdmin || isPMO;
   const TABS = ALL_TABS.filter(t => {
     if (t.key === 'admin') return peutVoirAdmin;
     return true;
@@ -483,8 +482,6 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
 };
 
   const renderAdmin = () => <AdminTab projetId={projet.id} token={token} projet={projet} onRefresh={refreshAll} />;
-  const renderAdminGenerale = () => <AdminGeneraleTab token={token} />;
-
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
       <Header />
@@ -1862,7 +1859,6 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
   const [newResponsable, setNewResponsable] = useState('');
   const [newEcheance, setNewEcheance] = useState('');
   const [adding, setAdding] = useState(false);
-  const [adQuery, setAdQuery] = useState('');
   const [adResults, setAdResults] = useState<ADUser[]>([]);
   const [adSearching, setAdSearching] = useState(false);
   const adSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1875,7 +1871,6 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
   const [noteTaskRef, setNoteTaskRef] = useState<any>(null);
 
   const searchAD = useCallback((q: string) => {
-    setAdQuery(q);
     if (adSearchTimerRef.current) clearTimeout(adSearchTimerRef.current);
     if (q.length < 2) { setAdResults([]); return; }
     setAdSearching(true);
@@ -1994,8 +1989,7 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
     const tache = (editForm.tache || '').trim();
     if (!tache) { alert('Le texte de la tâche est obligatoire'); return; }
     try {
-      const body = { ...editForm, tache };
-      if (!body.echeance) body.echeance = null;
+      const body: Record<string, any> = { ...editForm, tache, echeance: editForm.echeance || null };
       const r = await fetch(`/api/projets/${projetId}/taches-agregees/${editingTaskId}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -2015,7 +2009,7 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ tache: newTache, responsable: newResponsable, echeance: newEcheance || null, statut: 'a_faire' })
       });
-      if (r.ok) { setNewTache(''); setNewResponsable(''); setNewEcheance(''); setAdQuery(''); setAdResults([]); loadTasks(); }
+      if (r.ok) { setNewTache(''); setNewResponsable(''); setNewEcheance(''); setAdResults([]); loadTasks(); }
       else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
     } catch (e) { alert('Erreur réseau'); }
     finally { setAdding(false); }
@@ -2069,7 +2063,7 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
             {adResults.length > 0 && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, border: '1px solid #bfdbfe', borderRadius: '4px', background: 'white', maxHeight: '120px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
                 {adResults.map(u => (
-                  <div key={u.username} style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }} onClick={() => { setNewResponsable(u.displayName); setAdResults([]); setAdQuery(u.displayName); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
+                  <div key={u.username} style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }} onClick={() => { setNewResponsable(u.displayName); setAdResults([]); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
                     <div style={{ fontWeight: '600' }}>{u.displayName}</div>
                     <div style={{ fontSize: '10px', color: '#64748b' }}>{u.email}</div>
                   </div>
@@ -2536,121 +2530,6 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
   );
 };
 
-// ===== ONGLET ADMIN GÉNÉRALE =====
-const AdminGeneraleTab: React.FC<{ token: string | null }> = ({ token }) => {
-  const [scoringConfig, setScoringConfig] = useState<any[]>([]);
-  const [docTypes, setDocTypes] = useState<any[]>([]);
-  const [tab, setTab] = useState('scoring');
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      fetch('/api/projets/admin/scoring-config', { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => r.json()).then(d => { if (Array.isArray(d)) setScoringConfig(d); }).catch(() => {}),
-      fetch('/api/projets/admin/types-documentaires', { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => r.json()).then(d => { if (Array.isArray(d)) setDocTypes(d); }).catch(() => {}),
-    ]).finally(() => setLoading(false));
-  }, [token]);
-
-  const saveScoring = async () => {
-    await fetch('/api/projets/admin/scoring-config', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ criteres: scoringConfig })
-    });
-  };
-
-  const saveDocTypes = async () => {
-    await fetch('/api/projets/admin/types-documentaires', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ types: docTypes })
-    });
-  };
-
-  if (loading) return <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Chargement...</p>;
-
-  return (
-    <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', gap: '2px', borderBottom: '2px solid #e2e8f0' }}>
-        {[
-          { key: 'scoring', label: '📊 Configuration scoring' },
-          { key: 'docTypes', label: '📄 Types documentaires' }
-        ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{
-            padding: '10px 18px', border: 'none', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent',
-            background: tab === t.key ? '#eff6ff' : 'transparent', cursor: 'pointer', fontWeight: tab === t.key ? '700' : '500',
-            color: tab === t.key ? '#2563eb' : '#64748b', fontSize: '13px', marginBottom: '-2px'
-          }}>{t.label}</button>
-        ))}
-      </div>
-
-      {tab === 'scoring' && (
-        <div style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#1e293b' }}>Critères de scoring</h3>
-            <button onClick={saveScoring} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>💾 Enregistrer</button>
-          </div>
-          {scoringConfig.map((c: any, i: number) => (
-            <div key={c.critere} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ minWidth: '180px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>{c.label}</span>
-              <input value={c.poids} onChange={e => {
-                const newConfig = [...scoringConfig];
-                newConfig[i] = { ...newConfig[i], poids: parseInt(e.target.value) || 0 };
-                setScoringConfig(newConfig);
-              }} type="number" min="0" max="100" style={{ width: '60px', padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px', textAlign: 'center' }} />
-              <span style={{ fontSize: '12px', color: '#94a3b8' }}>%</span>
-              <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
-                <input type="checkbox" checked={c.actif} onChange={e => {
-                  const newConfig = [...scoringConfig];
-                  newConfig[i] = { ...newConfig[i], actif: e.target.checked ? 1 : 0 };
-                  setScoringConfig(newConfig);
-                }} /> Actif
-              </label>
-            </div>
-          ))}
-          <div style={{ marginTop: '12px', padding: '10px 14px', background: '#f8fafc', borderRadius: '8px', fontSize: '12px', color: '#64748b' }}>
-            Total des poids : {scoringConfig.reduce((sum: number, c: any) => sum + (c.poids || 0), 0)}/100
-          </div>
-        </div>
-      )}
-
-      {tab === 'docTypes' && (
-        <div style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#1e293b' }}>Types documentaires</h3>
-            <button onClick={saveDocTypes} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>💾 Enregistrer</button>
-          </div>
-          {docTypes.map((t: any, i: number) => (
-            <div key={t.code} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-              <span style={{ minWidth: '120px', fontSize: '12px', color: '#94a3b8' }}>{t.code}</span>
-              <input value={t.label} onChange={e => {
-                const newTypes = [...docTypes];
-                newTypes[i] = { ...newTypes[i], label: e.target.value };
-                setDocTypes(newTypes);
-              }} style={{ flex: 1, padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
-              <select value={t.phase_concernee || ''} onChange={e => {
-                const newTypes = [...docTypes];
-                newTypes[i] = { ...newTypes[i], phase_concernee: e.target.value || null };
-                setDocTypes(newTypes);
-              }} style={{ padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
-                <option value="">Toutes phases</option>
-                {Object.entries(STATUT_LABELS).filter(([k]) => k !== 'refuse' && k !== 'suspendu' && k !== 'abandonne').map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
-                ))}
-              </select>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
-                <input type="checkbox" checked={t.obligatoire} onChange={e => {
-                  const newTypes = [...docTypes];
-                  newTypes[i] = { ...newTypes[i], obligatoire: e.target.checked ? 1 : 0 };
-                  setDocTypes(newTypes);
-                }} /> Obligatoire
-              </label>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
 
 export default ProjetDetail;

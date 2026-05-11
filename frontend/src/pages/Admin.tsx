@@ -2356,13 +2356,34 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     {/* Limite de caractères */}
                     <div className="form-field full-width" style={{ marginTop: '0.5rem' }}>
                       <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span>📏</span> Limite de contexte envoyée à l'IA
+                        <span>📏</span> Limite de contexte envoyée à l'IA (caractères)
                       </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '8px', fontSize: '0.9rem' }}>
-                        <span style={{ fontWeight: 700, fontSize: '1.3rem', color: '#7c3aed' }}>
-                          {(MAX_CHARS_BY_PROVIDER[transcriptConfig.ai_provider] || 24000).toLocaleString('fr-FR')}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <input
+                          type="number"
+                          className="admin-input"
+                          style={{ width: '160px', fontWeight: 700, fontSize: '1rem' }}
+                          min={1000}
+                          max={500000}
+                          step={1000}
+                          value={transcriptConfig.max_chars_context || MAX_CHARS_BY_PROVIDER[transcriptConfig.ai_provider] || 24000}
+                          onChange={e => setTranscriptConfig({ ...transcriptConfig, max_chars_context: e.target.value })}
+                        />
+                        <span style={{ fontSize: '0.85rem', color: '#6d28d9' }}>
+                          ≈ {Math.round(parseInt(transcriptConfig.max_chars_context || String(MAX_CHARS_BY_PROVIDER[transcriptConfig.ai_provider] || 24000)) / 4).toLocaleString('fr-FR')} tokens
+                          {!transcriptConfig.max_chars_context && (
+                            <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: '#94A3B8' }}>(défaut {transcriptConfig.ai_provider})</span>
+                          )}
                         </span>
-                        <span style={{ color: '#6d28d9' }}>caractères max du transcript ({Math.round((MAX_CHARS_BY_PROVIDER[transcriptConfig.ai_provider] || 24000) / 4).toLocaleString('fr-FR')} tokens environ)</span>
+                        {transcriptConfig.max_chars_context && (
+                          <button
+                            type="button"
+                            style={{ fontSize: '0.75rem', color: '#94A3B8', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                            onClick={() => setTranscriptConfig({ ...transcriptConfig, max_chars_context: '' })}
+                          >
+                            Réinitialiser
+                          </button>
+                        )}
                       </div>
                     </div>
 
