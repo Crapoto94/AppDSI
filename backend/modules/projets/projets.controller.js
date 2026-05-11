@@ -196,7 +196,8 @@ const getAll = async (req, res) => {
                    (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
                    (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
                    (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard,
-                   EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($${userCheckParam})) as user_est_intervenant
+                   EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($${userCheckParam})) as user_est_intervenant,
+                   (SELECT STRING_AGG(ma.name, ', ') FROM projet_applications pa JOIN magapp.apps ma ON ma.id = pa.app_id WHERE pa.projet_id = p.id) as app_names
             FROM projets p
             ${where}
             ORDER BY ${orderBy}
