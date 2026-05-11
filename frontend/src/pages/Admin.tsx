@@ -1136,8 +1136,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     try {
       const response = await fetch('/api/transcript-settings/test', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(transcriptConfig)
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       const text = await response.text();
       try {

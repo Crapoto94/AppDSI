@@ -647,13 +647,16 @@ app.post('/api/transcript-settings', authenticateAdmin, async (req, res) => {
 });
 
 app.post('/api/transcript-settings/test', authenticateAdmin, async (req, res) => {
-    const payload = req.body || {};
-    const provider = payload.ai_provider || 'groq';
-
-    const isMasked = (v) => v && (v.includes('••••') || v.includes('****') || v === '********');
-    const cleanKey = (v) => isMasked(v) ? '' : (v || '').trim();
-
     try {
+        // Lecture des settings depuis la base (pas depuis le frontend qui masque les clés)
+        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model'];
+        const config = {};
+        for (const key of keys) {
+            const s = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
+            config[key] = s ? s.setting_value : '';
+        }
+
+        const provider = config.ai_provider || 'groq';
         let apiKey = '';
         let model = '';
         let apiUrl = '';
@@ -661,38 +664,37 @@ app.post('/api/transcript-settings/test', authenticateAdmin, async (req, res) =>
 
         switch (provider) {
             case 'gemini':
-                apiKey = cleanKey(payload.gemini_api_key);
+                apiKey = config.gemini_api_key;
                 model = 'gemini-1.5-flash';
                 apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
                 break;
             case 'openrouter':
-                apiKey = cleanKey(payload.openrouter_api_key);
-                model = payload.default_model || 'google/gemini-2.0-flash-001';
+                apiKey = config.openrouter_api_key;
+                model = config.default_model || 'google/gemini-2.0-flash-001';
                 apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
                 if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
                 break;
             case 'anthropic':
-                apiKey = cleanKey(payload.anthropic_api_key);
-                model = payload.anthropic_model || 'claude-3-5-sonnet-20240620';
+                apiKey = config.anthropic_api_key;
+                model = config.anthropic_model || 'claude-3-5-sonnet-20240620';
                 apiUrl = 'https://api.anthropic.com/v1/messages';
                 if (apiKey) headers['x-api-key'] = apiKey;
                 headers['anthropic-version'] = '2023-06-01';
                 break;
             case 'ollama':
-                apiUrl = `${payload.ollama_host || 'http://localhost:11434'}/api/generate`;
+                apiUrl = `${config.ollama_host || 'http://localhost:11434'}/api/generate`;
                 model = 'llama3';
                 break;
             default:
-                apiKey = cleanKey(payload.groq_api_key);
-                model = payload.default_model || 'llama-3.3-70b-versatile';
+                apiKey = config.groq_api_key;
+                model = config.default_model || 'llama-3.3-70b-versatile';
                 apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
                 if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
                 break;
         }
 
         if (provider !== 'ollama' && !apiKey) {
-            const masked = isMasked(provider === 'groq' ? payload.groq_api_key : provider === 'gemini' ? payload.gemini_api_key : provider === 'openrouter' ? payload.openrouter_api_key : payload.anthropic_api_key);
-            return res.json({ success: false, message: masked ? 'La clé API est masquée. Saisissez-la à nouveau avant de tester.' : 'Clé API manquante' });
+            return res.json({ success: false, message: `Aucune clé API configurée pour ${provider} dans la base de données.` });
         }
 
         let body;
