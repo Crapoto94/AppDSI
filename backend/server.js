@@ -660,12 +660,14 @@ app.post('/api/transcript-settings/test', authenticateAdmin, async (req, res) =>
                 apiKey = payload.gemini_api_key;
                 model = 'gemini-1.5-flash';
                 apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+                headers['Content-Type'] = 'application/json';
                 break;
             case 'openrouter':
                 apiKey = payload.openrouter_api_key;
                 model = payload.default_model || 'google/gemini-2.0-flash-001';
                 apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
                 headers['Authorization'] = `Bearer ${apiKey}`;
+                headers['Content-Type'] = 'application/json';
                 break;
             case 'anthropic':
                 apiKey = payload.anthropic_api_key;
@@ -673,10 +675,12 @@ app.post('/api/transcript-settings/test', authenticateAdmin, async (req, res) =>
                 apiUrl = 'https://api.anthropic.com/v1/messages';
                 headers['x-api-key'] = apiKey;
                 headers['anthropic-version'] = '2023-06-01';
+                headers['Content-Type'] = 'application/json';
                 break;
             case 'ollama':
                 apiUrl = `${payload.ollama_host || 'http://localhost:11434'}/api/generate`;
                 model = 'llama3';
+                headers['Content-Type'] = 'application/json';
                 break;
             case 'groq':
             default:
@@ -684,6 +688,7 @@ app.post('/api/transcript-settings/test', authenticateAdmin, async (req, res) =>
                 model = payload.default_model || 'llama-3.3-70b-versatile';
                 apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
                 headers['Authorization'] = `Bearer ${apiKey}`;
+                headers['Content-Type'] = 'application/json';
                 break;
         }
 
@@ -711,11 +716,24 @@ app.post('/api/transcript-settings/test', authenticateAdmin, async (req, res) =>
         if (response.status >= 200 && response.status < 300) {
             res.json({ success: true, message: `Connexion réussie à ${provider}` });
         } else {
-            const errMsg = response.data?.error?.message || response.data?.error || JSON.stringify(response.data);
+            let errMsg = '';
+            try {
+                errMsg = response.data?.error?.message || response.data?.error || (typeof response.data === 'object' ? JSON.stringify(response.data) : String(response.data).substring(0, 500));
+            } catch {
+                errMsg = `HTTP ${response.status}`;
+            }
             res.json({ success: false, message: `${provider} a répondu (${response.status}): ${errMsg}` });
         }
     } catch (error) {
-        res.json({ success: false, message: `Erreur de connexion: ${error.message}` });
+        let detail = error.message;
+        if (error.response && error.response.data) {
+            const d = error.response.data;
+            detail = typeof d === 'string' ? d.substring(0, 200) : (d?.error?.message || d?.error || error.message);
+        }
+        if (error.code === 'ECONNREFUSED' || error.code === 'ECONNABORTED') {
+            detail = `Impossible de joindre ${provider} (${error.code})`;
+        }
+        res.json({ success: false, message: `Erreur: ${detail}` });
     }
 });
 
