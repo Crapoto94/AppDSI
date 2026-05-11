@@ -615,6 +615,41 @@ app.post('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
     }
 });
 
+// --- Transcript Settings API ---
+app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model'];
+        const config = {};
+        for (const key of keys) {
+            const s = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
+            config[key] = s ? s.setting_value : '';
+        }
+        res.json(config);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lecture paramètres Transcript' });
+    }
+});
+
+app.post('/api/transcript-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const payload = req.body;
+        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model'];
+        for (const key of keys) {
+            if (payload[key] !== undefined && payload[key] !== '••••••••' && payload[key] !== '********') {
+                const existing = await db.get('SELECT 1 FROM app_settings WHERE setting_key = ?', [key]);
+                if (existing) {
+                    await db.run('UPDATE app_settings SET setting_value = ? WHERE setting_key = ?', [payload[key], key]);
+                } else {
+                    await db.run('INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)', [key, payload[key]]);
+                }
+            }
+        }
+        res.json({ message: 'Paramètres Transcript enregistrés' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur enregistrement paramètres Transcript' });
+    }
+});
+
 // --- Azure AD (Entra ID) OAuth Routes ---
 
 app.get('/api/auth/azure/login', async (req, res) => {

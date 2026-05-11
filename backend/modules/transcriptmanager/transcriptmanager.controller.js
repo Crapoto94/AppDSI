@@ -19,7 +19,8 @@ const transcriptController = {
             const meetings = await db.all(`
                 SELECT m.*, 
                 (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
-                (SELECT string_agg(DISTINCT speaker_email, ',') FROM transcript_cues WHERE meeting_id = m.id AND speaker_email IS NOT NULL) as speaker_emails
+                (SELECT string_agg(DISTINCT speaker_email, ',') FROM transcript_cues WHERE meeting_id = m.id AND speaker_email IS NOT NULL) as speaker_emails,
+                (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds
                 FROM transcript_meetings m 
                 ORDER BY meeting_date DESC, created_at DESC
             `);
