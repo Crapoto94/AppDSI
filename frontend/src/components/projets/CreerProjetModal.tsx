@@ -149,7 +149,13 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
             </div>
             <div>
               <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px', display: 'block' }}>Service pilote *</label>
-              <input value={form.service_pilote} onChange={e => setForm({ ...form, service_pilote: e.target.value })} placeholder="Ex: DSI" style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px' }} />
+              <select value={form.service_pilote} onChange={e => setForm({ ...form, service_pilote: e.target.value })} style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', background: 'white' }}>
+                <option value="">Sélectionner...</option>
+                <option value="BF1">BF1 — Direction des Systèmes d'Information</option>
+                <option value="BF6">BF6 — Infrastructure Systèmes et Réseaux</option>
+                <option value="BF8">BF8 — Bureau des Projets</option>
+                <option value="BF9">BF9 — Support et Déploiement</option>
+              </select>
             </div>
           </div>
           <div>
