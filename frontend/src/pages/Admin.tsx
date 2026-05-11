@@ -1139,8 +1139,13 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(transcriptConfig)
       });
-      const data = await response.json();
-      setTranscriptTestResult(data);
+      const text = await response.text();
+      try {
+        const data = JSON.parse(text);
+        setTranscriptTestResult(data);
+      } catch {
+        setTranscriptTestResult({ success: false, message: `Réponse inattendue du serveur: ${text.substring(0, 300)}` });
+      }
     } catch (err: any) {
       setTranscriptTestResult({ success: false, message: err.message });
     } finally {

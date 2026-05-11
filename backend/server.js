@@ -647,27 +647,25 @@ app.post('/api/transcript-settings', authenticateAdmin, async (req, res) => {
 });
 
 app.post('/api/transcript-settings/test', authenticateAdmin, async (req, res) => {
+    const payload = req.body || {};
+    const provider = payload.ai_provider || 'groq';
     try {
-        const payload = req.body || {};
-        const provider = payload.ai_provider || 'groq';
         let apiKey = '';
         let model = '';
         let apiUrl = '';
-        const headers = {};
+        const headers = { Accept: 'application/json' };
 
         switch (provider) {
             case 'gemini':
                 apiKey = payload.gemini_api_key;
                 model = 'gemini-1.5-flash';
                 apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-                headers['Content-Type'] = 'application/json';
                 break;
             case 'openrouter':
                 apiKey = payload.openrouter_api_key;
                 model = payload.default_model || 'google/gemini-2.0-flash-001';
                 apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
                 headers['Authorization'] = `Bearer ${apiKey}`;
-                headers['Content-Type'] = 'application/json';
                 break;
             case 'anthropic':
                 apiKey = payload.anthropic_api_key;
@@ -675,65 +673,64 @@ app.post('/api/transcript-settings/test', authenticateAdmin, async (req, res) =>
                 apiUrl = 'https://api.anthropic.com/v1/messages';
                 headers['x-api-key'] = apiKey;
                 headers['anthropic-version'] = '2023-06-01';
-                headers['Content-Type'] = 'application/json';
                 break;
             case 'ollama':
                 apiUrl = `${payload.ollama_host || 'http://localhost:11434'}/api/generate`;
                 model = 'llama3';
-                headers['Content-Type'] = 'application/json';
                 break;
-            case 'groq':
             default:
                 apiKey = payload.groq_api_key;
                 model = payload.default_model || 'llama-3.3-70b-versatile';
                 apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
                 headers['Authorization'] = `Bearer ${apiKey}`;
-                headers['Content-Type'] = 'application/json';
                 break;
         }
 
         if (provider !== 'ollama' && !apiKey) {
-            return res.status(400).json({ success: false, message: 'Clé API manquante' });
+            return res.json({ success: false, message: 'Clé API manquante' });
         }
 
         let body;
-        let response;
+        let axiosConfig = { headers, timeout: 15000, validateStatus: () => true };
 
         if (provider === 'ollama') {
-            body = { model, prompt: 'Réponds en un mot: OK', stream: false };
-            response = await axios.post(apiUrl, body, { headers, timeout: 15000, validateStatus: () => true });
+            body = { model, prompt: 'Réponds OK', stream: false };
         } else if (provider === 'gemini') {
-            body = { contents: [{ parts: [{ text: 'Réponds en un mot: OK' }] }] };
-            response = await axios.post(apiUrl, body, { headers, timeout: 15000, validateStatus: () => true });
+            body = { contents: [{ parts: [{ text: 'OK' }] }] };
         } else if (provider === 'anthropic') {
-            body = { model, max_tokens: 10, messages: [{ role: 'user', content: 'Réponds en un mot: OK' }] };
-            response = await axios.post(apiUrl, body, { headers, timeout: 15000, validateStatus: () => true });
+            body = { model, max_tokens: 10, messages: [{ role: 'user', content: 'OK' }] };
         } else {
-            body = { model, messages: [{ role: 'user', content: 'Réponds en un mot: OK' }], max_tokens: 10 };
-            response = await axios.post(apiUrl, body, { headers, timeout: 15000, validateStatus: () => true });
+            body = { model, messages: [{ role: 'user', content: 'OK' }], max_tokens: 10 };
         }
 
+        const response = await axios.post(apiUrl, body, axiosConfig);
+
         if (response.status >= 200 && response.status < 300) {
-            res.json({ success: true, message: `Connexion réussie à ${provider}` });
-        } else {
-            let errMsg = '';
-            try {
-                errMsg = response.data?.error?.message || response.data?.error || (typeof response.data === 'object' ? JSON.stringify(response.data) : String(response.data).substring(0, 500));
-            } catch {
-                errMsg = `HTTP ${response.status}`;
+            return res.json({ success: true, message: `Connexion réussie à ${provider}` });
+        }
+
+        let errMsg = `HTTP ${response.status}`;
+        try {
+            const rd = response.data;
+            if (rd && typeof rd === 'object') {
+                errMsg = rd.error?.message || rd.error || JSON.stringify(rd).substring(0, 300);
+            } else if (rd && typeof rd === 'string') {
+                errMsg = rd.substring(0, 300);
             }
-            res.json({ success: false, message: `${provider} a répondu (${response.status}): ${errMsg}` });
+        } catch (e) {
+            errMsg = `HTTP ${response.status}`;
         }
+        res.json({ success: false, message: `${provider} a répondu ${response.status}: ${errMsg}` });
     } catch (error) {
-        let detail = error.message;
-        if (error.response && error.response.data) {
+        let msg = error.message;
+        if (error.code === 'ECONNREFUSED') msg = `Connexion refusée à ${provider}`;
+        else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') msg = `Timeout de connexion à ${provider}`;
+        else if (error.response) {
             const d = error.response.data;
-            detail = typeof d === 'string' ? d.substring(0, 200) : (d?.error?.message || d?.error || error.message);
+            msg = typeof d === 'string' ? d.substring(0, 200) : (d?.error?.message || d?.error || msg);
         }
-        if (error.code === 'ECONNREFUSED' || error.code === 'ECONNABORTED') {
-            detail = `Impossible de joindre ${provider} (${error.code})`;
-        }
-        res.json({ success: false, message: `Erreur: ${detail}` });
+        console.error(`[TRANSCRIPT TEST] ${provider} error:`, error.message);
+        res.json({ success: false, message: msg });
     }
 });
 
