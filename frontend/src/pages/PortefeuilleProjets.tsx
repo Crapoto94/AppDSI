@@ -13,6 +13,7 @@ interface Projet {
   nb_taches_en_retard: number; nb_jalons_en_retard: number;
   commanditaire_username?: string; chef_projet_username?: string;
   user_est_intervenant?: boolean;
+  projet_parent_id?: number; app_names?: string;
 }
 
 interface Stats {
@@ -119,8 +120,20 @@ const PortefeuilleProjets: React.FC = () => {
     const impA = niveauImplication(a);
     const impB = niveauImplication(b);
     if (impA !== impB) return impA - impB;
+    // Place sub-projects right after their parent
+    if (a.projet_parent_id && a.projet_parent_id === b.id) return 1;
+    if (b.projet_parent_id && b.projet_parent_id === a.id) return -1;
     return 0;
   });
+
+  // Compute parent_title for display
+  const projetParentTitles: Record<number, string> = {};
+  for (const p of projets) {
+    if (p.projet_parent_id) {
+      const parent = projets.find(x => x.id === p.projet_parent_id);
+      if (parent) projetParentTitles[p.id] = `${parent.code} — ${parent.titre}`;
+    }
+  }
 
   const servicesList = projets.length > 0 ? [...new Set(projets.map(p => p.service_pilote))].sort() : [];
   const chefsList = [...new Set(projets.filter(p => p.chef_projet_username).map(p => p.chef_projet_username))].sort() as string[];
@@ -247,8 +260,12 @@ const PortefeuilleProjets: React.FC = () => {
                             onMouseEnter={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fef3c7' : '#f8fafc')}
                             onMouseLeave={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fffbeb' : 'transparent')}>
                             <td style={{ padding: '12px 16px' }}>
-                              <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px' }}>{p.titre}</div>
-                              <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}</div>
+                              <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', paddingLeft: p.projet_parent_id ? '20px' : '0' }}>
+                                {p.projet_parent_id && <span style={{ marginRight: '6px', color: '#94a3b8' }}>↳</span>}
+                                {p.titre}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}{p.projet_parent_id && projetParentTitles[p.id] ? ` · parent: ${projetParentTitles[p.id]}` : ''}</div>
+                              {p.app_names && <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>📱 {p.app_names}</div>}
                             </td>
                             <td style={{ padding: '12px 16px', textAlign: 'center', fontSize: '18px' }}>
                               {p.meteo === 'soleil' ? '☀️' : p.meteo === 'nuageux' ? '⛅' : p.meteo === 'orage' ? '⛈️' : '➖'}
@@ -262,7 +279,7 @@ const PortefeuilleProjets: React.FC = () => {
                             <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                               {p.priorite > 0 ? (
                                 <span style={{ fontWeight: '700', color: p.priorite >= 4 ? '#dc2626' : p.priorite >= 3 ? '#d97706' : '#16a34a', fontSize: '13px' }}>
-                                  {'★'.repeat(p.priorite)}{'☆'.repeat(5 - p.priorite)}
+                                  {'★'.repeat(Math.max(1, Math.min(p.priorite, 5)))}{'☆'.repeat(Math.max(0, 5 - Math.max(1, Math.min(p.priorite, 5))))}
                                 </span>
                               ) : <span style={{ color: '#cbd5e1' }}>—</span>}
                             </td>

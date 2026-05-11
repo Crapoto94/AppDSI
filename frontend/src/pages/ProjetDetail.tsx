@@ -330,6 +330,10 @@ const ProjetDetail: React.FC = () => {
                 </span>
               } />
               <InfoRow label="Score" value={`${projet.score_total}/100`} />
+              {projet.projet_parent && <InfoRow label="Projet parent" value={`${projet.projet_parent.code} — ${projet.projet_parent.titre}`} />}
+              {Array.isArray(projet.applications) && projet.applications.length > 0 && (
+                <InfoRow label="Applications" value={projet.applications.map((a: any) => a.app_name || `App #${a.app_id}`).join(', ')} />
+              )}
             </>
           )}
         </div>
@@ -373,7 +377,7 @@ const ProjetDetail: React.FC = () => {
               <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Projet parent</label>
               {editProjetParentId ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: '#f8fafc' }}>
-                  <span style={{ flex: 1 }}>#{editProjetParentId}</span>
+                  <span style={{ flex: 1 }}>{projet.projet_parent ? `${projet.projet_parent.code} — ${projet.projet_parent.titre}` : `#${editProjetParentId}`}</span>
                   <button onClick={() => setEditProjetParentId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px' }}>✕</button>
                 </div>
               ) : (
@@ -399,7 +403,7 @@ const ProjetDetail: React.FC = () => {
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '6px' }}>
                 {editAppIds.map(aid => (
                   <span key={aid} style={{ padding: '2px 8px', background: '#f0fdf4', borderRadius: '4px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                    App #{aid} <button onClick={() => setEditAppIds(editAppIds.filter(x => x !== aid))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', padding: 0, fontSize: '12px' }}>×</button>
+                    {projet.applications?.find((x: any) => x.app_id === aid)?.app_name || `App #${aid}`} <button onClick={() => setEditAppIds(editAppIds.filter(x => x !== aid))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', padding: 0, fontSize: '12px' }}>×</button>
                   </span>
                 ))}
               </div>

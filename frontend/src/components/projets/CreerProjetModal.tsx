@@ -29,9 +29,10 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
   const [manuelUsername, setManuelUsername] = useState('');
   const [manuelDisplayName, setManuelDisplayName] = useState('');
   const [projetParentId, setProjetParentId] = useState('');
+  const [projetParentInfo, setProjetParentInfo] = useState<any>(null);
   const [projetSearch, setProjetSearch] = useState('');
   const [projetResults, setProjetResults] = useState<any[]>([]);
-  const [appIds, setAppIds] = useState<number[]>([]);
+  const [selectedApps, setSelectedApps] = useState<{id: number; name: string}[]>([]);
   const [appSearch, setAppSearch] = useState('');
   const [appResults, setAppResults] = useState<any[]>([]);
   const [appSearching, setAppSearching] = useState(false);
@@ -87,7 +88,7 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
           services_associes: servicesAssocies,
           equipe: equipe.map(e => e.username),
           projet_parent_id: projetParentId ? parseInt(projetParentId) : null,
-          app_ids: appIds
+          app_ids: selectedApps.map(a => a.id)
         })
       });
       const data = await res.json();
@@ -112,11 +113,11 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
   };
 
   const ajouterApp = (app: any) => {
-    if (!appIds.includes(app.id)) setAppIds([...appIds, app.id]);
+    if (!selectedApps.find(a => a.id === app.id)) setSelectedApps([...selectedApps, { id: app.id, name: app.name }]);
     setAppSearch(''); setAppResults([]);
   };
 
-  const retirerApp = (appId: number) => setAppIds(appIds.filter(id => id !== appId));
+  const retirerApp = (appId: number) => setSelectedApps(selectedApps.filter(a => a.id !== appId));
 
   if (!isOpen) return null;
 
@@ -205,8 +206,8 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
             <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px', display: 'block' }}>Projet parent</label>
             {projetParentId ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: '#f8fafc' }}>
-                <span style={{ flex: 1 }}>{projetResults.find(p => String(p.id) === projetParentId)?.code || `#${projetParentId}`}</span>
-                <button onClick={() => setProjetParentId('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', fontSize: '14px' }}>✕</button>
+                <span style={{ flex: 1 }}>{projetParentInfo ? `${projetParentInfo.code} — ${projetParentInfo.titre}` : `#${projetParentId}`}</span>
+                <button onClick={() => { setProjetParentId(''); setProjetParentInfo(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', fontSize: '14px' }}>✕</button>
               </div>
             ) : (
               <div style={{ position: 'relative' }}>
@@ -214,7 +215,7 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
                 {projetResults.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', marginTop: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, maxHeight: '180px', overflow: 'auto' }}>
                     {projetResults.map((p: any) => (
-                      <div key={p.id} onClick={() => { setProjetParentId(String(p.id)); setProjetSearch(''); setProjetResults([]); }}
+                      <div key={p.id} onClick={() => { setProjetParentId(String(p.id)); setProjetParentInfo(p); setProjetSearch(''); setProjetResults([]); }}
                         style={{ padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}
                         onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
                         <div style={{ fontWeight: '600' }}>{p.titre}</div>
@@ -231,9 +232,9 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
           <div>
             <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px', display: 'block' }}>Applications associées</label>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
-              {appIds.map(appId => (
-                <span key={appId} style={{ padding: '3px 10px', background: '#f0fdf4', color: '#16a34a', borderRadius: '6px', fontSize: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  App #{appId} <button onClick={() => retirerApp(appId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', padding: 0, fontSize: '14px' }}>×</button>
+              {selectedApps.map(app => (
+                <span key={app.id} style={{ padding: '3px 10px', background: '#f0fdf4', color: '#16a34a', borderRadius: '6px', fontSize: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  {app.name} <button onClick={() => retirerApp(app.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', padding: 0, fontSize: '14px' }}>×</button>
                 </span>
               ))}
             </div>

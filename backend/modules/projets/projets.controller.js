@@ -383,6 +383,7 @@ const update = async (req, res) => {
             priorite, risque_global, avancement, satisfaction_metier, meteo,
             benefices_attendus, benefices_realises, notes_internes,
             commanditaire_display_name, chef_projet_display_name, chef_projet_metier_display_name,
+            dpd_requis, rssi_requis, projet_parent_id,
             services_associes
         } = req.body;
         const username = req.user.username;
@@ -417,9 +418,12 @@ const update = async (req, res) => {
                 commanditaire_display_name = COALESCE($23, commanditaire_display_name),
                 chef_projet_display_name = COALESCE($24, chef_projet_display_name),
                 chef_projet_metier_display_name = COALESCE($25, chef_projet_metier_display_name),
-                modified_by_username = $26,
+                dpd_requis = COALESCE($26, dpd_requis),
+                rssi_requis = COALESCE($27, rssi_requis),
+                projet_parent_id = COALESCE($28, projet_parent_id),
+                modified_by_username = $29,
                 date_modification = CURRENT_TIMESTAMP
-            WHERE id = $27
+            WHERE id = $30
         `, [titre, description, niveau_projet, statut, service_pilote,
             commanditaire_username, chef_projet_username, responsable_dsi_username,
             representant_metier_username, dpo_username,
@@ -428,6 +432,9 @@ const update = async (req, res) => {
             benefices_attendus, benefices_realises, notes_internes,
             meteo,
             commanditaire_display_name || null, chef_projet_display_name || null, chef_projet_metier_display_name || null,
+            dpd_requis !== undefined ? (dpd_requis ? 1 : 0) : null,
+            rssi_requis !== undefined ? (rssi_requis ? 1 : 0) : null,
+            projet_parent_id || null,
             username, id]);
 
         if (Array.isArray(services_associes)) {
