@@ -96,6 +96,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [azureTestResult, setAzureTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isTestingTranscript, setIsTestingTranscript] = useState(false);
+  const [transcriptTestResult, setTranscriptTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const [glpiConfig, setGlpiConfig] = useState({
     url: '',
@@ -1125,6 +1127,24 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       }
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleTestTranscript = async () => {
+    setIsTestingTranscript(true);
+    setTranscriptTestResult(null);
+    try {
+      const response = await fetch('/api/transcript-settings/test', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(transcriptConfig)
+      });
+      const data = await response.json();
+      setTranscriptTestResult(data);
+    } catch (err: any) {
+      setTranscriptTestResult({ success: false, message: err.message });
+    } finally {
+      setIsTestingTranscript(false);
     }
   };
 
@@ -2280,7 +2300,21 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       )}
                     </div>
 
+                    {transcriptTestResult && (
+                      <div className={`status-box ${transcriptTestResult.success ? 'success' : 'error'} mb-4`}>
+                        <div className="status-icon">
+                          {transcriptTestResult.success ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                        </div>
+                        <div className="status-content">
+                          <p>{transcriptTestResult.message}</p>
+                        </div>
+                      </div>
+                    )}
                     <div className="card-footer-btns">
+                      <button className="btn-admin-outline" onClick={handleTestTranscript} disabled={isTestingTranscript} style={{ borderColor: '#6366f1', color: '#6366f1' }}>
+                        {isTestingTranscript ? <Loader2 className="animate-spin" size={18} /> : <Play size={18} />}
+                        Tester la connexion
+                      </button>
                       <button className="btn-admin-primary" onClick={handleSaveTranscript} disabled={isSaving} style={{ backgroundColor: '#6366f1' }}>
                         {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
                         Enregistrer la configuration IA
@@ -4134,6 +4168,13 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         .error .item-status { background: rgba(239, 68, 68, 0.2); color: #f87171; }
         .item-count { color: #94a3b8; font-style: italic; }
         .item-msg { color: #f87171; font-size: 0.75rem; }
+
+        .status-box { padding: 12px 16px; border-radius: 12px; display: flex; gap: 12px; align-items: center; font-size: 0.85rem; }
+        .status-box.success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+        .status-box.error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+        .status-icon { flex-shrink: 0; display: flex; align-items: center; }
+        .status-content p { margin: 0; }
+        .mb-4 { margin-bottom: 16px; }
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }

@@ -646,6 +646,79 @@ app.post('/api/transcript-settings', authenticateAdmin, async (req, res) => {
     }
 });
 
+app.post('/api/transcript-settings/test', authenticateAdmin, async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const provider = payload.ai_provider || 'groq';
+        let apiKey = '';
+        let model = '';
+        let apiUrl = '';
+        const headers = {};
+
+        switch (provider) {
+            case 'gemini':
+                apiKey = payload.gemini_api_key;
+                model = 'gemini-1.5-flash';
+                apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+                break;
+            case 'openrouter':
+                apiKey = payload.openrouter_api_key;
+                model = payload.default_model || 'google/gemini-2.0-flash-001';
+                apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+                headers['Authorization'] = `Bearer ${apiKey}`;
+                break;
+            case 'anthropic':
+                apiKey = payload.anthropic_api_key;
+                model = payload.anthropic_model || 'claude-3-5-sonnet-20240620';
+                apiUrl = 'https://api.anthropic.com/v1/messages';
+                headers['x-api-key'] = apiKey;
+                headers['anthropic-version'] = '2023-06-01';
+                break;
+            case 'ollama':
+                apiUrl = `${payload.ollama_host || 'http://localhost:11434'}/api/generate`;
+                model = 'llama3';
+                break;
+            case 'groq':
+            default:
+                apiKey = payload.groq_api_key;
+                model = payload.default_model || 'llama-3.3-70b-versatile';
+                apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
+                headers['Authorization'] = `Bearer ${apiKey}`;
+                break;
+        }
+
+        if (provider !== 'ollama' && !apiKey) {
+            return res.status(400).json({ success: false, message: 'Clé API manquante' });
+        }
+
+        let body;
+        let response;
+
+        if (provider === 'ollama') {
+            body = { model, prompt: 'Réponds en un mot: OK', stream: false };
+            response = await axios.post(apiUrl, body, { headers, timeout: 15000, validateStatus: () => true });
+        } else if (provider === 'gemini') {
+            body = { contents: [{ parts: [{ text: 'Réponds en un mot: OK' }] }] };
+            response = await axios.post(apiUrl, body, { headers, timeout: 15000, validateStatus: () => true });
+        } else if (provider === 'anthropic') {
+            body = { model, max_tokens: 10, messages: [{ role: 'user', content: 'Réponds en un mot: OK' }] };
+            response = await axios.post(apiUrl, body, { headers, timeout: 15000, validateStatus: () => true });
+        } else {
+            body = { model, messages: [{ role: 'user', content: 'Réponds en un mot: OK' }], max_tokens: 10 };
+            response = await axios.post(apiUrl, body, { headers, timeout: 15000, validateStatus: () => true });
+        }
+
+        if (response.status >= 200 && response.status < 300) {
+            res.json({ success: true, message: `Connexion réussie à ${provider}` });
+        } else {
+            const errMsg = response.data?.error?.message || response.data?.error || JSON.stringify(response.data);
+            res.json({ success: false, message: `${provider} a répondu (${response.status}): ${errMsg}` });
+        }
+    } catch (error) {
+        res.json({ success: false, message: `Erreur de connexion: ${error.message}` });
+    }
+});
+
 // --- Azure AD (Entra ID) OAuth Routes ---
 
 app.get('/api/auth/azure/login', async (req, res) => {

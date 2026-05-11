@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Save, Send, Shield, Globe, Mail, User, Lock, Server, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
-import ReactQuill from 'react-quill-new';
-import 'react-quill-new/dist/quill.snow.css';
+import { Save, Send, Shield, Globe, Mail, User, Lock, Server, CheckCircle2, AlertTriangle, Loader2, Eye, Code } from 'lucide-react';
 
 const MailSettings: React.FC = () => {
     const [settings, setSettings] = useState<any>({
@@ -12,6 +10,7 @@ const MailSettings: React.FC = () => {
         template_html: '<html><body>{{content}}</body></html>',
         global_enable: true, use_api: true
     });
+    const [showPreview, setShowPreview] = useState(false);
     const [testEmail, setTestEmail] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -260,24 +259,25 @@ const MailSettings: React.FC = () => {
                             </div>
                             <div className="form-group">
                                 <label>Template HTML Global (Utilisez {"{{content}}"} pour le corps du message)</label>
-                                <div className="editor-container">
-                                    <ReactQuill 
-                                        theme="snow" 
-                                        value={settings.template_html} 
-                                        onChange={val => setSettings({...settings, template_html: val})}
-                                        modules={{
-                                            toolbar: [
-                                                [{ 'header': [1, 2, 3, false] }],
-                                                ['bold', 'italic', 'underline', 'strike'],
-                                                [{ 'color': [] }, { 'background': [] }],
-                                                [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                                                [{ 'align': [] }],
-                                                ['link', 'image'],
-                                                ['clean']
-                                            ],
-                                        }}
-                                    />
+                                <div className="flex gap-2 mb-3">
+                                    <button type="button" className={`btn btn-sm ${!showPreview ? 'btn-primary' : 'btn-outline'}`} onClick={() => setShowPreview(false)}>
+                                        <Code size={14} /> Code
+                                    </button>
+                                    <button type="button" className={`btn btn-sm ${showPreview ? 'btn-primary' : 'btn-outline'}`} onClick={() => setShowPreview(true)}>
+                                        <Eye size={14} /> Aperçu
+                                    </button>
                                 </div>
+                                {showPreview ? (
+                                    <div className="preview-container" dangerouslySetInnerHTML={{ __html: settings.template_html }} />
+                                ) : (
+                                    <textarea
+                                        value={settings.template_html}
+                                        onChange={e => setSettings({...settings, template_html: e.target.value})}
+                                        rows={16}
+                                        style={{ width: '100%', padding: '12px 15px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#1e293b', color: '#e2e8f0', fontSize: '13px', fontFamily: "'JetBrains Mono', 'Fira Code', monospace", lineHeight: '1.5', resize: 'vertical', outline: 'none' }}
+                                        spellCheck={false}
+                                    />
+                                )}
                             </div>
                                 <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-2xl">
                                     <p className="text-xs text-blue-800 leading-relaxed">
@@ -378,9 +378,8 @@ const MailSettings: React.FC = () => {
                 input, select { width: 100%; padding: 12px 15px; border-radius: 12px; border: 1px solid #e2e8f0; background: #f8fafc; font-size: 0.9rem; font-weight: 600; color: #1e293b; outline: none; transition: all 0.2s; }
                 input:focus, select:focus { border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); background: white; }
 
-                .editor-container { border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; }
-                .ql-toolbar { border: none !important; background: #f8fafc; border-bottom: 1px solid #e2e8f0 !important; }
-                .ql-container { border: none !important; min-height: 200px; font-family: 'Inter', sans-serif !important; }
+                .preview-container { border-radius: 16px; border: 1px solid #e2e8f0; padding: 20px; background: white; min-height: 300px; overflow: auto; }
+                .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
 
                 .btn { padding: 12px 24px; border-radius: 12px; font-weight: 700; border: none; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 0.9rem; }
                 .btn-primary { background: #3b82f6; color: white; box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2); }
