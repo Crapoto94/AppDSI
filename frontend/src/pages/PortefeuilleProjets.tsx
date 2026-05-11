@@ -49,10 +49,10 @@ const PortefeuilleProjets: React.FC = () => {
   const [filtreNiveau, setFiltreNiveau] = useState('');
   const [filtreChefProjet, setFiltreChefProjet] = useState('');
   const [recherche, setRecherche] = useState('');
-  const [modeMesProjets, setModeMesProjets] = useState(false);
   const [tri, setTri] = useState('date');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [favoris, setFavoris] = useState<number[]>([]);
+  const [showAdminModal, setShowAdminModal] = useState(false);
   const isPMO = user?.est_pmo || user?.role === 'admin';
 
   const fetchProjets = useCallback(async () => {
@@ -66,9 +66,7 @@ const PortefeuilleProjets: React.FC = () => {
       if (recherche) params.set('q', recherche);
       if (tri) params.set('tri', tri);
 
-      const url = modeMesProjets
-        ? '/api/projets/mes-projets'
-        : `/api/projets?${params.toString()}`;
+      const url = `/api/projets?${params.toString()}`;
 
       const [res, resStats] = await Promise.all([
         fetch(url, { headers: { Authorization: `Bearer ${token}` } }),
@@ -83,7 +81,7 @@ const PortefeuilleProjets: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [token, filtreStatut, filtreService, filtreNiveau, filtreChefProjet, recherche, tri, modeMesProjets]);
+  }, [token, filtreStatut, filtreService, filtreNiveau, filtreChefProjet, recherche, tri]);
 
   const fetchFavoris = useCallback(async () => {
     try {
@@ -198,9 +196,11 @@ const PortefeuilleProjets: React.FC = () => {
             <option value="priorite">Priorité ▼</option>
             <option value="statut">Statut</option>
           </select>
-          <button onClick={() => { setModeMesProjets(!modeMesProjets); }} style={{ padding: '9px 16px', borderRadius: '8px', border: modeMesProjets ? '2px solid #2563eb' : '1px solid #e2e8f0', background: modeMesProjets ? '#eff6ff' : 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: modeMesProjets ? '#2563eb' : '#64748b' }}>
-            📋 Mes projets
-          </button>
+          {isPMO && (
+            <button onClick={() => setShowAdminModal(true)} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              ⚙️ Admin générale
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -306,6 +306,114 @@ const PortefeuilleProjets: React.FC = () => {
           onCreated={(id) => { setShowCreateModal(false); navigate(`/projets/${id}`); }}
           token={token}
         />
+      </div>
+
+      {/* Modale Admin générale */}
+      {showAdminModal && (
+        <AdminGeneraleModal token={token} onClose={() => setShowAdminModal(false)} />
+      )}
+    </div>
+  );
+};
+
+interface AdminModalProps { token: string | null; onClose: () => void; }
+const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
+  const [scoringConfig, setScoringConfig] = useState<any[]>([]);
+  const [docTypes, setDocTypes] = useState<any[]>([]);
+  const [tab, setTab] = useState('scoring');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      fetch('/api/projets/admin/scoring-config', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(d => { if (Array.isArray(d)) setScoringConfig(d); }).catch(() => {}),
+      fetch('/api/projets/admin/types-documentaires', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(d => { if (Array.isArray(d)) setDocTypes(d); }).catch(() => {}),
+    ]).finally(() => setLoading(false));
+  }, [token]);
+
+  const saveScoring = async () => {
+    await fetch('/api/projets/admin/scoring-config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ criteres: scoringConfig })
+    });
+  };
+  const saveDocTypes = async () => {
+    await fetch('/api/projets/admin/types-documentaires', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ types: docTypes })
+    });
+  };
+
+  if (loading) return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '700px', maxHeight: '90vh', overflow: 'auto', padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: 'white', borderRadius: '16px', width: '95%', maxWidth: '800px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>⚙️ Administration générale</h2>
+          <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '2px', borderBottom: '2px solid #e2e8f0', padding: '0 24px' }}>
+          {[
+            { key: 'scoring', label: '📊 Scoring' },
+            { key: 'docTypes', label: '📄 Types docs' }
+          ].map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)} style={{
+              padding: '10px 18px', border: 'none', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent',
+              background: tab === t.key ? '#eff6ff' : 'transparent', cursor: 'pointer', fontWeight: tab === t.key ? '700' : '500',
+              color: tab === t.key ? '#2563eb' : '#64748b', fontSize: '13px', marginBottom: '-2px'
+            }}>{t.label}</button>
+          ))}
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {tab === 'scoring' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+                <button onClick={saveScoring} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>💾 Enregistrer</button>
+              </div>
+              {scoringConfig.map((c: any, i: number) => (
+                <div key={c.critere} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ minWidth: '180px', fontSize: '13px', color: '#1e293b', fontWeight: '500' }}>{c.label}</span>
+                  <input value={c.poids} onChange={e => { const n = [...scoringConfig]; n[i] = { ...n[i], poids: parseInt(e.target.value) || 0 }; setScoringConfig(n); }}
+                    type="number" min="0" max="100" style={{ width: '60px', padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px', textAlign: 'center' }} />
+                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>%</span>
+                  <label style={{ marginLeft: 'auto', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={c.actif} onChange={e => { const n = [...scoringConfig]; n[i] = { ...n[i], actif: e.target.checked ? 1 : 0 }; setScoringConfig(n); }} /> Actif
+                  </label>
+                </div>
+              ))}
+              <div style={{ marginTop: '12px', padding: '10px 14px', background: '#f8fafc', borderRadius: '8px', fontSize: '12px', color: '#64748b' }}>
+                Total : {scoringConfig.reduce((s: number, c: any) => s + (c.poids || 0), 0)}/100
+              </div>
+            </div>
+          )}
+          {tab === 'docTypes' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+                <button onClick={saveDocTypes} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>💾 Enregistrer</button>
+              </div>
+              {docTypes.map((t: any, i: number) => (
+                <div key={t.code} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ minWidth: '120px', fontSize: '12px', color: '#94a3b8' }}>{t.code}</span>
+                  <input value={t.label} onChange={e => { const n = [...docTypes]; n[i] = { ...n[i], label: e.target.value }; setDocTypes(n); }} style={{ flex: 1, padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+                  <label style={{ fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={t.obligatoire} onChange={e => { const n = [...docTypes]; n[i] = { ...n[i], obligatoire: e.target.checked ? 1 : 0 }; setDocTypes(n); }} /> Obligatoire
+                  </label>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

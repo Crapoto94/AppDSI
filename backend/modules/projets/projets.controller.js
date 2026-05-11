@@ -222,7 +222,8 @@ const getMesProjets = async (req, res) => {
                        (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
                        (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
                        (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard,
-                       EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1)) as user_est_intervenant
+                       EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1)) as user_est_intervenant,
+                       (SELECT STRING_AGG(ma.name, ', ') FROM projet_applications pa JOIN magapp.apps ma ON ma.id = pa.app_id WHERE pa.projet_id = p.id) as app_names
                 FROM projets p
                 ORDER BY p.date_modification DESC
             `;
@@ -235,7 +236,8 @@ const getMesProjets = async (req, res) => {
                        (SELECT COUNT(*) FROM projet_reunions pr2 WHERE pr2.projet_id = p.id) as nb_reunions,
                        (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
                        (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard,
-                       EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1)) as user_est_intervenant
+                       EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1)) as user_est_intervenant,
+                       (SELECT STRING_AGG(ma.name, ', ') FROM projet_applications pa JOIN magapp.apps ma ON ma.id = pa.app_id WHERE pa.projet_id = p.id) as app_names
                 FROM projets p
                 WHERE LOWER(p.created_by_username) = LOWER($1)
                    OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1))
@@ -277,7 +279,21 @@ const getById = async (req, res) => {
             ORDER BY d.date_creation DESC
         `, [id]);
 
-        res.json({ ...projet, services, roles, visibilite, documents });
+        // Parent project info
+        let projetParent = null;
+        if (projet.projet_parent_id) {
+            projetParent = await pgDb.get('SELECT id, code, titre FROM projets WHERE id = $1', [projet.projet_parent_id]);
+        }
+        // Applications
+        const applications = await pgDb.all(
+            `SELECT pa.*, ma.name as app_name, ma.url as app_url, ma.icon as app_icon
+             FROM projet_applications pa
+             LEFT JOIN magapp.apps ma ON ma.id = pa.app_id
+             WHERE pa.projet_id = $1 ORDER BY ma.name`,
+            [id]
+        );
+
+        res.json({ ...projet, services, roles, visibilite, documents, projet_parent: projetParent, applications });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -290,7 +306,8 @@ const create = async (req, res) => {
             commanditaire_username, chef_projet_username, responsable_dsi_username,
             representant_metier_username, dpo_username,
             date_debut_prevue, date_fin_prevue, priorite, meteo,
-            equipe, parties_prenantes, pour_info
+            equipe, parties_prenantes, pour_info,
+            projet_parent_id, app_ids
         } = req.body;
         const username = req.user.username;
 
@@ -305,16 +322,23 @@ const create = async (req, res) => {
                 commanditaire_username, chef_projet_username, responsable_dsi_username,
                 representant_metier_username, dpo_username,
                 date_debut_prevue, date_fin_prevue, priorite, meteo,
-                created_by_username, modified_by_username)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+                created_by_username, modified_by_username, projet_parent_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $16)
         `, [code, titre, description || '', niveau_projet || 'standard', service_pilote,
             commanditaire_username || null, chef_projet_username || null, responsable_dsi_username || null,
             representant_metier_username || null, dpo_username || null,
             date_debut_prevue || null, date_fin_prevue || null, priorite || 0,
             meteo || 'neutre',
-            username]);
+            username,
+            projet_parent_id || null]);
 
         const projetId = result.lastID;
+
+        if (Array.isArray(app_ids)) {
+            for (const appId of app_ids) {
+                await pgDb.run('INSERT INTO projet_applications (projet_id, app_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [projetId, appId]);
+            }
+        }
 
         if (Array.isArray(services_associes)) {
             for (const svc of services_associes) {
@@ -424,28 +448,65 @@ const update = async (req, res) => {
 const remove = async (req, res) => {
     try {
         const { id } = req.params;
+        const username = req.user.username;
+        const isAdmin = req.user.role === 'admin';
+        const isPMO = await estPMO(username);
+        if (!isAdmin && !isPMO) return res.status(403).json({ error: 'Accès refusé' });
+
         const projet = await pgDb.get('SELECT * FROM projets WHERE id = $1', [id]);
         if (!projet) return res.status(404).json({ error: 'Projet non trouvé' });
+
+        // Supprimer aussi les sous-projets
+        const enfants = await pgDb.all('SELECT id FROM projets WHERE projet_parent_id = $1', [id]);
+        for (const e of enfants) {
+            await pgDb.run('DELETE FROM projet_notifications WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_journal WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_reunions WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_indicateurs WHERE projet_id = $1', [e.id]);
+            const docs = await pgDb.all('SELECT id FROM projet_documents WHERE projet_id = $1', [e.id]);
+            for (const doc of docs) await pgDb.run('DELETE FROM projet_versions_document WHERE document_id = $1', [doc.id]);
+            await pgDb.run('DELETE FROM projet_documents WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_scores WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_transitions WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_visibilite WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_roles WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_services WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_etapes WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_applications WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_taches WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_jalons WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_groupes_taches WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_attendus WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_comites WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_dependances WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projet_favoris WHERE projet_id = $1', [e.id]);
+            await pgDb.run('DELETE FROM projets WHERE id = $1', [e.id]);
+        }
 
         await pgDb.run('DELETE FROM projet_notifications WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projet_journal WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projet_reunions WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projet_indicateurs WHERE projet_id = $1', [id]);
-
         const docs = await pgDb.all('SELECT id FROM projet_documents WHERE projet_id = $1', [id]);
-        for (const doc of docs) {
-            await pgDb.run('DELETE FROM projet_versions_document WHERE document_id = $1', [doc.id]);
-        }
+        for (const doc of docs) await pgDb.run('DELETE FROM projet_versions_document WHERE document_id = $1', [doc.id]);
         await pgDb.run('DELETE FROM projet_documents WHERE projet_id = $1', [id]);
-
         await pgDb.run('DELETE FROM projet_scores WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projet_transitions WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projet_visibilite WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projet_roles WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projet_services WHERE projet_id = $1', [id]);
+        await pgDb.run('DELETE FROM projet_etapes WHERE projet_id = $1', [id]);
+        await pgDb.run('DELETE FROM projet_applications WHERE projet_id = $1', [id]);
+        await pgDb.run('DELETE FROM projet_taches WHERE projet_id = $1', [id]);
+        await pgDb.run('DELETE FROM projet_jalons WHERE projet_id = $1', [id]);
+        await pgDb.run('DELETE FROM projet_groupes_taches WHERE projet_id = $1', [id]);
+        await pgDb.run('DELETE FROM projet_attendus WHERE projet_id = $1', [id]);
+        await pgDb.run('DELETE FROM projet_comites WHERE projet_id = $1', [id]);
+        await pgDb.run('DELETE FROM projet_dependances WHERE projet_id = $1', [id]);
+        await pgDb.run('DELETE FROM projet_favoris WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projets WHERE id = $1', [id]);
 
-        res.json({ message: `Projet ${projet.code} supprimé` });
+        res.json({ message: `Projet ${projet.code} et ses sous-projets supprimés` });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1659,6 +1720,66 @@ const toggleEtape = async (req, res) => {
     }
 };
 
+// ============================================
+// APPLICATIONS
+// ============================================
+
+const getApplications = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const apps = await pgDb.all(
+            `SELECT pa.*, ma.name as app_name, ma.url as app_url, ma.icon as app_icon
+             FROM projet_applications pa
+             LEFT JOIN magapp.apps ma ON ma.id = pa.app_id
+             WHERE pa.projet_id = $1
+             ORDER BY ma.name`,
+            [id]
+        );
+        res.json(apps);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const ajouterApplication = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { app_id } = req.body;
+        if (!app_id) return res.status(400).json({ error: 'app_id requis' });
+        await pgDb.run(
+            'INSERT INTO projet_applications (projet_id, app_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [id, app_id]
+        );
+        res.status(201).json({ message: 'Application liée' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const supprimerApplication = async (req, res) => {
+    try {
+        const { id, appId } = req.params;
+        await pgDb.run('DELETE FROM projet_applications WHERE projet_id = $1 AND app_id = $2', [id, appId]);
+        res.json({ message: 'Application déliée' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const searchApps = async (req, res) => {
+    try {
+        const q = req.query.q || '';
+        if (q.length < 2) return res.json([]);
+        const apps = await pgDb.all(
+            'SELECT id, name, url, icon FROM magapp.apps WHERE LOWER(name) LIKE $1 ORDER BY name LIMIT 20',
+            [`%${q.toLowerCase()}%`]
+        );
+        res.json(apps);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     setSendMail,
     getAll, getMesProjets, getById, create, update, remove,
@@ -1681,5 +1802,6 @@ module.exports = {
     getAttendus, setAttendus,
     getComites, ajouterComite, updateComite, supprimerComite,
     ajouterMembreComite, supprimerMembreComite,
-    getEtapes, toggleEtape
+    getEtapes, toggleEtape,
+    getApplications, ajouterApplication, supprimerApplication, searchApps
 };

@@ -48,7 +48,8 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!transcript\.)\btranscript_tasks\b/gi, 'transcript.tasks')
                     .replace(/(?<!projets\.)\bprojet_comites\b/gi, 'projets.projet_comites')
                     .replace(/(?<!projets\.)\bprojet_comites_membres\b/gi, 'projets.projet_comites_membres')
-                    .replace(/(?<!projets\.)\bprojet_etapes\b/gi, 'projets.projet_etapes');
+                    .replace(/(?<!projets\.)\bprojet_etapes\b/gi, 'projets.projet_etapes')
+                    .replace(/(?<!projets\.)\bprojet_applications\b/gi, 'projets.projet_applications');
 
     newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
                     .replace(/transcript_cues/gi, 'transcript.cues')
@@ -941,6 +942,8 @@ async function setupPgDb() {
     try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='chef_projet_metier_display_name') THEN ALTER TABLE projets.projets ADD COLUMN chef_projet_metier_display_name TEXT; END IF; END $$;`); } catch (e) {}
     // Migration: comite_id dans projet_reunions
     try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_reunions' AND column_name='comite_id') THEN ALTER TABLE projets.projet_reunions ADD COLUMN comite_id INTEGER REFERENCES projets.projet_comites(id) ON DELETE SET NULL; END IF; END $$;`); } catch (e) {}
+    // Migration: projet_parent_id
+    try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='projet_parent_id') THEN ALTER TABLE projets.projets ADD COLUMN projet_parent_id INTEGER REFERENCES projets.projets(id) ON DELETE SET NULL; END IF; END $$;`); } catch (e) {}
 
     // ============================================
     // PROJETS - Planning / Tâches
@@ -1045,6 +1048,15 @@ async function setupPgDb() {
         actif INTEGER DEFAULT 1,
         ordre INTEGER DEFAULT 0,
         UNIQUE(projet_id, etape)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_applications (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        app_id INTEGER NOT NULL,
+        UNIQUE(projet_id, app_id)
       );
     `);
 

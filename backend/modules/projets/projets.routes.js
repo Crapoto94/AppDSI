@@ -35,7 +35,7 @@ router.put('/admin/types-documentaires', authenticateAdmin, ctrl.updateTypesDocu
 router.get('/:id', authenticateJWT, ctrl.getById);
 router.post('/', authenticateJWT, ctrl.create);
 router.put('/:id', authenticateJWT, ctrl.update);
-router.delete('/:id', authenticateAdmin, ctrl.remove);
+router.delete('/:id', authenticateJWT, ctrl.remove);
 router.post('/:id/favoris', authenticateJWT, ctrl.ajouterFavori);
 router.delete('/:id/favoris', authenticateJWT, ctrl.supprimerFavori);
 
@@ -153,5 +153,13 @@ router.delete('/:id/comites/:comiteId/membres/:membreId', authenticateJWT, ctrl.
 // ============================================
 router.get('/:id/etapes', authenticateJWT, ctrl.getEtapes);
 router.put('/:id/etapes', authenticateJWT, ctrl.toggleEtape);
+
+// ============================================
+// APPLICATIONS
+// ============================================
+router.get('/admin/apps/search', authenticateJWT, ctrl.searchApps);
+router.get('/:id/applications', authenticateJWT, ctrl.getApplications);
+router.post('/:id/applications', authenticateJWT, ctrl.ajouterApplication);
+router.delete('/:id/applications/:appId', authenticateJWT, ctrl.supprimerApplication);
 
 module.exports = router;
