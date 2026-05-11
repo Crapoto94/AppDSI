@@ -2158,9 +2158,9 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
                     rows.push(
                       <tr key={`${t.id}-notes`}>
                         <td colSpan={5} style={{ padding: '4px 12px', borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
                             {(t.notes || []).map((n: any, ni: number) => (
-                              <div key={n.id || ni} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 6px', background: 'white', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px' }}>
+                              <div key={n.id || ni} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 0', fontSize: '11px', borderBottom: ni < t.notes.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
                                 {n.type === 'file' ? (
                                   <a href={`/api/projets/${projetId}/taches-agregees/${t.id}/notes/${ni}/file?token=${token}`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                     <Upload size={10} /> {n.filename || n.content}
