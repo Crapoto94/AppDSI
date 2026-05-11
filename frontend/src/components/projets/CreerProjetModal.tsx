@@ -28,6 +28,13 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
   const [isCreating, setIsCreating] = useState(false);
   const [manuelUsername, setManuelUsername] = useState('');
   const [manuelDisplayName, setManuelDisplayName] = useState('');
+  const [projetParentId, setProjetParentId] = useState('');
+  const [projetSearch, setProjetSearch] = useState('');
+  const [projetResults, setProjetResults] = useState<any[]>([]);
+  const [appIds, setAppIds] = useState<number[]>([]);
+  const [appSearch, setAppSearch] = useState('');
+  const [appResults, setAppResults] = useState<any[]>([]);
+  const [appSearching, setAppSearching] = useState(false);
   const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const searchAD = useCallback((q: string) => {
@@ -78,7 +85,9 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
         body: JSON.stringify({
           ...form,
           services_associes: servicesAssocies,
-          equipe: equipe.map(e => e.username)
+          equipe: equipe.map(e => e.username),
+          projet_parent_id: projetParentId ? parseInt(projetParentId) : null,
+          app_ids: appIds
         })
       });
       const data = await res.json();
@@ -86,6 +95,28 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
     } catch (e) { console.error(e); }
     finally { setIsCreating(false); }
   };
+
+  const searchProjets = (q: string) => {
+    setProjetSearch(q);
+    if (q.length < 2) { setProjetResults([]); return; }
+    fetch(`/api/projets?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (Array.isArray(d)) setProjetResults(d.slice(0, 10)); }).catch(() => {});
+  };
+
+  const searchApps = (q: string) => {
+    setAppSearch(q);
+    if (q.length < 2) { setAppResults([]); return; }
+    setAppSearching(true);
+    fetch(`/api/projets/admin/apps/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (Array.isArray(d)) setAppResults(d); }).catch(() => {}).finally(() => setAppSearching(false));
+  };
+
+  const ajouterApp = (app: any) => {
+    if (!appIds.includes(app.id)) setAppIds([...appIds, app.id]);
+    setAppSearch(''); setAppResults([]);
+  };
+
+  const retirerApp = (appId: number) => setAppIds(appIds.filter(id => id !== appId));
 
   if (!isOpen) return null;
 
@@ -168,6 +199,63 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
               ))}
             </div>
           </div>
+
+          {/* Projet parent */}
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px', display: 'block' }}>Projet parent</label>
+            {projetParentId ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: '#f8fafc' }}>
+                <span style={{ flex: 1 }}>{projetResults.find(p => String(p.id) === projetParentId)?.code || `#${projetParentId}`}</span>
+                <button onClick={() => setProjetParentId('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', fontSize: '14px' }}>✕</button>
+              </div>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                <input value={projetSearch} onChange={e => searchProjets(e.target.value)} placeholder="Rechercher un projet parent..." style={{ width: '100%', padding: '7px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+                {projetResults.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', marginTop: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, maxHeight: '180px', overflow: 'auto' }}>
+                    {projetResults.map((p: any) => (
+                      <div key={p.id} onClick={() => { setProjetParentId(String(p.id)); setProjetSearch(''); setProjetResults([]); }}
+                        style={{ padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+                        <div style={{ fontWeight: '600' }}>{p.titre}</div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code} · {p.service_pilote}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Applications */}
+          <div>
+            <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px', display: 'block' }}>Applications associées</label>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+              {appIds.map(appId => (
+                <span key={appId} style={{ padding: '3px 10px', background: '#f0fdf4', color: '#16a34a', borderRadius: '6px', fontSize: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  App #{appId} <button onClick={() => retirerApp(appId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', padding: 0, fontSize: '14px' }}>×</button>
+                </span>
+              ))}
+            </div>
+            <div style={{ position: 'relative' }}>
+              <Search size={14} style={{ position: 'absolute', left: '10px', top: '11px', color: '#94a3b8' }} />
+              <input value={appSearch} onChange={e => searchApps(e.target.value)} placeholder="Rechercher une application (magapp)..." style={{ width: '100%', padding: '7px 10px 7px 32px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+              {appSearching && <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>Recherche...</div>}
+              {appResults.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', marginTop: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, maxHeight: '180px', overflow: 'auto' }}>
+                  {appResults.map(a => (
+                    <div key={a.id} onClick={() => ajouterApp(a)}
+                      style={{ padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+                      <span style={{ fontWeight: '600' }}>{a.name}</span>
+                      <button style={{ padding: '2px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>+</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px', display: 'block' }}>Début prévu</label>

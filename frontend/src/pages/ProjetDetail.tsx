@@ -90,6 +90,12 @@ const ProjetDetail: React.FC = () => {
   const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
   const [viewerDoc, setViewerDoc] = useState<{ url: string; nom: string } | null>(null);
   const [comites, setComites] = useState<any[]>([]);
+  const [editProjetParentId, setEditProjetParentId] = useState<number | null>(null);
+  const [editAppIds, setEditAppIds] = useState<number[]>([]);
+  const [appSearch, setAppSearch] = useState('');
+  const [appResults, setAppResults] = useState<any[]>([]);
+  const [projetSearch, setProjetSearch] = useState('');
+  const [projetResults, setProjetResults] = useState<any[]>([]);
 
   useEffect(() => {
     if (projet?.id) {
@@ -138,6 +144,10 @@ const ProjetDetail: React.FC = () => {
         benefices_realises: projet.benefices_realises || '',
         notes_internes: projet.notes_internes || ''
       });
+      setEditProjetParentId(projet.projet_parent_id || null);
+      if (Array.isArray(projet.applications)) {
+        setEditAppIds(projet.applications.map((a: any) => a.app_id));
+      }
     }
   }, [projet]);
 
@@ -184,11 +194,31 @@ const ProjetDetail: React.FC = () => {
   );
 
   const saveInfos = async () => {
+    // Save apps
+    if (Array.isArray(projet.applications)) {
+      const existingAppIds = projet.applications.map((a: any) => a.app_id);
+      for (const id of editAppIds) {
+        if (!existingAppIds.includes(id)) {
+          await fetch(`/api/projets/${projet.id}/applications`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ app_id: id })
+          });
+        }
+      }
+      for (const app of projet.applications) {
+        if (!editAppIds.includes(app.app_id)) {
+          await fetch(`/api/projets/${projet.id}/applications/${app.app_id}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
+          });
+        }
+      }
+    }
     await fetch(`/api/projets/${projet.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         ...infosForm,
+        projet_parent_id: editProjetParentId,
         commanditaire_username: govForm.commanditaire_username || null,
         chef_projet_username: govForm.chef_projet_username || null,
         chef_projet_metier_username: govForm.chef_projet_metier_username || null,
@@ -201,6 +231,18 @@ const ProjetDetail: React.FC = () => {
     });
     setEditingInfos(false);
     fetchProjet();
+  };
+  const searchProjetsEdit = (q: string) => {
+    setProjetSearch(q);
+    if (q.length < 2) { setProjetResults([]); return; }
+    fetch(`/api/projets?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (Array.isArray(d)) setProjetResults(d.slice(0, 10)); }).catch(() => {});
+  };
+  const searchAppsEdit = (q: string) => {
+    setAppSearch(q);
+    if (q.length < 2) { setAppResults([]); return; }
+    fetch(`/api/projets/admin/apps/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => { if (Array.isArray(d)) setAppResults(d); }).catch(() => {});
   };
 
   const renderInfos = () => (
@@ -274,7 +316,7 @@ const ProjetDetail: React.FC = () => {
               <InfoRow label="Niveau" value={projet.niveau_projet} />
               <InfoRow label="Service pilote" value={projet.service_pilote} />
               <InfoRow label="Services associés" value={projet.services?.map(s => s.service_code).join(', ') || '—'} />
-              <InfoRow label="Priorité" value={projet.priorite > 0 ? '★'.repeat(projet.priorite) + '☆'.repeat(5 - projet.priorite) : '—'} />
+              <InfoRow label="Priorité" value={projet.priorite > 0 ? '★'.repeat(Math.min(projet.priorite, 5)) + '☆'.repeat(Math.max(0, 5 - Math.min(projet.priorite, 5))) : '—'} />
               <InfoRow label="Avancement" value={`${projet.avancement}%`} />
               <InfoRow label="Début prévu" value={projet.date_debut_prevue ? new Date(projet.date_debut_prevue).toLocaleDateString('fr-FR') : '—'} />
               <InfoRow label="Fin prévue" value={projet.date_fin_prevue ? new Date(projet.date_fin_prevue).toLocaleDateString('fr-FR') : '—'} />
@@ -323,6 +365,69 @@ const ProjetDetail: React.FC = () => {
           </div>
         </div>
       </div>
+      {editingInfos && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+          <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📎 Rattachements</h3>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Projet parent</label>
+              {editProjetParentId ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: '#f8fafc' }}>
+                  <span style={{ flex: 1 }}>#{editProjetParentId}</span>
+                  <button onClick={() => setEditProjetParentId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px' }}>✕</button>
+                </div>
+              ) : (
+                <div style={{ position: 'relative' }}>
+                  <input value={projetSearch} onChange={e => searchProjetsEdit(e.target.value)} placeholder="Rechercher..." style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+                  {projetResults.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', marginTop: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, maxHeight: '180px', overflow: 'auto' }}>
+                      {projetResults.map((p: any) => (
+                        <div key={p.id} onClick={() => { setEditProjetParentId(p.id); setProjetSearch(''); setProjetResults([]); }}
+                          style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+                          <div style={{ fontWeight: '600' }}>{p.titre}</div>
+                          <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Applications ({editAppIds.length})</label>
+              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                {editAppIds.map(aid => (
+                  <span key={aid} style={{ padding: '2px 8px', background: '#f0fdf4', borderRadius: '4px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                    App #{aid} <button onClick={() => setEditAppIds(editAppIds.filter(x => x !== aid))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', padding: 0, fontSize: '12px' }}>×</button>
+                  </span>
+                ))}
+              </div>
+              <div style={{ position: 'relative' }}>
+                <input value={appSearch} onChange={e => searchAppsEdit(e.target.value)} placeholder="Rechercher une app..." style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+                {appResults.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', marginTop: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, maxHeight: '180px', overflow: 'auto' }}>
+                    {appResults.map(a => (
+                      <div key={a.id} onClick={() => { if (!editAppIds.includes(a.id)) setEditAppIds([...editAppIds, a.id]); setAppSearch(''); setAppResults([]); }}
+                        style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px', display: 'flex', justifyContent: 'space-between' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+                        <span style={{ fontWeight: '600' }}>{a.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📝 Description & notes</h3>
+            <EditField label="Description" value={infosForm.description} onChange={v => setInfosForm({...infosForm, description: v})} type="textarea" />
+            <div style={{ marginTop: '8px' }}><EditField label="Bénéfices attendus" value={infosForm.benefices_attendus} onChange={v => setInfosForm({...infosForm, benefices_attendus: v})} type="textarea" /></div>
+            <div style={{ marginTop: '8px' }}><EditField label="Bénéfices réalisés" value={infosForm.benefices_realises} onChange={v => setInfosForm({...infosForm, benefices_realises: v})} type="textarea" /></div>
+            <div style={{ marginTop: '8px' }}><EditField label="Notes internes" value={infosForm.notes_internes} onChange={v => setInfosForm({...infosForm, notes_internes: v})} type="textarea" /></div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
