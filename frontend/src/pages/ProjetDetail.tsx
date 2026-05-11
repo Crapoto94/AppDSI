@@ -2145,8 +2145,8 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
                         <button onClick={() => acquitter(t)} title={`Passer à ${STATUT_CYCLE[(STATUT_CYCLE.indexOf(t.statut || 'a_faire') + 1) % STATUT_CYCLE.length]}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: actionColor(t.statut || 'a_faire'), padding: '4px' }}>
                           <CheckCircle2 size={20} />
                         </button>
-                        <button onClick={() => setExpandedNotesId(expandedNotesId === t.id ? null : t.id)} title="Notes" style={{ background: 'none', border: 'none', cursor: 'pointer', color: expandedNotesId === t.id ? '#2563eb' : '#94a3b8', padding: '4px', marginLeft: '2px' }}>
-                          <Plus size={18} />
+                        <button onClick={() => setExpandedNotesId(expandedNotesId === t.id ? null : t.id)} title={`${(t.notes || []).length} note(s)`} style={{ background: (t.notes || []).length > 0 ? '#eff6ff' : 'transparent', border: (t.notes || []).length > 0 ? '1px solid #bfdbfe' : 'none', borderRadius: '4px', cursor: 'pointer', color: expandedNotesId === t.id ? '#2563eb' : (t.notes || []).length > 0 ? '#1d4ed8' : '#94a3b8', padding: '2px 6px', marginLeft: '2px', fontWeight: (t.notes || []).length > 0 ? '700' : '400', fontSize: '11px', lineHeight: '18px' }}>
+                          💬 {(t.notes || []).length || '+'}
                         </button>
                         <button onClick={() => supprimerTache(t)} title="Supprimer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', marginLeft: '2px' }}>
                           <Trash2 size={16} />

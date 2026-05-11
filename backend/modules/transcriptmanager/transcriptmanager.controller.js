@@ -59,7 +59,8 @@ const transcriptController = {
                     SELECT m.*,
                     (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
                     (SELECT string_agg(DISTINCT speaker_email, ',') FROM transcript_cues WHERE meeting_id = m.id AND speaker_email IS NOT NULL) as speaker_emails,
-                    (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds
+                    (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds,
+                    (SELECT COALESCE(SUM(LENGTH(text)), 0) FROM transcript_cues WHERE meeting_id = m.id) as char_count
                     FROM transcript_meetings m
                     ORDER BY meeting_date DESC NULLS LAST, created_at DESC
                 `);
@@ -70,17 +71,25 @@ const transcriptController = {
                     SELECT m.*,
                     (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
                     (SELECT string_agg(DISTINCT speaker_email, ',') FROM transcript_cues WHERE meeting_id = m.id AND speaker_email IS NOT NULL) as speaker_emails,
-                    (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds
+                    (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds,
+                    (SELECT COALESCE(SUM(LENGTH(text)), 0) FROM transcript_cues WHERE meeting_id = m.id) as char_count
                     FROM transcript_meetings m
-                    WHERE m.reunion_id IS NULL
-                       OR EXISTS (
-                           SELECT 1 FROM reunion_participants rp
-                           WHERE rp.reunion_id = m.reunion_id
-                           AND (LOWER(rp.email) = ? OR LOWER(rp.email) = ? OR LOWER(rp.ad_username) = ?)
-                           AND rp.statut_presence IN ('present', 'excuse', 'info')
-                       )
+                    WHERE (
+                        m.reunion_id IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1 FROM reunion_participants rp
+                            WHERE rp.reunion_id = m.reunion_id
+                            AND (LOWER(rp.email) = ? OR LOWER(rp.email) = ? OR LOWER(rp.ad_username) = ?)
+                            AND rp.statut_presence IN ('present', 'excuse', 'info')
+                        )
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM transcript_cues tc
+                        WHERE tc.meeting_id = m.id
+                        AND (LOWER(tc.speaker_email) = ? OR LOWER(tc.speaker_email) = ?)
+                    )
                     ORDER BY meeting_date DESC NULLS LAST, created_at DESC
-                `, [emailFull, emailLocal, emailLocal]);
+                `, [emailFull, emailLocal, emailLocal, emailFull, emailLocal]);
             }
             res.json(meetings);
         } catch (error) {
@@ -105,8 +114,39 @@ const transcriptController = {
         try {
             const db = pgDb;
             const meetingId = req.params.id;
+            const { username, email, role } = req.user;
+            const isAdmin = role === 'admin' || username?.toLowerCase() === 'admin' || username?.toLowerCase() === 'adminhub';
+
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
+
+            if (!isAdmin) {
+                const emailLocal = (email || username || '').split('@')[0].toLowerCase();
+                const emailFull = `${emailLocal}@ivry94.fr`;
+
+                const canAccess = await db.get(`
+                    SELECT 1 FROM transcript_meetings m
+                    WHERE m.id = ?
+                    AND (
+                        (
+                            m.reunion_id IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1 FROM reunion_participants rp
+                                WHERE rp.reunion_id = m.reunion_id
+                                AND (LOWER(rp.email) = ? OR LOWER(rp.email) = ? OR LOWER(rp.ad_username) = ?)
+                                AND rp.statut_presence IN ('present', 'excuse', 'info')
+                            )
+                        )
+                        OR EXISTS (
+                            SELECT 1 FROM transcript_cues tc
+                            WHERE tc.meeting_id = m.id
+                            AND (LOWER(tc.speaker_email) = ? OR LOWER(tc.speaker_email) = ?)
+                        )
+                    )
+                `, [meetingId, emailFull, emailLocal, emailLocal, emailFull, emailLocal]);
+
+                if (!canAccess) return res.status(403).json({ error: 'Accès refusé' });
+            }
 
             const cues = await db.all('SELECT * FROM transcript_cues WHERE meeting_id = ? ORDER BY start_seconds', [meetingId]);
             res.json({ ...meeting, cues });
@@ -529,16 +569,25 @@ const transcriptController = {
                     FROM transcript_cues c
                     JOIN transcript_meetings m ON m.id = c.meeting_id
                     WHERE (c.text ILIKE ? OR m.title ILIKE ?)
-                      AND (m.reunion_id IS NULL
-                           OR EXISTS (
-                               SELECT 1 FROM reunion_participants rp
-                               WHERE rp.reunion_id = m.reunion_id
-                               AND (LOWER(rp.email) = ? OR LOWER(rp.email) = ? OR LOWER(rp.ad_username) = ?)
-                               AND rp.statut_presence IN ('present', 'excuse', 'info')
-                           ))
+                      AND (
+                        (
+                            m.reunion_id IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1 FROM reunion_participants rp
+                                WHERE rp.reunion_id = m.reunion_id
+                                AND (LOWER(rp.email) = ? OR LOWER(rp.email) = ? OR LOWER(rp.ad_username) = ?)
+                                AND rp.statut_presence IN ('present', 'excuse', 'info')
+                            )
+                        )
+                        OR EXISTS (
+                            SELECT 1 FROM transcript_cues tc2
+                            WHERE tc2.meeting_id = m.id
+                            AND (LOWER(tc2.speaker_email) = ? OR LOWER(tc2.speaker_email) = ?)
+                        )
+                      )
                     ORDER BY m.meeting_date DESC NULLS LAST, c.start_seconds ASC
                     LIMIT 200
-                `, [term, term, emailFull, emailLocal, emailLocal]);
+                `, [term, term, emailFull, emailLocal, emailLocal, emailFull, emailLocal]);
             }
 
             const grouped = new Map();

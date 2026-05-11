@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
-import { 
-    Calendar, FileText, Plus, Search, Trash2, 
-    ArrowRight, Users, RefreshCw, UserCheck, Clock
+import {
+    Calendar, FileText, Plus, Search, Trash2,
+    ArrowRight, Users, RefreshCw, UserCheck, Clock, Sparkles
 } from 'lucide-react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +19,7 @@ interface Meeting {
     speaker_emails?: string;
     reunion_id?: number | null;
     duration_seconds?: number;
+    char_count?: number;
 }
 
 interface SearchMatch {
@@ -255,7 +256,7 @@ const TranscriptManager: React.FC = () => {
                                 </thead>
                                 <tbody>
                                     {filteredMeetings.length > 0 ? filteredMeetings.map(meeting => (
-                                        <tr key={meeting.id} onClick={() => navigate(`/transcriptmanager/meeting/${meeting.id}`)}>
+                                        <tr key={meeting.id} className="tm-row" onClick={() => navigate(`/transcriptmanager/meeting/${meeting.id}`)}>
                                             <td className="date-cell">
                                                 <div className="date-badge">
                                                     <Calendar size={14} />
@@ -263,8 +264,14 @@ const TranscriptManager: React.FC = () => {
                                                 </div>
                                             </td>
                                             <td className="title-cell">
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
                                                     <span className="meeting-title">{meeting.title}</span>
+                                                    {meeting.summary && (
+                                                        <span className="summary-badge" title="Résumé IA disponible">
+                                                            <Sparkles size={12} />
+                                                            Résumé
+                                                        </span>
+                                                    )}
                                                     {meeting.speaker_emails?.split(',').map(e => e.trim().toLowerCase()).includes(user?.email?.toLowerCase() || '') && (
                                                         <div className="presence-badge" title="Vous étiez présent">
                                                             <UserCheck size={14} />
@@ -272,6 +279,11 @@ const TranscriptManager: React.FC = () => {
                                                         </div>
                                                     )}
                                                 </div>
+                                                {(meeting.char_count ?? 0) > 0 && (
+                                                    <div className="char-count-label">
+                                                        {formatCharCount(meeting.char_count!)}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="text-center">
                                                 <div className="speaker-count">
@@ -288,7 +300,7 @@ const TranscriptManager: React.FC = () => {
                                             <td className="text-right">
                                                 <div className="action-btns" onClick={e => e.stopPropagation()}>
                                                     {meeting.reunion_id && (
-                                                        <button 
+                                                        <button
                                                             className="btn-view-reunion"
                                                             onClick={() => setSelectedReunionId(meeting.reunion_id!)}
                                                             title="Voir la réunion associée"
@@ -300,7 +312,7 @@ const TranscriptManager: React.FC = () => {
                                                     <button className="btn-icon" onClick={() => handleDeleteMeeting(meeting.id)}>
                                                         <Trash2 size={18} />
                                                     </button>
-                                                    <button className="btn-icon">
+                                                    <button className="btn-icon btn-arrow">
                                                         <ArrowRight size={18} />
                                                     </button>
                                                 </div>
@@ -530,9 +542,17 @@ const TranscriptManager: React.FC = () => {
                 .tm-table td {
                     padding: 1.25rem 1.5rem;
                     border-bottom: 1px solid #F1F5F9;
+                    vertical-align: middle;
                 }
-                .tm-table tr:hover td {
-                    background: #FBFDFF;
+                .tm-row {
+                    cursor: pointer;
+                    transition: background 0.15s;
+                }
+                .tm-row:hover td {
+                    background: #EFF6FF;
+                }
+                .tm-row:hover .btn-arrow {
+                    color: #2563EB;
                 }
 
                 .date-badge {
@@ -606,6 +626,32 @@ const TranscriptManager: React.FC = () => {
                 .btn-icon:hover {
                     background: #F1F5F9;
                     color: #64748B;
+                }
+
+                .summary-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.25rem;
+                    background: #F5F3FF;
+                    color: #7C3AED;
+                    padding: 0.15rem 0.45rem;
+                    border-radius: 6px;
+                    font-size: 0.7rem;
+                    font-weight: 700;
+                    white-space: nowrap;
+                }
+                .char-count-label {
+                    margin-top: 0.25rem;
+                    font-size: 0.75rem;
+                    color: #94A3B8;
+                    font-weight: 500;
+                }
+                .btn-arrow {
+                    color: #CBD5E1;
+                    transition: color 0.2s, transform 0.2s;
+                }
+                .tm-row:hover .btn-arrow {
+                    transform: translateX(3px);
                 }
 
                 .text-center { text-align: center; }
@@ -724,6 +770,13 @@ const TranscriptManager: React.FC = () => {
     </div>
     );
 };
+
+function formatCharCount(n: number): string {
+    if (n >= 1000) {
+        return (n / 1000).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'k car.';
+    }
+    return n + ' car.';
+}
 
 function formatTimeFull(seconds: number) {
     const h = Math.floor(seconds / 3600);
