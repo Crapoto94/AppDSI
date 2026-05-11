@@ -107,6 +107,13 @@ const MeetingDetail: React.FC = () => {
                 }
             });
 
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                alert(errData.error || "Une erreur est survenue lors de la connexion au modèle.");
+                setIsGenerating(false);
+                return;
+            }
+
             if (!response.body) return;
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -129,9 +136,26 @@ const MeetingDetail: React.FC = () => {
                         setIsGenerating(false);
                         fetchData();
                         return;
+                    } else if (line.startsWith('event: error')) {
+                        try {
+                            const errDataLine = line.split('\n').find(l => l.startsWith('data: '));
+                            if (errDataLine) {
+                                const errJson = JSON.parse(errDataLine.slice(6));
+                                alert(errJson.error || "Erreur de génération du résumé.");
+                            } else {
+                                alert("Erreur de génération du résumé.");
+                            }
+                        } catch (e) {
+                            alert("Erreur de génération du résumé.");
+                        }
+                        setIsGenerating(false);
+                        return;
                     }
                 }
             }
+            
+            setIsGenerating(false);
+            fetchData();
         } catch (err) {
             console.error(err);
             setIsGenerating(false);
@@ -389,6 +413,23 @@ const MeetingDetail: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {isGenerating && (
+                <div className="gen-modal-overlay">
+                    <div className="gen-modal">
+                        <div className="gen-modal-header">
+                            <RefreshCw className="animate-spin" size={20} />
+                            <h3>L'Intelligence Artificielle travaille...</h3>
+                        </div>
+                        <div className="gen-modal-body">
+                            <p className="gen-subtitle">Génération du résumé et extraction des tâches en cours. Veuillez patienter.</p>
+                            <div className="stream-box-modal">
+                                {streamText || "Connexion au modèle d'IA..."}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <style>{`
                 .md-page {
@@ -700,6 +741,67 @@ const MeetingDetail: React.FC = () => {
 
                 .animate-spin { animation: spin 1s linear infinite; }
                 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+                .stream-box-modal {
+                    background: #1E293B;
+                    color: #E2E8F0;
+                    padding: 1.5rem;
+                    border-radius: 8px;
+                    font-family: 'Fira Code', monospace;
+                    font-size: 0.85rem;
+                    white-space: pre-wrap;
+                    overflow-y: auto;
+                    height: 400px;
+                    box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+                    line-height: 1.6;
+                }
+                .gen-modal-overlay {
+                    position: fixed;
+                    top: 0; left: 0; right: 0; bottom: 0;
+                    background: rgba(15, 23, 42, 0.75);
+                    backdrop-filter: blur(4px);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 1000;
+                }
+                .gen-modal {
+                    background: white;
+                    border-radius: 16px;
+                    width: 90%;
+                    max-width: 800px;
+                    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+                    overflow: hidden;
+                    animation: modalPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                @keyframes modalPop {
+                    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+                    to { opacity: 1; transform: scale(1) translateY(0); }
+                }
+                .gen-modal-header {
+                    background: #F8FAFC;
+                    padding: 1.5rem 2rem;
+                    border-bottom: 1px solid #E2E8F0;
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                    color: #2563EB;
+                }
+                .gen-modal-header h3 {
+                    margin: 0;
+                    font-size: 1.25rem;
+                    font-weight: 700;
+                    color: #1E293B;
+                }
+                .gen-modal-body {
+                    padding: 2rem;
+                }
+                .gen-subtitle {
+                    color: #64748B;
+                    margin-top: 0;
+                    margin-bottom: 1.5rem;
+                    font-size: 0.95rem;
+                }
             `}</style>
         </div>
     );

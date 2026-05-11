@@ -342,6 +342,31 @@ async function setupPgDb() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.users (
+        username VARCHAR(255) PRIMARY KEY,
+        role VARCHAR(50) DEFAULT 'user',
+        displayName VARCHAR(255),
+        email VARCHAR(255),
+        service_code VARCHAR(100),
+        service_complement VARCHAR(255),
+        last_activity VARCHAR(100),
+        is_approved INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Copier les données existantes de hub.users vers magapp.users
+    try {
+      await client.query(`
+        INSERT INTO magapp.users (username, role, displayName, email, service_code, service_complement, last_activity, is_approved, created_at)
+        SELECT username, role, displayName, email, service_code, service_complement, last_activity, is_approved, created_at
+        FROM hub.users
+        ON CONFLICT (username) DO NOTHING
+      `);
+      console.log('[PG DB] Copie hub.users → magapp.users effectuée');
+    } catch (e) { console.error('[MIGRATION magapp.users]', e.message); }
+
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_create_buttons BOOLEAN DEFAULT true`);
     } catch (e) {}
@@ -946,6 +971,8 @@ async function setupPgDb() {
     try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='projet_parent_id') THEN ALTER TABLE projets.projets ADD COLUMN projet_parent_id INTEGER REFERENCES projets.projets(id) ON DELETE SET NULL; END IF; END $$;`); } catch (e) {}
     // Migration: groupe_id dans projet_taches
     try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_taches' AND column_name='groupe_id') THEN ALTER TABLE projets.projet_taches ADD COLUMN groupe_id INTEGER REFERENCES projets.projet_groupes_taches(id) ON DELETE SET NULL; END IF; END $$;`); } catch (e) {}
+    // Migration: groupe_id dans projet_jalons
+    try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_jalons' AND column_name='groupe_id') THEN ALTER TABLE projets.projet_jalons ADD COLUMN groupe_id INTEGER REFERENCES projets.projet_groupes_taches(id) ON DELETE SET NULL; END IF; END $$;`); } catch (e) {}
 
     // ============================================
     // PROJETS - Planning / Tâches

@@ -870,7 +870,7 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
 // ===== ONGLET PLANNING =====
 interface GroupeTache { id: number; titre: string; couleur: string; ordre: number; }
 interface Tache { id: number; titre: string; description?: string; date_debut?: string; date_fin?: string; statut: string; responsable_username?: string; couleur: string; ordre: number; groupe_id?: number; }
-interface Jalon { id: number; titre: string; description?: string; date_jalon: string; type: string; atteint: number; }
+interface Jalon { id: number; titre: string; description?: string; date_jalon: string; type: string; atteint: number; groupe_id?: number; }
 interface Dependance { id: number; source_type: string; source_id: number; depend_type: string; depend_id: number; source_label: string; depend_label: string; }
 interface AlerteDep { message: string; source: string; severity: string; }
 
@@ -883,11 +883,11 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
   const [showAddTache, setShowAddTache] = useState(false);
   const [newTache, setNewTache] = useState({ titre: '', date_debut: '', date_fin: '', couleur: '#3b82f6', statut: 'a_faire', groupe_id: '', depend_id: '', depend_type: 'tache' });
   const [showAddJalon, setShowAddJalon] = useState(false);
-  const [newJalon, setNewJalon] = useState({ titre: '', date_jalon: '', type: 'jalon', depend_id: '', depend_type: 'tache' });
+  const [newJalon, setNewJalon] = useState({ titre: '', date_jalon: '', type: 'jalon', groupe_id: '', depend_id: '', depend_type: 'tache' });
   const [showAddGroupe, setShowAddGroupe] = useState(false);
   const [newGroupe, setNewGroupe] = useState({ titre: '', couleur: '#e2e8f0' });
-  const [editTache, setEditTache] = useState<{ id: number; titre: string; date_debut: string; date_fin: string; duree: number; statut: string } | null>(null);
-  const [editJalon, setEditJalon] = useState<{ id: number; titre: string; date_jalon: string; atteint: number } | null>(null);
+  const [editTache, setEditTache] = useState<{ id: number; titre: string; date_debut: string; date_fin: string; duree: number; statut: string; groupe_id: number | null } | null>(null);
+  const [editJalon, setEditJalon] = useState<{ id: number; titre: string; date_jalon: string; atteint: number; groupe_id: number | null } | null>(null);
   const [showAddDep, setShowAddDep] = useState(false);
   const [newDep, setNewDep] = useState({ source_type: 'tache', source_id: '', depend_type: 'tache', depend_id: '' });
 
@@ -930,7 +930,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
     if (!editTache) return;
     await fetch(`/api/projets/${projetId}/taches/${editTache.id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ titre: editTache.titre, date_debut: editTache.date_debut || null, date_fin: editTache.date_fin || null })
+      body: JSON.stringify({ titre: editTache.titre, date_debut: editTache.date_debut || null, date_fin: editTache.date_fin || null, groupe_id: editTache.groupe_id })
     });
     setEditTache(null); loadData();
   };
@@ -939,7 +939,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
     if (!editJalon) return;
     await fetch(`/api/projets/${projetId}/jalons/${editJalon.id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(editJalon)
+      body: JSON.stringify({ titre: editJalon.titre, date_jalon: editJalon.date_jalon, groupe_id: editJalon.groupe_id })
     });
     setEditJalon(null); loadData();
   };
@@ -956,7 +956,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
     if (!newJalon.titre || !newJalon.date_jalon) return;
     const r = await fetch(`/api/projets/${projetId}/jalons`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ titre: newJalon.titre, date_jalon: newJalon.date_jalon })
+      body: JSON.stringify({ titre: newJalon.titre, date_jalon: newJalon.date_jalon, groupe_id: newJalon.groupe_id ? parseInt(newJalon.groupe_id) : null })
     });
     const data = await r.json();
     if (data.id && newJalon.depend_id) {
@@ -965,7 +965,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
         body: JSON.stringify({ source_type: 'jalon', source_id: data.id, depend_type: newJalon.depend_type, depend_id: parseInt(newJalon.depend_id) })
       });
     }
-    setNewJalon({ titre: '', date_jalon: '', type: 'jalon', depend_id: '', depend_type: 'tache' });
+    setNewJalon({ titre: '', date_jalon: '', type: 'jalon', groupe_id: '', depend_id: '', depend_type: 'tache' });
     setShowAddJalon(false); loadData();
   };
 
@@ -1105,6 +1105,10 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px', marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <input value={newJalon.titre} onChange={e => setNewJalon({...newJalon, titre: e.target.value})} placeholder="Titre *" style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', flex: 1, minWidth: '150px' }} />
           <input type="date" value={newJalon.date_jalon} onChange={e => setNewJalon({...newJalon, date_jalon: e.target.value})} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+          <select value={newJalon.groupe_id} onChange={e => setNewJalon({...newJalon, groupe_id: e.target.value})} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
+            <option value="">Sans groupe</option>
+            {groupes.map(g => <option key={g.id} value={String(g.id)}>{g.titre}</option>)}
+          </select>
           <select value={newJalon.depend_id} onChange={e => setNewJalon({...newJalon, depend_id: e.target.value, depend_type: 'tache'})} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white', maxWidth: '160px' }}>
             <option value="">Sans dépendance</option>
             {taches.map(t => <option key={t.id} value={String(t.id)}>← {t.titre}</option>)}
@@ -1157,44 +1161,42 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                 })}
               </div>
             </div>
-            {/* Jalons en 1ère ligne */}
-            {jalons.length > 0 && (
-              <div style={{ marginLeft: '200px', marginBottom: '12px' }}>
-                <div style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>📍 Jalons ({jalons.length})</div>
-                <div style={{ width: `${ganttW}px`, position: 'relative', height: '26px', background: '#faf5ff', borderRadius: '6px', padding: '2px 0' }}>
-                  {jalons.map(j => {
-                    const estEnRetard = !j.atteint && new Date(j.date_jalon) < today;
-                    const depTache = dependances.filter(d => d.depend_type === 'jalon' && d.depend_id === j.id);
-                    const depVersTache = depTache.map(d => taches.find(tc => tc.id === d.source_id)).filter(Boolean);
-                    const depDeTache = dependances.filter(d => d.source_type === 'jalon' && d.source_id === j.id);
-                    return (
-                      <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '3px', transform: 'translateX(-50%)', fontSize: '14px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
-                        title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})${estEnRetard ? ' - EN RETARD!' : ''}${depVersTache.length ? ' - Lié à: ' + depVersTache.map(t => t!.titre).join(', ') : ''}${depDeTache.length ? ' - Dépend de tâche' : ''}`}>
-                        {j.atteint ? '✅' : estEnRetard ? '🔴' : '📍'}
-                        <span style={{ fontSize: '9px', color: estEnRetard ? '#dc2626' : '#6d28d9', fontWeight: '600', whiteSpace: 'nowrap', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.titre}</span>
-                        {estEnRetard && <span style={{ fontSize: '8px', color: '#dc2626', fontWeight: '800' }}>⚠️</span>}
-                      </div>
-                    );
-                  })}
-                  {/* Flèches de dépendance tâche → jalon */}
-                  {dependances.filter(d => d.depend_type === 'jalon').map(d => {
-                    const tache = taches.find(tc => tc.id === d.source_id);
-                    const jalon = jalons.find(jj => jj.id === d.depend_id);
-                    if (!tache || !tache.date_fin || !jalon) return null;
-                    const xFin = toX(tache.date_fin);
-                    const xJal = toX(jalon.date_jalon);
-                    if (xFin >= xJal) return null;
-                    return (
-                      <div key={d.id} style={{ position: 'absolute', left: `${xFin}px`, top: '12px', width: `${xJal - xFin}px`, height: '2px', zIndex: 1, pointerEvents: 'none' }}>
-                        <svg width={xJal - xFin + 2} height="2" style={{ display: 'block' }}>
-                          <line x1="0" y1="1" x2={xJal - xFin} y2="1" stroke="#8b5cf6" strokeWidth="1.5" strokeDasharray="3,2" />
-                        </svg>
-                      </div>
-                    );
-                  })}
+            {/* Jalons */}
+            {(() => {
+              const jalonSections: { label: string; couleur: string; items: typeof jalons }[] = [];
+              const jSansGroupe = jalons.filter(j => !j.groupe_id);
+              if (jSansGroupe.length > 0) jalonSections.push({ label: 'Sans groupe', couleur: '#faf5ff', items: jSansGroupe });
+              for (const g of groupes) {
+                const gj = jalons.filter(j => j.groupe_id === g.id);
+                if (gj.length > 0) jalonSections.push({ label: g.titre, couleur: g.couleur || '#faf5ff', items: gj });
+              }
+              return jalonSections.map(s => (
+                <div key={s.label} style={{ marginLeft: '200px', marginBottom: '8px' }}>
+                  {s.label !== 'Sans groupe' && (
+                    <div style={{ fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <div style={{ width: '8px', height: '8px', borderRadius: '2px', background: s.couleur, border: '1px solid rgba(0,0,0,0.1)' }} />
+                      {s.label} ({s.items.length})
+                    </div>
+                  )}
+                  <div style={{ width: `${ganttW}px`, position: 'relative', height: '26px', background: `${s.couleur}18`, borderRadius: '6px', padding: '2px 0' }}>
+                    {s.items.map(j => {
+                      const estEnRetard = !j.atteint && new Date(j.date_jalon) < today;
+                      const depTache = dependances.filter(d => d.depend_type === 'jalon' && d.depend_id === j.id);
+                      const depVersTache = depTache.map(d => taches.find(tc => tc.id === d.source_id)).filter(Boolean);
+                      const depDeTache = dependances.filter(d => d.source_type === 'jalon' && d.source_id === j.id);
+                      return (
+                        <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '3px', transform: 'translateX(-50%)', fontSize: '14px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+                          title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})${estEnRetard ? ' - EN RETARD!' : ''}${depVersTache.length ? ' - Lié à: ' + depVersTache.map(t => t!.titre).join(', ') : ''}${depDeTache.length ? ' - Dépend de tâche' : ''}`}>
+                          {j.atteint ? '✅' : estEnRetard ? '🔴' : '📍'}
+                          <span style={{ fontSize: '9px', color: estEnRetard ? '#dc2626' : '#6d28d9', fontWeight: '600', whiteSpace: 'nowrap', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.titre}</span>
+                          {estEnRetard && <span style={{ fontSize: '8px', color: '#dc2626', fontWeight: '800' }}>⚠️</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              ));
+            })()}
             {/* Barres du Gantt */}
             {groupesAvecTaches.map(groupe => {
               const tachesDuGroupe = groupe.id === 0 ? tachesParGroupe(null) : tachesParGroupe(groupe.id);
@@ -1292,94 +1294,145 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
         </div>
       )}
 
-      {/* Liste tâches avec édition et dépendances */}
+      {/* Liste tâches avec édition, dépendances et groupes */}
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '16px' }}>
         <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', fontWeight: '700', fontSize: '14px', color: '#64748b', textTransform: 'uppercase' }}>📋 Tâches ({taches.length})</div>
         {taches.length === 0 ? (<p style={{ padding: '20px', color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: 0 }}>Aucune tâche</p>)
-        : taches.map(t => (
-          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 18px', borderBottom: '1px solid #f1f5f9' }}>
-            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: t.couleur || '#3b82f6', flexShrink: 0 }} />
-                {editTache?.id === t.id ? (
-              <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
-                <input value={editTache.titre} onChange={e => setEditTache({...editTache, titre: e.target.value})} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px', flex: 1 }} />
-                <input type="date" value={editTache.date_debut} onChange={e => {
-                  const newDebut = e.target.value;
-                  if (newDebut && editTache.duree > 0) {
-                    const fin = new Date(newDebut);
-                    fin.setDate(fin.getDate() + editTache.duree);
-                    setEditTache({...editTache, date_debut: newDebut, date_fin: fin.toISOString().split('T')[0]});
-                  } else {
-                    setEditTache({...editTache, date_debut: newDebut});
-                  }
-                }} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
-                <input type="date" value={editTache.date_fin} onChange={e => {
-                  const newFin = e.target.value;
-                  const duree = editTache.date_debut && newFin ? Math.round((new Date(newFin).getTime() - new Date(editTache.date_debut).getTime()) / 86400000) : 0;
-                  setEditTache({...editTache, date_fin: newFin, duree: Math.max(duree, 0)});
-                }} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
-                <span style={{ fontSize: '10px', color: '#64748b', whiteSpace: 'nowrap' }}>{editTache.duree > 0 ? `${editTache.duree}j` : ''}</span>
-                <button onClick={saveEditTache} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>OK</button>
-                <button onClick={() => setEditTache(null)} style={{ padding: '4px 10px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#64748b' }}>✕</button>
-              </div>
-            ) : (
-              <>
-                <span style={{ flex: 1, fontSize: '13px', fontWeight: '600', color: t.statut === 'terminee' ? '#94a3b8' : '#1e293b', textDecoration: t.statut === 'terminee' ? 'line-through' : 'none', cursor: 'pointer' }}
-                  onClick={() => {
-                    const duree = t.date_debut && t.date_fin ? Math.round((new Date(t.date_fin).getTime() - new Date(t.date_debut).getTime()) / 86400000) : 0;
-                    setEditTache({ id: t.id, titre: t.titre, date_debut: t.date_debut || '', date_fin: t.date_fin || '', duree: Math.max(duree, 0), statut: t.statut });
-                  }}>{t.titre}</span>
-                {t.groupe_id && <span style={{ fontSize: '11px', color: '#94a3b8' }}>{groupes.find(g => g.id === t.groupe_id)?.titre || ''}</span>}
-                <span style={{ fontSize: '11px', color: '#64748b' }}>{t.date_debut ? new Date(t.date_debut).toLocaleDateString('fr-FR') : '—'} → {t.date_fin ? new Date(t.date_fin).toLocaleDateString('fr-FR') : '—'}</span>
-                <select value={t.statut} onChange={e => changerStatut(t.id, e.target.value)}
-                  style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', fontWeight: '600', background: 'white', cursor: 'pointer', color: STATUT_COLORS_TACHE[t.statut] || '#94a3b8' }}>
-                  <option value="a_faire">À faire</option><option value="en_cours">En cours</option><option value="terminee">Terminée</option><option value="bloquee">Bloquée</option>
-                </select>
-                {/* Dépendances */}
-                {dependances.filter(d => d.source_type === 'tache' && d.source_id === t.id).length > 0 && (
-                  <span style={{ fontSize: '10px', color: '#64748b', display: 'flex', gap: '3px', alignItems: 'center' }}>
-                    🔗 {dependances.filter(d => d.source_type === 'tache' && d.source_id === t.id).map(d => (
-                      <span key={d.id} style={{ padding: '1px 5px', background: '#f1f5f9', borderRadius: '3px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                        {d.depend_label} <button onClick={() => supprimerDep(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: '10px' }}>✕</button>
-                      </span>
-                    ))}
-                  </span>
-                )}
-              </>
-            )}
-            <button onClick={() => supprimerTache(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px', flexShrink: 0 }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}><Trash2 size={12} /></button>
-          </div>
-        ))}
+        : (() => {
+          const sections: { label: string; couleur: string; tasks: typeof taches }[] = [];
+          const sansGroupe = taches.filter(t => !t.groupe_id);
+          if (sansGroupe.length > 0) sections.push({ label: 'Sans groupe', couleur: '#f8fafc', tasks: sansGroupe });
+          for (const g of groupes) {
+            const gt = taches.filter(t => t.groupe_id === g.id);
+            if (gt.length > 0) sections.push({ label: g.titre, couleur: g.couleur || '#e2e8f0', tasks: gt });
+          }
+          return sections.map(s => (
+            <div key={s.label}>
+              {s.label !== 'Sans groupe' && (
+                <div style={{ padding: '6px 18px', background: s.couleur, fontWeight: '700', fontSize: '12px', color: '#475569', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: s.couleur, border: '1px solid rgba(0,0,0,0.1)', flexShrink: 0 }} />
+                  {s.label} ({s.tasks.length})
+                </div>
+              )}
+              {s.tasks.map(t => {
+                const bgColor = s.label === 'Sans groupe' ? 'transparent' : `${s.couleur}22`;
+                return (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 18px', borderBottom: '1px solid #f1f5f9', background: bgColor }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: t.couleur || '#3b82f6', flexShrink: 0 }} />
+                      {editTache?.id === t.id ? (
+                    <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
+                      <input value={editTache.titre} onChange={e => setEditTache({...editTache, titre: e.target.value})} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px', flex: 1 }} />
+                      <input type="date" value={editTache.date_debut} onChange={e => {
+                        const newDebut = e.target.value;
+                        if (newDebut && editTache.duree > 0) {
+                          const fin = new Date(newDebut);
+                          fin.setDate(fin.getDate() + editTache.duree);
+                          setEditTache({...editTache, date_debut: newDebut, date_fin: fin.toISOString().split('T')[0]});
+                        } else {
+                          setEditTache({...editTache, date_debut: newDebut});
+                        }
+                      }} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                      <input type="date" value={editTache.date_fin} onChange={e => {
+                        const newFin = e.target.value;
+                        const duree = editTache.date_debut && newFin ? Math.round((new Date(newFin).getTime() - new Date(editTache.date_debut).getTime()) / 86400000) : 0;
+                        setEditTache({...editTache, date_fin: newFin, duree: Math.max(duree, 0)});
+                      }} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                      <select value={editTache.groupe_id ?? ''} onChange={e => setEditTache({...editTache, groupe_id: e.target.value ? parseInt(e.target.value) : null })}
+                        style={{ padding: '4px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', background: 'white' }}>
+                        <option value="">Sans groupe</option>
+                        {groupes.map(g => <option key={g.id} value={String(g.id)}>{g.titre}</option>)}
+                      </select>
+                      <span style={{ fontSize: '10px', color: '#64748b', whiteSpace: 'nowrap' }}>{editTache.duree > 0 ? `${editTache.duree}j` : ''}</span>
+                      <button onClick={saveEditTache} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>OK</button>
+                      <button onClick={() => setEditTache(null)} style={{ padding: '4px 10px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#64748b' }}>✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1, fontSize: '13px', fontWeight: '600', color: t.statut === 'terminee' ? '#94a3b8' : '#1e293b', textDecoration: t.statut === 'terminee' ? 'line-through' : 'none', cursor: 'pointer' }}
+                        onClick={() => {
+                          const duree = t.date_debut && t.date_fin ? Math.round((new Date(t.date_fin).getTime() - new Date(t.date_debut).getTime()) / 86400000) : 0;
+                          setEditTache({ id: t.id, titre: t.titre, date_debut: t.date_debut || '', date_fin: t.date_fin || '', duree: Math.max(duree, 0), statut: t.statut, groupe_id: t.groupe_id ?? null });
+                        }}>{t.titre}</span>
+                      <span style={{ fontSize: '11px', color: '#64748b' }}>{t.date_debut ? new Date(t.date_debut).toLocaleDateString('fr-FR') : '—'} → {t.date_fin ? new Date(t.date_fin).toLocaleDateString('fr-FR') : '—'}</span>
+                      <select value={t.statut} onChange={e => changerStatut(t.id, e.target.value)}
+                        style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', fontWeight: '600', background: 'white', cursor: 'pointer', color: STATUT_COLORS_TACHE[t.statut] || '#94a3b8' }}>
+                        <option value="a_faire">À faire</option><option value="en_cours">En cours</option><option value="terminee">Terminée</option><option value="bloquee">Bloquée</option>
+                      </select>
+                      {/* Dépendances */}
+                      {dependances.filter(d => d.source_type === 'tache' && d.source_id === t.id).length > 0 && (
+                        <span style={{ fontSize: '10px', color: '#64748b', display: 'flex', gap: '3px', alignItems: 'center' }}>
+                          🔗 {dependances.filter(d => d.source_type === 'tache' && d.source_id === t.id).map(d => (
+                            <span key={d.id} style={{ padding: '1px 5px', background: '#f1f5f9', borderRadius: '3px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                              {d.depend_label} <button onClick={() => supprimerDep(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: '10px' }}>✕</button>
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                    </>
+                  )}
+                  <button onClick={() => supprimerTache(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px', flexShrink: 0 }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}><Trash2 size={12} /></button>
+                </div>
+              );})}
+            </div>
+          ));
+        })()}
       </div>
 
-      {/* Jalons avec édition */}
+      {/* Jalons avec édition et groupes */}
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', fontWeight: '700', fontSize: '14px', color: '#64748b', textTransform: 'uppercase' }}>📍 Jalons ({jalons.length})</div>
         {jalons.length === 0 ? (<p style={{ padding: '20px', color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: 0 }}>Aucun jalon</p>)
-        : jalons.map(j => (
-          <div key={j.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 18px', borderBottom: '1px solid #f1f5f9' }}>
-            <input type="checkbox" checked={!!j.atteint} onChange={() => toggleJalon(j)} style={{ cursor: 'pointer' }} />
-            {editJalon?.id === j.id ? (
-              <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
-                <input value={editJalon.titre} onChange={e => setEditJalon({...editJalon, titre: e.target.value})} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px', flex: 1 }} />
-                <input type="date" value={editJalon.date_jalon} onChange={e => setEditJalon({...editJalon, date_jalon: e.target.value})} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
-                <button onClick={saveEditJalon} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>OK</button>
-                <button onClick={() => setEditJalon(null)} style={{ padding: '4px 10px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#64748b' }}>✕</button>
-              </div>
-            ) : (
-              <>
-                <span style={{ flex: 1, fontSize: '13px', fontWeight: '600', color: j.atteint ? '#16a34a' : '#1e293b', textDecoration: j.atteint ? 'line-through' : 'none', cursor: 'pointer' }}
-                  onClick={() => setEditJalon({ id: j.id, titre: j.titre, date_jalon: j.date_jalon, atteint: j.atteint })}>{j.titre}</span>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>📅 {new Date(j.date_jalon).toLocaleDateString('fr-FR')}</span>
-                {dependances.filter(d => d.source_type === 'jalon' && d.source_id === j.id).map(d => (
-                  <span key={d.id} style={{ fontSize: '10px', padding: '1px 5px', background: '#f1f5f9', borderRadius: '3px' }}>🔗 {d.depend_label} <button onClick={() => supprimerDep(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: '10px' }}>✕</button></span>
-                ))}
-              </>
-            )}
-            <button onClick={() => supprimerJalon(j.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px' }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}><Trash2 size={12} /></button>
-          </div>
-        ))}
+        : (() => {
+          const sections: { label: string; couleur: string; items: typeof jalons }[] = [];
+          const sansGroupe = jalons.filter(j => !j.groupe_id);
+          if (sansGroupe.length > 0) sections.push({ label: 'Sans groupe', couleur: '#f8fafc', items: sansGroupe });
+          for (const g of groupes) {
+            const gj = jalons.filter(j => j.groupe_id === g.id);
+            if (gj.length > 0) sections.push({ label: g.titre, couleur: g.couleur || '#e2e8f0', items: gj });
+          }
+          return sections.map(s => (
+            <div key={s.label}>
+              {s.label !== 'Sans groupe' && (
+                <div style={{ padding: '6px 18px', background: s.couleur, fontWeight: '700', fontSize: '12px', color: '#475569', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '3px', background: s.couleur, border: '1px solid rgba(0,0,0,0.1)', flexShrink: 0 }} />
+                  {s.label} ({s.items.length})
+                </div>
+              )}
+              {s.items.map(j => {
+                const bgColor = s.label === 'Sans groupe' ? 'transparent' : `${s.couleur}22`;
+                return (
+                <div key={j.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 18px', borderBottom: '1px solid #f1f5f9', background: bgColor }}>
+                  <input type="checkbox" checked={!!j.atteint} onChange={() => toggleJalon(j)} style={{ cursor: 'pointer' }} />
+                  {editJalon?.id === j.id ? (
+                    <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'center' }}>
+                      <input value={editJalon.titre} onChange={e => setEditJalon({...editJalon, titre: e.target.value})} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '13px', flex: 1 }} />
+                      <input type="date" value={editJalon.date_jalon} onChange={e => setEditJalon({...editJalon, date_jalon: e.target.value})} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                      <select value={editJalon.groupe_id ?? ''} onChange={e => setEditJalon({...editJalon, groupe_id: e.target.value ? parseInt(e.target.value) : null })}
+                        style={{ padding: '4px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', background: 'white' }}>
+                        <option value="">Sans groupe</option>
+                        {groupes.map(g => <option key={g.id} value={String(g.id)}>{g.titre}</option>)}
+                      </select>
+                      <button onClick={saveEditJalon} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: '600' }}>OK</button>
+                      <button onClick={() => setEditJalon(null)} style={{ padding: '4px 10px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#64748b' }}>✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <span style={{ flex: 1, fontSize: '13px', fontWeight: '600', color: j.atteint ? '#16a34a' : '#1e293b', textDecoration: j.atteint ? 'line-through' : 'none', cursor: 'pointer' }}
+                        onClick={() => setEditJalon({ id: j.id, titre: j.titre, date_jalon: j.date_jalon, atteint: j.atteint, groupe_id: j.groupe_id ?? null })}>{j.titre}</span>
+                      <span style={{ fontSize: '11px', color: '#64748b' }}>📅 {new Date(j.date_jalon).toLocaleDateString('fr-FR')}</span>
+                      {dependances.filter(d => d.source_type === 'jalon' && d.source_id === j.id).map(d => (
+                        <span key={d.id} style={{ fontSize: '10px', padding: '1px 5px', background: '#f1f5f9', borderRadius: '3px' }}>🔗 {d.depend_label} <button onClick={() => supprimerDep(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: '10px' }}>✕</button></span>
+                      ))}
+                    </>
+                  )}
+                  <button onClick={() => supprimerJalon(j.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}><Trash2 size={12} /></button>
+                </div>
+              );})}
+            </div>
+          ));
+        })()}
       </div>
 
       {/* Liste des dépendances */}
@@ -1488,12 +1541,13 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
   const [uploadUrl, setUploadUrl] = useState('');
   const [uploadContractuel, setUploadContractuel] = useState(false);
   const [uploadToJournal, setUploadToJournal] = useState(false);
+  const [uploadAutreLabel, setUploadAutreLabel] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [uploadTotalFiles, setUploadTotalFiles] = useState(0);
-  const [editDocType, setEditDocType] = useState<{ id: number; currentType: string } | null>(null);
+  const [editDocType, setEditDocType] = useState<{ id: number; currentType: string; customLabel?: string } | null>(null);
 
   useEffect(() => { setDocs(documents); }, [documents]);
 
@@ -1503,7 +1557,10 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
     const docRes = await fetch(`/api/projets/${projetId}/documents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ type_documentaire: uploadType, est_contractuel: uploadContractuel, url: uploadUrl || null })
+      body: JSON.stringify({
+        type_documentaire: uploadType === 'autre' && uploadAutreLabel.trim() ? uploadAutreLabel.trim() : uploadType,
+        est_contractuel: uploadContractuel, url: uploadUrl || null
+      })
     });
     const docData = await docRes.json();
     if (!docData.id) { setUploading(false); return; }
@@ -1518,7 +1575,7 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
       });
     }
 
-    setShowUpload(false); setUploadFile(null); setUploadUrl(''); setUploadType(''); setUploadContractuel(false);
+    setShowUpload(false); setUploadFile(null); setUploadUrl(''); setUploadType(''); setUploadContractuel(false); setUploadAutreLabel('');
     const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
     const d = await r.json();
     if (Array.isArray(d)) setDocs(d);
@@ -1587,6 +1644,9 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
                   <option key={t} value={t}>{t.replace(/_/g,' ')}</option>
                 ))}
               </select>
+              {uploadType === 'autre' && (
+                <input value={uploadAutreLabel} onChange={e => setUploadAutreLabel(e.target.value)} placeholder="Précisez le type..." style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', marginTop: '6px' }} />
+              )}
             </div>
             <div style={{ flex: 1, minWidth: '150px' }}>
               <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Fichier (ou lien)</label>
@@ -1689,28 +1749,44 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
                       <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 12px', background: '#fef3c7', borderRadius: '6px', fontSize: '12px', fontWeight: '600', color: '#2563eb', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                         🔗 Ouvrir
                       </a>
-                    ) : <span style={{ color: '#cbd5e1', fontSize: '12px' }}>—</span>}
+                    ) : null}
+                    <button onClick={async () => {
+                      if (!window.confirm(`Supprimer le document "${d.type_documentaire.replace(/_/g, ' ')}" ?`)) return;
+                      await fetch(`/api/projets/${projetId}/documents/${d.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+                      const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
+                      const rd = await r.json();
+                      if (Array.isArray(rd)) setDocs(rd);
+                    }} style={{ padding: '5px 8px', background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: '14px', marginLeft: '4px' }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}>🗑️</button>
                     {d.type_vrac && (
                       <>
                         {editDocType?.id === d.id ? (
-                          <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                          <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexDirection: 'column' }}>
                             <select value={editDocType.currentType} onChange={e => setEditDocType({...editDocType, currentType: e.target.value})}
                               style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', background: 'white', width: '120px' }}>
                               {['fiche_idee','fiche_demande','charte_projet','note_arbitrage','plan_projet','plan_communication','compte_rendu','va','vsr','doc_fonctionnelle','doc_technique','bilan_cloture','autre'].map(t => (
                                 <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
                               ))}
                             </select>
-                            <button onClick={async () => {
-                              await fetch(`/api/projets/${projetId}/documents/${d.id}/type`, {
-                                method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                body: JSON.stringify({ type_documentaire: editDocType.currentType, type_vrac: 0 })
-                              });
-                              setEditDocType(null);
-                              const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
-                              const rd = await r.json();
-                              if (Array.isArray(rd)) setDocs(rd);
-                            }} style={{ padding: '3px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: '600' }}>OK</button>
-                            <button onClick={() => setEditDocType(null)} style={{ padding: '3px 8px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}>✕</button>
+                            {editDocType.currentType === 'autre' && (
+                              <input value={editDocType.customLabel || ''} onChange={e => setEditDocType({...editDocType, customLabel: e.target.value})}
+                                placeholder="Précisez le type..." style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', width: '160px' }} />
+                            )}
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button onClick={async () => {
+                                const typeFinal = editDocType.currentType === 'autre' && editDocType.customLabel?.trim()
+                                  ? editDocType.customLabel.trim() : editDocType.currentType;
+                                await fetch(`/api/projets/${projetId}/documents/${d.id}/type`, {
+                                  method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                  body: JSON.stringify({ type_documentaire: typeFinal, type_vrac: 0 })
+                                });
+                                setEditDocType(null);
+                                const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
+                                const rd = await r.json();
+                                if (Array.isArray(rd)) setDocs(rd);
+                              }} style={{ padding: '3px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: '600' }}>OK</button>
+                              <button onClick={() => setEditDocType(null)} style={{ padding: '3px 8px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}>✕</button>
+                            </div>
                           </div>
                         ) : (
                           <button onClick={() => setEditDocType({ id: d.id, currentType: d.type_documentaire })}
@@ -2056,8 +2132,12 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
           <strong>Cette action est irréversible.</strong>
         </p>
         <button onClick={async () => {
-          const confirm1 = window.prompt('Tapez le code du projet pour confirmer la suppression :');
-          if (!confirm1 || confirm1 !== projet.code) return;
+          const confirm1 = window.prompt(`Tapez le code du projet pour confirmer la suppression :\n\nCode : ${projet.code}`);
+          if (!confirm1) return;
+          if (confirm1.trim().toLowerCase() !== (projet.code || '').trim().toLowerCase()) {
+            alert(`Code incorrect. La suppression a été annulée.`);
+            return;
+          }
           const confirm2 = window.confirm(`Êtes-vous absolument sûr de vouloir supprimer "${projet.titre}" (${projet.code}) ? Cette action supprimera également tous les sous-projets, documents, tâches et comités associés.`);
           if (!confirm2) return;
           try {

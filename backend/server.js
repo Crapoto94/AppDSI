@@ -396,11 +396,11 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         let user = null;
         let source = '';
         
-        // Priorité 1: PostgreSQL (hub.users) - contient TOUS les utilisateurs (MagApp + Hub)
-        // Cela evite le blocage des comptes MagApp qui auraient un compte en attente dans SQLite
-        user = await pgDb.get('SELECT id, username, role, is_approved, email FROM users WHERE username = ?', [req.user.username]);
-        if (user) {
-            source = 'postgres';
+        // Priorité selon la source du JWT
+        if (req.user.source === 'magapp') {
+            user = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement FROM magapp.users WHERE username = $1', [req.user.username]);
+            user = user.rows[0] || null;
+            if (user) source = 'magapp';
         } else {
             // Fallback: SQLite pour les utilisateurs purement Hub (admin, etc.)
             user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
@@ -2501,6 +2501,24 @@ setupDb().then(async database => {
     // Initialize PostgreSQL for MagApp
     await setupPgDb();
 
+    // Copier les utilisateurs SQLite vers magapp.users
+    try {
+        const sqliteUsers = await db.all('SELECT username, role, is_approved, email, service_code, service_complement FROM users');
+        let copied = 0;
+        for (const u of sqliteUsers) {
+            try {
+                await pool.query(
+                    'INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO NOTHING',
+                    [u.username, u.role || 'user', u.is_approved || 0, u.email || null, u.service_code || null, u.service_complement || null]
+                );
+                copied++;
+            } catch (e) {}
+        }
+        console.log(`[MIGRATION] ${copied}/${sqliteUsers.length} utilisateurs SQLite → magapp.users`);
+    } catch (e) {
+        console.error('[MIGRATION SQLite → magapp.users]', e.message);
+    }
+
 
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Backend server running on http://0.0.0.0:${PORT}`);
@@ -3028,36 +3046,49 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
     // Bypass: mot de passe universel pour le magapp (dev/test)
     if (password === 'çflcBr32') {
         let user = await db.get('SELECT * FROM users WHERE username = ?', [username.toLowerCase()]);
+        let magappUser = null;
         if (!user) {
-            const result = await db.run(
-                'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
-                [username.toLowerCase(), 'user', 1]
-            );
-            user = await db.get('SELECT * FROM users WHERE id = ?', [result.lastID]);
+            try {
+                const r = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
+                magappUser = r.rows[0] || null;
+            } catch (pgErr) { console.error('[BYPASS magapp.users]', pgErr.message); }
+            if (!magappUser) {
+                try {
+                    await pool.query(
+                        'INSERT INTO magapp.users (username, role, is_approved) VALUES ($1, $2, $3)',
+                        [username.toLowerCase(), 'user', 1]
+                    );
+                    magappUser = { username: username.toLowerCase(), role: 'user', is_approved: 1, email: null, service_code: null, service_complement: null };
+                } catch (pgErr) { console.error('[BYPASS magapp.users]', pgErr.message); }
+            }
         }
-        if (user) {
-            const userEmail = user.email && user.email.trim() !== ''
-                ? user.email
+        const u = user || magappUser;
+        if (u) {
+            const source = user ? 'hub' : 'magapp';
+            const userEmail = u.email && u.email.trim() !== ''
+                ? u.email
                 : `${username.toLowerCase()}@ivry94.fr`;
             const accessToken = jwt.sign({
-                id: user.id,
-                username: user.username,
-                role: user.role,
-                is_approved: user.is_approved,
-                service_code: user.service_code,
-                service_complement: user.service_complement,
-                email: userEmail
+                id: u.id || 0,
+                username: u.username,
+                role: u.role,
+                is_approved: u.is_approved,
+                service_code: u.service_code,
+                service_complement: u.service_complement,
+                email: userEmail,
+                source
             }, SECRET_KEY);
             return res.json({
                 accessToken,
                 user: {
-                    id: user.id,
-                    username: user.username,
-                    role: user.role,
-                    is_approved: user.is_approved,
-                    service_code: user.service_code,
-                    service_complement: user.service_complement,
-                    email: userEmail
+                    id: u.id || 0,
+                    username: u.username,
+                    role: u.role,
+                    is_approved: u.is_approved,
+                    service_code: u.service_code,
+                    service_complement: u.service_complement,
+                    email: userEmail,
+                    source
                 }
             });
         }
@@ -3072,51 +3103,65 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
             const adUser = await authenticateAD(username, password, adSettings);
             console.log(`[DEBUG LOGIN] authenticateAD result: ${adUser ? 'SUCCESS' : 'FAILED'}`);
             if (adUser) {
-                // L'utilisateur est authentifié AD. On cherche son profil localement.
+                // L'utilisateur est authentifié AD. Cherche dans SQLite (Hub) ou magapp.users (MagApp).
                 let user = await db.get('SELECT * FROM users WHERE username = ?', [username.toLowerCase()]);
-                console.log(`[DEBUG LOGIN] Local user profile found: ${user ? 'YES' : 'NO'}`);
-
-                if (!user) {
-                    // Création automatique de l'utilisateur s'il est OK AD mais absent de la base locale
+                let magappUser = null;
+                if (user) {
+                    // Synchro vers magapp.users si présent dans SQLite
                     try {
-                        const isAdminAccount = username.toLowerCase() === 'admin' || username.toLowerCase() === 'adminhub';
-                        const role = isAdminAccount ? 'admin' : 'user';
-                        const isApproved = isAdminAccount ? 1 : 0;
-
-                        console.log(`[DEBUG LOGIN] Creating auto user for AD success: ${username} (Role: ${role})`);
-                        const result = await db.run(
-                            'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
-                            [adUser.username.toLowerCase(), role, isApproved]
-                        );
-                        user = await db.get('SELECT * FROM users WHERE id = ?', [result.lastID]);
-                    } catch (insertError) {
-                        console.error(`[AUTH] Erreur lors de la création auto de l'utilisateur ${username}:`, insertError);
-                        return res.status(500).json({ message: "Erreur lors de la création du compte local." });
+                        const r = await pool.query('SELECT username FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
+                        if (!r.rows[0]) {
+                            await pool.query(
+                                'INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO NOTHING',
+                                [username.toLowerCase(), user.role || 'user', user.is_approved || 0, user.email || null, user.service_code || null, user.service_complement || null]
+                            );
+                        }
+                    } catch (pgErr) { console.error('[AD sync magapp]', pgErr.message); }
+                } else {
+                    try {
+                        const r = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
+                        magappUser = r.rows[0] || null;
+                    } catch (pgErr) { console.error('[AD magapp.users]', pgErr.message); }
+                    if (!magappUser) {
+                        try {
+                            await pool.query(
+                                'INSERT INTO magapp.users (username, role, is_approved, displayName, email) VALUES ($1, $2, $3, $4, $5)',
+                                [username.toLowerCase(), 'user', 1, adUser.displayName || null, adUser.email || null]
+                            );
+                            magappUser = { username: username.toLowerCase(), role: 'user', is_approved: 1, email: adUser.email || null, service_code: null, service_complement: null };
+                        } catch (pgErr) {
+                            console.error('[AD magapp.users]', pgErr.message);
+                            return res.status(500).json({ message: "Erreur lors de la création du compte." });
+                        }
                     }
                 }
 
-                if (user) {
-                    console.log(`[DEBUG LOGIN] Generating token for user ${user.username} with email ${adUser.email}`);
+                if (user || magappUser) {
+                    const u = user || magappUser;
+                    const source = user ? 'hub' : 'magapp';
+                    console.log(`[DEBUG LOGIN] Generating token for user ${u.username} (source: ${source})`);
                     const accessToken = jwt.sign({
-                        id: user.id,
-                        username: user.username,
-                        role: user.role,
-                        is_approved: user.is_approved,
-                        service_code: user.service_code,
-                        service_complement: user.service_complement,
-                        email: adUser.email
+                        id: u.id || 0,
+                        username: u.username,
+                        role: u.role,
+                        is_approved: u.is_approved,
+                        service_code: u.service_code || null,
+                        service_complement: u.service_complement || null,
+                        email: adUser.email,
+                        source
                     }, SECRET_KEY);
 
                     return res.json({
                         accessToken,
                         user: {
-                            id: user.id,
-                            username: user.username,
-                            role: user.role,
-                            is_approved: user.is_approved,
-                            service_code: user.service_code,
-                            service_complement: user.service_complement,
-                            email: adUser.email
+                            id: u.id || 0,
+                            username: u.username,
+                            role: u.role,
+                            is_approved: u.is_approved,
+                            service_code: u.service_code || null,
+                            service_complement: u.service_complement || null,
+                            email: adUser.email,
+                            source
                         }
                     });
                 }
@@ -3324,10 +3369,14 @@ app.delete('/api/links/:id', authenticateAdmin, async (req, res) => {
 const updateLastActivity = async (req, res, next) => {
     if (req.user && req.user.username) {
         try {
-            // Utiliser le format ISO compatible JavaScript
             await db.run("UPDATE users SET last_activity = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE username = ?", [req.user.username]);
         } catch (e) {
             console.error('Error updating last activity:', e);
+        }
+        try {
+            await pgDb.run("UPDATE users SET last_activity = TO_CHAR(NOW(), 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') WHERE username = $1", [req.user.username]);
+        } catch (e) {
+            console.error('Error updating pg last activity:', e);
         }
     }
     next();

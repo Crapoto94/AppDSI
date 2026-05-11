@@ -67,6 +67,7 @@ router.post('/:id/documents/versions/vrac', authenticateJWT, uploadDoc.array('fi
 router.get('/:id/documents', authenticateJWT, ctrl.getDocuments);
 router.get('/:id/documents/controles', authenticateJWT, ctrl.getControlesDocuments);
 router.get('/:id/documents/:did', authenticateJWT, ctrl.getDocumentDetail);
+router.delete('/:id/documents/:did', authenticateJWT, ctrl.supprimerDocument);
 router.post('/:id/documents/:did/versions', authenticateJWT, uploadDoc.single('file'), ctrl.uploadVersion);
 router.get('/:id/documents/:did/versions/:vid/telecharger', authenticateJWT, ctrl.telechargerVersion);
 router.get('/:id/documents/:did/versions/:vid/view', authenticateJWTQuery, ctrl.telechargerVersion);

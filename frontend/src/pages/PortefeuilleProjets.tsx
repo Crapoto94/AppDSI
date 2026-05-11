@@ -244,6 +244,7 @@ const PortefeuilleProjets: React.FC = () => {
                       <thead>
                         <tr style={{ background: '#f8fafc' }}>
                           <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Projet</th>
+                          <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Chef de projet</th>
                           <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', width: '60px' }}>Météo</th>
                           <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Statut</th>
                           <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Service</th>
@@ -267,6 +268,7 @@ const PortefeuilleProjets: React.FC = () => {
                               <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}{p.projet_parent_id && projetParentTitles[p.id] ? ` · parent: ${projetParentTitles[p.id]}` : ''}</div>
                               {p.app_names && <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>📱 {p.app_names}</div>}
                             </td>
+                            <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px' }}>{p.chef_projet_display_name || p.chef_projet_username || '—'}</td>
                             <td style={{ padding: '12px 16px', textAlign: 'center', fontSize: '18px' }}>
                               {p.meteo === 'soleil' ? '☀️' : p.meteo === 'nuageux' ? '⛅' : p.meteo === 'orage' ? '⛈️' : '➖'}
                             </td>

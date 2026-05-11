@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Header from '../../components/Header';
 import { 
     Calendar, FileText, Plus, Search, Trash2, 
-    ArrowRight, Users, RefreshCw, UserCheck
+    ArrowRight, Users, RefreshCw, UserCheck, Clock
 } from 'lucide-react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -18,7 +18,15 @@ interface Meeting {
     speaker_count?: number;
     speaker_emails?: string;
     reunion_id?: number | null;
+    duration_seconds?: number;
 }
+
+const formatTime = (seconds?: number) => {
+    if (seconds === undefined || seconds === null) return '--:--';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+};
 
 const TranscriptManager: React.FC = () => {
     const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -182,6 +190,7 @@ const TranscriptManager: React.FC = () => {
                                     <tr>
                                         <th>Date</th>
                                         <th>Réunion</th>
+                                        <th className="text-center">Durée</th>
                                         <th className="text-center">Intervenants</th>
                                         <th className="text-right">Actions</th>
                                     </tr>
@@ -204,6 +213,12 @@ const TranscriptManager: React.FC = () => {
                                                             <span>PRÉSENT</span>
                                                         </div>
                                                     )}
+                                                </div>
+                                            </td>
+                                            <td className="text-center">
+                                                <div className="speaker-count">
+                                                    <Clock size={14} />
+                                                    {formatTime(meeting.duration_seconds)}
                                                 </div>
                                             </td>
                                             <td className="text-center">
@@ -235,7 +250,7 @@ const TranscriptManager: React.FC = () => {
                                         </tr>
                                     )) : (
                                         <tr>
-                                            <td colSpan={4} className="no-data">
+                                            <td colSpan={5} className="no-data">
                                                 {loading ? "Chargement..." : "Aucune réunion trouvée."}
                                             </td>
                                         </tr>

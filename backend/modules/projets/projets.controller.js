@@ -516,6 +516,7 @@ const remove = async (req, res) => {
 
         res.json({ message: `Projet ${projet.code} et ses sous-projets supprimés` });
     } catch (error) {
+        console.error('[DELETE PROJET]', error.message);
         res.status(500).json({ error: error.message });
     }
 };
@@ -716,6 +717,24 @@ const updateDocumentType = async (req, res) => {
             [type_documentaire, type_vrac ? 1 : 0, did, id]
         );
         res.json({ message: 'Document mis à jour' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const supprimerDocument = async (req, res) => {
+    try {
+        const { id, did } = req.params;
+        const doc = await pgDb.get('SELECT * FROM projet_documents WHERE id = $1 AND projet_id = $2', [did, id]);
+        if (!doc) return res.status(404).json({ error: 'Document non trouvé' });
+        const versions = await pgDb.all('SELECT * FROM projet_versions_document WHERE document_id = $1', [did]);
+        for (const v of versions) {
+            const chemin = path.join(DOCUMENTS_DIR, v.fichier_nom);
+            try { if (fs.existsSync(chemin)) fs.unlinkSync(chemin); } catch {}
+        }
+        await pgDb.run('DELETE FROM projet_versions_document WHERE document_id = $1', [did]);
+        await pgDb.run('DELETE FROM projet_documents WHERE id = $1 AND projet_id = $2', [did, id]);
+        res.json({ message: 'Document supprimé' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1267,9 +1286,16 @@ const ajouterTache = async (req, res) => {
         const { id } = req.params;
         const { titre, description, date_debut, date_fin, statut, responsable_username, couleur, groupe_id } = req.body;
         if (!titre) return res.status(400).json({ error: 'Titre requis' });
+        const colonnes = ['projet_id', 'titre', 'description', 'date_debut', 'date_fin', 'statut', 'responsable_username', 'couleur'];
+        const valeurs = [id, titre, description || null, date_debut || null, date_fin || null, statut || 'a_faire', responsable_username || null, couleur || '#3b82f6'];
+        if (groupe_id) {
+            colonnes.push('groupe_id');
+            valeurs.push(groupe_id);
+        }
+        const placeholders = valeurs.map((_, i) => `$${i + 1}`);
         const result = await pgDb.run(
-            `INSERT INTO projet_taches (projet_id, titre, description, date_debut, date_fin, statut, responsable_username, couleur, groupe_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-            [id, titre, description || null, date_debut || null, date_fin || null, statut || 'a_faire', responsable_username || null, couleur || '#3b82f6', groupe_id || null]
+            `INSERT INTO projet_taches (${colonnes.join(', ')}) VALUES (${placeholders.join(', ')})`,
+            valeurs
         );
         res.status(201).json({ id: result.lastID });
     } catch (error) {
@@ -1281,9 +1307,22 @@ const updateTache = async (req, res) => {
     try {
         const { id, tacheId } = req.params;
         const { titre, description, date_debut, date_fin, statut, responsable_username, couleur, ordre, groupe_id } = req.body;
+        const sets = [];
+        const vals = [];
+        if (titre !== undefined) { sets.push(`titre = $${vals.length + 1}`); vals.push(titre); }
+        if (description !== undefined) { sets.push(`description = $${vals.length + 1}`); vals.push(description); }
+        if (date_debut !== undefined) { sets.push(`date_debut = $${vals.length + 1}`); vals.push(date_debut || null); }
+        if (date_fin !== undefined) { sets.push(`date_fin = $${vals.length + 1}`); vals.push(date_fin || null); }
+        if (statut !== undefined) { sets.push(`statut = $${vals.length + 1}`); vals.push(statut); }
+        if (responsable_username !== undefined) { sets.push(`responsable_username = $${vals.length + 1}`); vals.push(responsable_username || null); }
+        if (couleur !== undefined) { sets.push(`couleur = $${vals.length + 1}`); vals.push(couleur); }
+        if (ordre !== undefined) { sets.push(`ordre = $${vals.length + 1}`); vals.push(ordre); }
+        if (groupe_id !== undefined) { sets.push(`groupe_id = $${vals.length + 1}`); vals.push(groupe_id || null); }
+        if (sets.length === 0) return res.status(400).json({ error: 'Aucun champ à mettre à jour' });
+        vals.push(tacheId, id);
         await pgDb.run(
-            `UPDATE projet_taches SET titre = COALESCE($1, titre), description = COALESCE($2, description), date_debut = COALESCE($3, date_debut), date_fin = COALESCE($4, date_fin), statut = COALESCE($5, statut), responsable_username = COALESCE($6, responsable_username), couleur = COALESCE($7, couleur), ordre = COALESCE($8, ordre), groupe_id = COALESCE($9, groupe_id) WHERE id = $10 AND projet_id = $11`,
-            [titre, description, date_debut, date_fin, statut, responsable_username, couleur, ordre, groupe_id, tacheId, id]
+            `UPDATE projet_taches SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND projet_id = $${vals.length}`,
+            vals
         );
         res.json({ message: 'Tâche mise à jour' });
     } catch (error) {
@@ -1318,11 +1357,15 @@ const getJalons = async (req, res) => {
 const ajouterJalon = async (req, res) => {
     try {
         const { id } = req.params;
-        const { titre, description, date_jalon, type } = req.body;
+        const { titre, description, date_jalon, type, groupe_id } = req.body;
         if (!titre || !date_jalon) return res.status(400).json({ error: 'Titre et date requis' });
+        const colonnes = ['projet_id', 'titre', 'description', 'date_jalon', 'type'];
+        const valeurs = [id, titre, description || null, date_jalon, type || 'jalon'];
+        if (groupe_id) { colonnes.push('groupe_id'); valeurs.push(groupe_id); }
+        const placeholders = valeurs.map((_, i) => `$${i + 1}`);
         const result = await pgDb.run(
-            `INSERT INTO projet_jalons (projet_id, titre, description, date_jalon, type) VALUES ($1, $2, $3, $4, $5)`,
-            [id, titre, description || null, date_jalon, type || 'jalon']
+            `INSERT INTO projet_jalons (${colonnes.join(', ')}) VALUES (${placeholders.join(', ')})`,
+            valeurs
         );
         res.status(201).json({ id: result.lastID });
     } catch (error) {
@@ -1333,10 +1376,20 @@ const ajouterJalon = async (req, res) => {
 const updateJalon = async (req, res) => {
     try {
         const { id, jalonId } = req.params;
-        const { titre, description, date_jalon, type, atteint } = req.body;
+        const { titre, description, date_jalon, type, atteint, groupe_id } = req.body;
+        const sets = [];
+        const vals = [];
+        if (titre !== undefined) { sets.push(`titre = $${vals.length + 1}`); vals.push(titre); }
+        if (description !== undefined) { sets.push(`description = $${vals.length + 1}`); vals.push(description); }
+        if (date_jalon !== undefined) { sets.push(`date_jalon = $${vals.length + 1}`); vals.push(date_jalon); }
+        if (type !== undefined) { sets.push(`type = $${vals.length + 1}`); vals.push(type); }
+        if (atteint !== undefined) { sets.push(`atteint = $${vals.length + 1}`); vals.push(atteint); }
+        if (groupe_id !== undefined) { sets.push(`groupe_id = $${vals.length + 1}`); vals.push(groupe_id || null); }
+        if (sets.length === 0) return res.status(400).json({ error: 'Aucun champ à mettre à jour' });
+        vals.push(jalonId, id);
         await pgDb.run(
-            `UPDATE projet_jalons SET titre = COALESCE($1, titre), description = COALESCE($2, description), date_jalon = COALESCE($3, date_jalon), type = COALESCE($4, type), atteint = COALESCE($5, atteint) WHERE id = $6 AND projet_id = $7`,
-            [titre, description, date_jalon, type, atteint, jalonId, id]
+            `UPDATE projet_jalons SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND projet_id = $${vals.length}`,
+            vals
         );
         res.json({ message: 'Jalon mis à jour' });
     } catch (error) {
@@ -1809,7 +1862,7 @@ module.exports = {
     getTransitionsPossibles, effectuerTransition, getControles,
     ajouterRole, supprimerRole,
     ajouterVisibilite, supprimerVisibilite,
-    creerDocument, updateDocumentType, uploadVersion, uploadVersionsVrac, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
+    creerDocument, updateDocumentType, supprimerDocument, uploadVersion, uploadVersionsVrac, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
     enregistrerScore, getScores, getScoreCalcule,
     lierReunion, delierReunion, getReunionsLiees,
     getJournal, ajouterEntreeJournal,
