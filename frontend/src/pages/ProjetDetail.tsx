@@ -32,9 +32,6 @@ interface Projet {
   projet_parent_id?: number;
   projet_parent?: { id: number; code: string; titre: string };
   applications?: { id: number; projet_id: number; app_id: number; app_name: string; app_url: string; app_icon: string }[];
-  commanditaire_display_name?: string;
-  chef_projet_display_name?: string;
-  chef_projet_metier_display_name?: string;
 }
 
 const STATUT_LABELS: Record<string, string> = {
