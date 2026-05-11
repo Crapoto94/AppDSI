@@ -18,6 +18,7 @@ const upload = multer({ storage });
 
 // Routes
 router.get('/meetings', authenticateJWT, transcriptController.getMeetings);
+router.get('/search', authenticateJWT, transcriptController.searchTranscripts);
 router.get('/meeting/:id', authenticateJWT, transcriptController.getMeeting);
 router.post('/upload', authenticateJWT, upload.single('file'), transcriptController.uploadTranscript);
 router.get('/upload-status/:jobId', authenticateJWT, transcriptController.getImportStatus);
@@ -26,6 +27,8 @@ router.post('/meeting/:id/summarize', authenticateJWT, transcriptController.summ
 router.get('/tasks', authenticateJWT, transcriptController.getTasks);
 router.post('/tasks', authenticateJWT, transcriptController.createTask);
 router.post('/task/:id/toggle', authenticateJWT, transcriptController.toggleTask);
+router.put('/task/:id', authenticateJWT, transcriptController.updateTask);
+router.delete('/task/:id', authenticateJWT, transcriptController.deleteTask);
 router.put('/meeting/:id', authenticateJWT, transcriptController.updateMeeting);
 router.delete('/meeting/:id', authenticateJWT, transcriptController.deleteMeeting);
 

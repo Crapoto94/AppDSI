@@ -1046,6 +1046,414 @@ const getReunionsLiees = async (req, res) => {
 };
 
 // ============================================
+// TÂCHES AGRÉGÉES (réunions + standalone)
+// ============================================
+
+const getTachesAgregees = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // 1. Récupérer toutes les réunions liées au projet
+        const liens = await pgDb.all('SELECT * FROM projet_reunions WHERE projet_id = $1', [id]);
+
+        let meetingTasks = [];
+        if (liens.length > 0) {
+            const reunionIds = liens.map(l => l.reunion_id);
+            const placeholders = reunionIds.map((_, i) => `$${i + 1}`).join(',');
+            const reunions = await pgDb.all(`
+                SELECT id, titre, liste_taches FROM hub_rencontres.rencontres_reunions
+                WHERE id IN (${placeholders})
+            `, reunionIds);
+
+            // Construire une map reunion_id -> lien
+            const lienMap = {};
+            for (const l of liens) lienMap[l.reunion_id] = l;
+
+            for (const r of reunions) {
+                let tasks = [];
+                try { tasks = JSON.parse(r.liste_taches || '[]'); } catch (e) {}
+                // Récupérer le nom du comité associé
+                const lien = lienMap[r.id];
+                let comiteNom = null;
+                if (lien && lien.comite_id) {
+                    const comite = await pgDb.get('SELECT nom FROM projet_comites WHERE id = $1', [lien.comite_id]);
+                    comiteNom = comite ? comite.nom : null;
+                }
+                for (let idx = 0; idx < tasks.length; idx++) {
+                    const t = tasks[idx];
+                    meetingTasks.push({
+                        id: `m-${r.id}-${idx}`,
+                        tache: t.tache || '',
+                        responsable: t.responsable || '',
+                        echeance: t.echeance || null,
+                        statut: t.statut || 'a_faire',
+                        notes: t.notes || [],
+                        source: 'reunion',
+                        reunion_id: r.id,
+                        reunion_titre: r.titre,
+                        comite_nom: comiteNom
+                    });
+                }
+            }
+        }
+
+        // 2. Récupérer les tâches standalone (avec fallback si table inexistante)
+        let standaloneTasks = [];
+        try {
+            standaloneTasks = await pgDb.all(`
+                SELECT id, tache, responsable, echeance, statut, notes, created_at
+                FROM projet_taches_standalone
+                WHERE projet_id = $1
+                ORDER BY created_at DESC
+            `, [id]);
+        } catch (e) {
+            standaloneTasks = [];
+        }
+
+        const standaloneMapped = standaloneTasks.map(t => {
+            let notes = [];
+            try { notes = JSON.parse(t.notes || '[]'); } catch (e) {}
+            return {
+                id: `s-${t.id}`,
+                tache: t.tache,
+                responsable: t.responsable || '',
+                echeance: t.echeance || null,
+                statut: t.statut || 'a_faire',
+                notes: notes || [],
+                source: 'standalone',
+                reunion_id: null,
+                reunion_titre: null,
+                comite_nom: null,
+                _db_id: t.id
+            };
+        });
+
+        const allTasks = [...meetingTasks, ...standaloneMapped];
+        res.json(allTasks);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const ajouterTacheStandalone = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { tache, responsable, echeance, statut } = req.body;
+        if (!tache || !tache.trim()) return res.status(400).json({ error: 'La tâche est obligatoire' });
+
+        const inserted = await pgDb.get(
+            'INSERT INTO projet_taches_standalone (projet_id, tache, responsable, echeance, statut) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+            [id, tache.trim(), responsable || '', echeance || null, statut || 'a_faire']
+        );
+        res.status(201).json(inserted);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const updateTacheStandalone = async (req, res) => {
+    try {
+        const { id, tid } = req.params;
+        const { tache, responsable, echeance, statut } = req.body;
+
+        const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1 AND projet_id = $2', [tid, id]);
+        if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+        await pgDb.run(
+            'UPDATE projet_taches_standalone SET tache = $1, responsable = $2, echeance = $3, statut = $4 WHERE id = $5',
+            [tache || existing.tache, responsable !== undefined ? responsable : existing.responsable, echeance !== undefined ? echeance : existing.echeance, statut || existing.statut, tid]
+        );
+        const updated = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [tid]);
+        res.json(updated);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const supprimerTacheStandalone = async (req, res) => {
+    try {
+        const { id, tid } = req.params;
+        const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1 AND projet_id = $2', [tid, id]);
+        if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+        await pgDb.run('DELETE FROM projet_taches_standalone WHERE id = $1', [tid]);
+        res.json({ message: 'Tâche supprimée' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// ============================================
+// ACQUITTER UNE TÂCHE AGRÉGÉE
+// ============================================
+
+const acquitterTacheAgregee = async (req, res) => {
+    try {
+        const { id, taskId } = req.params;
+        const { tache, responsable, echeance, statut } = req.body;
+
+        if (taskId.startsWith('m-')) {
+            const parts = taskId.split('-');
+            const reunionId = parseInt(parts[1], 10);
+            const taskIndex = parseInt(parts[2], 10);
+
+            const reunion = await pgDb.get('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id = $1', [reunionId]);
+            if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+
+            let tasks = [];
+            try { tasks = JSON.parse(reunion.liste_taches || '[]'); } catch (e) {}
+            if (taskIndex < 0 || taskIndex >= tasks.length) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+            if (tache !== undefined) tasks[taskIndex].tache = tache;
+            if (responsable !== undefined) tasks[taskIndex].responsable = responsable;
+            if (echeance !== undefined) tasks[taskIndex].echeance = echeance || null;
+            if (statut !== undefined) tasks[taskIndex].statut = statut;
+
+            await pgDb.run(
+                'UPDATE hub_rencontres.rencontres_reunions SET liste_taches = $1 WHERE id = $2',
+                [JSON.stringify(tasks), reunionId]
+            );
+            return res.json({ message: 'Tâche mise à jour', task: tasks[taskIndex] });
+        } else if (taskId.startsWith('s-')) {
+            const dbId = parseInt(taskId.substring(2), 10);
+            const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1 AND projet_id = $2', [dbId, id]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+            const fields = [];
+            const values = [];
+            let idx = 1;
+            if (tache !== undefined) { fields.push('tache = $' + idx++); values.push(tache); }
+            if (responsable !== undefined) { fields.push('responsable = $' + idx++); values.push(responsable); }
+            if (echeance !== undefined) { fields.push('echeance = $' + idx++); values.push(echeance || null); }
+            if (statut !== undefined) { fields.push('statut = $' + idx++); values.push(statut); }
+            values.push(dbId);
+
+            if (fields.length > 0) {
+                await pgDb.run(
+                    'UPDATE projet_taches_standalone SET ' + fields.join(', ') + ' WHERE id = $' + idx,
+                    values
+                );
+            }
+            const updated = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            return res.json({ message: 'Tâche mise à jour', task: updated });
+        }
+
+        return res.status(400).json({ error: 'Format de tâche invalide' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const supprimerTacheAgregee = async (req, res) => {
+    try {
+        const { taskId } = req.params;
+
+        if (taskId.startsWith('m-')) {
+            const parts = taskId.split('-');
+            const reunionId = parseInt(parts[1], 10);
+            const taskIndex = parseInt(parts[2], 10);
+
+            const reunion = await pgDb.get('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id = $1', [reunionId]);
+            if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+
+            let tasks = [];
+            try { tasks = JSON.parse(reunion.liste_taches || '[]'); } catch (e) {}
+            if (taskIndex < 0 || taskIndex >= tasks.length) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+            tasks.splice(taskIndex, 1);
+            await pgDb.run(
+                'UPDATE hub_rencontres.rencontres_reunions SET liste_taches = $1 WHERE id = $2',
+                [JSON.stringify(tasks), reunionId]
+            );
+            return res.json({ message: 'Tâche supprimée de la réunion' });
+        } else if (taskId.startsWith('s-')) {
+            const dbId = parseInt(taskId.substring(2), 10);
+            const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+            await pgDb.run('DELETE FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            return res.json({ message: 'Tâche supprimée' });
+        }
+        return res.status(400).json({ error: 'Format de tâche invalide' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// ============================================
+// NOTES SUR TÂCHES
+// ============================================
+
+const ajouterNoteTache = async (req, res) => {
+    try {
+        const { id, taskId } = req.params;
+        const { content, type } = req.body;
+        const username = req.user?.username || 'inconnu';
+
+        if (!content || !content.trim()) return res.status(400).json({ error: 'Contenu obligatoire' });
+
+        const note = { id: Date.now(), type: type || 'comment', content: content.trim(), created_at: new Date().toISOString(), created_by: username };
+
+        if (taskId.startsWith('m-')) {
+            const parts = taskId.split('-');
+            const reunionId = parseInt(parts[1], 10);
+            const taskIndex = parseInt(parts[2], 10);
+
+            const reunion = await pgDb.get('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id = $1', [reunionId]);
+            if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+
+            let tasks = [];
+            try { tasks = JSON.parse(reunion.liste_taches || '[]'); } catch (e) {}
+            if (taskIndex < 0 || taskIndex >= tasks.length) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+            if (!tasks[taskIndex].notes) tasks[taskIndex].notes = [];
+            tasks[taskIndex].notes.push(note);
+            await pgDb.run(
+                'UPDATE hub_rencontres.rencontres_reunions SET liste_taches = $1 WHERE id = $2',
+                [JSON.stringify(tasks), reunionId]
+            );
+            return res.status(201).json(note);
+        } else if (taskId.startsWith('s-')) {
+            const dbId = parseInt(taskId.substring(2), 10);
+            const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+            let notes = [];
+            try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
+            notes.push(note);
+            await pgDb.run(
+                'UPDATE projet_taches_standalone SET notes = $1 WHERE id = $2',
+                [JSON.stringify(notes), dbId]
+            );
+            return res.status(201).json(note);
+        }
+        return res.status(400).json({ error: 'Format de tâche invalide' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const ajouterNoteFichier = async (req, res) => {
+    try {
+        const { id, taskId } = req.params;
+        const username = req.user?.username || 'inconnu';
+        if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
+
+        const note = {
+            id: Date.now(), type: 'file', content: req.file.filename,
+            filename: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype,
+            created_at: new Date().toISOString(), created_by: username
+        };
+
+        const addNoteToArray = (notes) => { notes.push(note); return notes; };
+
+        if (taskId.startsWith('m-')) {
+            const parts = taskId.split('-');
+            const reunionId = parseInt(parts[1], 10);
+            const taskIndex = parseInt(parts[2], 10);
+            const reunion = await pgDb.get('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id = $1', [reunionId]);
+            if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+            let tasks = [];
+            try { tasks = JSON.parse(reunion.liste_taches || '[]'); } catch (e) {}
+            if (taskIndex < 0 || taskIndex >= tasks.length) return res.status(404).json({ error: 'Tâche non trouvée' });
+            if (!tasks[taskIndex].notes) tasks[taskIndex].notes = [];
+            addNoteToArray(tasks[taskIndex].notes);
+            await pgDb.run('UPDATE hub_rencontres.rencontres_reunions SET liste_taches = $1 WHERE id = $2', [JSON.stringify(tasks), reunionId]);
+            return res.status(201).json(note);
+        } else if (taskId.startsWith('s-')) {
+            const dbId = parseInt(taskId.substring(2), 10);
+            const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+            let notes = [];
+            try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
+            addNoteToArray(notes);
+            await pgDb.run('UPDATE projet_taches_standalone SET notes = $1 WHERE id = $2', [JSON.stringify(notes), dbId]);
+            return res.status(201).json(note);
+        }
+        return res.status(400).json({ error: 'Format de tâche invalide' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const telechargerNoteFichier = async (req, res) => {
+    try {
+        const { id, taskId, noteIdx } = req.params;
+        let note = null;
+
+        if (taskId.startsWith('m-')) {
+            const parts = taskId.split('-');
+            const reunionId = parseInt(parts[1], 10);
+            const taskIndex = parseInt(parts[2], 10);
+            const reunion = await pgDb.get('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id = $1', [reunionId]);
+            if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+            let tasks = [];
+            try { tasks = JSON.parse(reunion.liste_taches || '[]'); } catch (e) {}
+            if (taskIndex < 0 || taskIndex >= tasks.length) return res.status(404).json({ error: 'Tâche non trouvée' });
+            if (!tasks[taskIndex].notes) return res.status(404).json({ error: 'Aucune note' });
+            note = tasks[taskIndex].notes[parseInt(noteIdx)];
+        } else if (taskId.startsWith('s-')) {
+            const dbId = parseInt(taskId.substring(2), 10);
+            const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+            let notes = [];
+            try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
+            note = notes[parseInt(noteIdx)];
+        }
+
+        if (!note || note.type !== 'file') return res.status(404).json({ error: 'Fichier non trouvé' });
+        const filePath = path.join(__dirname, '..', '..', 'file_notes_taches', note.content);
+        if (!require('fs').existsSync(filePath)) return res.status(404).json({ error: 'Fichier introuvable sur le disque' });
+        res.download(filePath, note.filename);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const supprimerNoteTache = async (req, res) => {
+    try {
+        const { id, taskId, noteIdx } = req.params;
+
+        if (taskId.startsWith('m-')) {
+            const parts = taskId.split('-');
+            const reunionId = parseInt(parts[1], 10);
+            const taskIndex = parseInt(parts[2], 10);
+
+            const reunion = await pgDb.get('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id = $1', [reunionId]);
+            if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+
+            let tasks = [];
+            try { tasks = JSON.parse(reunion.liste_taches || '[]'); } catch (e) {}
+            if (taskIndex < 0 || taskIndex >= tasks.length) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+            if (!tasks[taskIndex].notes || noteIdx < 0 || noteIdx >= tasks[taskIndex].notes.length) return res.status(404).json({ error: 'Note non trouvée' });
+
+            tasks[taskIndex].notes.splice(noteIdx, 1);
+            await pgDb.run(
+                'UPDATE hub_rencontres.rencontres_reunions SET liste_taches = $1 WHERE id = $2',
+                [JSON.stringify(tasks), reunionId]
+            );
+            return res.json({ message: 'Note supprimée' });
+        } else if (taskId.startsWith('s-')) {
+            const dbId = parseInt(taskId.substring(2), 10);
+            const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+            let notes = [];
+            try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
+            if (noteIdx < 0 || noteIdx >= notes.length) return res.status(404).json({ error: 'Note non trouvée' });
+            notes.splice(noteIdx, 1);
+            await pgDb.run(
+                'UPDATE projet_taches_standalone SET notes = $1 WHERE id = $2',
+                [JSON.stringify(notes), dbId]
+            );
+            return res.json({ message: 'Note supprimée' });
+        }
+        return res.status(400).json({ error: 'Format de tâche invalide' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// ============================================
 // JOURNAL
 // ============================================
 
@@ -1877,6 +2285,7 @@ module.exports = {
     getDependances, ajouterDependance, supprimerDependance, verifierDependances,
     getAttendus, setAttendus,
     getComites, ajouterComite, updateComite, supprimerComite,
+    getTachesAgregees, ajouterTacheStandalone, updateTacheStandalone, supprimerTacheStandalone, acquitterTacheAgregee, supprimerTacheAgregee, ajouterNoteTache, ajouterNoteFichier, telechargerNoteFichier, supprimerNoteTache,
     ajouterMembreComite, supprimerMembreComite,
     getEtapes, toggleEtape,
     getApplications, ajouterApplication, supprimerApplication, searchApps

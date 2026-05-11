@@ -50,6 +50,11 @@ const MeetingDetail: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [showAllSpeakers, setShowAllSpeakers] = useState(false);
     const [streamText, setStreamText] = useState("");
+    const [transcriptSearch, setTranscriptSearch] = useState("");
+    const [isEditingSummary, setIsEditingSummary] = useState(false);
+    const [summaryDraft, setSummaryDraft] = useState("");
+    const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+    const [taskDraft, setTaskDraft] = useState({ description: '', assignee: '', requester: '', deadline: '' });
     const transcriptRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -102,8 +107,7 @@ const MeetingDetail: React.FC = () => {
             const response = await fetch(`/api/transcriptmanager/meeting/${id}/summarize`, {
                 method: 'POST',
                 headers: { 
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
+                    'Authorization': `Bearer ${token}`
                 }
             });
 
@@ -173,6 +177,42 @@ const MeetingDetail: React.FC = () => {
         }
     };
 
+    const handleSaveSummary = async () => {
+        if (!id || !token || !meeting) return;
+        setIsSaving(true);
+        try {
+            await axios.put(`/api/transcriptmanager/meeting/${id}`, {
+                title: meeting.title,
+                meeting_date: meeting.meeting_date || meeting.created_at,
+                summary: summaryDraft
+            }, { headers: { Authorization: `Bearer ${token}` } });
+            setMeeting({ ...meeting, summary: summaryDraft });
+            setIsEditingSummary(false);
+        } catch (err) { console.error(err); }
+        finally { setIsSaving(false); }
+    };
+
+    const handleSaveTask = async (taskId: number) => {
+        if (!token) return;
+        try {
+            await axios.put(`/api/transcriptmanager/task/${taskId}`, taskDraft, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setTasks(tasks.map(t => t.id === taskId ? { ...t, ...taskDraft } : t));
+            setEditingTaskId(null);
+        } catch (err) { console.error(err); }
+    };
+
+    const handleDeleteTask = async (taskId: number) => {
+        if (!token || !window.confirm('Supprimer cette tâche ?')) return;
+        try {
+            await axios.delete(`/api/transcriptmanager/task/${taskId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setTasks(tasks.filter(t => t.id !== taskId));
+        } catch (err) { console.error(err); }
+    };
+
     const scrollToCue = (seconds: number) => {
         const el = document.getElementById(`cue-${seconds}`);
         if (el) {
@@ -236,6 +276,12 @@ const MeetingDetail: React.FC = () => {
 
     const speakers = Array.from(new Set(meeting.cues?.map(c => c.speaker_name) || []));
     const totalCues = meeting.cues?.length || 0;
+    const searchLower = transcriptSearch.toLowerCase();
+    const filteredCues = transcriptSearch
+        ? (meeting.cues || []).filter(c =>
+            c.text.toLowerCase().includes(searchLower) ||
+            c.speaker_name.toLowerCase().includes(searchLower))
+        : (meeting.cues || []);
 
     return (
         <div className="md-page">
@@ -346,10 +392,29 @@ const MeetingDetail: React.FC = () => {
                             <div className="card-head">
                                 <MessageSquare size={18} />
                                 <h2>Résumé Exécutif</h2>
+                                {!isGenerating && !isEditingSummary && (
+                                    <button className="md-btn-edit" onClick={() => {
+                                        setSummaryDraft(meeting.summary || '');
+                                        setIsEditingSummary(true);
+                                    }}>Modifier</button>
+                                )}
                             </div>
                             <div className="summary-content">
                                 {isGenerating ? (
                                     <div className="stream-box">{streamText}</div>
+                                ) : isEditingSummary ? (
+                                    <div>
+                                        <textarea
+                                            style={{ width: '100%', minHeight: '220px', fontFamily: 'inherit', fontSize: '0.9rem', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', resize: 'vertical', outline: 'none', lineHeight: 1.6 }}
+                                            value={summaryDraft}
+                                            onChange={e => setSummaryDraft(e.target.value)}
+                                            autoFocus
+                                        />
+                                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
+                                            <button className="btn-save" onClick={handleSaveSummary} disabled={isSaving}>{isSaving ? 'Enregistrement...' : 'Enregistrer'}</button>
+                                            <button className="btn-cancel" onClick={() => setIsEditingSummary(false)}>Annuler</button>
+                                        </div>
+                                    </div>
                                 ) : (
                                     <div className="md-formatted" dangerouslySetInnerHTML={{ __html: formatMarkdown(meeting.summary || "Aucun résumé généré.") }} />
                                 )}
@@ -365,20 +430,45 @@ const MeetingDetail: React.FC = () => {
                             <div className="tasks-list">
                                 {tasks.length > 0 ? tasks.map(task => (
                                     <div key={task.id} className={`task-item ${task.is_completed ? 'done' : ''}`}>
-                                        <button className="task-toggle" onClick={() => handleToggleTask(task.id)}>
-                                            {task.is_completed ? <CheckCircle2 size={18} /> : <Circle size={18} />}
-                                        </button>
-                                        <div className="task-body">
-                                            <p>{task.description}</p>
-                                            <div className="task-foot">
-                                                {task.assignee && <span className="who">@{task.assignee}</span>}
-                                                {task.start_seconds !== undefined && (
-                                                    <button className="ts" onClick={() => scrollToCue(task.start_seconds!)}>
-                                                        {formatTime(task.start_seconds)}
-                                                    </button>
-                                                )}
+                                        {editingTaskId === task.id ? (
+                                            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.25rem 0' }}>
+                                                <input className="task-edit-input" value={taskDraft.description} onChange={e => setTaskDraft({ ...taskDraft, description: e.target.value })} placeholder="Description" autoFocus />
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                                                    <input className="task-edit-input" value={taskDraft.assignee} onChange={e => setTaskDraft({ ...taskDraft, assignee: e.target.value })} placeholder="Responsable" />
+                                                    <input className="task-edit-input" value={taskDraft.requester} onChange={e => setTaskDraft({ ...taskDraft, requester: e.target.value })} placeholder="Demandeur" />
+                                                    <input className="task-edit-input" value={taskDraft.deadline} onChange={e => setTaskDraft({ ...taskDraft, deadline: e.target.value })} placeholder="Échéance" />
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                    <button className="btn-save" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }} onClick={() => handleSaveTask(task.id)}>Enregistrer</button>
+                                                    <button className="btn-cancel" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }} onClick={() => setEditingTaskId(null)}>Annuler</button>
+                                                </div>
                                             </div>
-                                        </div>
+                                        ) : (
+                                            <>
+                                                <button className="task-toggle" onClick={() => handleToggleTask(task.id)}>
+                                                    {task.is_completed ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                                                </button>
+                                                <div className="task-body">
+                                                    <p>{task.description}</p>
+                                                    <div className="task-foot">
+                                                        {task.assignee && <span className="who">@{task.assignee}</span>}
+                                                        {task.deadline && <span className="deadline">{task.deadline}</span>}
+                                                        {task.start_seconds !== undefined && (
+                                                            <button className="ts" onClick={() => scrollToCue(task.start_seconds!)}>
+                                                                {formatTime(task.start_seconds)}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="task-actions">
+                                                    <button className="task-action-btn" title="Modifier" onClick={() => {
+                                                        setTaskDraft({ description: task.description, assignee: task.assignee || '', requester: task.requester || '', deadline: task.deadline || '' });
+                                                        setEditingTaskId(task.id);
+                                                    }}>✏️</button>
+                                                    <button className="task-action-btn" title="Supprimer" onClick={() => handleDeleteTask(task.id)}>🗑️</button>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 )) : <p className="no-tasks">Aucune tâche.</p>}
                             </div>
@@ -390,13 +480,26 @@ const MeetingDetail: React.FC = () => {
                             <div className="card-head">
                                 <FileText size={18} />
                                 <h2>Transcription</h2>
+                                {transcriptSearch && (
+                                    <span className="search-count">
+                                        {filteredCues.length} résultat{filteredCues.length !== 1 ? 's' : ''}
+                                    </span>
+                                )}
                                 <div className="transcript-search">
                                     <Search size={14} />
-                                    <input type="text" placeholder="Rechercher..." />
+                                    <input
+                                        type="text"
+                                        placeholder="Rechercher..."
+                                        value={transcriptSearch}
+                                        onChange={e => setTranscriptSearch(e.target.value)}
+                                    />
+                                    {transcriptSearch && (
+                                        <button className="search-clear" onClick={() => setTranscriptSearch("")}>✕</button>
+                                    )}
                                 </div>
                             </div>
                             <div className="transcript-body" ref={transcriptRef}>
-                                {meeting.cues?.map((cue, idx) => (
+                                {filteredCues.length > 0 ? filteredCues.map((cue, idx) => (
                                     <div key={idx} id={`cue-${cue.start_seconds}`} className="cue-row">
                                         <span className="cue-time" onClick={() => scrollToCue(cue.start_seconds)}>
                                             {formatTime(cue.start_seconds)}
@@ -405,9 +508,12 @@ const MeetingDetail: React.FC = () => {
                                             <span className="cue-speaker">{cue.speaker_name}</span>
                                             {cue.speaker_email && <span className="cue-email">{cue.speaker_email}</span>}
                                         </div>
-                                        <div className="cue-text">{cue.text}</div>
+                                        <div
+                                            className="cue-text"
+                                            dangerouslySetInnerHTML={{ __html: highlightText(cue.text, transcriptSearch) }}
+                                        />
                                     </div>
-                                )) || <p className="no-data">Aucune transcription disponible.</p>}
+                                )) : <p className="no-data">{transcriptSearch ? 'Aucun résultat.' : 'Aucune transcription disponible.'}</p>}
                             </div>
                         </div>
                     </div>
@@ -660,8 +766,9 @@ const MeetingDetail: React.FC = () => {
                 }
                 .task-item.done .task-toggle { color: #10B981; }
                 .task-body p { margin: 0; font-size: 0.875rem; color: #334155; font-weight: 500; }
-                .task-foot { display: flex; gap: 1rem; margin-top: 0.4rem; font-size: 0.75rem; }
+                .task-foot { display: flex; gap: 1rem; margin-top: 0.4rem; font-size: 0.75rem; flex-wrap: wrap; }
                 .who { color: #2563EB; font-weight: 600; }
+                .deadline { color: #64748B; font-style: italic; }
                 .ts {
                     background: #F1F5F9;
                     border: none;
@@ -671,6 +778,36 @@ const MeetingDetail: React.FC = () => {
                     cursor: pointer;
                     font-family: monospace;
                 }
+                .task-actions {
+                    display: flex;
+                    gap: 0.25rem;
+                    opacity: 0;
+                    transition: opacity 0.15s;
+                    flex-shrink: 0;
+                    align-self: center;
+                }
+                .task-item:hover .task-actions { opacity: 1; }
+                .task-action-btn {
+                    background: none;
+                    border: none;
+                    cursor: pointer;
+                    font-size: 0.85rem;
+                    padding: 0.2rem 0.3rem;
+                    border-radius: 4px;
+                    line-height: 1;
+                    transition: background 0.15s;
+                }
+                .task-action-btn:hover { background: #F1F5F9; }
+                .task-edit-input {
+                    width: 100%;
+                    border: 1px solid #E2E8F0;
+                    border-radius: 6px;
+                    padding: 0.4rem 0.6rem;
+                    font-size: 0.85rem;
+                    outline: none;
+                    font-family: inherit;
+                }
+                .task-edit-input:focus { border-color: #DC2626; }
 
                 .transcript-card {
                     display: flex;
@@ -696,6 +833,30 @@ const MeetingDetail: React.FC = () => {
                     font-size: 0.8rem;
                     outline: none;
                     width: 140px;
+                }
+                .search-clear {
+                    background: none;
+                    border: none;
+                    color: #94A3B8;
+                    cursor: pointer;
+                    padding: 0;
+                    font-size: 0.75rem;
+                    line-height: 1;
+                }
+                .search-clear:hover { color: #475569; }
+                .search-count {
+                    font-size: 0.75rem;
+                    color: #2563EB;
+                    font-weight: 600;
+                    background: #EFF6FF;
+                    padding: 0.2rem 0.6rem;
+                    border-radius: 20px;
+                }
+                mark.hl {
+                    background: #FEF08A;
+                    color: inherit;
+                    border-radius: 2px;
+                    padding: 0 1px;
                 }
                 .cue-row {
                     display: grid;
@@ -806,6 +967,12 @@ const MeetingDetail: React.FC = () => {
         </div>
     );
 };
+
+function highlightText(text: string, search: string): string {
+    if (!search) return text;
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return text.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="hl">$1</mark>');
+}
 
 function formatTime(sec: number) {
     const h = Math.floor(sec / 3600);

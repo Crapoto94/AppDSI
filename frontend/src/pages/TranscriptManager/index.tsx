@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
 import { 
     Calendar, FileText, Plus, Search, Trash2, 
@@ -21,6 +21,21 @@ interface Meeting {
     duration_seconds?: number;
 }
 
+interface SearchMatch {
+    cue_id: number;
+    speaker_name: string;
+    text: string;
+    start_seconds: number;
+}
+
+interface SearchResult {
+    meeting_id: number;
+    meeting_title: string;
+    meeting_date: string;
+    created_at: string;
+    matches: SearchMatch[];
+}
+
 const formatTime = (seconds?: number) => {
     if (seconds === undefined || seconds === null) return '--:--';
     const m = Math.floor(seconds / 60);
@@ -32,6 +47,13 @@ const TranscriptManager: React.FC = () => {
     const [meetings, setMeetings] = useState<Meeting[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
+    const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+    const [globalQuery, setGlobalQuery] = useState("");
+    const [globalResults, setGlobalResults] = useState<SearchResult[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [searchError, setSearchError] = useState("");
+    const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const searchVersion = useRef(0);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [importStatus, setImportStatus] = useState("");
@@ -125,10 +147,42 @@ const TranscriptManager: React.FC = () => {
         }
     };
 
-    const filteredMeetings = meetings.filter(m => 
+    const filteredMeetings = meetings.filter(m =>
         m.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         m.summary?.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    const handleGlobalSearch = (q: string) => {
+        setGlobalQuery(q);
+        setSearchError("");
+        if (searchDebounce.current) clearTimeout(searchDebounce.current);
+        if (q.trim().length < 2) {
+            setGlobalResults([]);
+            setIsSearching(false);
+            return;
+        }
+        setIsSearching(true);
+        const version = ++searchVersion.current;
+        searchDebounce.current = setTimeout(async () => {
+            try {
+                const res = await axios.get(`/api/transcriptmanager/search?q=${encodeURIComponent(q.trim())}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (version === searchVersion.current) {
+                    setGlobalResults(res.data);
+                }
+            } catch (err: any) {
+                if (version === searchVersion.current) {
+                    const status = err.response?.status;
+                    const msg = err.response?.data?.error || err.response?.data || err.message || "Erreur inconnue";
+                    setSearchError(`Erreur ${status || ''}: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
+                    setGlobalResults([]);
+                }
+            } finally {
+                if (version === searchVersion.current) setIsSearching(false);
+            }
+        }, 350);
+    };
 
     return (
         <div className="tm-page">
@@ -142,23 +196,27 @@ const TranscriptManager: React.FC = () => {
                     <div className="tm-actions">
                         <div className="tm-search-box">
                             <Search size={18} />
-                            <input 
-                                type="text" 
-                                placeholder="Rechercher une réunion..." 
+                            <input
+                                type="text"
+                                placeholder="Filtrer par titre..."
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
                             />
                         </div>
-                        <input 
-                            type="file" 
-                            id="tm-upload" 
-                            accept=".vtt,.txt" 
+                        <button className="tm-btn-search" onClick={() => { setIsSearchModalOpen(true); setGlobalQuery(""); setGlobalResults([]); setSearchError(""); setIsSearching(false); }}>
+                            <Search size={18} />
+                            Recherche dans les contenus
+                        </button>
+                        <input
+                            type="file"
+                            id="tm-upload"
+                            accept=".vtt,.txt"
                             style={{ display: 'none' }}
                             onChange={handleFileUpload}
                         />
                         <label htmlFor="tm-upload" className="tm-btn-primary">
                             <Plus size={20} />
-                            Importer un transcript
+                            Importer
                         </label>
                     </div>
                 </div>
@@ -260,6 +318,59 @@ const TranscriptManager: React.FC = () => {
                         </div>
                     </div>
                 </div>
+            {isSearchModalOpen && (
+                <div className="gs-overlay" onClick={() => setIsSearchModalOpen(false)}>
+                    <div className="gs-modal" onClick={e => e.stopPropagation()}>
+                        <div className="gs-header">
+                            <Search size={20} />
+                            <h3>Recherche dans tous les transcripts</h3>
+                            <button className="gs-close" onClick={() => setIsSearchModalOpen(false)}>✕</button>
+                        </div>
+                        <div className="gs-search-row">
+                            <input
+                                autoFocus
+                                type="text"
+                                className="gs-input"
+                                placeholder="Rechercher un mot, une phrase..."
+                                value={globalQuery}
+                                onChange={e => handleGlobalSearch(e.target.value)}
+                            />
+                            {isSearching && <RefreshCw className="animate-spin" size={18} style={{ color: '#2563EB', flexShrink: 0 }} />}
+                        </div>
+                        <div className="gs-body">
+                            {searchError && (
+                                <p className="gs-error">{searchError}</p>
+                            )}
+                            {!searchError && globalQuery.trim().length >= 2 && !isSearching && globalResults.length === 0 && (
+                                <p className="gs-empty">Aucun résultat pour « {globalQuery} »</p>
+                            )}
+                            {globalResults.map(r => (
+                                <div key={r.meeting_id} className="gs-group">
+                                    <div className="gs-group-header" onClick={() => { navigate(`/transcriptmanager/meeting/${r.meeting_id}`); setIsSearchModalOpen(false); }}>
+                                        <FileText size={14} />
+                                        <span className="gs-meeting-title">{r.meeting_title}</span>
+                                        <span className="gs-match-count">{r.matches.length} occurrence{r.matches.length > 1 ? 's' : ''}</span>
+                                        <ArrowRight size={14} className="gs-arrow" />
+                                    </div>
+                                    <div className="gs-matches">
+                                        {r.matches.slice(0, 3).map((m, i) => (
+                                            <div key={i} className="gs-match" onClick={() => { navigate(`/transcriptmanager/meeting/${r.meeting_id}`); setIsSearchModalOpen(false); }}>
+                                                <span className="gs-ts">{formatTimeFull(m.start_seconds)}</span>
+                                                <span className="gs-speaker">{m.speaker_name}</span>
+                                                <span className="gs-excerpt" dangerouslySetInnerHTML={{ __html: highlightExcerpt(m.text, globalQuery) }} />
+                                            </div>
+                                        ))}
+                                        {r.matches.length > 3 && (
+                                            <div className="gs-more">+{r.matches.length - 3} autre{r.matches.length - 3 > 1 ? 's' : ''}</div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
              <ReunionDetailModal
                 isOpen={selectedReunionId !== null}
                 reunionId={selectedReunionId}
@@ -499,6 +610,106 @@ const TranscriptManager: React.FC = () => {
 
                 .text-center { text-align: center; }
                 .text-right { text-align: right; }
+                .tm-btn-search {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    background: white;
+                    border: 1px solid #E2E8F0;
+                    padding: 0.75rem 1.1rem;
+                    border-radius: 12px;
+                    font-weight: 600;
+                    font-size: 0.85rem;
+                    color: #475569;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+                    white-space: nowrap;
+                }
+                .tm-btn-search:hover { background: #F1F5F9; color: #1E293B; border-color: #CBD5E1; }
+
+                .gs-overlay {
+                    position: fixed; inset: 0;
+                    background: rgba(15,23,42,0.6);
+                    backdrop-filter: blur(4px);
+                    z-index: 1000;
+                    display: flex; align-items: flex-start; justify-content: center;
+                    padding-top: 5vh;
+                }
+                .gs-modal {
+                    background: white;
+                    border-radius: 16px;
+                    width: 90%; max-width: 760px;
+                    max-height: 80vh;
+                    display: flex; flex-direction: column;
+                    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+                    animation: modalPop 0.2s ease;
+                    overflow: hidden;
+                }
+                @keyframes modalPop { from { opacity:0; transform: scale(0.96) translateY(-8px); } to { opacity:1; transform: scale(1) translateY(0); } }
+                .gs-header {
+                    display: flex; align-items: center; gap: 0.75rem;
+                    padding: 1.25rem 1.5rem;
+                    border-bottom: 1px solid #F1F5F9;
+                    color: #2563EB;
+                }
+                .gs-header h3 { margin: 0; font-size: 1rem; font-weight: 700; color: #1E293B; flex: 1; }
+                .gs-close {
+                    background: none; border: none; color: #94A3B8;
+                    font-size: 1.1rem; cursor: pointer; padding: 0.25rem 0.5rem;
+                    border-radius: 6px; transition: all 0.2s;
+                }
+                .gs-close:hover { background: #F1F5F9; color: #475569; }
+                .gs-search-row {
+                    display: flex; align-items: center; gap: 1rem;
+                    padding: 1rem 1.5rem;
+                    border-bottom: 1px solid #F1F5F9;
+                }
+                .gs-input {
+                    flex: 1; border: 1px solid #E2E8F0; border-radius: 10px;
+                    padding: 0.75rem 1rem; font-size: 1rem; outline: none;
+                    transition: border-color 0.2s;
+                }
+                .gs-input:focus { border-color: #2563EB; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+                .gs-body { overflow-y: auto; padding: 0.75rem; flex: 1; }
+                .gs-empty { text-align: center; color: #94A3B8; padding: 2rem; font-style: italic; }
+                .gs-error { text-align: center; color: #DC2626; padding: 2rem; font-size: 0.9rem; background: #FEF2F2; border-radius: 8px; margin: 0.5rem; }
+                .gs-group {
+                    border: 1px solid #E2E8F0; border-radius: 12px;
+                    margin-bottom: 0.75rem; overflow: hidden;
+                }
+                .gs-group-header {
+                    display: flex; align-items: center; gap: 0.6rem;
+                    padding: 0.75rem 1rem;
+                    background: #F8FAFC; cursor: pointer;
+                    transition: background 0.15s;
+                    color: #1E293B;
+                }
+                .gs-group-header:hover { background: #EFF6FF; }
+                .gs-meeting-title { font-weight: 700; font-size: 0.9rem; flex: 1; }
+                .gs-match-count {
+                    font-size: 0.75rem; font-weight: 700;
+                    background: #DBEAFE; color: #1D4ED8;
+                    padding: 0.15rem 0.5rem; border-radius: 20px;
+                }
+                .gs-arrow { color: #94A3B8; flex-shrink: 0; }
+                .gs-matches { padding: 0.5rem 0; }
+                .gs-match {
+                    display: grid; grid-template-columns: 70px 130px 1fr;
+                    gap: 0.75rem; align-items: baseline;
+                    padding: 0.5rem 1rem; cursor: pointer;
+                    transition: background 0.15s; font-size: 0.85rem;
+                }
+                .gs-match:hover { background: #FBFDFF; }
+                .gs-ts { font-family: monospace; font-size: 0.75rem; color: #94A3B8; }
+                .gs-speaker { font-weight: 700; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .gs-excerpt { color: #64748B; line-height: 1.4; }
+                mark.gs-hl { background: #FEF08A; color: inherit; border-radius: 2px; padding: 0 1px; }
+                .gs-more {
+                    text-align: center; font-size: 0.75rem; color: #94A3B8;
+                    padding: 0.25rem; font-style: italic;
+                }
+
                 .animate-spin { animation: spin 1s linear infinite; }
                 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
@@ -513,5 +724,24 @@ const TranscriptManager: React.FC = () => {
     </div>
     );
 };
+
+function formatTimeFull(seconds: number) {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function highlightExcerpt(text: string, query: string): string {
+    if (!query) return text;
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const idx = text.toLowerCase().indexOf(query.toLowerCase());
+    let excerpt = text;
+    if (text.length > 120) {
+        const start = Math.max(0, idx - 40);
+        excerpt = (start > 0 ? '…' : '') + text.substring(start, start + 120) + (start + 120 < text.length ? '…' : '');
+    }
+    return excerpt.replace(new RegExp(`(${escaped})`, 'gi'), '<mark class="gs-hl">$1</mark>');
+}
 
 export default TranscriptManager;

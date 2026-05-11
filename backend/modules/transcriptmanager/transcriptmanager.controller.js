@@ -4,6 +4,40 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
+const DEFAULT_PROMPT_TEMPLATE = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
+Ta mission est de produire un compte-rendu clair, structuré et professionnel à partir de la transcription fournie.
+
+REUNION : {REUNION}
+
+TRANSCRIPTION :
+{TRANSCRIPTION}
+
+---
+
+STRUCTURE DU COMPTE-RENDU (MARKDOWN) :
+## Résumé exécutif
+(3 à 5 phrases résumant l'essentiel de la réunion)
+
+## Points abordés
+(liste des sujets discutés avec une brève description)
+
+## Décisions prises
+(liste des décisions actées, ou « Aucune décision formelle » si applicable)
+
+---
+
+INSTRUCTIONS CRITIQUES :
+1. Ne rédige PAS de section "Plan d'action" ou "Tâches" dans le texte Markdown.
+2. Ne fais AUCUNE mention du bloc JSON à la fin.
+3. Ajoute ENSUITE un bloc JSON délimité par \`\`\`json contenant la liste des tâches.
+
+FORMAT DU JSON :
+\`\`\`json
+[
+  {"what": "Description", "who": "Responsable", "req": "Demandeur", "when": "Échéance", "ts": "HH:MM:SS"}
+]
+\`\`\``;
+
 /**
  * Controller for Transcript Manager module
  */
@@ -16,14 +50,38 @@ const transcriptController = {
     getMeetings: async (req, res) => {
         try {
             const db = pgDb;
-            const meetings = await db.all(`
-                SELECT m.*, 
-                (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
-                (SELECT string_agg(DISTINCT speaker_email, ',') FROM transcript_cues WHERE meeting_id = m.id AND speaker_email IS NOT NULL) as speaker_emails,
-                (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds
-                FROM transcript_meetings m 
-                ORDER BY meeting_date DESC, created_at DESC
-            `);
+            const { username, email, role } = req.user;
+            const isAdmin = role === 'admin' || username?.toLowerCase() === 'admin' || username?.toLowerCase() === 'adminhub';
+
+            let meetings;
+            if (isAdmin) {
+                meetings = await db.all(`
+                    SELECT m.*,
+                    (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
+                    (SELECT string_agg(DISTINCT speaker_email, ',') FROM transcript_cues WHERE meeting_id = m.id AND speaker_email IS NOT NULL) as speaker_emails,
+                    (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds
+                    FROM transcript_meetings m
+                    ORDER BY meeting_date DESC NULLS LAST, created_at DESC
+                `);
+            } else {
+                const emailLocal = (email || username || '').split('@')[0].toLowerCase();
+                const emailFull = `${emailLocal}@ivry94.fr`;
+                meetings = await db.all(`
+                    SELECT m.*,
+                    (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
+                    (SELECT string_agg(DISTINCT speaker_email, ',') FROM transcript_cues WHERE meeting_id = m.id AND speaker_email IS NOT NULL) as speaker_emails,
+                    (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds
+                    FROM transcript_meetings m
+                    WHERE m.reunion_id IS NULL
+                       OR EXISTS (
+                           SELECT 1 FROM reunion_participants rp
+                           WHERE rp.reunion_id = m.reunion_id
+                           AND (LOWER(rp.email) = ? OR LOWER(rp.email) = ? OR LOWER(rp.ad_username) = ?)
+                           AND rp.statut_presence IN ('present', 'excuse', 'info')
+                       )
+                    ORDER BY meeting_date DESC NULLS LAST, created_at DESC
+                `, [emailFull, emailLocal, emailLocal]);
+            }
             res.json(meetings);
         } catch (error) {
             res.status(500).json({ error: error.message });
@@ -189,10 +247,11 @@ const transcriptController = {
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
 
             const cues = await db.all('SELECT * FROM transcript_cues WHERE meeting_id = ? ORDER BY start_seconds', [meetingId]);
-            const transcriptText = cues.map(c => `[${formatTime(c.start_seconds)}] ${c.speaker_name}: ${c.text}`).join('\n');
+            let transcriptText = cues.map(c => `[${formatTime(c.start_seconds)}] ${c.speaker_name}: ${c.text}`).join('\n');
+            console.log(`[TranscriptManager] Transcript length: ${transcriptText.length} chars for meeting ${meetingId}`);
 
             // Fetch central AI settings from SQLite
-            const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model'];
+            const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'max_chars_context'];
             const config = {};
             for (const key of keys) {
                 const s = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
@@ -200,6 +259,16 @@ const transcriptController = {
             }
 
             const provider = config.ai_provider || 'groq';
+
+            // Limit transcript size: custom setting takes priority over per-provider defaults
+            const DEFAULT_MAX_BY_PROVIDER = { groq: 24000, openrouter: 80000, gemini: 80000, anthropic: 120000, ollama: 40000 };
+            const MAX_TRANSCRIPT_CHARS = config.max_chars_context
+                ? parseInt(config.max_chars_context, 10)
+                : (DEFAULT_MAX_BY_PROVIDER[provider] || 24000);
+            if (transcriptText.length > MAX_TRANSCRIPT_CHARS) {
+                console.warn(`[TranscriptManager] Truncating transcript from ${transcriptText.length} to ${MAX_TRANSCRIPT_CHARS} chars (provider: ${provider})`);
+                transcriptText = transcriptText.substring(0, MAX_TRANSCRIPT_CHARS) + "\n... (Transcription tronquée car trop longue) ...";
+            }
             let apiKey = '';
             let model = config.default_model || '';
             let apiUrl = '';
@@ -238,39 +307,15 @@ const transcriptController = {
             res.setHeader('Cache-Control', 'no-cache');
             res.setHeader('Connection', 'keep-alive');
 
-            const prompt = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
-Ta mission est de produire un compte-rendu clair, structuré et professionnel à partir de la transcription fournie.
+            console.log(`[TranscriptManager] Starting generation with provider: ${provider}, model: ${model}`);
 
-REUNION : ${meeting.title}
+            const customPromptRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['custom_prompt']);
+            const promptTemplate = (customPromptRow?.setting_value) || DEFAULT_PROMPT_TEMPLATE;
+            const prompt = promptTemplate
+                .replace('{REUNION}', meeting.title)
+                .replace('{TRANSCRIPTION}', transcriptText);
 
-TRANSCRIPTION :
-${transcriptText}
-
----
-
-STRUCTURE DU COMPTE-RENDU (MARKDOWN) :
-## Résumé exécutif
-(3 à 5 phrases résumant l'essentiel de la réunion)
-
-## Points abordés
-(liste des sujets discutés avec une brève description)
-
-## Décisions prises
-(liste des décisions actées, ou « Aucune décision formelle » si applicable)
-
----
-
-INSTRUCTIONS CRITIQUES :
-1. Ne rédige PAS de section "Plan d'action" ou "Tâches" dans le texte Markdown.
-2. Ne fais AUCUNE mention du bloc JSON à la fin.
-3. Ajoute ENSUITE un bloc JSON délimité par \`\`\`json contenant la liste des tâches.
-
-FORMAT DU JSON :
-\`\`\`json
-[
-  {"what": "Description", "who": "Responsable", "req": "Demandeur", "when": "Échéance", "ts": "HH:MM:SS"}
-]
-\`\`\``;
+            console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars`);
 
             let fullText = "";
 
@@ -361,7 +406,19 @@ FORMAT DU JSON :
 
         } catch (error) {
             console.error('Summarize error:', error.message);
-            res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
+            let detailedError = error.message;
+            if (error.response) {
+                console.error('Error status:', error.response.status);
+                try {
+                    const data = error.response.data;
+                    const dataStr = typeof data === 'string' ? data : typeof data === 'object' && data !== null && !data.pipe ? JSON.stringify(data) : '[stream]';
+                    detailedError += ` (Status: ${error.response.status}, Data: ${dataStr})`;
+                } catch (e) {
+                    detailedError += ` (Status: ${error.response.status})`;
+                }
+            }
+            if (!res.headersSent) res.setHeader('Content-Type', 'text/event-stream');
+            res.write(`event: error\ndata: ${JSON.stringify({ error: detailedError })}\n\n`);
             res.end();
         }
     },
@@ -437,20 +494,128 @@ FORMAT DU JSON :
     },
 
     /**
-     * Update meeting details (title, date)
+     * Full-text search across all transcripts
+     */
+    searchTranscripts: async (req, res) => {
+        try {
+            const { q } = req.query;
+            if (!q || q.trim().length < 2) return res.json([]);
+            const db = pgDb;
+            const { username, email, role } = req.user;
+            const isAdmin = role === 'admin' || username?.toLowerCase() === 'admin' || username?.toLowerCase() === 'adminhub';
+            const term = `%${q.trim()}%`;
+
+            let rows;
+            if (isAdmin) {
+                rows = await db.all(`
+                    SELECT
+                        m.id as meeting_id, m.title as meeting_title,
+                        m.meeting_date, m.created_at,
+                        c.id as cue_id, c.speaker_name, c.text, c.start_seconds
+                    FROM transcript_cues c
+                    JOIN transcript_meetings m ON m.id = c.meeting_id
+                    WHERE c.text ILIKE ? OR m.title ILIKE ?
+                    ORDER BY m.meeting_date DESC NULLS LAST, c.start_seconds ASC
+                    LIMIT 200
+                `, [term, term]);
+            } else {
+                const emailLocal = (email || username || '').split('@')[0].toLowerCase();
+                const emailFull = `${emailLocal}@ivry94.fr`;
+                rows = await db.all(`
+                    SELECT
+                        m.id as meeting_id, m.title as meeting_title,
+                        m.meeting_date, m.created_at,
+                        c.id as cue_id, c.speaker_name, c.text, c.start_seconds
+                    FROM transcript_cues c
+                    JOIN transcript_meetings m ON m.id = c.meeting_id
+                    WHERE (c.text ILIKE ? OR m.title ILIKE ?)
+                      AND (m.reunion_id IS NULL
+                           OR EXISTS (
+                               SELECT 1 FROM reunion_participants rp
+                               WHERE rp.reunion_id = m.reunion_id
+                               AND (LOWER(rp.email) = ? OR LOWER(rp.email) = ? OR LOWER(rp.ad_username) = ?)
+                               AND rp.statut_presence IN ('present', 'excuse', 'info')
+                           ))
+                    ORDER BY m.meeting_date DESC NULLS LAST, c.start_seconds ASC
+                    LIMIT 200
+                `, [term, term, emailFull, emailLocal, emailLocal]);
+            }
+
+            const grouped = new Map();
+            for (const row of rows) {
+                if (!grouped.has(row.meeting_id)) {
+                    grouped.set(row.meeting_id, {
+                        meeting_id: row.meeting_id,
+                        meeting_title: row.meeting_title,
+                        meeting_date: row.meeting_date,
+                        created_at: row.created_at,
+                        matches: []
+                    });
+                }
+                grouped.get(row.meeting_id).matches.push({
+                    cue_id: row.cue_id,
+                    speaker_name: row.speaker_name,
+                    text: row.text,
+                    start_seconds: row.start_seconds
+                });
+            }
+            res.json(Array.from(grouped.values()));
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Update meeting details (title, date, summary)
      */
     updateMeeting: async (req, res) => {
         try {
             const db = pgDb;
             const meetingId = req.params.id;
-            const { title, meeting_date } = req.body;
-            
+            const { title, meeting_date, summary } = req.body;
+
+            if (summary !== undefined) {
+                await db.run(
+                    'UPDATE transcript_meetings SET title = ?, meeting_date = ?, summary = ? WHERE id = ?',
+                    [title, meeting_date, summary, meetingId]
+                );
+            } else {
+                await db.run(
+                    'UPDATE transcript_meetings SET title = ?, meeting_date = ? WHERE id = ?',
+                    [title, meeting_date, meetingId]
+                );
+            }
+            res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Update task fields
+     */
+    updateTask: async (req, res) => {
+        try {
+            const db = pgDb;
+            const { description, assignee, requester, deadline } = req.body;
             await db.run(
-                'UPDATE transcript_meetings SET title = ?, meeting_date = ? WHERE id = ?',
-                [title, meeting_date, meetingId]
+                'UPDATE transcript_tasks SET description = ?, assignee = ?, requester = ?, deadline = ? WHERE id = ?',
+                [description, assignee, requester, deadline, req.params.id]
             );
-            
-            res.json({ success: true, message: 'Réunion mise à jour' });
+            res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Delete task
+     */
+    deleteTask: async (req, res) => {
+        try {
+            const db = pgDb;
+            await db.run('DELETE FROM transcript_tasks WHERE id = ?', [req.params.id]);
+            res.json({ success: true });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

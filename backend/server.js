@@ -364,7 +364,8 @@ app.use(cors({
     origin: true, // Autorise l'origine de la requête (dynamique)
     credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Désactiver le cache pour toutes les routes API
 app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -614,7 +615,7 @@ app.post('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
 // --- Transcript Settings API ---
 app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
     try {
-        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model'];
+        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'custom_prompt', 'max_chars_context'];
         const config = {};
         for (const key of keys) {
             const s = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
@@ -629,7 +630,7 @@ app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
 app.post('/api/transcript-settings', authenticateAdmin, async (req, res) => {
     try {
         const payload = req.body;
-        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model'];
+        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'custom_prompt', 'max_chars_context'];
         for (const key of keys) {
             if (payload[key] !== undefined && payload[key] !== '••••••••' && payload[key] !== '********') {
                 const existing = await db.get('SELECT 1 FROM app_settings WHERE setting_key = ?', [key]);

@@ -47,6 +47,41 @@ interface AdminProps {
   section?: 'main' | 'tiles' | 'users' | 'ad' | 'azure-ad' | 'glpi' | 'oracle' | 'mariadb' | 'transcript';
 }
 
+const FENCE = '```';
+const DEFAULT_PROMPT_TEMPLATE_CONST = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
+Ta mission est de produire un compte-rendu clair, structuré et professionnel à partir de la transcription fournie.
+
+REUNION : {REUNION}
+
+TRANSCRIPTION :
+{TRANSCRIPTION}
+
+---
+
+STRUCTURE DU COMPTE-RENDU (MARKDOWN) :
+## Résumé exécutif
+(3 à 5 phrases résumant l'essentiel de la réunion)
+
+## Points abordés
+(liste des sujets discutés avec une brève description)
+
+## Décisions prises
+(liste des décisions actées, ou « Aucune décision formelle » si applicable)
+
+---
+
+INSTRUCTIONS CRITIQUES :
+1. Ne rédige PAS de section "Plan d'action" ou "Tâches" dans le texte Markdown.
+2. Ne fais AUCUNE mention du bloc JSON à la fin.
+3. Ajoute ENSUITE un bloc JSON délimité par ${FENCE}json contenant la liste des tâches.
+
+FORMAT DU JSON :
+${FENCE}json
+[
+  {"what": "Description", "who": "Responsable", "req": "Demandeur", "when": "Échéance", "ts": "HH:MM:SS"}
+]
+${FENCE}`;
+
 const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const { token } = useAuth();
   const [tiles, setTiles] = useState<TileData[]>([]);
@@ -81,8 +116,20 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     openrouter_api_key: '',
     anthropic_api_key: '',
     ollama_host: 'http://localhost:11434',
-    anthropic_model: 'claude-3-5-sonnet-20240620'
+    anthropic_model: 'claude-3-5-sonnet-20240620',
+    custom_prompt: '',
+    max_chars_context: ''
   });
+
+  const MAX_CHARS_BY_PROVIDER: Record<string, number> = {
+    groq: 24000,
+    openrouter: 80000,
+    gemini: 80000,
+    anthropic: 120000,
+    ollama: 40000,
+  };
+
+  const DEFAULT_PROMPT_TEMPLATE = DEFAULT_PROMPT_TEMPLATE_CONST;
   const [azureConfig, setAzureConfig] = useState({
     is_enabled: false,
     tenant_id: '',
@@ -458,7 +505,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           openrouter_api_key: data.openrouter_api_key ? '••••••••' : '',
           anthropic_api_key: data.anthropic_api_key ? '••••••••' : '',
           ollama_host: data.ollama_host || 'http://localhost:11434',
-          anthropic_model: data.anthropic_model || 'claude-3-5-sonnet-20240620'
+          anthropic_model: data.anthropic_model || 'claude-3-5-sonnet-20240620',
+          custom_prompt: data.custom_prompt || '',
+          max_chars_context: data.max_chars_context || ''
         });
       }
     } catch (error) {
@@ -2301,6 +2350,46 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             placeholder="http://localhost:11434"
                           />
                         </div>
+                      )}
+                    </div>
+
+                    {/* Limite de caractères */}
+                    <div className="form-field full-width" style={{ marginTop: '0.5rem' }}>
+                      <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>📏</span> Limite de contexte envoyée à l'IA
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: '8px', fontSize: '0.9rem' }}>
+                        <span style={{ fontWeight: 700, fontSize: '1.3rem', color: '#7c3aed' }}>
+                          {(MAX_CHARS_BY_PROVIDER[transcriptConfig.ai_provider] || 24000).toLocaleString('fr-FR')}
+                        </span>
+                        <span style={{ color: '#6d28d9' }}>caractères max du transcript ({Math.round((MAX_CHARS_BY_PROVIDER[transcriptConfig.ai_provider] || 24000) / 4).toLocaleString('fr-FR')} tokens environ)</span>
+                      </div>
+                    </div>
+
+                    {/* Éditeur de prompt */}
+                    <div className="form-field full-width" style={{ marginTop: '1rem' }}>
+                      <label className="field-label">
+                        📝 Prompt d'instruction envoyé à l'IA
+                      </label>
+                      <p style={{ fontSize: '0.78rem', color: '#7c3aed', marginBottom: '0.5rem' }}>
+                        Utilisez <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{REUNION}'}</code> pour le titre et <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{TRANSCRIPTION}'}</code> pour le contenu. Laissez vide pour utiliser le prompt par défaut.
+                      </p>
+                      <textarea
+                        className="admin-input"
+                        rows={18}
+                        style={{ fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical', lineHeight: 1.5 }}
+                        value={transcriptConfig.custom_prompt || DEFAULT_PROMPT_TEMPLATE}
+                        onChange={e => setTranscriptConfig({ ...transcriptConfig, custom_prompt: e.target.value })}
+                        spellCheck={false}
+                      />
+                      {transcriptConfig.custom_prompt && transcriptConfig.custom_prompt !== DEFAULT_PROMPT_TEMPLATE && (
+                        <button
+                          type="button"
+                          style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                          onClick={() => setTranscriptConfig({ ...transcriptConfig, custom_prompt: '' })}
+                        >
+                          Réinitialiser au prompt par défaut
+                        </button>
                       )}
                     </div>
 

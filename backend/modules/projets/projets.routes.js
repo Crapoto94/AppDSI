@@ -10,6 +10,10 @@ const { SECRET_KEY } = require('../../shared/config');
 const DOCUMENTS_DIR = path.join(__dirname, '..', '..', 'file_projets');
 const uploadDoc = multer({ dest: DOCUMENTS_DIR, limits: { fileSize: 100 * 1024 * 1024 } });
 
+const NOTES_DIR = path.join(__dirname, '..', '..', 'file_notes_taches');
+if (!require('fs').existsSync(NOTES_DIR)) require('fs').mkdirSync(NOTES_DIR, { recursive: true });
+const uploadNote = multer({ dest: NOTES_DIR, limits: { fileSize: 50 * 1024 * 1024 } });
+
 // Middleware that accepts token from query param or Authorization header
 const authenticateJWTQuery = (req, res, next) => {
     const token = req.query.token || (req.headers.authorization || '').split(' ')[1];
@@ -139,6 +143,20 @@ router.get('/:id/verifier-dependances', authenticateJWT, ctrl.verifierDependance
 // ============================================
 router.get('/:id/attendus', authenticateJWT, ctrl.getAttendus);
 router.put('/:id/attendus', authenticateJWT, ctrl.setAttendus);
+
+// ============================================
+// TÂCHES AGRÉGÉES (réunions + standalone)
+// ============================================
+router.get('/:id/taches-agregees', authenticateJWT, ctrl.getTachesAgregees);
+router.put('/:id/taches-agregees/:taskId', authenticateJWT, ctrl.acquitterTacheAgregee);
+router.delete('/:id/taches-agregees/:taskId', authenticateJWT, ctrl.supprimerTacheAgregee);
+router.post('/:id/taches-agregees/:taskId/notes', authenticateJWT, ctrl.ajouterNoteTache);
+router.post('/:id/taches-agregees/:taskId/notes/file', authenticateJWT, uploadNote.single('file'), ctrl.ajouterNoteFichier);
+router.get('/:id/taches-agregees/:taskId/notes/:noteIdx/file', authenticateJWT, ctrl.telechargerNoteFichier);
+router.delete('/:id/taches-agregees/:taskId/notes/:noteIdx', authenticateJWT, ctrl.supprimerNoteTache);
+router.post('/:id/taches-standalone', authenticateJWT, ctrl.ajouterTacheStandalone);
+router.put('/:id/taches-standalone/:tid', authenticateJWT, ctrl.updateTacheStandalone);
+router.delete('/:id/taches-standalone/:tid', authenticateJWT, ctrl.supprimerTacheStandalone);
 
 // ============================================
 // COMITÉS

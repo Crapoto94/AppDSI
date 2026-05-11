@@ -140,6 +140,15 @@ module.exports = {
             const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
             if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
 
+            // Récupérer les infos projet / comité liés
+            const lienProjet = await pgDb.get(`
+                SELECT pj.titre as projet_titre, pj.code as projet_code, pc.nom as comite_nom
+                FROM projet_reunions pr
+                LEFT JOIN projets pj ON pj.id = pr.projet_id
+                LEFT JOIN projet_comites pc ON pc.id = pr.comite_id
+                WHERE pr.reunion_id = ?
+            `, [id]);
+
             const participants = await pgDb.all('SELECT * FROM reunion_participants WHERE reunion_id=? ORDER BY nom', [id]);
             const demandes = await pgDb.all('SELECT * FROM rencontres_budgetaires WHERE reunion_id=? ORDER BY direction, service, titre', [id]);
 
@@ -232,9 +241,16 @@ module.exports = {
   </tr>`).join('')}</tbody>
 </table>` : '';
 
+            const projetHtml = lienProjet ? `
+<div style="margin-bottom:16px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:13px">
+  <strong style="color:#16a34a">Projet :</strong> <span style="color:#1e293b">${lienProjet.projet_titre}${lienProjet.projet_code ? ' (' + lienProjet.projet_code + ')' : ''}</span>
+  ${lienProjet.comite_nom ? `<br><strong style="color:#16a34a">Comité :</strong> <span style="color:#1e293b">${lienProjet.comite_nom}</span>` : ''}
+</div>` : '';
+
             const content = `
 <h1 style="color:#1e293b;margin:0 0 24px;font-size:26px;font-weight:900;text-align:center;letter-spacing:-0.02em">📄 Compte rendu de réunion</h1>
 <h2 style="color:#0f172a;margin:0 0 4px;font-size:20px">📅 ${reunion.titre}</h2>
+${projetHtml}
 ${participantsHtml}
 ${derouleHtml}
 ${decisionsHtml}
@@ -270,7 +286,7 @@ ${tasksHtml}
                 }
             }
 
-            const subject = `Compte rendu — ${reunion.titre}${dateStr ? ' du ' + dateStr : ''}`;
+            const subject = `Compte rendu — ${reunion.titre}${dateStr ? ' du ' + dateStr : ''}${lienProjet?.projet_titre ? ' [' + lienProjet.projet_titre + ']' : ''}`;
             let sent = 0, failed = 0;
             for (const email of emails) {
                 try { await sendMailFn(email, subject, content, fileAttachments); sent++; }

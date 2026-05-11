@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, ArrowUpDown, X } from 'lucide-react';
 import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
@@ -54,10 +54,10 @@ const ALL_TABS = [
   { key: 'journal', label: 'Journal', icon: MessageSquare },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'reunions', label: 'Réunions', icon: Calendar },
+  { key: 'taches', label: 'Tâches', icon: ListChecks },
   { key: 'score', label: 'Score', icon: BarChart3 },
   { key: 'indicateurs', label: 'Indicateurs', icon: Activity },
   { key: 'admin', label: 'Admin projet', icon: Settings },
-  { key: 'admin-generale', label: 'Admin générale', icon: Settings },
 ];
 
 const ProjetDetail: React.FC = () => {
@@ -82,12 +82,11 @@ const ProjetDetail: React.FC = () => {
 
   const isAdmin = user?.role === 'admin';
   const isPMO = user?.est_pmo;
-  const isChefProjet = projet?.chef_projet_username === user?.username;
+  const isChefProjet = projet?.chef_projet_username === user?.username || projet?.responsable_dsi_username === user?.username || (projet?.roles || []).some(r => r.username === user?.username && r.role === 'chef_projet');
   const peutVoirAdmin = isAdmin || isPMO || isChefProjet;
   const peutVoirAdminGenerale = isAdmin || isPMO;
   const TABS = ALL_TABS.filter(t => {
     if (t.key === 'admin') return peutVoirAdmin;
-    if (t.key === 'admin-generale') return peutVoirAdminGenerale;
     return true;
   });
   const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
@@ -168,6 +167,8 @@ const ProjetDetail: React.FC = () => {
       }
     } catch (e) { console.error(e); }
   }, [id, token]);
+
+  const refreshAll = useCallback(() => { fetchProjet(); fetchTransitions(); }, [fetchProjet, fetchTransitions]);
 
   const effectuerTransition = async (statutCible: string) => {
     try {
@@ -451,6 +452,7 @@ const ProjetDetail: React.FC = () => {
   const renderJournal = () => <JournalTab projetId={projet.id} token={token} onOuvrirDocument={(details) => ouvrirDocument(details, projet.id)} />;
   const renderDocuments = () => <DocumentsTab projetId={projet.id} token={token} documents={projet.documents} onVoirDocument={(url, nom) => setViewerDoc({ url, nom })} />;
   const renderReunions = () => <ReunionsTab projetId={projet.id} token={token} onAjouterReunion={() => setShowCreateReunion(true)} onVoirReunion={(id) => setReunionDetailId(id)} />;
+  const renderTaches = () => <TachesTab projetId={projet.id} token={token} />;
   const renderScore = () => <ScoreTab projetId={projet.id} token={token} />;
   const renderIndicateurs = () => <IndicateursTab projetId={projet.id} token={token} />;
   const lierReunionApresCreation = async (reunion: any) => {
@@ -480,8 +482,8 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
   } catch {}
 };
 
-const renderAdmin = () => <AdminTab projetId={projet.id} token={token} projet={projet} onRefresh={fetchProjet} />;
-const renderAdminGenerale = () => <AdminGeneraleTab token={token} />;
+  const renderAdmin = () => <AdminTab projetId={projet.id} token={token} projet={projet} onRefresh={refreshAll} />;
+  const renderAdminGenerale = () => <AdminGeneraleTab token={token} />;
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
@@ -607,10 +609,10 @@ const renderAdminGenerale = () => <AdminGeneraleTab token={token} />;
         {ongletActif === 'journal' && renderJournal()}
         {ongletActif === 'documents' && renderDocuments()}
         {ongletActif === 'reunions' && renderReunions()}
+        {ongletActif === 'taches' && renderTaches()}
         {ongletActif === 'score' && renderScore()}
         {ongletActif === 'indicateurs' && renderIndicateurs()}
         {ongletActif === 'admin' && renderAdmin()}
-        {ongletActif === 'admin-generale' && renderAdminGenerale()}
       </div>
       <CreateReunionModal
         isOpen={showCreateReunion}
@@ -1844,6 +1846,368 @@ const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterR
   );
 };
 
+// ===== ONGLET TÂCHES =====
+interface ADUser {
+  username: string; displayName: string; email: string; service?: string; direction?: string;
+}
+
+const STATUT_CYCLE = ['a_faire', 'en_cours', 'terminee', 'refuse'];
+
+const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunion?: (id: number) => void }> = ({ projetId, token, onVoirReunion }) => {
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sortField, setSortField] = useState('tache');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [newTache, setNewTache] = useState('');
+  const [newResponsable, setNewResponsable] = useState('');
+  const [newEcheance, setNewEcheance] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [adQuery, setAdQuery] = useState('');
+  const [adResults, setAdResults] = useState<ADUser[]>([]);
+  const [adSearching, setAdSearching] = useState(false);
+  const adSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ tache: '', responsable: '', echeance: '', statut: 'a_faire' });
+  const [expandedNotesId, setExpandedNotesId] = useState<string | null>(null);
+  const [noteInput, setNoteInput] = useState('');
+  const [uploadingNote, setUploadingNote] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [noteTaskRef, setNoteTaskRef] = useState<any>(null);
+
+  const searchAD = useCallback((q: string) => {
+    setAdQuery(q);
+    if (adSearchTimerRef.current) clearTimeout(adSearchTimerRef.current);
+    if (q.length < 2) { setAdResults([]); return; }
+    setAdSearching(true);
+    adSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        setAdResults((await res.json()) || []);
+      } catch (e) { setAdResults([]); }
+      finally { setAdSearching(false); }
+    }, 400);
+  }, [token]);
+
+  const loadTasks = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`/api/projets/${projetId}/taches-agregees`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (Array.isArray(d)) setTasks(d);
+    } catch {}
+    finally { setLoading(false); }
+  }, [projetId, token]);
+
+  useEffect(() => { loadTasks(); }, [loadTasks]);
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir('asc'); }
+  };
+
+  const sortedTasks = [...tasks].sort((a, b) => {
+    const aVal = (a[sortField] || '').toString().toLowerCase();
+    const bVal = (b[sortField] || '').toString().toLowerCase();
+    const cmp = aVal.localeCompare(bVal);
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
+  const acquitter = async (task: any) => {
+    const idx = STATUT_CYCLE.indexOf(task.statut || 'a_faire');
+    const nouveauStatut = STATUT_CYCLE[(idx + 1) % STATUT_CYCLE.length];
+    try {
+      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${task.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statut: nouveauStatut })
+      });
+      if (r.ok) loadTasks();
+    } catch {}
+  };
+
+  const supprimerTache = async (task: any) => {
+    if (!window.confirm(`Supprimer la tâche "${task.tache}" ?`)) return;
+    try {
+      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${task.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r.ok) loadTasks();
+      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
+    } catch {}
+  };
+
+  const ajouterNote = async (task: any) => {
+    if (!noteInput.trim()) return;
+    try {
+      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${task.id}/notes`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: noteInput, type: 'comment' })
+      });
+      if (r.ok) { setNoteInput(''); loadTasks(); }
+      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
+    } catch (e) { alert('Erreur réseau'); }
+  };
+
+  const triggerFileUpload = (task: any) => {
+    setNoteTaskRef(task);
+    fileInputRef.current?.click();
+  };
+
+  const uploadNoteFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !noteTaskRef) return;
+    setUploadingNote(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${noteTaskRef.id}/notes/file`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      });
+      if (r.ok) loadTasks();
+      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
+    } catch (e) { alert('Erreur réseau'); }
+    finally { setUploadingNote(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
+  };
+
+  const supprimerNote = async (task: any, noteIdx: number) => {
+    if (!window.confirm('Supprimer cette note ?')) return;
+    try {
+      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${task.id}/notes/${noteIdx}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (r.ok) loadTasks();
+    } catch {}
+  };
+
+  const startEdit = (task: any) => {
+    setEditingTaskId(task.id);
+    setEditForm({ tache: task.tache || '', responsable: task.responsable || '', echeance: task.echeance || '', statut: task.statut || 'a_faire' });
+  };
+
+  const saveEdit = async () => {
+    if (!editingTaskId) return;
+    const tache = (editForm.tache || '').trim();
+    if (!tache) { alert('Le texte de la tâche est obligatoire'); return; }
+    try {
+      const body = { ...editForm, tache };
+      if (!body.echeance) body.echeance = null;
+      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${editingTaskId}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (r.ok) { setEditingTaskId(null); loadTasks(); }
+      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
+    } catch (e) { console.error(e); alert('Erreur réseau'); }
+  };
+
+  const ajouterTache = async () => {
+    if (!newTache.trim()) return;
+    setAdding(true);
+    try {
+      const r = await fetch(`/api/projets/${projetId}/taches-standalone`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tache: newTache, responsable: newResponsable, echeance: newEcheance || null, statut: 'a_faire' })
+      });
+      if (r.ok) { setNewTache(''); setNewResponsable(''); setNewEcheance(''); setAdQuery(''); setAdResults([]); loadTasks(); }
+      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
+    } catch (e) { alert('Erreur réseau'); }
+    finally { setAdding(false); }
+  };
+
+  const sortIndicator = (field: string) => {
+    if (sortField !== field) return null;
+    return <span style={{ marginLeft: '4px' }}>{sortDir === 'asc' ? '▲' : '▼'}</span>;
+  };
+
+  const colBtn = (field: string, label: string) => (
+    <th onClick={() => handleSort(field)} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '700', color: '#475569', fontSize: '12px', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none', borderBottom: '2px solid #e2e8f0', background: '#f8fafc' }}>
+      {label} {sortIndicator(field)}
+    </th>
+  );
+
+  const statusBadge = (statut: string) => {
+    const cfg: Record<string, { bg: string; color: string; label: string }> = {
+      a_faire: { bg: '#f1f5f9', color: '#64748b', label: 'À faire' },
+      en_cours: { bg: '#dbeafe', color: '#1d4ed8', label: 'En cours' },
+      terminee: { bg: '#dcfce7', color: '#16a34a', label: 'Terminée' },
+      refuse: { bg: '#fee2e2', color: '#dc2626', label: 'Refusé' },
+      en_erreur: { bg: '#fef3c7', color: '#92400e', label: 'En erreur' },
+    };
+    const c = cfg[statut] || cfg.a_faire;
+    return <span style={{ padding: '3px 10px', borderRadius: '10px', background: c.bg, color: c.color, fontWeight: '600', fontSize: '11px' }}>{c.label}</span>;
+  };
+
+  const actionColor = (statut: string) => {
+    switch (statut) {
+      case 'a_faire': return '#64748b';
+      case 'en_cours': return '#1d4ed8';
+      case 'terminee': return '#16a34a';
+      case 'refuse': return '#dc2626';
+      default: return '#64748b';
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ marginBottom: '16px', padding: '14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ flex: '2', minWidth: '160px' }}>
+            <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '4px' }}>TÂCHE *</div>
+            <input type="text" placeholder="Nouvelle tâche..." style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} value={newTache} onChange={e => setNewTache(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') ajouterTache(); }} />
+          </div>
+          <div style={{ flex: '1', minWidth: '120px', position: 'relative' }}>
+            <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '4px' }}>RESPONSABLE</div>
+            <input type="text" placeholder="Responsable (recherche AD)..." style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} value={newResponsable} onChange={e => { setNewResponsable(e.target.value); searchAD(e.target.value); }} />
+            {adSearching && <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: '#64748b' }}>...</span>}
+            {adResults.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, border: '1px solid #bfdbfe', borderRadius: '4px', background: 'white', maxHeight: '120px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                {adResults.map(u => (
+                  <div key={u.username} style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }} onClick={() => { setNewResponsable(u.displayName); setAdResults([]); setAdQuery(u.displayName); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
+                    <div style={{ fontWeight: '600' }}>{u.displayName}</div>
+                    <div style={{ fontSize: '10px', color: '#64748b' }}>{u.email}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={{ flex: '1', minWidth: '120px' }}>
+            <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '4px' }}>ÉCHÉANCE</div>
+            <input type="date" style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} value={newEcheance} onChange={e => setNewEcheance(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button onClick={ajouterTache} disabled={adding} style={{ padding: '8px 16px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Plus size={16} /> {adding ? '...' : 'Ajouter'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {loading ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Chargement...</p> : tasks.length === 0 ? (
+        <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Aucune tâche pour ce projet</p>
+      ) : (
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <thead>
+              <tr>
+                {colBtn('tache', 'Tâche')}
+                {colBtn('responsable', 'Responsable')}
+                {colBtn('echeance', 'Échéance')}
+                {colBtn('statut', 'Statut')}
+                <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f8fafc', width: '120px' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedTasks.flatMap(t => {
+                const rows = [];
+                if (editingTaskId === t.id) {
+                  rows.push(
+                    <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9', background: '#fff7ed' }}>
+                      <td style={{ padding: '6px 8px' }}>
+                        <input type="text" style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px' }} value={editForm.tache} onChange={e => setEditForm(v => ({...v, tache: e.target.value}))} onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingTaskId(null); }} />
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <input type="text" style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px' }} value={editForm.responsable} onChange={e => setEditForm(v => ({...v, responsable: e.target.value}))} onKeyDown={e => { if (e.key === 'Escape') setEditingTaskId(null); }} />
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <input type="date" style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px' }} value={editForm.echeance} onChange={e => setEditForm(v => ({...v, echeance: e.target.value}))} onKeyDown={e => { if (e.key === 'Escape') setEditingTaskId(null); }} />
+                      </td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <select style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px' }} value={editForm.statut} onChange={e => setEditForm(v => ({...v, statut: e.target.value}))}>
+                          <option value="a_faire">À faire</option>
+                          <option value="en_cours">En cours</option>
+                          <option value="terminee">Terminée</option>
+                          <option value="refuse">Refusé</option>
+                          <option value="en_erreur">En erreur</option>
+                        </select>
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <button onClick={saveEdit} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px', marginRight: '4px' }}>OK</button>
+                        <button onClick={() => setEditingTaskId(null)} style={{ padding: '4px 10px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Annuler</button>
+                      </td>
+                    </tr>
+                  );
+                } else {
+                  rows.push(
+                    <tr key={t.id} onDoubleClick={() => startEdit(t)} style={{ borderBottom: expandedNotesId !== t.id ? '1px solid #f1f5f9' : 'none', background: t.statut === 'terminee' ? '#f0fdf4' : t.statut === 'refuse' ? '#fef2f2' : 'white', cursor: 'pointer' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: '600', color: '#1e293b', textDecoration: t.statut === 'terminee' ? 'line-through' : 'none' }}>
+                        {t.source === 'reunion' && t.reunion_titre ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '14px', cursor: 'pointer' }} title={t.reunion_titre} onClick={() => onVoirReunion?.(t.reunion_id)}>📅</span>
+                            <span>{t.tache}</span>
+                          </span>
+                        ) : t.tache}
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#475569' }}>{t.responsable || '—'}</td>
+                      <td style={{ padding: '10px 12px', color: '#64748b' }}>{t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
+                      <td style={{ padding: '10px 12px' }}>{statusBadge(t.statut || 'a_faire')}</td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <button onClick={() => acquitter(t)} title={`Passer à ${STATUT_CYCLE[(STATUT_CYCLE.indexOf(t.statut || 'a_faire') + 1) % STATUT_CYCLE.length]}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: actionColor(t.statut || 'a_faire'), padding: '4px' }}>
+                          <CheckCircle2 size={20} />
+                        </button>
+                        <button onClick={() => setExpandedNotesId(expandedNotesId === t.id ? null : t.id)} title="Notes" style={{ background: 'none', border: 'none', cursor: 'pointer', color: expandedNotesId === t.id ? '#2563eb' : '#94a3b8', padding: '4px', marginLeft: '2px' }}>
+                          <Plus size={18} />
+                        </button>
+                        <button onClick={() => supprimerTache(t)} title="Supprimer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', marginLeft: '2px' }}>
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                  if (expandedNotesId === t.id) {
+                    rows.push(
+                      <tr key={`${t.id}-notes`}>
+                        <td colSpan={5} style={{ padding: '4px 12px', borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {(t.notes || []).map((n: any, ni: number) => (
+                              <div key={n.id || ni} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 6px', background: 'white', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px' }}>
+                                {n.type === 'file' ? (
+                                  <a href={`/api/projets/${projetId}/taches-agregees/${t.id}/notes/${ni}/file?token=${token}`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <Upload size={10} /> {n.filename || n.content}
+                                  </a>
+                                ) : (
+                                  <span style={{ flex: 1, color: '#1e293b' }}>{n.content}</span>
+                                )}
+                                <span style={{ fontSize: '9px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{n.created_at ? new Date(n.created_at).toLocaleDateString('fr-FR') : ''}</span>
+                                <button onClick={() => supprimerNote(t, ni)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '1px', lineHeight: 1 }} title="Supprimer">
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            ))}
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <input type="text" placeholder="Note..." style={{ flex: 1, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px' }} value={noteInput} onChange={e => setNoteInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') ajouterNote(t); }} />
+                              <button onClick={() => ajouterNote(t)} style={{ padding: '4px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '10px', whiteSpace: 'nowrap' }}>Ajouter</button>
+                              <button onClick={() => triggerFileUpload(t)} disabled={uploadingNote} style={{ padding: '4px 8px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '10px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Upload size={11} /> {uploadingNote ? '...' : 'Fichier'}
+                              </button>
+                            </div>
+                          </div>
+                          <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={uploadNoteFile} />
+                        </td>
+                      </tr>
+                    );
+                  }
+                }
+                return rows;
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ marginTop: '8px', fontSize: '12px', color: '#94a3b8' }}>
+        {tasks.filter(t => t.source === 'reunion').length > 0 && <span style={{ marginRight: '16px' }}>📅 {tasks.filter(t => t.source === 'reunion').length} tâche(s) issue(s) des réunions</span>}
+        {tasks.filter(t => t.source === 'standalone').length > 0 && <span>📝 {tasks.filter(t => t.source === 'standalone').length} tâche(s) ajoutée(s) manuellement</span>}
+      </div>
+    </div>
+  );
+};
+
 // ===== ONGLET SCORE =====
 const ScoreTab: React.FC<{ projetId: number; token: string | null }> = ({ projetId, token }) => {
   const [config, setConfig] = useState<any[]>([]);
@@ -1972,12 +2336,24 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
       .then(r => r.json()).then(d => { if (Array.isArray(d)) setEtapes(d); }).catch(() => {});
   }, [projetId, token]);
 
-  const toggleEtape = async (etape: string, actif: boolean) => {
-    await fetch(`/api/projets/${projetId}/etapes`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ etape, actif })
-    });
+  const [savingEtapes, setSavingEtapes] = useState(false);
+
+  const toggleEtape = (etape: string, actif: boolean) => {
     setEtapes(etapes.map(e => e.etape === etape ? { ...e, actif: actif ? 1 : 0 } : e));
+  };
+
+  const saveEtapes = async () => {
+    setSavingEtapes(true);
+    try {
+      for (const e of etapes) {
+        await fetch(`/api/projets/${projetId}/etapes`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ etape: e.etape, actif: !!e.actif })
+        });
+      }
+      onRefresh();
+    } catch {}
+    finally { setSavingEtapes(false); }
   };
 
   const addRole = async () => {
@@ -2048,6 +2424,9 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
             })}
           </div>
         )}
+        <button onClick={saveEtapes} disabled={savingEtapes} style={{ marginTop: '12px', padding: '8px 18px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px' }}>
+          {savingEtapes ? 'Enregistrement...' : '💾 Enregistrer les étapes'}
+        </button>
       </div>
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>

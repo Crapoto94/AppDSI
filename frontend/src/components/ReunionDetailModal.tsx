@@ -37,7 +37,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [detailReunionData, setDetailReunionData] = useState({ description: '', releve_decision: '', liste_taches: '' });
   const [reunionAttachments, setReunionAttachments] = useState<Attachment[]>([]);
   const [newDecision, setNewDecision] = useState('');
-  const [newTask, setNewTask] = useState({ tache: '', responsable: '', echeance: '' });
+  const [newTask, setNewTask] = useState({ tache: '', responsable: '', echeance: '', statut: 'a_faire' });
   const [showAddParticipantDetail, setShowAddParticipantDetail] = useState(false);
   const [detailAdQuery, setDetailAdQuery] = useState('');
   const [detailAdResults, setDetailAdResults] = useState<ADUser[]>([]);
@@ -54,6 +54,12 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const derouleRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const detailAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [editingTaskIndex, setEditingTaskIndex] = useState<number | null>(null);
+  const [editTaskData, setEditTaskData] = useState({ tache: '', responsable: '', echeance: '', statut: 'a_faire' });
+  const [taskAdQuery, setTaskAdQuery] = useState('');
+  const [taskAdResults, setTaskAdResults] = useState<ADUser[]>([]);
+  const [taskAdSearching, setTaskAdSearching] = useState(false);
+  const taskAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const types = ['incident', 'demande', 'projet', 'autre'];
 
@@ -81,6 +87,45 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
       finally { setDetailAdSearching(false); }
     }, 400);
   }, [token]);
+
+  const searchADForTask = useCallback((q: string) => {
+    setTaskAdQuery(q);
+    if (taskAdSearchTimerRef.current) clearTimeout(taskAdSearchTimerRef.current);
+    if (q.length < 2) { setTaskAdResults([]); return; }
+    setTaskAdSearching(true);
+    taskAdSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        setTaskAdResults((await res.json()) || []);
+      } catch (e) { setTaskAdResults([]); }
+      finally { setTaskAdSearching(false); }
+    }, 400);
+  }, [token]);
+
+  const startEditTask = (index: number) => {
+    const items = JSON.parse(detailReunionData.liste_taches || '[]') as any[];
+    setEditingTaskIndex(index);
+    setEditTaskData({ ...items[index] });
+    setTaskAdQuery(items[index].responsable || '');
+    setTaskAdResults([]);
+  };
+
+  const saveEditTask = () => {
+    if (editingTaskIndex === null) return;
+    const items = JSON.parse(detailReunionData.liste_taches || '[]') as any[];
+    items[editingTaskIndex] = { ...editTaskData };
+    setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)}));
+    setEditingTaskIndex(null);
+    setTaskAdResults([]);
+    setTaskAdQuery('');
+    setTimeout(autoSave, 0);
+  };
+
+  const cancelEditTask = () => {
+    setEditingTaskIndex(null);
+    setTaskAdResults([]);
+    setTaskAdQuery('');
+  };
 
   const fetchAttachments = async (id: number) => {
     try {
@@ -384,20 +429,57 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
           <div style={{marginBottom: '20px'}}>
             <h4 style={{margin: '0 0 8px', fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em'}}>✅ Liste de tâches</h4>
             <div style={{display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap'}}>
-              <input type="text" placeholder="Tâche..." style={{flex: '2', minWidth: '140px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px'}} value={newTask.tache} onChange={e => setNewTask(v => ({...v, tache: e.target.value}))} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (!newTask.tache.trim()) return; const items = JSON.parse(detailReunionData.liste_taches || '[]'); items.push({...newTask}); setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)})); setNewTask({ tache: '', responsable: '', echeance: '' }); } }} />
+              <input type="text" placeholder="Tâche..." style={{flex: '2', minWidth: '140px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px'}} value={newTask.tache} onChange={e => setNewTask(v => ({...v, tache: e.target.value}))} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (!newTask.tache.trim()) return; const items = JSON.parse(detailReunionData.liste_taches || '[]'); items.push({...newTask}); setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)})); setNewTask({ tache: '', responsable: '', echeance: '', statut: 'a_faire' }); } }} />
               <input type="text" placeholder="Responsable..." style={{flex: '1', minWidth: '100px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px'}} value={newTask.responsable} onChange={e => setNewTask(v => ({...v, responsable: e.target.value}))} />
               <input type="date" style={{flex: '1', minWidth: '120px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px'}} value={newTask.echeance} onChange={e => setNewTask(v => ({...v, echeance: e.target.value}))} />
-              <button onClick={() => { if (!newTask.tache.trim()) return; const items = JSON.parse(detailReunionData.liste_taches || '[]') as {tache: string, responsable: string, echeance: string}[]; items.push({...newTask}); setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)})); setNewTask({ tache: '', responsable: '', echeance: '' }); }} style={{padding: '8px 14px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', whiteSpace: 'nowrap'}}>+ Ajouter</button>
+              <button onClick={() => { if (!newTask.tache.trim()) return; const items = JSON.parse(detailReunionData.liste_taches || '[]') as any[]; items.push({...newTask}); setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)})); setNewTask({ tache: '', responsable: '', echeance: '', statut: 'a_faire' }); }} style={{padding: '8px 14px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', whiteSpace: 'nowrap'}}>+ Ajouter</button>
             </div>
-            {(JSON.parse(detailReunionData.liste_taches || '[]') as {tache: string, responsable: string, echeance: string}[]).length === 0 ? <p style={{color: '#94a3b8', fontSize: '12px', fontStyle: 'italic', margin: '4px 0'}}>Aucune tâche ajoutée</p> : (
+            {(JSON.parse(detailReunionData.liste_taches || '[]') as any[]).length === 0 ? <p style={{color: '#94a3b8', fontSize: '12px', fontStyle: 'italic', margin: '4px 0'}}>Aucune tâche ajoutée</p> : (
               <div style={{border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden'}}>
-                {(JSON.parse(detailReunionData.liste_taches || '[]') as {tache: string, responsable: string, echeance: string}[]).map((t, i) => (
-                  <div key={i} style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', borderBottom: i < (JSON.parse(detailReunionData.liste_taches || '[]') as {tache: string, responsable: string, echeance: string}[]).length - 1 ? '1px solid #f1f5f9' : 'none'}}>
-                    <span style={{fontSize: '12px', color: '#475569', fontWeight: '600', minWidth: '20px'}}>{i + 1}.</span>
-                    <span style={{flex: 1, fontSize: '13px', color: '#1e293b'}}><strong>{t.tache}</strong>{t.responsable ? ` — ${t.responsable}` : ''}</span>
-                    {t.echeance && <span style={{fontSize: '11px', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', whiteSpace: 'nowrap'}}>{new Date(t.echeance).toLocaleDateString('fr-FR')}</span>}
-                    <button onClick={() => { const items = JSON.parse(detailReunionData.liste_taches || '[]') as {tache: string, responsable: string, echeance: string}[]; items.splice(i, 1); setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)})); }} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px'}}><X size={14} /></button>
-                  </div>
+                {(JSON.parse(detailReunionData.liste_taches || '[]') as any[]).map((t, i) => (
+                  editingTaskIndex === i ? (
+                    <div key={i} style={{padding: '10px 12px', borderBottom: i < (JSON.parse(detailReunionData.liste_taches || '[]') as any[]).length - 1 ? '1px solid #f1f5f9' : 'none', background: '#fff7ed'}}>
+                      <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px'}}>
+                        <input type="text" placeholder="Tâche..." style={{flex: '2', minWidth: '120px', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editTaskData.tache} onChange={e => setEditTaskData(v => ({...v, tache: e.target.value}))} />
+                        <div style={{flex: '1', minWidth: '120px', position: 'relative'}}>
+                          <input type="text" placeholder="Responsable (recherche AD)..." style={{width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editTaskData.responsable} onChange={e => { setEditTaskData(v => ({...v, responsable: e.target.value})); searchADForTask(e.target.value); }} />
+                          {taskAdSearching && <span style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: '#64748b'}}>...</span>}
+                          {taskAdResults.length > 0 && (
+                            <div style={{position: 'absolute', top: '100%', left: 0, right: 0, border: '1px solid #bfdbfe', borderRadius: '4px', background: 'white', maxHeight: '100px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}>
+                              {taskAdResults.map(u => (
+                                <div key={u.username} style={{padding: '4px 8px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px'}} onClick={() => { setEditTaskData(v => ({...v, responsable: u.displayName})); setTaskAdResults([]); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
+                                  <div style={{fontWeight: '600'}}>{u.displayName}</div>
+                                  <div style={{fontSize: '10px', color: '#64748b'}}>{u.email}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <input type="date" style={{flex: '1', minWidth: '100px', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editTaskData.echeance} onChange={e => setEditTaskData(v => ({...v, echeance: e.target.value}))} />
+                        <select style={{padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editTaskData.statut || 'a_faire'} onChange={e => setEditTaskData(v => ({...v, statut: e.target.value}))}>
+                          <option value="a_faire">À faire</option>
+                          <option value="en_cours">En cours</option>
+                          <option value="terminee">Terminée</option>
+                          <option value="en_erreur">En erreur</option>
+                        </select>
+                      </div>
+                      <div style={{display: 'flex', gap: '6px', justifyContent: 'flex-end'}}>
+                        <button onClick={cancelEditTask} style={{padding: '4px 10px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px', color: '#475569'}}>Annuler</button>
+                        <button onClick={saveEditTask} style={{padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px'}}>Enregistrer</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={i} style={{display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderBottom: i < (JSON.parse(detailReunionData.liste_taches || '[]') as any[]).length - 1 ? '1px solid #f1f5f9' : 'none'}}>
+                      <span style={{fontSize: '12px', color: '#475569', fontWeight: '600', minWidth: '20px'}}>{i + 1}.</span>
+                      <span style={{flex: 1, fontSize: '13px', color: '#1e293b'}}><strong>{t.tache}</strong>{t.responsable ? ` — ${t.responsable}` : ''}</span>
+                      <span style={{fontSize: '10px', fontWeight: '600', padding: '2px 8px', borderRadius: '10px', background: (t.statut || 'a_faire') === 'a_faire' ? '#f1f5f9' : (t.statut || 'a_faire') === 'en_cours' ? '#dbeafe' : (t.statut || 'a_faire') === 'terminee' ? '#dcfce7' : '#fee2e2', color: (t.statut || 'a_faire') === 'a_faire' ? '#64748b' : (t.statut || 'a_faire') === 'en_cours' ? '#1d4ed8' : (t.statut || 'a_faire') === 'terminee' ? '#16a34a' : '#dc2626'}}>
+                        {(t.statut || 'a_faire') === 'a_faire' ? 'À faire' : (t.statut || 'a_faire') === 'en_cours' ? 'En cours' : (t.statut || 'a_faire') === 'terminee' ? 'Terminée' : 'En erreur'}
+                      </span>
+                      {t.echeance && <span style={{fontSize: '11px', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', whiteSpace: 'nowrap'}}>{new Date(t.echeance).toLocaleDateString('fr-FR')}</span>}
+                      <button onClick={() => startEditTask(i)} style={{padding: '3px 8px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px'}}>Modifier</button>
+                      <button onClick={() => { const items = JSON.parse(detailReunionData.liste_taches || '[]') as any[]; items.splice(i, 1); setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)})); if (editingTaskIndex === i) cancelEditTask(); }} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px'}}><X size={14} /></button>
+                    </div>
+                  )
                 ))}
               </div>
             )}

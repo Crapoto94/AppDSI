@@ -49,7 +49,8 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!projets\.)\bprojet_comites\b/gi, 'projets.projet_comites')
                     .replace(/(?<!projets\.)\bprojet_comites_membres\b/gi, 'projets.projet_comites_membres')
                     .replace(/(?<!projets\.)\bprojet_etapes\b/gi, 'projets.projet_etapes')
-                    .replace(/(?<!projets\.)\bprojet_applications\b/gi, 'projets.projet_applications');
+                    .replace(/(?<!projets\.)\bprojet_applications\b/gi, 'projets.projet_applications')
+                    .replace(/(?<!projets\.)\bprojet_taches_standalone\b/gi, 'projets.projet_taches_standalone');
 
     newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
                     .replace(/transcript_cues/gi, 'transcript.cues')
@@ -1101,6 +1102,24 @@ async function setupPgDb() {
         UNIQUE(source_type, source_id, depend_type, depend_id)
       );
     `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_taches_standalone (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        tache TEXT NOT NULL,
+        responsable TEXT,
+        echeance DATE,
+        statut TEXT DEFAULT 'a_faire',
+        notes TEXT DEFAULT '[]',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Add notes column if missing (migration)
+    try {
+      await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '[]'`);
+    } catch (e) {}
 
     // Seed default scoring config
     const scoringCount = await client.query('SELECT COUNT(*) FROM projets.projet_scoring_config');
