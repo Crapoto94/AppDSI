@@ -396,27 +396,15 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         let user = null;
         let source = '';
         
-        const origin = req.headers.origin || req.headers.referer || '';
-        const isMagApp = origin.includes(':5174') || origin.includes('magapp');
-
-        if (isMagApp) {
-            // Priority 1 for MagApp: PostgreSQL
-            user = await pgDb.get('SELECT id, username, role, is_approved, email FROM users WHERE username = ?', [req.user.username]);
-            if (user) {
-                source = 'postgres';
-            } else {
-                user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
-                if (user) source = 'sqlite';
-            }
+        // Priorité 1: PostgreSQL (hub.users) - contient TOUS les utilisateurs (MagApp + Hub)
+        // Cela evite le blocage des comptes MagApp qui auraient un compte en attente dans SQLite
+        user = await pgDb.get('SELECT id, username, role, is_approved, email FROM users WHERE username = ?', [req.user.username]);
+        if (user) {
+            source = 'postgres';
         } else {
-            // Priority 1 for Hub: SQLite
-            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement, email FROM users WHERE username = ?', [req.user.username]);
-            if (user) {
-                source = 'sqlite';
-            } else {
-                user = await pgDb.get('SELECT id, username, role, is_approved, email FROM users WHERE username = ?', [req.user.username]);
-                if (user) source = 'postgres';
-            }
+            // Fallback: SQLite pour les utilisateurs purement Hub (admin, etc.)
+            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
+            if (user) source = 'sqlite';
         }
 
         if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
@@ -463,10 +451,18 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         }
 
         // Check if user is PMO (has "Mes projets" tile)
-        try {
-            const pmoCheck = await db.get('SELECT 1 FROM user_tiles WHERE user_id = ? AND tile_id = 24', [user.id]);
-            user.est_pmo = !!pmoCheck;
-        } catch { user.est_pmo = false; }
+        if (source === 'sqlite' && user.id) {
+            try {
+                const pmoCheck = await db.get('SELECT 1 FROM user_tiles WHERE user_id = ? AND tile_id = 24', [user.id]);
+                user.est_pmo = !!pmoCheck;
+            } catch { user.est_pmo = false; }
+        } else if (source === 'postgres') {
+            // PMO check via PostgreSQL table if it exists
+            try {
+                const pmoCheck = await pgDb.get('SELECT 1 FROM projet_favoris WHERE username = $1 LIMIT 1', [user.username]);
+                user.est_pmo = false; // Default for PG users
+            } catch { user.est_pmo = false; }
+        }
 
         res.json({ ...user, auth_source: source });
     } catch (error) {
