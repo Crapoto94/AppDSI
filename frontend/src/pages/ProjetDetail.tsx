@@ -26,6 +26,12 @@ interface Projet {
   chef_projet_metier_username?: string;
   dpd_requis?: boolean | number;
   rssi_requis?: boolean | number;
+  chef_projet_display_name?: string;
+  chef_projet_metier_display_name?: string;
+  commanditaire_display_name?: string;
+  projet_parent_id?: number;
+  projet_parent?: { id: number; code: string; titre: string };
+  applications?: { id: number; projet_id: number; app_id: number; app_name: string; app_url: string; app_icon: string }[];
   commanditaire_display_name?: string;
   chef_projet_display_name?: string;
   chef_projet_metier_display_name?: string;
@@ -369,6 +375,15 @@ const ProjetDetail: React.FC = () => {
           </div>
         </div>
       </div>
+      {!editingInfos && (projet.description || projet.benefices_attendus || projet.benefices_realises || projet.notes_internes) && (
+        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+          <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📝 Description & notes</h3>
+          {projet.description && <div style={{ marginBottom: '12px' }}><div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Description</div><p style={{ margin: 0, color: '#1e293b', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{projet.description}</p></div>}
+          {projet.benefices_attendus && <div style={{ marginBottom: '12px' }}><div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Bénéfices attendus</div><p style={{ margin: 0, color: '#1e293b', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{projet.benefices_attendus}</p></div>}
+          {projet.benefices_realises && <div style={{ marginBottom: '12px' }}><div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Bénéfices réalisés</div><p style={{ margin: 0, color: '#1e293b', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{projet.benefices_realises}</p></div>}
+          {projet.notes_internes && <div><div style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>Notes internes</div><p style={{ margin: 0, color: '#1e293b', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>{projet.notes_internes}</p></div>}
+        </div>
+      )}
       {editingInfos && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
           <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
