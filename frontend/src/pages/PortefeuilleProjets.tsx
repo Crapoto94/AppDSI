@@ -11,7 +11,8 @@ interface Projet {
   score_total: number; avancement: number; meteo: string; date_modification: string;
   nb_roles: number; nb_documents: number; nb_reunions: number;
   nb_taches_en_retard: number; nb_jalons_en_retard: number;
-  commanditaire_username?: string; chef_projet_username?: string;
+  commanditaire_username?: string;   chef_projet_username?: string;
+  chef_projet_display_name?: string;
   user_est_intervenant?: boolean;
   projet_parent_id?: number; app_names?: string;
 }

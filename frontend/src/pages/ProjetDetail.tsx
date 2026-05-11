@@ -1546,7 +1546,6 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-  const [uploadTotalFiles, setUploadTotalFiles] = useState(0);
   const [editDocType, setEditDocType] = useState<{ id: number; currentType: string; customLabel?: string } | null>(null);
 
   useEffect(() => { setDocs(documents); }, [documents]);
@@ -1590,7 +1589,6 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
     setUploading(true);
     setUploadProgress(0);
     setUploadedFiles(files.map(f => f.name));
-    setUploadTotalFiles(files.length);
     const form = new FormData();
     files.forEach(f => form.append('files', f));
     setUploadProgress(30);
@@ -1762,20 +1760,20 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
                       <>
                         {editDocType?.id === d.id ? (
                           <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexDirection: 'column' }}>
-                            <select value={editDocType.currentType} onChange={e => setEditDocType({...editDocType, currentType: e.target.value})}
+                            <select value={editDocType!.currentType} onChange={e => setEditDocType({...editDocType!, currentType: e.target.value})}
                               style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', background: 'white', width: '120px' }}>
                               {['fiche_idee','fiche_demande','charte_projet','note_arbitrage','plan_projet','plan_communication','compte_rendu','va','vsr','doc_fonctionnelle','doc_technique','bilan_cloture','autre'].map(t => (
                                 <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
                               ))}
                             </select>
-                            {editDocType.currentType === 'autre' && (
-                              <input value={editDocType.customLabel || ''} onChange={e => setEditDocType({...editDocType, customLabel: e.target.value})}
+                            {editDocType!.currentType === 'autre' && (
+                              <input value={editDocType!.customLabel || ''} onChange={e => setEditDocType({...editDocType!, customLabel: e.target.value})}
                                 placeholder="Précisez le type..." style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', width: '160px' }} />
                             )}
                             <div style={{ display: 'flex', gap: '4px' }}>
                               <button onClick={async () => {
-                                const typeFinal = editDocType.currentType === 'autre' && editDocType.customLabel?.trim()
-                                  ? editDocType.customLabel.trim() : editDocType.currentType;
+                                const typeFinal = editDocType!.currentType === 'autre' && editDocType!.customLabel?.trim()
+                                  ? editDocType!.customLabel.trim() : editDocType!.currentType;
                                 await fetch(`/api/projets/${projetId}/documents/${d.id}/type`, {
                                   method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                   body: JSON.stringify({ type_documentaire: typeFinal, type_vrac: 0 })
