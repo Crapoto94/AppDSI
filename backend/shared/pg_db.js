@@ -944,6 +944,8 @@ async function setupPgDb() {
     try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_reunions' AND column_name='comite_id') THEN ALTER TABLE projets.projet_reunions ADD COLUMN comite_id INTEGER REFERENCES projets.projet_comites(id) ON DELETE SET NULL; END IF; END $$;`); } catch (e) {}
     // Migration: projet_parent_id
     try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='projet_parent_id') THEN ALTER TABLE projets.projets ADD COLUMN projet_parent_id INTEGER REFERENCES projets.projets(id) ON DELETE SET NULL; END IF; END $$;`); } catch (e) {}
+    // Migration: groupe_id dans projet_taches
+    try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projet_taches' AND column_name='groupe_id') THEN ALTER TABLE projets.projet_taches ADD COLUMN groupe_id INTEGER REFERENCES projets.projet_groupes_taches(id) ON DELETE SET NULL; END IF; END $$;`); } catch (e) {}
 
     // ============================================
     // PROJETS - Planning / Tâches
