@@ -694,6 +694,11 @@ async function setupDb() {
         await db.run("UPDATE users SET is_approved = 1, role = 'admin' WHERE LOWER(username) = 'admin'");
     } catch (e) {}
 
+    // Nettoyer les droits explicites sur les tuiles publiques
+    try {
+        await db.run("DELETE FROM user_tiles WHERE tile_id IN (SELECT id FROM tiles WHERE is_public = 1)");
+    } catch (e) {}
+
     return db;
 }
 
