@@ -3484,6 +3484,7 @@ app.get('/api/users', authenticateAdmin, async (req, res) => {
     try {
         const users = await db.all('SELECT id, username, role, is_approved, last_activity, service_code, service_complement FROM users');
         const userTiles = await db.all('SELECT user_id, tile_id FROM user_tiles');
+        const publicTileIds = (await db.all('SELECT id FROM tiles WHERE is_public = 1')).map(t => t.id);
 
         const tileMap = {};
         userTiles.forEach(ut => {
@@ -3494,7 +3495,8 @@ app.get('/api/users', authenticateAdmin, async (req, res) => {
 
         users.forEach(u => {
             const uid = u.id.toString();
-            u.authorized_tiles = tileMap[uid] || [];
+            const explicit = tileMap[uid] || [];
+            u.authorized_tiles = [...new Set([...explicit, ...publicTileIds])];
         });
 
         res.json(users);

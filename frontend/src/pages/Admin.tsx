@@ -1880,14 +1880,16 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           <label>Tuiles Autorisées & Permissions</label>
                           <div className="tiles-grid-compact grid grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
                             {tiles.map(tile => {
-                              const isAuth = editingUser?.authorized_tiles?.includes(tile.id);
+                              const isPublic = tile.is_public === 1;
+                              const isAuth = isPublic || editingUser?.authorized_tiles?.includes(tile.id);
                               return (
-                                <label key={tile.id} className={`tile-checkbox-card ${isAuth ? 'selected' : ''}`}>
+                                <label key={tile.id} className={`tile-checkbox-card ${isPublic ? 'is-public' : ''} ${isAuth ? 'selected' : ''}`}>
                                   <input 
                                     type="checkbox" 
                                     checked={!!isAuth}
+                                    disabled={isPublic}
                                     onChange={(e) => {
-                                      if (!editingUser) return;
+                                      if (!editingUser || isPublic) return;
                                       const currentTiles = editingUser.authorized_tiles || [];
                                       if (e.target.checked) {
                                         setEditingUser({...editingUser, authorized_tiles: [...currentTiles, tile.id]});
@@ -1896,7 +1898,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                       }
                                     }}
                                   />
-                                  <span className="tile-checkbox-title">{tile.title}</span>
+                                  <span className="tile-checkbox-title">{tile.title} {isPublic ? <span style={{ fontSize: '9px', color: '#94a3b8', fontWeight: 400 }}>PUBLIC</span> : ''}</span>
                                   <span className="tile-checkbox-icon">{isAuth ? '✓' : ''}</span>
                                 </label>
                               )
