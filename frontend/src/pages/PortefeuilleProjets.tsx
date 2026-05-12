@@ -51,7 +51,8 @@ const PortefeuilleProjets: React.FC = () => {
   const [filtreNiveau, setFiltreNiveau] = useState('');
   const [filtreChefProjet, setFiltreChefProjet] = useState('');
   const [recherche, setRecherche] = useState('');
-  const [tri, setTri] = useState('date');
+  const [sortColumn, setSortColumn] = useState('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [favoris, setFavoris] = useState<number[]>([]);
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -66,7 +67,7 @@ const PortefeuilleProjets: React.FC = () => {
       if (filtreNiveau) params.set('niveau', filtreNiveau);
       if (filtreChefProjet) params.set('chef_projet', filtreChefProjet);
       if (recherche) params.set('q', recherche);
-      if (tri) params.set('tri', tri);
+      if (sortColumn) params.set('tri', sortColumn);
 
       const url = `/api/projets?${params.toString()}`;
 
@@ -83,7 +84,7 @@ const PortefeuilleProjets: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [token, filtreStatut, filtreService, filtreNiveau, filtreChefProjet, recherche, tri]);
+  }, [token, filtreStatut, filtreService, filtreNiveau, filtreChefProjet, recherche, sortColumn]);
 
   const fetchFavoris = useCallback(async () => {
     try {
@@ -114,6 +115,16 @@ const PortefeuilleProjets: React.FC = () => {
     return 3;
   };
 
+  const projetMap: Record<number, Projet> = {};
+  const childrenMap: Record<number, Projet[]> = {};
+  for (const p of projets) {
+    projetMap[p.id] = p;
+    if (p.projet_parent_id) {
+      if (!childrenMap[p.projet_parent_id]) childrenMap[p.projet_parent_id] = [];
+      childrenMap[p.projet_parent_id].push(p);
+    }
+  }
+
   const projetsTries = [...projets].sort((a, b) => {
     const aFav = favoris.includes(a.id) ? -1 : 0;
     const bFav = favoris.includes(b.id) ? -1 : 0;
@@ -121,16 +132,47 @@ const PortefeuilleProjets: React.FC = () => {
     const impA = niveauImplication(a);
     const impB = niveauImplication(b);
     if (impA !== impB) return impA - impB;
-    // Place sub-projects right after their parent
-    if (a.projet_parent_id && a.projet_parent_id === b.id) return 1;
-    if (b.projet_parent_id && b.projet_parent_id === a.id) return -1;
-    return 0;
+    let cmp = 0;
+    switch (sortColumn) {
+      case 'titre':
+        cmp = (a.titre || '').localeCompare(b.titre || '');
+        break;
+      case 'chef_projet':
+        cmp = (a.chef_projet_display_name || a.chef_projet_username || '').localeCompare(b.chef_projet_display_name || b.chef_projet_username || '');
+        break;
+      case 'meteo': {
+        const order: Record<string, number> = { soleil: 0, nuageux: 1, orage: 2 };
+        cmp = (order[a.meteo] ?? -1) - (order[b.meteo] ?? -1);
+        break;
+      }
+      case 'statut':
+        cmp = Object.keys(STATUT_LABELS).indexOf(a.statut) - Object.keys(STATUT_LABELS).indexOf(b.statut);
+        break;
+      case 'service_pilote':
+        cmp = (a.service_pilote || '').localeCompare(b.service_pilote || '');
+        break;
+      case 'priorite':
+        cmp = (a.priorite || 0) - (b.priorite || 0);
+        break;
+      case 'score':
+        cmp = (a.score_total || 0) - (b.score_total || 0);
+        break;
+      case 'avancement':
+        cmp = (a.avancement || 0) - (b.avancement || 0);
+        break;
+      case 'alertes':
+        cmp = ((a.nb_taches_en_retard || 0) + (a.nb_jalons_en_retard || 0)) - ((b.nb_taches_en_retard || 0) + (b.nb_jalons_en_retard || 0));
+        break;
+      default:
+        cmp = (a.date_modification || '').localeCompare(b.date_modification || '');
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
   });
 
-  // Compute parent_title for display
+  // Compute parent_title for display (only for orphans whose parent is not in the list)
   const projetParentTitles: Record<number, string> = {};
   for (const p of projets) {
-    if (p.projet_parent_id) {
+    if (p.projet_parent_id && !projetMap[p.projet_parent_id]) {
       const parent = projets.find(x => x.id === p.projet_parent_id);
       if (parent) projetParentTitles[p.id] = `${parent.code} — ${parent.titre}`;
     }
@@ -138,6 +180,33 @@ const PortefeuilleProjets: React.FC = () => {
 
   const servicesList = projets.length > 0 ? [...new Set(projets.map(p => p.service_pilote))].sort() : [];
   const chefsList = [...new Set(projets.filter(p => p.chef_projet_username).map(p => p.chef_projet_username))].sort() as string[];
+
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDir('desc');
+    }
+  };
+
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortColumn !== column) return <span style={{ marginLeft: '4px', color: '#cbd5e1' }}>↕</span>;
+    return <span style={{ marginLeft: '4px', color: '#2563eb' }}>{sortDir === 'asc' ? '▲' : '▼'}</span>;
+  };
+
+  const thStyle = (col: string) => ({
+    padding: '10px 16px',
+    textAlign: col === 'meteo' || col === 'priorite' || col === 'score' || col === 'avancement' || col === 'alertes' || col === 'favoris' ? 'center' as const : 'left' as const,
+    color: sortColumn === col ? '#2563eb' : '#475569',
+    fontWeight: '700' as const,
+    fontSize: '11px',
+    textTransform: 'uppercase' as const,
+    cursor: 'pointer',
+    userSelect: 'none' as const,
+    background: sortColumn === col ? '#eff6ff' : 'transparent',
+    whiteSpace: 'nowrap' as const,
+  });
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
@@ -204,12 +273,6 @@ const PortefeuilleProjets: React.FC = () => {
               {chefsList.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           )}
-          <select value={tri} onChange={e => setTri(e.target.value)} style={{ padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white', cursor: 'pointer' }}>
-            <option value="date">Date ▼</option>
-            <option value="score">Score ▼</option>
-            <option value="priorite">Priorité ▼</option>
-            <option value="statut">Statut</option>
-          </select>
           {isPMO && (
             <button onClick={() => setShowAdminModal(true)} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
               ⚙️ Admin générale
@@ -227,14 +290,21 @@ const PortefeuilleProjets: React.FC = () => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {([[-1, '⭐ Mes projets favoris'], [0, '🏆 En tant que commanditaire'], [1, '👨‍💼 En tant que chef de projet'], [2, '📋 Projets dans lesquels j\'ai un rôle'], [3, '📁 Autres projets']] as [number, string][]).map(([niveau, label]) => {
-              const filtered = projetsTries.filter(p => {
+              const rootItems = projetsTries.filter(p => {
                 const imp = niveauImplication(p);
-                if (niveau === -1) return favoris.includes(p.id);
+                if (niveau === -1) {
+                  if (!favoris.includes(p.id)) return false;
+                  if (p.projet_parent_id && favoris.includes(p.projet_parent_id)) return false;
+                  return true;
+                }
+                if (p.projet_parent_id && projetMap[p.projet_parent_id]) return false;
                 return imp === niveau;
               });
-              if (filtered.length === 0) return null;
-              const items = filtered;
-              if (items.length === 0) return null;
+              if (rootItems.length === 0) return null;
+              const items = rootItems.flatMap(p => {
+                const children = childrenMap[p.id] || [];
+                return [{ projet: p, isChild: false } as const, ...children.map(c => ({ projet: c, isChild: true } as const))];
+              });
               return (
                 <div key={niveau}>
                   <div style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', borderRadius: '8px 8px 0 0', marginTop: niveau > 0 ? '12px' : 0 }}>
@@ -244,29 +314,29 @@ const PortefeuilleProjets: React.FC = () => {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                       <thead>
                         <tr style={{ background: '#f8fafc' }}>
-                          <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Projet</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Chef de projet</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', width: '60px' }}>Météo</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Statut</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Service</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Priorité</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Score</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Avancement</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', width: '40px' }}>⚠️</th>
-                          <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', width: '40px' }}>⭐</th>
+                          <th style={thStyle('titre')} onClick={() => handleSort('titre')}>Projet<SortIcon column="titre" /></th>
+                          <th style={thStyle('chef_projet')} onClick={() => handleSort('chef_projet')}>Chef de projet<SortIcon column="chef_projet" /></th>
+                          <th style={thStyle('meteo')} onClick={() => handleSort('meteo')}>Météo<SortIcon column="meteo" /></th>
+                          <th style={thStyle('statut')} onClick={() => handleSort('statut')}>Statut<SortIcon column="statut" /></th>
+                          <th style={thStyle('service_pilote')} onClick={() => handleSort('service_pilote')}>Service<SortIcon column="service_pilote" /></th>
+                          <th style={thStyle('priorite')} onClick={() => handleSort('priorite')}>Priorité<SortIcon column="priorite" /></th>
+                          <th style={thStyle('score')} onClick={() => handleSort('score')}>Score<SortIcon column="score" /></th>
+                          <th style={thStyle('avancement')} onClick={() => handleSort('avancement')}>Avancement<SortIcon column="avancement" /></th>
+                          <th style={thStyle('alertes')} onClick={() => handleSort('alertes')}>⚠️<SortIcon column="alertes" /></th>
+                          <th style={{ ...thStyle(''), cursor: 'default', width: '40px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>⭐</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {items.map(p => (
+                        {items.map(({ projet: p, isChild }) => (
                           <tr key={p.id} onClick={() => navigate(`/projets/${p.id}`)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: favoris.includes(p.id) ? '#fffbeb' : 'transparent' }}
                             onMouseEnter={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fef3c7' : '#f8fafc')}
                             onMouseLeave={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fffbeb' : 'transparent')}>
                             <td style={{ padding: '12px 16px' }}>
-                              <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', paddingLeft: p.projet_parent_id ? '20px' : '0' }}>
-                                {p.projet_parent_id && <span style={{ marginRight: '6px', color: '#94a3b8' }}>↳</span>}
+                              <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', paddingLeft: isChild ? '20px' : '0' }}>
+                                {isChild && <span style={{ marginRight: '6px', color: '#94a3b8' }}>↳</span>}
                                 {p.titre}
                               </div>
-                              <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}{p.projet_parent_id && projetParentTitles[p.id] ? ` · parent: ${projetParentTitles[p.id]}` : ''}</div>
+                              <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}{!isChild && p.projet_parent_id && projetParentTitles[p.id] ? ` · parent: ${projetParentTitles[p.id]}` : ''}</div>
                               {p.app_names && <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>📱 {p.app_names}</div>}
                             </td>
                             <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px' }}>{p.chef_projet_display_name || p.chef_projet_username || '—'}</td>
