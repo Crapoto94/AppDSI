@@ -416,7 +416,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             user.authorized_urls = ['*'];
         } else {
             // Build authorized URLs
-            const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions', '/portefeuille-projets', '/projets', '/transcriptmanager']); // Default allowed routes
+            const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions', '/portefeuille-projets', '/revue-de-projets', '/projets', '/transcriptmanager']); // Default allowed routes
 
         if (source === 'sqlite') {
             // Get URLs from the tiles the user is authorized for (Hub only)
@@ -3533,6 +3533,34 @@ app.put('/api/users/:id/tiles', authenticateAdmin, async (req, res) => {
     }
 });
 
+// PMO Management API
+app.get('/api/admin/pmo/list', authenticateAdmin, async (req, res) => {
+    try {
+        const pmos = await db.all('SELECT u.id, u.username FROM users u JOIN user_tiles ut ON u.id = ut.user_id WHERE ut.tile_id = 24');
+        res.json(pmos);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des PMO', error: error.message });
+    }
+});
+
+app.post('/api/admin/pmo/toggle', authenticateAdmin, async (req, res) => {
+    try {
+        const { username, is_pmo } = req.body;
+        const user = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+        if (!user) {
+            return res.status(404).json({ message: 'Utilisateur non trouvé' });
+        }
+        if (is_pmo) {
+            await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, 24)', [user.id]);
+        } else {
+            await db.run('DELETE FROM user_tiles WHERE user_id = ? AND tile_id = 24', [user.id]);
+        }
+        res.json({ message: 'Statut PMO mis à jour avec succès' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la mise à jour du statut PMO', error: error.message });
+    }
+});
+
 app.delete('/api/users/:id', authenticateAdmin, async (req, res) => {
     try {
         const id = req.params.id;
@@ -4252,6 +4280,7 @@ app.use('/api/rencontres-budgetaires', rencontresRouter);
 app.use('/api/rencontres-reunions', reunionRouter);
 app.use('/api/directions-services', directionsRouter);
 app.use('/api/direction-emails', dirEmailsRouter);
+app.use('/api/revues', require('./modules/projets/revues.routes'));
 
 // Backward-compatible flat routes (frontend uses these paths)
 app.delete('/api/rencontres-participants/:id', authenticateJWT, rencontresCtrl.deleteParticipant);

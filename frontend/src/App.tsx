@@ -23,6 +23,7 @@ import FrizbiSettings from './pages/FrizbiSettings';
 import RencontresBudgetaires from './pages/RencontresBudgetaires';
 import MesReunions from './pages/MesReunions';
 import PortefeuilleProjets from './pages/PortefeuilleProjets';
+import RevueDeProjets from './pages/RevueDeProjets';
 import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
@@ -69,6 +70,7 @@ function App() {
         <Route path="/rencontres-budgetaires" element={<PrivateRoute path="/rencontres-budgetaires"><RencontresBudgetaires /></PrivateRoute>} />
         <Route path="/mes-reunions" element={<PrivateRoute path="/mes-reunions"><MesReunions /></PrivateRoute>} />
         <Route path="/portefeuille-projets" element={<PrivateRoute path="/portefeuille-projets"><PortefeuilleProjets /></PrivateRoute>} />
+        <Route path="/revue-de-projets" element={<PrivateRoute path="/revue-de-projets"><RevueDeProjets /></PrivateRoute>} />
         <Route path="/projets/:id" element={<PrivateRoute path="/projets"><ProjetDetail /></PrivateRoute>} />
         <Route path="/projets/nouveau" element={<PrivateRoute path="/projets"><PortefeuilleProjets /></PrivateRoute>} />
         

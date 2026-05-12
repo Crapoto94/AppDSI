@@ -162,12 +162,34 @@ const authenticateGLPIControl = (req, res, next) => {
     });
 };
 
+/**
+ * Middleware for Admin or PMO users
+ */
+const authenticateAdminOrPMO = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (req.user && (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub')) {
+            return next();
+        }
+        try {
+            const db = getSqlite();
+            if (req.user && req.user.id && db) {
+                const authorized = await db.get('SELECT 1 FROM user_tiles WHERE user_id = ? AND tile_id = 24', [req.user.id]);
+                if (authorized) return next();
+            }
+        } catch (error) {
+            console.error('[AUTH PMO] Error checking PMO access:', error);
+        }
+        res.status(403).json({ message: 'Accès refusé : administrateur ou PMO uniquement' });
+    });
+};
+
 module.exports = {
     authenticateJWT,
     tryAuthenticateJWT,
     authenticateAdmin,
     authenticateInternalOrAdmin,
     authenticateAdminOrFinances,
+    authenticateAdminOrPMO,
     authenticateMagappControl,
     authenticateGLPIControl
 };

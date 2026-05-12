@@ -56,6 +56,7 @@ const PortefeuilleProjets: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [favoris, setFavoris] = useState<number[]>([]);
   const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showPmoModal, setShowPmoModal] = useState(false);
   const isPMO = user?.est_pmo || user?.role === 'admin';
 
   const fetchProjets = useCallback(async () => {
@@ -278,6 +279,16 @@ const PortefeuilleProjets: React.FC = () => {
               ⚙️ Admin générale
             </button>
           )}
+          {isPMO && (
+            <button onClick={() => navigate('/revue-de-projets')} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              📋 Revue de projets
+            </button>
+          )}
+          {user?.role === 'admin' && (
+            <button onClick={() => setShowPmoModal(true)} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              👥 Gestion des PMO
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -402,6 +413,11 @@ const PortefeuilleProjets: React.FC = () => {
       {showAdminModal && (
         <AdminGeneraleModal token={token} onClose={() => setShowAdminModal(false)} />
       )}
+
+      {/* Modale Gestion des PMO */}
+      {showPmoModal && (
+        <GestionPmoModal token={token} onClose={() => setShowPmoModal(false)} />
+      )}
     </div>
   );
 };
@@ -502,6 +518,105 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface GestionPmoModalProps { token: string | null; onClose: () => void; }
+const GestionPmoModal: React.FC<GestionPmoModalProps> = ({ token, onClose }) => {
+  const [pmoUsers, setPmoUsers] = useState<any[]>([]);
+  const [adQuery, setAdQuery] = useState('');
+  const [adResults, setAdResults] = useState<any[]>([]);
+  const [adSearching, setAdSearching] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchPmos = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/pmo/list', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json();
+      if (Array.isArray(data)) setPmoUsers(data);
+    } catch (e) {
+      console.error('Erreur chargement PMO:', e);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchPmos().finally(() => setLoading(false));
+  }, [fetchPmos]);
+
+  useEffect(() => {
+    if (!adQuery.trim()) { setAdResults([]); return; }
+    const timer = setTimeout(async () => {
+      setAdSearching(true);
+      try {
+        const r = await fetch(`/api/ad/search?q=${encodeURIComponent(adQuery.trim())}`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = await r.json();
+        if (Array.isArray(data)) setAdResults(data); else setAdResults([]);
+      } catch { setAdResults([]); } finally { setAdSearching(false); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [adQuery, token]);
+
+  const togglePmo = async (username: string, isPmo: boolean) => {
+    try {
+      await fetch('/api/admin/pmo/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ username, is_pmo: isPmo })
+      });
+      await fetchPmos();
+    } catch (e) {
+      console.error('Erreur toggle PMO:', e);
+    }
+  };
+
+  if (loading) return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: 'white', borderRadius: '16px', width: '90%', maxWidth: '500px', maxHeight: '90vh', overflow: 'auto', padding: '40px', textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: 'white', borderRadius: '16px', width: '95%', maxWidth: '500px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>👥 Gestion des PMO</h2>
+          <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          <div style={{ marginBottom: '16px', position: 'relative' }}>
+            <input value={adQuery} onChange={e => setAdQuery(e.target.value)} placeholder="Rechercher un utilisateur AD..." style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', background: 'white', outline: 'none', boxSizing: 'border-box' }} />
+            {adSearching && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8' }}>...</span>}
+            {adResults.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', marginTop: '4px', zIndex: 10, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                {adResults.map((u: any) => (
+                  <div key={u.username} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                    <span style={{ fontSize: '13px', color: '#1e293b' }}>{u.displayName || u.username} <span style={{ color: '#94a3b8' }}>({u.username})</span></span>
+                    <button onClick={() => togglePmo(u.username, true)} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Désigner PMO</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ fontSize: '13px', fontWeight: '700', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase' }}>PMO actuels ({pmoUsers.length})</div>
+          {pmoUsers.length === 0 ? (
+            <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun PMO désigné.</p>
+          ) : (
+            pmoUsers.map((u: any) => (
+              <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                <span style={{ fontSize: '13px', color: '#1e293b' }}>{u.username}</span>
+                <button onClick={() => togglePmo(u.username, false)} style={{ padding: '4px 10px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Retirer</button>
+              </div>
+            ))
           )}
         </div>
       </div>

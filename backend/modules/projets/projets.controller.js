@@ -1128,7 +1128,39 @@ const getTachesAgregees = async (req, res) => {
             };
         });
 
-        const allTasks = [...meetingTasks, ...standaloneMapped];
+        // 3. Récupérer les tâches issues des revues de projets
+        let revueTasks = [];
+        try {
+            const revueTaches = await pgDb.all(`
+                SELECT rt.id, rt.titre, rt.statut, rt.created_at, rt.responsable, rt.echeance, rt.notes, r.date_revue, r.titre as revue_titre
+                FROM hub_rencontres.revue_taches rt
+                JOIN hub_rencontres.revues r ON r.id = rt.revue_id
+                WHERE rt.projet_id = $1
+                ORDER BY rt.created_at DESC
+            `, [id]);
+            revueTasks = revueTaches.map(t => {
+                let notes = [];
+                try { notes = JSON.parse(t.notes || '[]'); } catch (e) {}
+                return {
+                    id: `revue-${t.id}`,
+                    tache: t.titre,
+                    responsable: t.responsable || '',
+                    echeance: t.echeance || null,
+                    statut: t.statut || 'a_faire',
+                    notes,
+                    source: 'revue',
+                    reunion_id: null,
+                    reunion_titre: null,
+                    comite_nom: null,
+                    revue_date: t.date_revue,
+                    revue_titre: t.revue_titre
+                };
+            });
+        } catch (e) {
+            revueTasks = [];
+        }
+
+        const allTasks = [...meetingTasks, ...standaloneMapped, ...revueTasks];
         res.json(allTasks);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1235,6 +1267,28 @@ const acquitterTacheAgregee = async (req, res) => {
             }
             const updated = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
             return res.json({ message: 'Tâche mise à jour', task: updated });
+        } else if (taskId.startsWith('revue-')) {
+            const dbId = parseInt(taskId.substring(6), 10);
+            const existing = await pgDb.get('SELECT * FROM hub_rencontres.revue_taches WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+            const fields = [];
+            const values = [];
+            let idx = 1;
+            if (tache !== undefined) { fields.push('titre = $' + idx++); values.push(tache); }
+            if (responsable !== undefined) { fields.push('responsable = $' + idx++); values.push(responsable || null); }
+            if (echeance !== undefined) { fields.push('echeance = $' + idx++); values.push(echeance || null); }
+            if (statut !== undefined) { fields.push('statut = $' + idx++); values.push(statut); }
+            values.push(dbId);
+
+            if (fields.length > 0) {
+                await pgDb.run(
+                    'UPDATE hub_rencontres.revue_taches SET ' + fields.join(', ') + ' WHERE id = $' + idx,
+                    values
+                );
+            }
+            const updated = await pgDb.get('SELECT * FROM hub_rencontres.revue_taches WHERE id = $1', [dbId]);
+            return res.json({ message: 'Tâche mise à jour', task: updated });
         }
 
         return res.status(400).json({ error: 'Format de tâche invalide' });
@@ -1270,6 +1324,12 @@ const supprimerTacheAgregee = async (req, res) => {
             const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
             if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
             await pgDb.run('DELETE FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            return res.json({ message: 'Tâche supprimée' });
+        } else if (taskId.startsWith('revue-')) {
+            const dbId = parseInt(taskId.substring(6), 10);
+            const existing = await pgDb.get('SELECT * FROM hub_rencontres.revue_taches WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+            await pgDb.run('DELETE FROM hub_rencontres.revue_taches WHERE id = $1', [dbId]);
             return res.json({ message: 'Tâche supprimée' });
         }
         return res.status(400).json({ error: 'Format de tâche invalide' });
@@ -1324,6 +1384,18 @@ const ajouterNoteTache = async (req, res) => {
                 [JSON.stringify(notes), dbId]
             );
             return res.status(201).json(note);
+        } else if (taskId.startsWith('revue-')) {
+            const dbId = parseInt(taskId.substring(6), 10);
+            const existing = await pgDb.get('SELECT * FROM hub_rencontres.revue_taches WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+            let notes = [];
+            try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
+            notes.push(note);
+            await pgDb.run(
+                'UPDATE hub_rencontres.revue_taches SET notes = $1 WHERE id = $2',
+                [JSON.stringify(notes), dbId]
+            );
+            return res.status(201).json(note);
         }
         return res.status(400).json({ error: 'Format de tâche invalide' });
     } catch (error) {
@@ -1367,6 +1439,15 @@ const ajouterNoteFichier = async (req, res) => {
             addNoteToArray(notes);
             await pgDb.run('UPDATE projet_taches_standalone SET notes = $1 WHERE id = $2', [JSON.stringify(notes), dbId]);
             return res.status(201).json(note);
+        } else if (taskId.startsWith('revue-')) {
+            const dbId = parseInt(taskId.substring(6), 10);
+            const existing = await pgDb.get('SELECT * FROM hub_rencontres.revue_taches WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+            let notes = [];
+            try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
+            addNoteToArray(notes);
+            await pgDb.run('UPDATE hub_rencontres.revue_taches SET notes = $1 WHERE id = $2', [JSON.stringify(notes), dbId]);
+            return res.status(201).json(note);
         }
         return res.status(400).json({ error: 'Format de tâche invalide' });
     } catch (error) {
@@ -1393,6 +1474,13 @@ const telechargerNoteFichier = async (req, res) => {
         } else if (taskId.startsWith('s-')) {
             const dbId = parseInt(taskId.substring(2), 10);
             const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+            let notes = [];
+            try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
+            note = notes[parseInt(noteIdx)];
+        } else if (taskId.startsWith('revue-')) {
+            const dbId = parseInt(taskId.substring(6), 10);
+            const existing = await pgDb.get('SELECT * FROM hub_rencontres.revue_taches WHERE id = $1', [dbId]);
             if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
             let notes = [];
             try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
@@ -1443,6 +1531,19 @@ const supprimerNoteTache = async (req, res) => {
             notes.splice(noteIdx, 1);
             await pgDb.run(
                 'UPDATE projet_taches_standalone SET notes = $1 WHERE id = $2',
+                [JSON.stringify(notes), dbId]
+            );
+            return res.json({ message: 'Note supprimée' });
+        } else if (taskId.startsWith('revue-')) {
+            const dbId = parseInt(taskId.substring(6), 10);
+            const existing = await pgDb.get('SELECT * FROM hub_rencontres.revue_taches WHERE id = $1', [dbId]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+            let notes = [];
+            try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
+            if (noteIdx < 0 || noteIdx >= notes.length) return res.status(404).json({ error: 'Note non trouvée' });
+            notes.splice(noteIdx, 1);
+            await pgDb.run(
+                'UPDATE hub_rencontres.revue_taches SET notes = $1 WHERE id = $2',
                 [JSON.stringify(notes), dbId]
             );
             return res.json({ message: 'Note supprimée' });
@@ -2264,6 +2365,33 @@ const searchApps = async (req, res) => {
     }
 };
 
+const getCompteurs = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const counts = await pgDb.get(`
+            SELECT
+                (SELECT COUNT(*) FROM projet_taches_standalone WHERE projet_id = $1 AND statut != 'terminee') +
+                (SELECT COUNT(*) FROM hub_rencontres.revue_taches WHERE projet_id = $1 AND statut != 'terminee') +
+                (SELECT COALESCE(COUNT(*), 0)
+                 FROM projet_reunions pr
+                 JOIN hub_rencontres.rencontres_reunions rr ON rr.id = pr.reunion_id
+                 CROSS JOIN LATERAL jsonb_array_elements(
+                     CASE WHEN rr.liste_taches IS NOT NULL AND rr.liste_taches != ''
+                          THEN rr.liste_taches::jsonb ELSE '[]'::jsonb END
+                 ) AS t
+                 WHERE pr.projet_id = $1
+                   AND (t->>'statut' IS NULL OR t->>'statut' != 'terminee')) as taches_actives,
+                (SELECT COUNT(*) FROM projet_documents WHERE projet_id = $1 AND (type_vrac IS NULL OR type_vrac = 0)) as documents,
+                (SELECT COUNT(*) FROM projet_reunions WHERE projet_id = $1) as reunions,
+                (SELECT COUNT(*) FROM projet_journal WHERE projet_id = $1) as journal,
+                (SELECT COUNT(*) FROM projet_indicateurs WHERE projet_id = $1) as indicateurs
+        `, [id]);
+        res.json(counts);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     setSendMail,
     getAll, getMesProjets, getById, create, update, remove,
@@ -2288,5 +2416,6 @@ module.exports = {
     getTachesAgregees, ajouterTacheStandalone, updateTacheStandalone, supprimerTacheStandalone, acquitterTacheAgregee, supprimerTacheAgregee, ajouterNoteTache, ajouterNoteFichier, telechargerNoteFichier, supprimerNoteTache,
     ajouterMembreComite, supprimerMembreComite,
     getEtapes, toggleEtape,
-    getApplications, ajouterApplication, supprimerApplication, searchApps
+    getApplications, ajouterApplication, supprimerApplication, searchApps,
+    getCompteurs
 };

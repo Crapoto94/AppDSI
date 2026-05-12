@@ -23,7 +23,7 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!hub_rencontres\.)\breunion_participants\b/gi, 'hub_rencontres.reunion_participants')
                     .replace(/(?<!hub_rencontres\.)\breunion_attachments\b/gi, 'hub_rencontres.reunion_attachments')
                     .replace(/(?<!hub_rencontres\.)\bdirection_emails\b/gi, 'hub_rencontres.direction_emails')
-                    .replace(/(?<!projets\.)\bprojets\b/gi, 'projets.projets')
+                    .replace(/(?<!projets\.)\bprojets\b(?!\s*\.)/gi, 'projets.projets')
                     .replace(/(?<!projets\.)\bprojet_services\b/gi, 'projets.projet_services')
                     .replace(/(?<!projets\.)\bprojet_roles\b/gi, 'projets.projet_roles')
                     .replace(/(?<!projets\.)\bprojet_visibilite\b/gi, 'projets.projet_visibilite')
@@ -591,6 +591,61 @@ async function setupPgDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_rencontres.revues (
+        id SERIAL PRIMARY KEY,
+        titre TEXT NOT NULL,
+        date_revue TIMESTAMP,
+        lieu TEXT,
+        statut TEXT DEFAULT 'planifiée',
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_rencontres.revue_projets (
+        id SERIAL PRIMARY KEY,
+        revue_id INTEGER NOT NULL REFERENCES hub_rencontres.revues(id) ON DELETE CASCADE,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        commentaire TEXT,
+        previous_revue_id INTEGER REFERENCES hub_rencontres.revues(id) ON DELETE SET NULL,
+        UNIQUE(revue_id, projet_id)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_rencontres.revue_participants (
+        id SERIAL PRIMARY KEY,
+        revue_id INTEGER NOT NULL REFERENCES hub_rencontres.revues(id) ON DELETE CASCADE,
+        username TEXT NOT NULL,
+        display_name TEXT,
+        statut_presence TEXT DEFAULT 'present',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_rencontres.revue_taches (
+        id SERIAL PRIMARY KEY,
+        revue_id INTEGER NOT NULL REFERENCES hub_rencontres.revues(id) ON DELETE CASCADE,
+        revue_projet_id INTEGER NOT NULL REFERENCES hub_rencontres.revue_projets(id) ON DELETE CASCADE,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        titre TEXT NOT NULL,
+        statut TEXT DEFAULT 'a_faire',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    try { await client.query(`ALTER TABLE hub_rencontres.revue_taches ADD COLUMN IF NOT EXISTS responsable TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.revue_taches ADD COLUMN IF NOT EXISTS echeance DATE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.revue_taches ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT '[]'`); } catch (e) {}
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_revues_date ON hub_rencontres.revues(date_revue);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_revue_projets_revue ON hub_rencontres.revue_projets(revue_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_revue_projets_projet ON hub_rencontres.revue_projets(projet_id);`);
 
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_direction ON hub_rencontres.rencontres_budgetaires(direction);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rb_annee ON hub_rencontres.rencontres_budgetaires(annee);`);

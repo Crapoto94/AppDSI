@@ -48,6 +48,14 @@ const STATUT_COLORS: Record<string, string> = {
   refuse: '#ef4444', suspendu: '#eab308', abandonne: '#6b7280'
 };
 
+const COMPTEUR_MAP: Record<string, string> = {
+  taches: 'taches_actives',
+  documents: 'documents',
+  reunions: 'reunions',
+  journal: 'journal',
+  indicateurs: 'indicateurs'
+};
+
 const ALL_TABS = [
   { key: 'infos', label: 'Informations', icon: FileText },
   { key: 'planning', label: 'Planning', icon: Calendar },
@@ -90,6 +98,7 @@ const ProjetDetail: React.FC = () => {
   });
   const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
   const [viewerDoc, setViewerDoc] = useState<{ url: string; nom: string } | null>(null);
+  const [compteurs, setCompteurs] = useState<Record<string, number>>({});
   const [comites, setComites] = useState<any[]>([]);
   const [editProjetParentId, setEditProjetParentId] = useState<number | null>(null);
   const [editAppIds, setEditAppIds] = useState<number[]>([]);
@@ -116,7 +125,21 @@ const ProjetDetail: React.FC = () => {
     finally { setLoading(false); }
   }, [id, token]);
 
+  const fetchCompteurs = useCallback(async (projetId: number) => {
+    try {
+      const res = await fetch(`/api/projets/${projetId}/compteurs`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setCompteurs(data || {});
+      }
+    } catch {}
+  }, [token]);
+
   useEffect(() => { fetchProjet(); }, [fetchProjet]);
+
+  useEffect(() => {
+    if (projet?.id) fetchCompteurs(projet.id);
+  }, [projet?.id, fetchCompteurs]);
 
   useEffect(() => {
     if (projet) {
@@ -369,6 +392,7 @@ const ProjetDetail: React.FC = () => {
           )}
           <div style={{ marginTop: '12px' }}>
             <ComitesSection projetId={projet.id} token={token} />
+            {!editingInfos && <PartiesPrenantesSection roles={projet.roles || []} comites={comites} />}
           </div>
         </div>
       </div>
@@ -596,6 +620,15 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
                 marginBottom: '-2px'
               }}>
                 <Icon size={16} /> {tab.label}
+                {(() => {
+                  const ck = COMPTEUR_MAP[tab.key];
+                  const cnt = ck ? compteurs[ck] : undefined;
+                  return cnt !== undefined && cnt > 0 ? (
+                    <span style={{ background: '#dc2626', color: 'white', borderRadius: '10px', padding: '1px 7px', fontSize: '11px', fontWeight: '700', lineHeight: '18px', marginTop: '-4px', alignSelf: 'flex-start' }}>
+                      {cnt}
+                    </span>
+                  ) : null;
+                })()}
               </button>
             );
           })}
@@ -860,6 +893,60 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
               </div>
             </div>
           )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ===== PARTIES PRENANTES =====
+interface StakeholderProps { roles: any[]; comites: any[]; }
+const PartiesPrenantesSection: React.FC<StakeholderProps> = ({ roles, comites }) => {
+  const equipeProjet = roles.filter(r => r.role === 'equipe_projet');
+  const autresRoles = roles.filter(r => r.role !== 'equipe_projet');
+  const total = roles.length + comites.reduce((sum, c) => sum + (c.membres || []).length, 0);
+
+  if (total === 0) return null;
+
+  return (
+    <div style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+      <h4 style={{ margin: '0 0 12px', fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>
+        👥 Parties prenantes ({total})
+      </h4>
+      {equipeProjet.length > 0 && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={{ fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' }}>
+            📋 Comité initial — Équipe projet ({equipeProjet.length})
+          </div>
+          {equipeProjet.map(r => (
+            <div key={r.id} style={{ padding: '3px 8px', fontSize: '12px', color: '#1e293b' }}>
+              {r.display_name || r.username}
+            </div>
+          ))}
+        </div>
+      )}
+      {autresRoles.length > 0 && (
+        <div style={{ marginBottom: '10px' }}>
+          <div style={{ fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' }}>
+            📋 Autres rôles ({autresRoles.length})
+          </div>
+          {autresRoles.map(r => (
+            <div key={r.id} style={{ padding: '3px 8px', fontSize: '12px', color: '#1e293b' }}>
+              {r.display_name || r.username} <span style={{ color: '#94a3b8' }}>({r.role === 'partie_prenante' ? 'Partie prenante' : 'Pour info'})</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {comites.filter(c => (c.membres || []).length > 0).map(c => (
+        <div key={c.id} style={{ marginBottom: '10px' }}>
+          <div style={{ fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' }}>
+            📋 {c.nom} ({(c.membres || []).length})
+          </div>
+          {(c.membres || []).map((m: any) => (
+            <div key={m.id} style={{ padding: '3px 8px', fontSize: '12px', color: '#1e293b' }}>
+              {m.prenom ? `${m.prenom} ${m.nom}` : m.nom}{m.role ? ` (${m.role})` : m.fonction ? ` (${m.fonction})` : ''}{m.societe ? ` — ${m.societe}` : ''}
+            </div>
+          ))}
         </div>
       ))}
     </div>
@@ -2196,7 +2283,8 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
       )}
       <div style={{ marginTop: '8px', fontSize: '12px', color: '#94a3b8' }}>
         {tasks.filter(t => t.source === 'reunion').length > 0 && <span style={{ marginRight: '16px' }}>📅 {tasks.filter(t => t.source === 'reunion').length} tâche(s) issue(s) des réunions</span>}
-        {tasks.filter(t => t.source === 'standalone').length > 0 && <span>📝 {tasks.filter(t => t.source === 'standalone').length} tâche(s) ajoutée(s) manuellement</span>}
+        {tasks.filter(t => t.source === 'standalone').length > 0 && <span style={{ marginRight: '16px' }}>📝 {tasks.filter(t => t.source === 'standalone').length} tâche(s) ajoutée(s) manuellement</span>}
+        {tasks.filter(t => t.source === 'revue').length > 0 && <span>📋 {tasks.filter(t => t.source === 'revue').length} tâche(s) issue(s) des revues</span>}
       </div>
     </div>
   );
