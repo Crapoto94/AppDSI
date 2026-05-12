@@ -54,7 +54,11 @@ interface ColumnSetting {
   is_italic: number;
 }
 
-const Tiers: React.FC = () => {
+interface TiersProps {
+  embedded?: boolean;
+}
+
+const Tiers: React.FC<TiersProps> = ({ embedded = false }) => {
   const [view, setView] = useState<'list' | 'details'>('list');
   const [tiers, setTiers] = useState<Tier[]>([]);
   const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
@@ -85,13 +89,14 @@ const Tiers: React.FC = () => {
   const [urlSedit, setUrlSedit] = useState<string>('https://seditgfprod.ivry.local/SeditGfSMProd');
 
   useEffect(() => {
+    if (!token) return;
     const init = async () => {
       setIsLoading(true);
       await Promise.all([fetchTiers(), fetchColumnSettings(), fetchSettings()]);
       setIsLoading(false);
     };
     init();
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -297,29 +302,31 @@ const Tiers: React.FC = () => {
 
   return (
     <div className="tiers-page">
-      <Header />
-      <main className="main-content">
-        <div className="page-header">
-          <div>
-            <h1 className="page-title">Gestion des Tiers</h1>
-            <p className="page-subtitle">Consultez les fournisseurs et leurs contacts.</p>
+      {!embedded && <Header />}
+      <main className={embedded ? 'tiers-embedded' : 'main-content'}>
+        {!embedded && (
+          <div className="page-header">
+            <div>
+              <h1 className="page-title">Gestion des Tiers</h1>
+              <p className="page-subtitle">Consultez les fournisseurs et leurs contacts.</p>
+            </div>
+            <div className="view-tabs">
+              <button
+                className={`tab-btn ${view === 'list' ? 'active' : ''}`}
+                onClick={() => setView('list')}
+              >
+                Liste des tiers
+              </button>
+              <button
+                className={`tab-btn ${view === 'details' ? 'active' : ''}`}
+                onClick={() => selectedTier && setView('details')}
+                disabled={!selectedTier}
+              >
+                Détails {selectedTier ? `: ${selectedTier.nom}` : ''}
+              </button>
+            </div>
           </div>
-          <div className="view-tabs">
-            <button
-              className={`tab-btn ${view === 'list' ? 'active' : ''}`}
-              onClick={() => setView('list')}
-            >
-              Liste des tiers
-            </button>
-            <button
-              className={`tab-btn ${view === 'details' ? 'active' : ''}`}
-              onClick={() => selectedTier && setView('details')}
-              disabled={!selectedTier}
-            >
-              Détails {selectedTier ? `: ${selectedTier.nom}` : ''}
-            </button>
-          </div>
-        </div>
+        )}
 
         {view === 'list' && (
           <div className="list-container">
@@ -919,11 +926,13 @@ const Tiers: React.FC = () => {
         )}
       </main>
 
-      <style>{`
+<style>{`
         .tiers-page {
           min-height: 100vh;
-          background-color: #f8fafc;
-          font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        .tiers-embedded {
+          max-width: 100%;
+          padding: 0;
         }
         .main-content {
           max-width: 1400px;

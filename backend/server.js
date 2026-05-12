@@ -3797,9 +3797,7 @@ app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
 
         let sourceTable = dbPage;
         let pragmaSql = `PRAGMA table_info(${sourceTable})`;
-        if (page === 'orders') pragmaSql = `PRAGMA table_info(v_orders)`; // TEMP view
-        if (page === 'invoices') pragmaSql = `PRAGMA table_info(v_invoices)`; // Use the new TEMP view
-        if (page === 'tiers') pragmaSql = null; // handled via PG below
+        if (page === 'invoices') pragmaSql = `PRAGMA table_info(v_invoices)`;
         if (page === 'services') pragmaSql = `PRAGMA gf.table_info(oracle_servicefi)`;
         if (page === 'factures') pragmaSql = `PRAGMA gf.table_info(oracle_facture)`;
         if (page === 'rh_extract') pragmaSql = `PRAGMA rh.table_info(oracle_v_extract_dsi)`;
@@ -3807,7 +3805,17 @@ app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
 
         // 1. Récupérer les colonnes réelles de la source
         let realCols = [];
-        if (page === 'tiers') {
+        if (page === 'orders') {
+            try {
+                const pgCols = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema = 'oracle' AND table_name = 'gf_oracle_commande' ORDER BY ordinal_position");
+                realCols = pgCols.rows.map(r => r.column_name);
+            } catch (e) {
+                try {
+                    const info = await db.all(`PRAGMA table_info(v_orders)`);
+                    realCols = info.map(c => c.name);
+                } catch (e2) { }
+            }
+        } else if (page === 'tiers') {
             try {
                 const pgCols = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema = 'oracle' AND table_name = 'gf_oracle_tiers' ORDER BY ordinal_position");
                 realCols = pgCols.rows.map(r => r.column_name);
@@ -3955,13 +3963,21 @@ app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => 
             return res.status(400).json({ message: 'Seules les commandes peuvent être envoyées aux tiers' });
         }
 
-        // Trouver le fournisseur associé à cette commande
-        const order = await db.get('SELECT "Fournisseur" FROM v_orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
-        if (!order || !order.Fournisseur) {
+        // Trouver le fournisseur associé à cette commande via PostgreSQL
+        let tierNom = '';
+        try {
+            const pgOrder = await pool.query(`SELECT * FROM oracle.gf_oracle_commande WHERE commande_commande = $1 OR "COMMANDE_COMMANDE" = $1 LIMIT 1`, [attachment.target_id]);
+            if (pgOrder.rows.length > 0) {
+                tierNom = findVal(pgOrder.rows[0], ['servicefi_libelle', 'SERVICEFI_LIBELLE', 'fournisseur', 'provider']);
+            }
+        } catch (e) {
+            // Fallback: try SQLite v_orders
+            const order = await db.get('SELECT "Fournisseur" FROM v_orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
+            if (order && order.Fournisseur) tierNom = order.Fournisseur.trim();
+        }
+        if (!tierNom) {
             return res.status(404).json({ message: 'Commande non trouvée ou fournisseur inconnu' });
         }
-
-        const tierNom = order.Fournisseur.trim();
 
         // Trouver le tiers par son nom (via PG oracle)
         const pgTier = await pool.query('SELECT "TIERS_TIERS" FROM oracle.gf_oracle_tiers WHERE TRIM(UPPER("TIERS_POBJ_EXTRACT_2")) = TRIM(UPPER($1))', [tierNom]);
@@ -3988,13 +4004,19 @@ app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) =>
             return res.status(404).json({ message: 'Fichier physique introuvable sur le serveur' });
         }
 
-        // Trouver le fournisseur associé
-        const order = await db.get('SELECT "Fournisseur" FROM v_orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
-        if (!order || !order.Fournisseur) {
-            return res.status(404).json({ message: 'Fournisseur introuvable' });
+        // Trouver le fournisseur associé via PostgreSQL
+        let tierNom = '';
+        try {
+            const pgOrder = await pool.query(`SELECT * FROM oracle.gf_oracle_commande WHERE commande_commande = $1 OR "COMMANDE_COMMANDE" = $1 LIMIT 1`, [attachment.target_id]);
+            if (pgOrder.rows.length > 0) {
+                tierNom = findVal(pgOrder.rows[0], ['servicefi_libelle', 'SERVICEFI_LIBELLE', 'fournisseur', 'provider']);
+            }
+        } catch (e) {
+            const order = await db.get('SELECT "Fournisseur" FROM v_orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
+            if (order && order.Fournisseur) tierNom = order.Fournisseur.trim();
         }
+        if (!tierNom) return res.status(404).json({ message: 'Fournisseur introuvable' });
 
-        const tierNom = order.Fournisseur.trim();
         const pgTier = await pool.query('SELECT "TIERS_TIERS" FROM oracle.gf_oracle_tiers WHERE TRIM(UPPER("TIERS_POBJ_EXTRACT_2")) = TRIM(UPPER($1))', [tierNom]);
         const tierCode = pgTier.rows.length > 0 ? pgTier.rows[0].TIERS_TIERS.trim() : null;
         if (!tierCode) return res.status(404).json({ message: 'Tiers introuvable' });
@@ -4309,5 +4331,15 @@ const projetsCtrl = require('./modules/projets/projets.controller');
 projetsCtrl.setSendMail(sendMail);
 
 app.use('/api/projets', projetsRouter);
+
+// Helper for flexible column lookup across different naming conventions
+function findVal(obj, keys) {
+    for (const k of keys) {
+        if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+        const upper = k.toUpperCase();
+        if (obj[upper] !== undefined && obj[upper] !== null) return obj[upper];
+    }
+    return '';
+}
 
 

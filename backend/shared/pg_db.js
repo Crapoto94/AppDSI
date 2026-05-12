@@ -1230,6 +1230,96 @@ async function setupPgDb() {
       }
     }
 
+    // oracle_links - links between oracle data and operations
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS oracle.oracle_links (
+        id SERIAL PRIMARY KEY,
+        target_table TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        operation_id INTEGER,
+        UNIQUE(target_table, target_id)
+      )
+    `);
+
+    // operations - budget operations (mirror SQLite columns)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS oracle.operations (
+        id SERIAL PRIMARY KEY,
+        budget_id INTEGER,
+        "Service" TEXT,
+        "Service Complément" TEXT,
+        "LIBELLE" TEXT,
+        "MCO" TEXT,
+        "C. Fonc." TEXT,
+        "C. Nature" TEXT,
+        "Montant prévu" NUMERIC DEFAULT 0,
+        "Terminé" TEXT,
+        "Commentaire" TEXT,
+        used_amount NUMERIC DEFAULT 0,
+        "Section" TEXT,
+        exercice TEXT,
+        CODE_FONCTION TEXT,
+        montant_prevu NUMERIC DEFAULT 0
+      )
+    `);
+
+    // Migrate data from SQLite
+    try {
+      const sqlite = require('../shared/database').getSqlite();
+      if (sqlite) {
+        // oracle_links: try from main db, then from gf attached db
+        try {
+          const links = await sqlite.all("SELECT target_table, target_id, operation_id FROM oracle_links").catch(() => sqlite.all("SELECT target_table, target_id, operation_id FROM gf.oracle_links"));
+          if (links && links.length > 0) {
+            let migrated = 0;
+            for (const l of links) {
+              await client.query(
+                `INSERT INTO oracle.oracle_links (target_table, target_id, operation_id) VALUES ($1, $2, $3) ON CONFLICT (target_table, target_id) DO UPDATE SET operation_id = EXCLUDED.operation_id`,
+                [l.target_table, String(l.target_id).trim(), l.operation_id]
+              );
+              migrated++;
+            }
+            console.log(`[PG DB] Migrated ${migrated} oracle_links → oracle.oracle_links`);
+          }
+        } catch (e) {
+          console.log('[PG DB] oracle_links migration skipped:', e.message);
+        }
+
+        try {
+          const ops = await sqlite.all("SELECT * FROM operations");
+          if (ops && ops.length > 0) {
+            let migrated = 0;
+            for (const o of ops) {
+              const allCols = Object.keys(o).filter(k => k !== 'id');
+              const cols = [];
+              const vals = [];
+              for (const k of allCols) {
+                if (o[k] !== undefined && o[k] !== null) {
+                  cols.push(`"${k}"`);
+                  vals.push(o[k]);
+                }
+              }
+              const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
+              try {
+                await client.query(
+                  `INSERT INTO oracle.operations (${cols.join(',')}) VALUES (${placeholders})`,
+                  vals
+                );
+                migrated++;
+              } catch (insertErr) {
+                console.log(`[PG DB] operations migration row skipped: ${insertErr.message}`);
+              }
+            }
+            console.log(`[PG DB] Migrated ${migrated} operations → oracle.operations`);
+          }
+        } catch (e) {
+          console.log('[PG DB] operations migration skipped:', e.message);
+        }
+      }
+    } catch (e) {
+      console.log('[PG DB] SQLite data migration skipped:', e.message);
+    }
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);

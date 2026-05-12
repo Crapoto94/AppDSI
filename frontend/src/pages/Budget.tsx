@@ -1,24 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
 import { 
-  Upload, CheckCircle, Search, Filter, BookOpen, X, Columns, Eye, EyeOff, 
+  Upload, CheckCircle, Search, Filter, BookOpen, X, Eye, 
   Euro, FileText, ShoppingCart, AlertCircle, 
-  Plus, Trash2, Send, ExternalLink
+  Plus, Trash2, Send, ExternalLink, Columns
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import BudgetManagementTab from '../components/BudgetManagementTab';
 import { useAuth } from '../contexts/AuthContext';
-
-interface ColumnSetting {
-  id: number;
-  column_key: string;
-  label: string;
-  is_visible: number;
-  display_order: number;
-  color: string | null;
-  is_bold: number;
-  is_italic: number;
-}
+import Tiers from './Tiers';
 
 const Budget: React.FC = () => {
   const { token, user } = useAuth();
@@ -47,7 +37,7 @@ const Budget: React.FC = () => {
     </svg>
   );
 
-  const [view, setView] = useState<'summary' | 'lines' | 'invoices' | 'orders' | 'operations' | 'gestion'>('summary');
+  const [view, setView] = useState<'summary' | 'lines' | 'invoices' | 'orders' | 'tiers' | 'operations' | 'gestion'>('summary');
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
   const [budgetLines, setBudgetLines] = useState<any[]>([]);
@@ -55,13 +45,11 @@ const Budget: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [operations, setOperations] = useState<any[]>([]);
   const [m57Plan, setM57Plan] = useState<any[]>([]);
-  const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
   const [urlSedit, setUrlSedit] = useState<string>('https://seditgfprod.ivry.local/SeditGfSMProd');
   const [budgetPrincipal, setBudgetPrincipal] = useState<string>('Ville');
   
   const [showM57, setShowM57] = useState(false);
   const [showZeroBudget, setShowZeroBudget] = useState(false);
-  const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [message, setMessage] = useState('');
   
   // New state for fiscal year and budget scope
@@ -107,6 +95,26 @@ const Budget: React.FC = () => {
   
   const [availableFiscalYears, setAvailableFiscalYears] = useState<number[]>([]);
 
+  // Column selector state
+  const [showColumnSelector, setShowColumnSelector] = useState(false);
+  const DEFAULT_ORDER_COLUMNS = ['N° Commande', 'Libellé', 'Date de la commande', 'Budget', 'Service émetteur', 'Montant HT', 'Montant TTC', 'Nb lignes'];
+  const DEFAULT_INVOICE_COLUMNS = ['N° Facture interne', 'N° Facture fournisseur', 'Libellé', 'Fournisseur', 'Arrivée', 'Échéance', 'Montant TTC', 'Budget', 'Etat'];
+  const DEFAULT_OP_COLUMNS = ['LIBELLE', 'Service', 'Section', 'C. Nature', 'Montant prévu', 'used_amount'];
+
+  const getStoredColumns = (viewKey: string, defaults: string[]) => {
+    try {
+      const stored = localStorage.getItem(`budgetCols_${viewKey}`);
+      return stored ? JSON.parse(stored) : defaults;
+    } catch { return defaults; }
+  };
+  const setStoredColumns = (viewKey: string, cols: string[]) => {
+    localStorage.setItem(`budgetCols_${viewKey}`, JSON.stringify(cols));
+  };
+
+  const [orderColumns, setOrderColumns] = useState<string[]>(() => getStoredColumns('orders', DEFAULT_ORDER_COLUMNS));
+  const [invoiceColumns, setInvoiceColumns] = useState<string[]>(() => getStoredColumns('invoices', DEFAULT_INVOICE_COLUMNS));
+  const [opColumns, setOpColumns] = useState<string[]>(() => getStoredColumns('operations', DEFAULT_OP_COLUMNS));
+
   // New state for import modal
   const [showImportModal, setShowImportModal] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
@@ -133,7 +141,7 @@ const Budget: React.FC = () => {
 
     const fetchFiscalYears = async () => {
       try {
-        const res = await fetch('/api/orders/years', {
+        const res = await fetch('/api/budget/orders/years', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
@@ -494,7 +502,7 @@ const Budget: React.FC = () => {
     const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, settingsRes] = await Promise.all([
       fetch(`/api/budget/lines?${queryParams}`, { headers }),
       fetch(`/api/budget/invoices?${queryParams}`, { headers }),
-      fetch(`/api/orders?${queryParams}`, { headers }),
+      fetch(`/api/budget/orders?${queryParams}`, { headers }),
       fetch(`/api/budget/operations?${queryParams}`, { headers }),
       fetch('/api/m57-plan', { headers }), // M57 plan is not year/scope specific
       fetch('/api/settings/public', { headers }) // Settings
@@ -516,30 +524,18 @@ const Budget: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchData();
-  }, [currentFiscalYear, budgetScope]);
+    if (token) fetchData();
+  }, [currentFiscalYear, budgetScope, token]);
 
   useEffect(() => {
-    if (['lines', 'invoices', 'orders', 'operations'].includes(view)) {
-      fetch(`/api/column-settings/${view}`, { headers: { 'Authorization': `Bearer ${token}` } })
-        .then(res => res.json())
-        .then(cols => {
-          const sortedCols = [...cols].sort((a, b) => {
-            if (a.display_order !== 0 || b.display_order !== 0) {
-              return (a.display_order || 0) - (b.display_order || 0);
-            }
-            if (a.column_key === 'num' || a.column_key === 'Service') return -1;
-            if (b.column_key === 'num' || b.column_key === 'Service') return 1;
-            if (a.column_key === 'Libellé' || a.column_key === 'label' || a.column_key === 'libelle') return -1;
-            if (b.column_key === 'Libellé' || b.column_key === 'label' || b.column_key === 'libelle') return 1;
-            if (a.column_key === 'Nature' || a.column_key === 'nature') return -1;
-            if (b.column_key === 'Nature' || b.column_key === 'nature') return 1;
-            return 0;
-          });
-          setColumnSettings(sortedCols);
-        });
-    }
-  }, [view]);
+    if (!showColumnSelector) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-column-selector]')) setShowColumnSelector(false);
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [showColumnSelector]);
 
   useEffect(() => {
     if (isRaw) {
@@ -590,55 +586,6 @@ const Budget: React.FC = () => {
     }
   };
 
-  const updateColumnSettingsBulk = async (newSettings: ColumnSetting[]) => {
-    setColumnSettings(newSettings);
-    await fetch(`/api/column-settings/${view}/bulk`, {
-      method: 'POST',
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(newSettings)
-    });
-  };
-
-  const toggleColumnVisibility = (columnKey: string, currentVisible: number) => {
-    const updated = columnSettings.map(c => 
-      c.column_key === columnKey ? { ...c, is_visible: currentVisible ? 0 : 1 } : c
-    );
-    updateColumnSettingsBulk(updated);
-  };
-
-  const updateColumnStyle = (columnKey: string, field: 'color' | 'is_bold' | 'is_italic', value: any) => {
-    const updated = columnSettings.map(c => 
-      c.column_key === columnKey ? { ...c, [field]: value } : c
-    );
-    updateColumnSettingsBulk(updated);
-  };
-
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', index.toString());
-  };
-
-  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
-    e.preventDefault();
-    const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
-    if (sourceIndex === targetIndex || isNaN(sourceIndex)) return;
-
-    const newSettings = [...columnSettings];
-    const [movedItem] = newSettings.splice(sourceIndex, 1);
-    newSettings.splice(targetIndex, 0, movedItem);
-
-    const updatedWithOrder = newSettings.map((col, idx) => ({ ...col, display_order: idx + 1 }));
-    updateColumnSettingsBulk(updatedWithOrder);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
-
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -652,41 +599,19 @@ const Budget: React.FC = () => {
   };
 
   const groupedOrders = useMemo(() => {
+    if (!orders || orders.length === 0) return [];
     const groups: Record<string, any> = {};
     orders.forEach(order => {
-      const nr = (order['N° Commande'] || order['NÂ° Commande'] || order['NÂ° Commande'] || order['N?? Commande'] || order.order_number || 'SANS_NUMERO').toString();
-      if (!groups[nr]) {
-        groups[nr] = { 
-          ...order, 
-          _total_ht: 0,
-          _total_ttc: 0, 
-          _lines: [] 
+      const orderId = String(order.id || order['N° Commande'] || order.order_number || order.COMMANDE_COMMANDE || '0').trim();
+      if (!groups[orderId]) {
+        groups[orderId] = {
+          ...order,
+          id: orderId,
+          _total_ht: order._total_ht || parseFloat(order['Montant HT'] || order.COMMANDE_MONTANT_HT || order.amount_ht || 0),
+          _total_ttc: order._total_ttc || parseFloat(order['Montant TTC'] || order.COMMANDE_MONTANT_TTC || 0),
+          _lines: order._lines || []
         };
       }
-      const amtHt = parseFloat(order['Montant HT'] || order.amount_ht || 0);
-      const amtTtc = parseFloat(order['Montant TTC'] || 0);
-      groups[nr]._total_ht += amtHt;
-      groups[nr]._total_ttc += amtTtc;
-      
-      const nature = order['Article par nature'] || order.nature || '';
-      const sectionFromNature = getSectionFromM57(nature);
-      // If the group doesn't have a valid section yet, or this line has one, use it
-      if (!groups[nr].section || groups[nr].section === '') {
-          groups[nr].section = sectionFromNature;
-      }
-
-      groups[nr]._lines.push({
-        nr: order['N° ligne'],
-        desc: order['Désignation'] || order.description,
-        amtHt: amtHt,
-        amtTtc: amtTtc,
-        nature: nature,
-        fonction: order['Article par fonction'] || order.fonction || '',
-        section: sectionFromNature
-      });
-    });
-    Object.values(groups).forEach((g: any) => {
-      g._lines.sort((a: any, b: any) => parseInt(a.nr) - parseInt(b.nr));
     });
     return Object.values(groups);
   }, [orders, m57Plan]);
@@ -697,7 +622,7 @@ const Budget: React.FC = () => {
   const handleAssignOperation = async (operationId: number | null) => {
     if (!selectedOrderForOp) return;
     try {
-      const response = await fetch(`/api/orders/${selectedOrderForOp.id}/assign-operation`, {
+      const response = await fetch(`/api/budget/orders/${selectedOrderForOp.id}/assign-operation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ operation_id: operationId })
@@ -877,6 +802,27 @@ const Budget: React.FC = () => {
     return data;
   }, [view, budgetLines, groupedBudgetLines, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
 
+  const visibleColumns = useMemo(() => {
+    if (filteredData.length === 0) return [];
+    const allKeys = new Set<string>();
+    filteredData.forEach((row: any) => {
+      Object.keys(row).forEach(k => {
+        if (!k.startsWith('_')) allKeys.add(k);
+      });
+    });
+    const excluded = ['_lines', '_total_ht', '_total_ttc', '_isGroup', '_isChapter', 'operation_label'];
+    const available = Array.from(allKeys).filter(k => !excluded.includes(k));
+
+    if (view === 'orders') {
+      return orderColumns.filter(c => available.includes(c));
+    } else if (view === 'invoices') {
+      return invoiceColumns.filter(c => available.includes(c));
+    } else if (view === 'operations') {
+      return opColumns.filter(c => available.includes(c));
+    }
+    return available;
+  }, [filteredData, view, orderColumns, invoiceColumns, opColumns]);
+
   const getRowClass = (section: string) => {
     if (section === 'Fonctionnement' || section === 'F') return 'row-operating';
     if (section === 'Investissement' || section === 'I') return 'row-investment';
@@ -926,7 +872,7 @@ const Budget: React.FC = () => {
             </div>
           </div>
           <div className="view-tabs">
-            {['summary', 'lines', 'invoices', 'orders', 'operations', 'gestion'].map(tab => {
+            {['summary', 'lines', 'invoices', 'orders', 'tiers', 'operations', 'gestion'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
               if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(currentUser.role)) return null;
               return (
@@ -963,6 +909,7 @@ const Budget: React.FC = () => {
                   {tab === 'lines' && 'Lignes'}
                   {tab === 'invoices' && 'Factures'}
                   {tab === 'orders' && 'Commandes'}
+                  {tab === 'tiers' && 'Tiers'}
                   {tab === 'operations' && 'Opérations'}
                   {tab === 'gestion' && 'Gestion'}
                 </button>
@@ -1134,9 +1081,6 @@ const Budget: React.FC = () => {
                     <button className="toolbar-btn" onClick={() => setShowM57(true)}>
                       <BookOpen size={16} /> Plan M57
                     </button>
-                    <button className="toolbar-btn" onClick={() => setShowColumnConfig(true)}>
-                      <Columns size={16} /> Colonnes
-                    </button>
                     {view === 'lines' && (
                       <button 
                         className={`toolbar-btn ${showZeroBudget ? 'active' : ''}`}
@@ -1252,36 +1196,24 @@ const Budget: React.FC = () => {
                       <thead>
                         <tr>
                           {(() => {
-                            let cols = columnSettings.filter(c => c.is_visible);
-                                if (view === 'operations' && !cols.some(c => c.column_key === 'Section' || c.column_key === 'section')) {
-                                  const sectionCol = { id: -1, column_key: 'section', label: 'Section', is_visible: 1, display_order: 1, color: null, is_bold: 1, is_italic: 0 };
-                                  cols = [cols[0], sectionCol, ...cols.slice(1)];
-                                }
+                            let cols = [...visibleColumns];
                             if (view === 'orders') {
-                              // operation_label is rendered as a dedicated hard-coded column
-                              cols = cols.filter(c => c.column_key !== 'operation_label');
+                              cols = cols.filter(c => c !== 'operation_label');
                             }
                             return cols.map(col => (
-                              <th 
-                                key={col.column_key}
-                                style={{
-                                  color: col.color || 'inherit',
-                                  fontWeight: col.is_bold ? 'bold' : '600',
-                                  fontStyle: col.is_italic ? 'italic' : 'normal'
-                                }}
-                              >
+                              <th key={col}>
                                 <div className="th-wrapper">
-                                  <div className="th-content" onClick={() => requestSort(col.column_key)}>
-                                    {col.label}
-                                    {sortConfig?.key === col.column_key && (
+                                  <div className="th-content" onClick={() => requestSort(col)}>
+                                    {col}
+                                    {sortConfig?.key === col && (
                                       <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' â†‘' : ' â†“'}</span>
                                     )}
                                   </div>
                                   <input 
                                     type="text" 
                                     placeholder="Filtrer..."
-                                    value={columnFilters[col.column_key] || ''}
-                                    onChange={(e) => handleColumnFilterChange(col.column_key, e.target.value)}
+                                    value={columnFilters[col] || ''}
+                                    onChange={(e) => handleColumnFilterChange(col, e.target.value)}
                                     onClick={(e) => e.stopPropagation()}
                                     className="col-filter-input"
                                   />
@@ -1330,40 +1262,26 @@ const Budget: React.FC = () => {
                                 }}
                               >
                                 {(() => {
-                                  let cols = columnSettings.filter(c => c.is_visible);
-                                  if (view === 'operations' && !cols.some(c => c.column_key === 'Section' || c.column_key === 'section')) {
-                                    const sectionCol = { id: -1, column_key: 'section', label: 'Section', is_visible: 1, display_order: 1, color: null, is_bold: 1, is_italic: 0 };
-                                    cols = [cols[0], sectionCol, ...cols.slice(1)];
-                                  }
+                                  let cols = [...visibleColumns];
                                   if (view === 'orders') {
-                                    // operation_label is rendered as a dedicated hard-coded column
-                                    cols = cols.filter(c => c.column_key !== 'operation_label');
+                                    cols = cols.filter(c => c !== 'operation_label');
                                   }
                                   const isOrderSection = view === 'orders';
                                   const isInvoiceSection = view === 'invoices';
                                   
-                                  const idKeys = ['N° Commande', 'order_number', 'N°', 'num', 'id', 'COMMANDE_COMMANDE'];
+                                    const idKeys = ['N° Commande', 'order_number', 'N°', 'num', 'id', 'COMMANDE_COMMANDE', 'command_id'];
                                   const labelKeys = ['COMMANDE_LIBELLE', 'Libellé', 'description', 'label'];
-                                  
-                                  let specialBtnCol = cols.find(c => idKeys.includes(c.column_key.trim()))?.column_key;
-                                  if (!specialBtnCol) {
-                                    specialBtnCol = cols.find(c => labelKeys.includes(c.column_key.trim()))?.column_key;
-                                  }
+                                  const specialBtnCol = cols.find(c => idKeys.includes(c.trim())) || cols.find(c => labelKeys.includes(c.trim()));
 
                                   return cols.map(col => {
-                                  let content: React.ReactNode = row[col.column_key];
+                                  let content: React.ReactNode = row[col];
                                   let tooltip = '';
-                                  let cellStyle: React.CSSProperties = {
-                                    color: col.color || 'inherit',
-                                    fontWeight: col.is_bold ? 'bold' : 'normal',
-                                    fontStyle: col.is_italic ? 'italic' : 'normal'
-                                  };
+                                  let cellStyle: React.CSSProperties = {};
 
-                                  const isCellEditing = view === 'operations' && editingCell?.id === row.id && editingCell?.key === col.column_key;
+                                  const isCellEditing = view === 'operations' && editingCell?.id === row.id && editingCell?.key === col;
 
                                   if (isCellEditing) {
-                                    // ... existing editing logic ...
-                                    if (['Montant prévu', 'Solde'].includes(col.column_key)) {
+                                    if (['Montant prévu', 'Solde'].includes(col)) {
                                       content = (
                                         <input 
                                           autoFocus
@@ -1371,22 +1289,22 @@ const Budget: React.FC = () => {
                                           style={{ width: '80px', padding: '4px' }}
                                           value={cellValue}
                                           onChange={(e) => setCellValue(e.target.value)}
-                                          onBlur={() => handleCellUpdate(row, col.column_key, parseFloat(cellValue) || 0)}
+                                          onBlur={() => handleCellUpdate(row, col, parseFloat(cellValue) || 0)}
                                           onKeyDown={(e) => {
-                                            if (e.key === 'Enter') handleCellUpdate(row, col.column_key, parseFloat(cellValue) || 0);
+                                            if (e.key === 'Enter') handleCellUpdate(row, col, parseFloat(cellValue) || 0);
                                             if (e.key === 'Escape') setEditingCell(null);
                                           }}
                                         />
                                       );
-                                    } else if (col.column_key === 'Terminé') {
+                                    } else if (col === 'Terminé') {
                                       content = (
                                         <select 
                                           autoFocus
                                           value={cellValue}
                                           onChange={(e) => setCellValue(e.target.value)}
-                                          onBlur={() => handleCellUpdate(row, col.column_key, cellValue)}
+                                          onBlur={() => handleCellUpdate(row, col, cellValue)}
                                           onKeyDown={(e) => {
-                                            if (e.key === 'Enter') handleCellUpdate(row, col.column_key, cellValue);
+                                            if (e.key === 'Enter') handleCellUpdate(row, col, cellValue);
                                             if (e.key === 'Escape') setEditingCell(null);
                                           }}
                                         >
@@ -1402,24 +1320,24 @@ const Budget: React.FC = () => {
                                           style={{ width: '100%', padding: '4px' }}
                                           value={cellValue}
                                           onChange={(e) => setCellValue(e.target.value)}
-                                          onBlur={() => handleCellUpdate(row, col.column_key, cellValue)}
+                                          onBlur={() => handleCellUpdate(row, col, cellValue)}
                                           onKeyDown={(e) => {
-                                            if (e.key === 'Enter') handleCellUpdate(row, col.column_key, cellValue);
+                                            if (e.key === 'Enter') handleCellUpdate(row, col, cellValue);
                                             if (e.key === 'Escape') setEditingCell(null);
                                           }}
                                         />
                                       );
                                     }
                                   } else {
-                                    if (col.column_key === 'Section' || col.column_key === 'section') {
-                                      const sec = col.column_key === 'section' && view === 'operations' ? rowSection : row[col.column_key];
+                                    if (col === 'Section' || col === 'section') {
+                                      const sec = col === 'section' && view === 'operations' ? rowSection : row[col];
                                       content = (
                                         <span className={`section-badge ${(sec === 'Fonctionnement' || sec === 'F') ? 'f' : 'i'}`}>
                                           {(sec === 'Fonctionnement' || sec === 'F') ? 'F' : 'I'}
                                         </span>
                                       );
-                                    } else if (col.column_key === 'used_amount' || col.column_key === 'Montant utilisé') {
-                                      const used = parseFloat(row[col.column_key] || 0);
+                                    } else if (col === 'used_amount' || col === 'Montant utilisé') {
+                                      const used = parseFloat(row[col] || 0);
                                       const planned = parseFloat(row['Montant prévu'] || row['montant_prevu'] || 0);
                                       const percent = planned > 0 ? (used / planned) * 100 : 0;
                                       
@@ -1446,40 +1364,40 @@ const Budget: React.FC = () => {
                                           </div>
                                         </div>
                                       );
-                                    } else if (col.column_key === 'status' || col.column_key === 'Etat' || col.column_key === 'termine' || col.column_key === 'Terminé') {
-                                      const val = row[col.column_key];
+                                    } else if (col === 'status' || col === 'Etat' || col === 'termine' || col === 'Terminé') {
+                                      const val = row[col];
                                       const isDone = val === 'Payée' || val === 'OUI' || val === 1;
                                       content = <span className={`badge ${isDone ? 'success' : 'status'}`}>{val}</span>;
                                     } else if (
-                                      col.column_key === 'Montant HT' || col.column_key === 'amount_ht' || 
-                                      col.column_key === 'montant_prevu' || col.column_key === 'allocated_amount' ||
-                                      col.column_key === 'Budget voté' || col.column_key === 'Disponible' ||
-                                      col.column_key === 'Mt. prévision' || col.column_key === 'Mt. pré-engagé' ||
-                                      col.column_key === 'Mt. engagé' || col.column_key === 'Mt. facturé' ||
-                                      col.column_key === 'Mt. pré-mandaté' || col.column_key === 'Mt. mandaté' ||
-                                      col.column_key === 'Mt. payé' || col.column_key === 'Montant prévu' ||
-                                      col.column_key.toUpperCase().includes('MONTANT') || col.column_key.toUpperCase().includes('TOTAL')
+                                      col === 'Montant HT' || col === 'amount_ht' || 
+                                      col === 'montant_prevu' || col === 'allocated_amount' ||
+                                      col === 'Budget voté' || col === 'Disponible' ||
+                                      col === 'Mt. prévision' || col === 'Mt. pré-engagé' ||
+                                      col === 'Mt. engagé' || col === 'Mt. facturé' ||
+                                      col === 'Mt. pré-mandaté' || col === 'Mt. mandaté' ||
+                                      col === 'Mt. payé' || col === 'Montant prévu' ||
+                                      col.toUpperCase().includes('MONTANT') || col.toUpperCase().includes('TOTAL')
                                     ) {
-                                      const val = view === 'orders' ? (row[col.column_key] || row._total_ht) : row[col.column_key];
+                                      const val = view === 'orders' ? (row[col] || row._total_ht) : row[col];
                                       content = <span style={cellStyle}>{(parseFloat(String(val).replace(',', '.')) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
-                                    } else if (col.column_key === 'Montant TTC' || col.column_key === 'amount_ttc' || col.column_key === 'solde' || col.column_key === 'Solde') {
-                                      const val = view === 'orders' ? (row[col.column_key] || row._total_ttc) : row[col.column_key];
+                                    } else if (col === 'Montant TTC' || col === 'amount_ttc' || col === 'solde' || col === 'Solde') {
+                                      const val = view === 'orders' ? (row[col] || row._total_ttc) : row[col];
                                       content = <span style={cellStyle}>{(parseFloat(String(val).replace(',', '.')) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>;
                                     } else if (
-                                      col.column_key === 'date' || 
-                                      col.column_key === 'Date de la commande' ||
-                                      col.column_key.toUpperCase().includes('DATE') ||
-                                      ['Emission', 'Arrivée', 'Début DGP', 'Fin DGP', 'Date Réception Pièce', 'Date Suspension'].includes(col.column_key.trim())
+                                      col === 'date' || 
+                                      col === 'Date de la commande' ||
+                                      col.toUpperCase().includes('DATE') ||
+                                      ['Emission', 'Arrivée', 'Début DGP', 'Fin DGP', 'Date Réception Pièce', 'Date Suspension'].includes(col.trim())
                                     ) {
-                                      const d = parseExcelDate(row[col.column_key]);
+                                      const d = parseExcelDate(row[col]);
                                       if (d) {
                                         content = d.toLocaleDateString('fr-FR', { year: 'numeric', month: '2-digit', day: '2-digit' });
                                       } else {
-                                        content = row[col.column_key];
+                                        content = row[col];
                                       }
                                     }
-                                    else if (col.column_key === 'Libellé' || col.column_key === 'label' || col.column_key === 'libelle' || col.column_key === 'Nom' || col.column_key === 'LIBELLE' || col.column_key.includes('LIBELLE')) {
-                                      tooltip = row[col.column_key];
+                                    else if (col === 'Libellé' || col === 'label' || col === 'libelle' || col === 'Nom' || col === 'LIBELLE' || col.includes('LIBELLE')) {
+                                      tooltip = row[col];
                                       content = (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                           {isExpandable && view === 'lines' && (
@@ -1488,13 +1406,13 @@ const Budget: React.FC = () => {
                                             </span>
                                           )}
                                           <span style={{ maxWidth: '450px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {row[col.column_key]}
+                                            {row[col]}
                                           </span>
                                         </div>
                                       );
                                       cellStyle = { ...cellStyle, maxWidth: '450px', minWidth: '300px' };
                                     }
-                                    else if (col.column_key === 'Désignation' || col.column_key === 'description' || col.column_key.includes('DESIGNATION')) {
+                                    else if (col === 'Désignation' || col === 'description' || col.includes('DESIGNATION')) {
                                       if (view === 'orders') {
                                         const firstLineDesc = hasLines ? row._lines[0].desc?.trim() : '';
                                         content = (
@@ -1512,7 +1430,7 @@ const Budget: React.FC = () => {
                                         cellStyle = { ...cellStyle, maxWidth: '450px', minWidth: '300px' };
                                       }
                                     }
-                                    else if (col.column_key === 'operation_label') {
+                                    else if (col === 'operation_label') {
                                       const label = row.operation_label;
                                       if (label) {
                                         content = (
@@ -1552,10 +1470,10 @@ const Budget: React.FC = () => {
                                     }
                                     else if (
                                       (isOrderSection || isInvoiceSection) && 
-                                      col.column_key === specialBtnCol
+                                      col === specialBtnCol
                                     ) {
                                       const isOrder = isOrderSection;
-                                      const targetId = row[col.column_key]?.toString();
+                                      const targetId = row[col]?.toString();
                                       const seditId = row['COMMANDE_ROO_IMA_REF'];
                                       content = (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1584,29 +1502,29 @@ const Budget: React.FC = () => {
                                               <ExternalLink size={16} />
                                             </button>
                                           )}
-                                          <span>{row[col.column_key]}</span>
+                                          <span>{row[col]}</span>
                                         </div>
                                       );
                                     }
-                                    else if (col.column_key === 'nature' || col.column_key === 'Article par nature' || col.column_key === 'C. Nature') {
+                                    else if (col === 'nature' || col === 'Article par nature' || col === 'C. Nature') {
 
-                                      tooltip = getM57Label(row[col.column_key], 'nature');
+                                      tooltip = getM57Label(row[col], 'nature');
                                       cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
-                                    } else if (col.column_key === 'fonction' || col.column_key === 'Article par fonction' || col.column_key === 'C. Fonc.') {
-                                      tooltip = getM57Label(row[col.column_key], 'fonction');
+                                    } else if (col === 'fonction' || col === 'Article par fonction' || col === 'C. Fonc.') {
+                                      tooltip = getM57Label(row[col], 'fonction');
                                       cellStyle = { ...cellStyle, textDecoration: 'underline dotted', cursor: 'help' };
                                     }
                                   }
 
                                   return (
                                     <td 
-                                      key={col.column_key} 
+                                      key={col} 
                                       style={{ ...cellStyle, ...(isCellEditing ? { padding: '4px' } : {}) }} 
-                                      title={!isCellEditing ? (tooltip || row[col.column_key] || '') : undefined}
+                                      title={!isCellEditing ? (tooltip || row[col] || '') : undefined}
                                       onDoubleClick={() => {
                                         if (view === 'operations' && isAuthorizedToEdit) {
-                                          setEditingCell({ id: row.id, key: col.column_key });
-                                          setCellValue(row[col.column_key] || '');
+                                          setEditingCell({ id: row.id, key: col });
+                                          setCellValue(row[col] || '');
                                         }
                                       }}
                                     >
@@ -1654,7 +1572,7 @@ const Budget: React.FC = () => {
                               </tr>
                               {isExpandable && isExpanded && view === 'orders' && (
                                 <tr className="expanded-row-bg" style={{ backgroundColor: '#f1f5f9' }}>
-                                  <td colSpan={columnSettings.filter(c => c.is_visible).length} style={{ padding: '10px 20px' }}>
+                                  <td colSpan={visibleColumns.length} style={{ padding: '10px 20px' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                       <thead>
                                         <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
@@ -1684,7 +1602,7 @@ const Budget: React.FC = () => {
                               )}
                               {isExpandable && isExpanded && view === 'lines' && (
                                 <tr className="expanded-row-bg" style={{ backgroundColor: '#f8fafc' }}>
-                                  <td colSpan={columnSettings.filter(c => c.is_visible).length} style={{ padding: '10px 20px' }}>
+                                  <td colSpan={visibleColumns.length} style={{ padding: '10px 20px' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                       <thead>
                                         <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
@@ -1714,7 +1632,7 @@ const Budget: React.FC = () => {
                           );
                         }) : (
                           <tr>
-                            <td colSpan={columnSettings.filter(c => c.is_visible).length || 1} className="empty-state">
+                            <td colSpan={visibleColumns.length || 1} className="empty-state">
                               Aucune donnée ne correspond à vos critères.
                             </td>
                           </tr>
@@ -1730,9 +1648,70 @@ const Budget: React.FC = () => {
                 <div className="glass-card" style={{ padding: '2rem' }}>
                    <BudgetManagementTab />
                 </div>
+</div>
+                    )}
+            {view === 'tiers' && (
+              <div className="animate-fade-in">
+                <Tiers embedded />
               </div>
             )}
-          </div>
+                    {['orders', 'invoices', 'operations'].includes(view) && (
+                      <div data-column-selector style={{ position: 'relative', display: 'inline-block' }}>
+                        <button
+                          className="toolbar-btn"
+                          onClick={() => setShowColumnSelector(!showColumnSelector)}
+                          title="Choisir les colonnes"
+                          style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <Columns size={14} />
+                          Colonnes
+                        </button>
+                        {showColumnSelector && (
+                          <div style={{
+                            position: 'absolute', top: '100%', right: 0, zIndex: 1000,
+                            background: 'white', border: '1px solid var(--color-slate-200)',
+                            borderRadius: '8px', padding: '12px', minWidth: '260px',
+                            maxHeight: '400px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <strong style={{ fontSize: '13px' }}>Colonnes affichées</strong>
+                              <button onClick={() => {
+                                const defaults = view === 'orders' ? DEFAULT_ORDER_COLUMNS : view === 'invoices' ? DEFAULT_INVOICE_COLUMNS : DEFAULT_OP_COLUMNS;
+                                if (view === 'orders') { setOrderColumns(defaults); setStoredColumns('orders', defaults); }
+                                else if (view === 'invoices') { setInvoiceColumns(defaults); setStoredColumns('invoices', defaults); }
+                                else { setOpColumns(defaults); setStoredColumns('operations', defaults); }
+                              }} style={{ fontSize: '11px', color: 'var(--color-blue-500)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                                Par défaut
+                              </button>
+                            </div>
+                            {(() => {
+                              const allKeys = new Set<string>();
+                              filteredData.forEach((row: any) => Object.keys(row).forEach(k => { if (!k.startsWith('_') && k !== 'operation_label') allKeys.add(k); }));
+                              const currentCols = view === 'orders' ? orderColumns : view === 'invoices' ? invoiceColumns : opColumns;
+                              const setCurrentCols = view === 'orders' ? setOrderColumns : view === 'invoices' ? setInvoiceColumns : setOpColumns;
+                              const storageKey = view === 'orders' ? 'orders' : view === 'invoices' ? 'invoices' : 'operations';
+                              return Array.from(allKeys).sort().map(col => (
+                                <label key={col} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '3px 0', cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={currentCols.includes(col)}
+                                    onChange={() => {
+                                      const next = currentCols.includes(col)
+                                        ? currentCols.filter(c => c !== col)
+                                        : [...currentCols, col];
+                                      setCurrentCols(next);
+                                      setStoredColumns(storageKey, next);
+                                    }}
+                                  />
+                                  {col}
+                                </label>
+                              ));
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
         )}
         {showM57 && (
           <div className="modal-backdrop" onClick={() => setShowM57(false)}>
@@ -1788,102 +1767,6 @@ const Budget: React.FC = () => {
           </div>
         )}
 
-        {showColumnConfig && (
-          <div className="modal-backdrop" onClick={() => setShowColumnConfig(false)}>
-            <div className="modal-window" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2 className="modal-title">Configuration des Colonnes</h2>
-                <button className="icon-btn" onClick={() => setShowColumnConfig(false)}><X size={20} /></button>
-              </div>
-              <div className="modal-body">
-                <p className="modal-desc">
-                  Glissez-déposez pour réorganiser. Modifiez la visibilité, la couleur, et le style (Gras/Italique).
-                </p>
-                <div className="column-toggles">
-                  {columnSettings.map((col, index) => (
-                    <div 
-                      key={col.id} 
-                      className="toggle-item"
-                      draggable={['admin', 'finances'].includes(currentUser.role)}
-                      onDragStart={(e) => handleDragStart(e, index)}
-                      onDragOver={handleDragOver}
-                      onDrop={(e) => handleDrop(e, index)}
-                      style={{ cursor: ['admin', 'finances'].includes(currentUser.role) ? 'grab' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                    >
-                      <div className="toggle-info" style={{ display: 'flex', alignItems: 'center', flex: 1, gap: '10px' }}>
-                        {['admin', 'finances'].includes(currentUser.role) && <span className="drag-handle" style={{ color: '#94a3b8', cursor: 'grab' }}>â˜°</span>}
-                        <input 
-                          type="text"
-                          className="col-label-input"
-                          value={col.label}
-                          onChange={(e) => {
-                            const updated = columnSettings.map(c => c.column_key === col.column_key ? { ...c, label: e.target.value } : c);
-                            setColumnSettings(updated);
-                          }}
-                          onBlur={() => updateColumnSettingsBulk(columnSettings)}
-                          disabled={!['admin', 'finances'].includes(currentUser.role)}
-                          style={{ 
-                            flex: 1, 
-                            padding: '4px 8px', 
-                            border: '1px solid transparent', 
-                            background: 'transparent',
-                            fontWeight: 600,
-                            fontSize: '0.875rem'
-                          }}
-                        />
-                      </div>
-                      
-                      <div className="toggle-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        {currentUser.role === 'admin' && (
-                          <>
-                            <input 
-                              type="color" 
-                              value={col.color || '#334155'} 
-                              onChange={(e) => updateColumnStyle(col.column_key, 'color', e.target.value)}
-                              title="Couleur de la colonne"
-                              style={{ width: '28px', height: '28px', padding: '0', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
-                            />
-                            <button 
-                              onClick={() => updateColumnStyle(col.column_key, 'is_bold', !col.is_bold)}
-                              title="Gras"
-                              style={{ 
-                                fontWeight: 'bold', width: '28px', height: '28px', borderRadius: '4px', 
-                                border: '1px solid #cbd5e1', cursor: 'pointer',
-                                background: col.is_bold ? '#e2e8f0' : 'white'
-                              }}
-                            >
-                              B
-                            </button>
-                            <button 
-                              onClick={() => updateColumnStyle(col.column_key, 'is_italic', !col.is_italic)}
-                              title="Italique"
-                              style={{ 
-                                fontStyle: 'italic', fontFamily: 'serif', width: '28px', height: '28px', borderRadius: '4px', 
-                                border: '1px solid #cbd5e1', cursor: 'pointer',
-                                background: col.is_italic ? '#e2e8f0' : 'white'
-                              }}
-                            >
-                              I
-                            </button>
-                          </>
-                        )}
-                        <button 
-                          className={`toggle-btn ${col.is_visible ? 'on' : 'off'}`}
-                          onClick={() => toggleColumnVisibility(col.column_key, col.is_visible)}
-                          disabled={!['admin', 'finances'].includes(currentUser.role)}
-                          style={{ minWidth: '90px', justifyContent: 'center' }}
-                        >
-                          {col.is_visible ? <Eye size={16} /> : <EyeOff size={16} />}
-                          {col.is_visible ? 'Visible' : 'Masqué'}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
         {showOpSelector && (
           <div className="modal-backdrop" onClick={() => setShowOpSelector(false)}>
             <div className="modal-window" onClick={e => e.stopPropagation()}>
@@ -2679,31 +2562,6 @@ const Budget: React.FC = () => {
         .icon-btn:hover { background: var(--color-slate-100); color: var(--color-slate-600); }
         .modal-body { padding: 1.5rem; overflow-y: auto; }
         .modal-desc { color: var(--color-slate-500); font-size: 0.875rem; margin: 0 0 1.5rem 0; line-height: 1.5; }
-        
-        .column-toggles { display: flex; flex-direction: column; gap: 0.75rem; }
-        .toggle-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 0.75rem 1rem;
-          background: var(--color-slate-50);
-          border: 1px solid var(--color-slate-200);
-          border-radius: 0.5rem;
-        }
-        .toggle-label { font-weight: 500; color: var(--color-slate-700); font-size: 0.875rem; }
-        .toggle-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.375rem;
-          padding: 0.375rem 0.75rem;
-          border-radius: 0.375rem;
-          font-size: 0.75rem;
-          font-weight: 600;
-          transition: all 0.2s;
-        }
-        .toggle-btn.on { background: var(--color-navy); color: white; border: 1px solid var(--color-navy); }
-        .toggle-btn.off { background: white; color: var(--color-slate-500); border: 1px solid var(--color-slate-300); }
-
         /* Chaussette Indicators */
         .chaussette-card {
           display: flex;

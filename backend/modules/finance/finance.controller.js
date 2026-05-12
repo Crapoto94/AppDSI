@@ -1,25 +1,43 @@
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
-const { getSqlite } = require('../../shared/database');
+const { getSqlite, pool, pgDb } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
+
+function findVal(obj, keys) {
+    for (const k of keys) {
+        if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+        const lower = k.toLowerCase();
+        if (obj[lower] !== undefined && obj[lower] !== null) return obj[lower];
+    }
+    return '';
+}
+
+function parseNum(val) {
+    if (val === undefined || val === null || val === '') return 0;
+    const num = parseFloat(String(val).trim().replace(',', '.').replace(/[^\d.\-]/g, ''));
+    return isNaN(num) ? 0 : num;
+}
 
 const recalculateAllOperations = async () => {
     try {
-        const db = getSqlite();
-        const operations = await db.all('SELECT * FROM operations');
-        const oracle_commande = await db.all('SELECT operation_id, "Montant TTC" FROM v_orders WHERE operation_id IS NOT NULL');
+        const links = await pgDb.all("SELECT target_id, operation_id FROM oracle.oracle_links WHERE target_table = 'orders' AND operation_id IS NOT NULL");
 
+        const orderTotals = {};
+        for (const link of links) {
+            try {
+                const order = await pool.query(`SELECT "COMMANDE_MONTANT_TTC" FROM oracle.gf_oracle_commande WHERE "COMMANDE_COMMANDE" = $1`, [link.target_id.trim()]);
+                if (order.rows.length > 0) {
+                    orderTotals[link.target_id.trim()] = parseNum(order.rows[0].COMMANDE_MONTANT_TTC);
+                }
+            } catch (e) { /* skip */ }
+        }
+
+        const operations = await pgDb.all('SELECT id FROM oracle.operations');
         for (const op of operations) {
-            const linkedOrders = oracle_commande.filter(o => String(o.operation_id) === String(op.id));
-            const used = linkedOrders.reduce((acc, o) => {
-                let val = o["Montant TTC"];
-                if (!val) return acc;
-                const num = parseFloat(String(val).replace(',', '.').replace(/[^\d.-]/g, '')) || 0;
-                return acc + num;
-            }, 0);
-
-            await db.run('UPDATE operations SET used_amount = ? WHERE id = ?', [used, op.id]);
+            const linkedOrders = links.filter(l => String(l.operation_id) === String(op.id));
+            const used = linkedOrders.reduce((acc, l) => acc + (orderTotals[l.target_id.trim()] || 0), 0);
+            await pgDb.run('UPDATE oracle.operations SET used_amount = $1 WHERE id = $2', [used, op.id]);
         }
         console.log('[Finance] Synchronisation montants terminée.');
     } catch (error) {
@@ -32,22 +50,17 @@ module.exports = {
 
     getOperations: async (req, res) => {
         const { fiscalYear } = req.query;
-        let query = 'SELECT * FROM operations';
-        const params = [];
-        const where = [];
-
-        if (fiscalYear) {
-            where.push('exercice = ?');
-            params.push(fiscalYear);
-        }
-
-        if (where.length > 0) query += ' WHERE ' + where.join(' AND ');
-
         try {
-            const db = getSqlite();
-            const operations = await db.all(query, params);
+            let query = 'SELECT * FROM oracle.operations';
+            const params = [];
+            if (fiscalYear) {
+                query += ' WHERE exercice = $1';
+                params.push(String(fiscalYear));
+            }
+            const operations = await pgDb.all(query, params);
             res.json(operations);
         } catch (error) {
+            console.error('[Finance] getOperations error:', error);
             res.status(500).json({ message: 'Erreur lors de la lecture des opérations', error: error.message });
         }
     },
@@ -55,12 +68,14 @@ module.exports = {
     createOperation: async (req, res) => {
         const data = req.body;
         try {
-            const db = getSqlite();
-            const tableCols = (await db.all('PRAGMA table_info(operations)')).map(c => c.name).filter(c => c !== 'id');
-            const placeholders = tableCols.map(() => '?').join(',');
-            const values = tableCols.map(c => data[c]);
-
-            const result = await db.run(`INSERT INTO operations (${tableCols.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`, values);
+            const cols = Object.keys(data).filter(k => data[k] !== undefined);
+            const vals = cols.map(k => data[k]);
+            const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
+            const quotedCols = cols.map(c => `"${c}"`).join(',');
+            const result = await pgDb.run(
+                `INSERT INTO oracle.operations (${quotedCols}) VALUES (${placeholders})`,
+                vals
+            );
             res.json({ id: result.lastID, message: 'Opération créée' });
         } catch (error) {
             console.error('[Finance] POST /operations error:', error);
@@ -72,12 +87,10 @@ module.exports = {
         const id = req.params.id;
         const data = req.body;
         try {
-            const db = getSqlite();
-            const tableCols = (await db.all('PRAGMA table_info(operations)')).map(c => c.name).filter(c => c !== 'id');
-            const sets = tableCols.map(c => `"${c}" = ?`).join(',');
-            const values = [...tableCols.map(c => data[c]), id];
-
-            await db.run(`UPDATE operations SET ${sets} WHERE id = ?`, values);
+            const cols = Object.keys(data).filter(k => data[k] !== undefined);
+            const sets = cols.map((k, i) => `"${k}" = $${i + 1}`).join(',');
+            const vals = [...cols.map(k => data[k]), id];
+            await pgDb.run(`UPDATE oracle.operations SET ${sets} WHERE id = $${cols.length + 1}`, vals);
             res.json({ message: 'Opération mise à jour' });
         } catch (error) {
             console.error(`[Finance] PUT /operations/${id} error:`, error);
@@ -87,19 +100,14 @@ module.exports = {
 
     deleteOperation: async (req, res) => {
         const id = req.params.id;
-        logMouchard(`EXECUTION SQL: DELETE FROM operations WHERE id = ${id}`);
         try {
-            const db = getSqlite();
-            const result = await db.run('DELETE FROM operations WHERE id = ?', [id]);
+            const result = await pgDb.run('DELETE FROM oracle.operations WHERE id = $1', [id]);
             if (result.changes > 0) {
-                logMouchard(`SUCCÈS: ${result.changes} ligne supprimée.`);
                 res.json({ message: 'Opération supprimée' });
             } else {
-                logMouchard(`ÉCHEC: Aucun enregistrement trouvé pour l'ID ${id}`);
                 res.status(404).json({ message: 'Opération non trouvée' });
             }
         } catch (error) {
-            logMouchard(`ERREUR SQL: ${error.message}`);
             res.status(500).json({ message: 'Erreur suppression', error: error.message });
         }
     },
@@ -290,30 +298,62 @@ module.exports = {
 
     getInvoices: async (req, res) => {
         const { fiscalYear, budgetScope } = req.query;
-        let query = 'SELECT * FROM v_invoices';
-        const params = [];
-        const where = [];
-
         try {
-            const db = getSqlite();
-            const principalBudgetSetting = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = "budget_principal"');
-            const principalBudgetRef = principalBudgetSetting ? principalBudgetSetting.setting_value.trim() : '00001000000000001901000';
+            let params = [];
+            let whereClauses = [];
 
-            if (budgetScope === 'Ville' && fiscalYear) {
-                where.push('TRIM(BUDGET_CODE) = ?');
-                params.push(principalBudgetRef);
-                where.push('("Exercice" = ? OR substr("Arrivée", 1, 4) = ?)');
-                params.push(String(fiscalYear), String(fiscalYear));
-            } else if (fiscalYear) {
-                where.push('("Exercice" = ? OR substr("Arrivée", 1, 4) = ? OR budgetId IN (SELECT id FROM budgets WHERE Annee = ?))');
-                params.push(String(fiscalYear), String(fiscalYear), parseInt(fiscalYear));
+            if (fiscalYear) {
+                whereClauses.push(`(EXTRACT(YEAR FROM f."FACTURE_DATENTREE"::date) = $${params.length + 1} OR EXTRACT(YEAR FROM f."FACTURE_DATPAIPREV"::date) = $${params.length + 1})`);
+                params.push(parseInt(fiscalYear));
             }
 
-            if (where.length > 0) query += ' WHERE ' + where.join(' AND ');
+            if (budgetScope === 'Ville') {
+                whereClauses.push(`TRIM(ob."BUDGET_BUDGET") = $${params.length + 1}`);
+                params.push('00');
+            }
 
-            const invoices = await db.all(query, params);
-            res.json(invoices);
+            let sql = `SELECT f.*, l.operation_id, ob."BUDGET_LIBELLE", ob."BUDGET_ROO_IMA_REF" FROM oracle.gf_oracle_facture f LEFT JOIN oracle.oracle_links l ON l.target_id = TRIM(f."FACTURE_FACTURE") AND l.target_table = 'invoices' LEFT JOIN (SELECT "BUDGET_BUDGET", MIN("BUDGET_ROO_IMA_REF") as "BUDGET_ROO_IMA_REF", MIN("BUDGET_LIBELLE") as "BUDGET_LIBELLE" FROM oracle.gf_oracle_budget GROUP BY "BUDGET_BUDGET") ob ON TRIM(f."FACTURE_POBJ_EXTRACT_1") = ob."BUDGET_BUDGET"`;
+
+            if (whereClauses.length > 0) {
+                sql += ' WHERE ' + whereClauses.join(' AND ');
+            }
+
+            const result = await pool.query(sql, params);
+
+            const cleaned = result.rows.map(row => {
+                const budgetCode = String(row.BUDGET_ROO_IMA_REF || '').trim();
+                return {
+                    id: String(row.FACTURE_FACTURE || '').trim(),
+                    'N° Facture interne': String(row.FACTURE_FACTURE || '').trim(),
+                    'N° Facture fournisseur': String(row.FACTURE_REFERENCE || '').trim(),
+                    'Fournisseur': String(row.FACTURE_LIBELLE2 || '').trim(),
+                    'Libellé': String(row.FACTURE_LIBELLE1 || '').trim(),
+                    'Montant TTC': row.FACTURE_MONTANTTC_E,
+                    'Budget': row.BUDGET_LIBELLE,
+                    'Etat': row.FACETAT_LIBELLE,
+                    'Arrivée': row.FACTURE_DATENTREE,
+                    'Échéance': row.FACTURE_DATPAIPREV,
+                    'Exercice': row.FACTURE_DATENTREE ? String(row.FACTURE_DATENTREE).substring(0, 4) : '',
+                    BUDGET_CODE: budgetCode,
+                    COMMANDE_ROO_IMA_REF: String(row.FACTURE_ROO_IMA_REF || '').trim(),
+                    operation_id: row.operation_id,
+                    FACTURE_FACTURE: row.FACTURE_FACTURE,
+                    FACTURE_REFERENCE: row.FACTURE_REFERENCE,
+                    FACTURE_LIBELLE1: row.FACTURE_LIBELLE1,
+                    FACTURE_LIBELLE2: row.FACTURE_LIBELLE2,
+                    FACTURE_MONTANTTC_E: row.FACTURE_MONTANTTC_E,
+                    FACTURE_DATENTREE: row.FACTURE_DATENTREE,
+                    FACTURE_DATPAIPREV: row.FACTURE_DATPAIPREV,
+                    FACETAT_LIBELLE: row.FACETAT_LIBELLE,
+                    FACETAT_BLOCAGE: row.FACETAT_BLOCAGE,
+                    SERVICEFI_CLEACCES: row.SERVICEFI_CLEACCES,
+                    FACTURE_POBJ_EXTRACT_1: row.FACTURE_POBJ_EXTRACT_1
+                };
+            });
+
+            res.json(cleaned);
         } catch (error) {
+            console.error('[getInvoices]', error);
             res.status(500).json({ message: 'Erreur lecture factures', error: error.message });
         }
     },
@@ -351,70 +391,126 @@ module.exports = {
     getOrders: async (req, res) => {
         const { fiscalYear, budgetScope } = req.query;
         try {
-            const db = getSqlite();
-            const viewColsInfo = await db.all("PRAGMA table_info(v_orders)");
-            const excludedInternal = ['id', 'operation_id', 'budgetId', 'order_number', 'description', 'provider', 'amount_ht', 'date'];
+            let params = [];
+            let whereClauses = [];
 
-            for (const col of viewColsInfo) {
-                if (!excludedInternal.includes(col.name)) {
-                    await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, 1)', ['orders', col.name, col.name]);
+            if (fiscalYear) {
+                whereClauses.push(`EXTRACT(YEAR FROM "COMMANDE_CMD_DATECOMMANDE"::date) = $${params.length + 1}`);
+                params.push(parseInt(fiscalYear));
+            }
+
+            // Budget scope: 'Ville' = budget principal (BUDGET_BUDGET = '00')
+            if (budgetScope === 'Ville') {
+                whereClauses.push(`TRIM(c."BUDGET_BUDGET") = $${params.length + 1}`);
+                params.push('00');
+            }
+
+            // Join with oracle_links for operation_id
+            let sql = `SELECT c.*, l.operation_id FROM oracle.gf_oracle_commande c LEFT JOIN oracle.oracle_links l ON l.target_id = TRIM(c."COMMANDE_COMMANDE") AND l.target_table = 'orders'`;
+
+            if (whereClauses.length > 0) {
+                sql += ' WHERE ' + whereClauses.join(' AND ');
+            }
+
+            const result = await pool.query(sql, params);
+            const pgRows = result.rows;
+
+            // Get lines from oracle.gf_oracle_cmdligne, joined on CMDLIGNE_COMMANDE = COMMANDE_ROO_IMA_REF
+            let linesData = [];
+            try {
+                const linesResult = await pool.query('SELECT * FROM oracle.gf_oracle_cmdligne');
+                linesData = linesResult.rows;
+            } catch (e) { /* table might not exist or be empty */ }
+
+            // Build line map keyed by COMMANDE_ROO_IMA_REF (trimmed)
+            const lineMap = {};
+            for (const line of linesData) {
+                const parentRef = String(line.CMDLIGNE_COMMANDE || '').trim();
+                if (parentRef) {
+                    if (!lineMap[parentRef]) lineMap[parentRef] = [];
+                    lineMap[parentRef].push(line);
                 }
             }
 
-            const settings = await db.all("SELECT column_key FROM column_settings WHERE page = 'orders' AND is_visible = 1");
-            const validKeys = settings.map(s => s.column_key);
+            // Get operations for labels
+            const opResult = await pool.query('SELECT id, "LIBELLE" FROM oracle.operations');
+            const opMap = {};
+            opResult.rows.forEach(o => { opMap[o.id] = o.LIBELLE; });
 
-            let query = `
-                SELECT o.*, op.LIBELLE as operation_label 
-                FROM v_orders o 
-                LEFT JOIN operations op ON o.operation_id = op.id
-            `;
-            const params = [];
-            const whereClauses = [];
+            const cleanedOrders = pgRows.map(order => {
+                const orderId = String(order.COMMANDE_COMMANDE || '').trim();
+                const orderRef = String(order.COMMANDE_ROO_IMA_REF || '').trim();
+                const operationId = order.operation_id || null;
+                const lines = lineMap[orderRef] || [];
 
-            const principalBudgetSetting = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = "budget_principal"');
-            const principalBudgetRef = principalBudgetSetting ? principalBudgetSetting.setting_value.trim() : '00001000000000001901000';
+                const mappedLines = lines.map(line => ({
+                    nr: String(line.CMDLIGNE_IMPUTATION || '').trim(),
+                    desc: String(line.CMDLIGNE_LIBELLE || '').trim(),
+                    nature: '',
+                    fonction: '',
+                    amtHt: 0,
+                    amtTtc: parseNum(line.CMDLIGNE_PRIXE)
+                }));
 
-            if (budgetScope === 'Ville' && fiscalYear) {
-                whereClauses.push('TRIM(o.BUDGET_ROO_IMA_REF) = ?');
-                params.push(principalBudgetRef);
-                whereClauses.push('o.date LIKE ?');
-                params.push(`${fiscalYear}%`);
-            } else if (fiscalYear) {
-                whereClauses.push('(o.date LIKE ? OR o.budgetId IN (SELECT id FROM budgets WHERE Annee = ?))');
-                params.push(`${fiscalYear}%`, parseInt(fiscalYear));
-            }
-
-            if (whereClauses.length > 0) query += ' WHERE ' + whereClauses.join(' AND ');
-            query += ' ORDER BY o.id';
-
-            const results = await db.all(query, params);
-            const cleanedOrders = results.map(order => {
                 const cleaned = {
-                    id: order.id,
-                    operation_id: order.operation_id,
-                    operation_label: order.operation_label,
-                    section: order.section || order.Section || ''
+                    id: orderId,
+                    operation_id: operationId,
+                    operation_label: operationId ? opMap[operationId] : null,
+                    section: '',
+                    _lines: mappedLines.filter(l => l.nr || l.desc),
+                    _total_ht: parseNum(order.COMMANDE_MONTANT_HT),
+                    _total_ttc: parseNum(order.COMMANDE_MONTANT_TTC),
+                    'N° Commande': orderId,
+                    'Libellé': String((order.COMMANDE_LIBELLE || '') + ' ' + (order.COMMANDE_CMD_LIBELLE2 || '')).trim(),
+                    'Date de la commande': order.COMMANDE_CMD_DATECOMMANDE,
+                    'Montant HT': order.COMMANDE_MONTANT_HT,
+                    'Montant TTC': order.COMMANDE_MONTANT_TTC,
+                    'Fournisseur': order.SERVICEFI_LIBELLE,
+                    'Service émetteur': order.SERVICEFI_LIBELLE,
+                    'Budget': order.BUDGET_LIBELLE,
+                    order_number: orderId,
+                    description: order.COMMANDE_LIBELLE,
+                    provider: order.SERVICEFI_LIBELLE,
+                    amount_ht: order.COMMANDE_MONTANT_HT,
+                    date: order.COMMANDE_CMD_DATECOMMANDE,
+                    COMMANDE_ROO_IMA_REF: order.COMMANDE_ROO_IMA_REF,
+                    BUDGET_BUDGET: order.BUDGET_BUDGET,
+                    BUDGET_LIBELLE: order.BUDGET_LIBELLE,
+                    TIERS_TIERS: order.TIERS_TIERS,
+                    SERVICEFI_CLEACCES: order.SERVICEFI_CLEACCES,
+                    SERVICEFI_LIBELLE: order.SERVICEFI_LIBELLE,
+                    COMMANDE_COMMANDE: order.COMMANDE_COMMANDE,
+                    COMMANDE_LIBELLE: order.COMMANDE_LIBELLE,
+                    COMMANDE_CMD_LIBELLE2: order.COMMANDE_CMD_LIBELLE2,
+                    COMMANDE_CMD_DATECOMMANDE: order.COMMANDE_CMD_DATECOMMANDE,
+                    COMMANDE_CMD_COMMENTAIRE: order.COMMANDE_CMD_COMMENTAIRE,
+                    COMMANDE_MONTANT_HT: order.COMMANDE_MONTANT_HT,
+                    COMMANDE_MONTANT_TVA: order.COMMANDE_MONTANT_TVA,
+                    COMMANDE_MONTANT_TTC: order.COMMANDE_MONTANT_TTC,
+                    'Nb lignes': order.COMMANDE_NB_LIGNES_COMMANDE
                 };
-                viewColsInfo.forEach(c => { cleaned[c.name] = order[c.name]; });
-                validKeys.forEach(key => { if (!cleaned.hasOwnProperty(key)) cleaned[key] = order[key]; });
+
                 return cleaned;
             });
 
             res.json(cleanedOrders);
         } catch (error) {
+            console.error('[getOrders]', error);
             res.status(500).json({ message: 'Erreur lecture commandes', error: error.message });
         }
     },
 
     getOrderYears: async (req, res) => {
         try {
-            const db = getSqlite();
-            const rows = await db.all("SELECT DISTINCT substr(date, 1, 4) as year FROM v_orders WHERE date IS NOT NULL AND date != '' ORDER BY year DESC");
-            const years = rows.map(r => parseInt(r.year)).filter(y => !isNaN(y) && y > 2000);
-            res.json(years);
+            const result = await pool.query(`SELECT DISTINCT EXTRACT(YEAR FROM "COMMANDE_CMD_DATECOMMANDE"::date) as year FROM oracle.gf_oracle_commande WHERE "COMMANDE_CMD_DATECOMMANDE" IS NOT NULL AND "COMMANDE_CMD_DATECOMMANDE" != '' ORDER BY year DESC`);
+            const years = result.rows.map(r => parseInt(r.year)).filter(y => !isNaN(y) && y > 2000);
+            if (years.length > 0) return res.json(years);
+            const currentYear = new Date().getFullYear();
+            res.json([currentYear, currentYear - 1, currentYear - 2]);
         } catch (e) {
-            res.status(500).json({ error: e.message });
+            console.error('[getOrderYears]', e.message);
+            const currentYear = new Date().getFullYear();
+            res.json([currentYear, currentYear - 1, currentYear - 2]);
         }
     },
 
@@ -422,25 +518,28 @@ module.exports = {
         const { operation_id } = req.body;
         const order_id = req.params.id;
         try {
-            const db = getSqlite();
-            const order = await db.get('SELECT "N° Commande" FROM v_orders WHERE id = ?', [order_id]);
-            if (!order) return res.status(404).json({ message: 'Commande non trouvée' });
-
-            const nr = order['N° Commande'];
+            // Resolve the order number from the database
+            let nr = order_id;
+            try {
+                const result = await pool.query(`SELECT "COMMANDE_COMMANDE" FROM oracle.gf_oracle_commande WHERE "COMMANDE_COMMANDE" = $1 LIMIT 1`, [order_id.trim()]);
+                if (result.rows.length > 0) {
+                    nr = String(result.rows[0].COMMANDE_COMMANDE).trim();
+                }
+            } catch (e) { /* fallback: use order_id as nr */ }
 
             if (operation_id) {
-                await db.run(`
-                    INSERT INTO oracle_links (target_table, target_id, operation_id) 
-                    VALUES ('orders', ?, ?)
-                    ON CONFLICT(target_table, target_id) DO UPDATE SET operation_id = excluded.operation_id
-                `, [nr, operation_id]);
+                await pgDb.run(
+                    `INSERT INTO oracle.oracle_links (target_table, target_id, operation_id) VALUES ('orders', $1, $2) ON CONFLICT (target_table, target_id) DO UPDATE SET operation_id = EXCLUDED.operation_id`,
+                    [nr, operation_id]
+                );
             } else {
-                await db.run('UPDATE oracle_links SET operation_id = NULL WHERE target_table = "orders" AND target_id = ?', [nr]);
+                await pgDb.run(`UPDATE oracle.oracle_links SET operation_id = NULL WHERE target_table = 'orders' AND target_id = $1`, [nr]);
             }
 
             await recalculateAllOperations();
             res.json({ message: 'Affectation réussie' });
         } catch (error) {
+            console.error('[assignOperation]', error);
             res.status(500).json({ message: 'Erreur affectation', error: error.message });
         }
     },
@@ -449,26 +548,30 @@ module.exports = {
         const { order_numbers, operation_id } = req.body;
         if (!Array.isArray(order_numbers)) return res.status(400).json({ message: 'Données invalides' });
         try {
-            const db = getSqlite();
-            await db.run('BEGIN TRANSACTION');
-            for (const nr of order_numbers) {
-                if (operation_id) {
-                    await db.run(`
-                        INSERT INTO oracle_links (target_table, target_id, operation_id) 
-                        VALUES ('orders', ?, ?)
-                        ON CONFLICT(target_table, target_id) DO UPDATE SET operation_id = excluded.operation_id
-                    `, [nr, operation_id]);
-                } else {
-                    await db.run('UPDATE oracle_links SET operation_id = NULL WHERE target_table = "orders" AND target_id = ?', [nr]);
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                for (const nr of order_numbers) {
+                    if (operation_id) {
+                        await client.query(
+                            `INSERT INTO oracle.oracle_links (target_table, target_id, operation_id) VALUES ('orders', $1, $2) ON CONFLICT (target_table, target_id) DO UPDATE SET operation_id = EXCLUDED.operation_id`,
+                            [nr.trim(), operation_id]
+                        );
+                    } else {
+                        await client.query(`UPDATE oracle.oracle_links SET operation_id = NULL WHERE target_table = 'orders' AND target_id = $1`, [nr.trim()]);
+                    }
                 }
+                await client.query('COMMIT');
+            } catch (e) {
+                await client.query('ROLLBACK');
+                throw e;
+            } finally {
+                client.release();
             }
-            await db.run('COMMIT');
             await recalculateAllOperations();
             res.json({ message: 'Affectation groupée réussie' });
         } catch (error) {
-            const db = getSqlite();
-            await db.run('ROLLBACK');
-            res.status(500).json({ message: 'Erreur affectation groupée' });
+            res.status(500).json({ message: 'Erreur affectation groupée', error: error.message });
         }
     }
 };
