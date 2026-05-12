@@ -1,25 +1,21 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../components/Header';
-import { Users, Search, X, Columns, Eye, EyeOff, Info, Phone, Mail, MapPin, Plus, Edit2, Trash2, FileText, CheckCircle, ChevronRight, ArrowUp, ArrowDown, Upload, ShoppingCart, ExternalLink } from 'lucide-react';
+import { Users, Search, X, Columns, Eye, EyeOff, Info, Phone, Mail, Plus, Edit2, Trash2, FileText, CheckCircle, ChevronRight, ArrowUp, ArrowDown, ShoppingCart, ExternalLink, Building2, Calendar, CreditCard, Hash } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface Tier {
-  id: number;
   code: string;
   nom: string;
-  activite: string;
+  complement_nom: string;
   siret: string;
-  adresse: string;
-  telephone: string;
-  email: string;
-  order_count?: number;
-  invoice_count?: number;
-  has_order_recipient?: number;
+  nature_juridique: string;
+  date_validite: string;
+  [key: string]: any;
 }
 
 interface Contact {
   id: number;
-  tier_id: number;
+  tier_code: string;
   nom: string;
   prenom: string;
   role: string;
@@ -61,13 +57,6 @@ interface ColumnSetting {
 const Tiers: React.FC = () => {
   const [view, setView] = useState<'list' | 'details'>('list');
   const [tiers, setTiers] = useState<Tier[]>([]);
-  const [stats, setStats] = useState({
-    total_orders: 0,
-    total_invoices: 0,
-    total_tiers_all: 0,
-    total_tiers_dsi: 0
-  });
-  const [showAll, setShowAll] = useState(false);
   const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
   const [columnSettings, setColumnSettings] = useState<ColumnSetting[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -75,25 +64,21 @@ const Tiers: React.FC = () => {
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isImporting, setIsImporting] = useState(false);
+  const [totalTiers, setTotalTiers] = useState(0);
   const [limit, setLimit] = useState(100);
-  const [expandedTiers, setExpandedTiers] = useState<Record<string, boolean>>({});
-  
-  // Detail view state
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
   const [activeDetailTab, setActiveDetailTab] = useState<'info' | 'contacts' | 'orders'>('info');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [groupedInvoices, setGroupedInvoices] = useState<GroupedInvoice[]>([]);
   const [previewFile, setPreviewFile] = useState<{ url: string, name: string } | null>(null);
-  
-  // Contact Modal state
+
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [newContact, setNewContact] = useState({
     nom: '', prenom: '', role: '', telephone: '', email: '', commentaire: '', is_order_recipient: 0
   });
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { token, user } = useAuth();
   const currentUser = user || { role: 'user', username: '', service_code: undefined, service_complement: undefined, id: 0 };
@@ -106,7 +91,16 @@ const Tiers: React.FC = () => {
       setIsLoading(false);
     };
     init();
-  }, [showAll]);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!isLoading) {
+        fetchTiers(searchTerm);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   const fetchSettings = async () => {
     try {
@@ -121,52 +115,28 @@ const Tiers: React.FC = () => {
     }
   };
 
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
+  const fetchTiers = async (search?: string) => {
     try {
-      setIsImporting(true);
-      const res = await fetch('/api/tiers/import', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-      const result = await res.json();
-      if (res.ok) {
-        alert(`Import réussi : ${result.created} créés, ${result.updated} mis à jour.`);
-        fetchTiers();
-      } else {
-        alert(`Erreur : ${result.message}`);
-      }
-    } catch (err) {
-      console.error('Import error:', err);
-      alert('Erreur lors de l\'import');
-    } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const fetchTiers = async () => {
-    try {
-      console.log('Fetching tiers, showAll:', showAll);
-      const res = await fetch(`/api/tiers?all=${showAll}`, {
+      setFetchError(null);
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      const res = await fetch(`/api/tiers${params.toString() ? '?' + params.toString() : ''}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ message: `Erreur HTTP ${res.status}` }));
+        console.error('[TIERS] API error:', res.status, errData.message || errData.error);
+        setFetchError(errData.message || errData.error || `Erreur ${res.status}`);
+        setTiers([]);
+        return;
+      }
       const data = await res.json();
-      console.log('Tiers data received:', data);
       setTiers(data.tiers || []);
-      if (data.stats) setStats(data.stats);
+      setTotalTiers(data.total || (data.tiers || []).length);
     } catch (err) {
       console.error('Error fetching tiers:', err);
+      setFetchError('Erreur de connexion au serveur');
+      setTiers([]);
     }
   };
 
@@ -189,17 +159,17 @@ const Tiers: React.FC = () => {
     try {
       const timestamp = Date.now();
       const [contactsRes, ordersRes] = await Promise.all([
-        fetch(`/api/tiers/${tier.id}/contacts?t=${timestamp}`, {
+        fetch(`/api/tiers/${encodeURIComponent(tier.code)}/contacts?t=${timestamp}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }),
-        fetch(`/api/tiers/${tier.id}/history?t=${timestamp}`, {
+        fetch(`/api/tiers/${encodeURIComponent(tier.code)}/history?t=${timestamp}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         })
       ]);
       if (contactsRes.ok) setContacts(await contactsRes.json());
       if (ordersRes.ok) {
         const data = await ordersRes.json();
-        setOrders(data.orders || []);
+        setOrders(data.oracle_commande || []);
         setGroupedInvoices(data.invoices || []);
       }
     } catch (err) {
@@ -209,18 +179,18 @@ const Tiers: React.FC = () => {
 
   const handleSaveContact = async () => {
     if (!selectedTier) return;
-    const url = editingContact 
+    const url = editingContact
       ? `/api/contacts/${editingContact.id}`
-      : `/api/tiers/${selectedTier.id}/contacts`;
-    
+      : `/api/tiers/${encodeURIComponent(selectedTier.code)}/contacts`;
+
     const method = editingContact ? 'PUT' : 'POST';
 
     try {
       const res = await fetch(url, {
         method,
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` 
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(newContact)
       });
@@ -250,30 +220,17 @@ const Tiers: React.FC = () => {
 
   const filteredTiers = useMemo(() => {
     let data = [...tiers];
-    
-    // Global search
-    if (searchTerm) {
-      const s = searchTerm.toLowerCase();
-      data = data.filter(t => 
-        t.nom?.toLowerCase().includes(s) || 
-        t.code?.toLowerCase().includes(s) ||
-        t.siret?.toLowerCase().includes(s) ||
-        t.activite?.toLowerCase().includes(s)
-      );
-    }
 
-    // Column filters
     for (const [key, val] of Object.entries(columnFilters)) {
       if (val) {
-        data = data.filter(t => (t[key as keyof Tier]?.toString() || '').toLowerCase().includes(val.toLowerCase()));
+        data = data.filter(t => (t[key]?.toString() || '').toLowerCase().includes(val.toLowerCase()));
       }
     }
 
-    // Sort
     if (sortConfig) {
       data.sort((a, b) => {
-        const aVal = a[sortConfig.key as keyof Tier] || '';
-        const bVal = b[sortConfig.key as keyof Tier] || '';
+        const aVal = a[sortConfig.key] || '';
+        const bVal = b[sortConfig.key] || '';
         if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
         return 0;
@@ -281,7 +238,7 @@ const Tiers: React.FC = () => {
     }
 
     return data;
-  }, [tiers, searchTerm, columnFilters, sortConfig]);
+  }, [tiers, columnFilters, sortConfig]);
 
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -299,7 +256,7 @@ const Tiers: React.FC = () => {
     setColumnSettings(newSettings);
     await fetch(`/api/column-settings/tiers/bulk`, {
       method: 'POST',
-      headers: { 
+      headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
@@ -308,14 +265,14 @@ const Tiers: React.FC = () => {
   };
 
   const toggleColumnVisibility = (columnKey: string, currentVisible: number) => {
-    const updated = columnSettings.map(c => 
+    const updated = columnSettings.map(c =>
       c.column_key === columnKey ? { ...c, is_visible: currentVisible ? 0 : 1 } : c
     );
     updateColumnSettingsBulk(updated);
   };
 
   const updateColumnStyle = (columnKey: string, field: 'color' | 'is_bold' | 'is_italic', value: any) => {
-    const updated = columnSettings.map(c => 
+    const updated = columnSettings.map(c =>
       c.column_key === columnKey ? { ...c, [field]: value } : c
     );
     updateColumnSettingsBulk(updated);
@@ -330,7 +287,6 @@ const Tiers: React.FC = () => {
     newSettings[index] = newSettings[targetIndex];
     newSettings[targetIndex] = temp;
 
-    // Redéfinir display_order explicitement
     const updated = newSettings.map((col, idx) => ({
       ...col,
       display_order: idx
@@ -339,20 +295,6 @@ const Tiers: React.FC = () => {
     updateColumnSettingsBulk(updated);
   };
 
-  const groupedTiers = useMemo(() => {
-    const groups: Record<string, Tier[]> = {};
-    filteredTiers.forEach(tier => {
-      const name = tier.nom || 'Sans nom';
-      if (!groups[name]) groups[name] = [];
-      groups[name].push(tier);
-    });
-    return groups;
-  }, [filteredTiers]);
-
-  const sortedGroupNames = useMemo(() => {
-    return Object.keys(groupedTiers).sort((a, b) => a.localeCompare(b));
-  }, [groupedTiers]);
-
   return (
     <div className="tiers-page">
       <Header />
@@ -360,17 +302,17 @@ const Tiers: React.FC = () => {
         <div className="page-header">
           <div>
             <h1 className="page-title">Gestion des Tiers</h1>
-            <p className="page-subtitle">Consultez et gérez vos fournisseurs, contacts et historique.</p>
+            <p className="page-subtitle">Consultez les fournisseurs et leurs contacts.</p>
           </div>
           <div className="view-tabs">
-            <button 
-              className={`tab-btn ${view === 'list' ? 'active' : ''}`} 
+            <button
+              className={`tab-btn ${view === 'list' ? 'active' : ''}`}
               onClick={() => setView('list')}
             >
               Liste des tiers
             </button>
-            <button 
-              className={`tab-btn ${view === 'details' ? 'active' : ''}`} 
+            <button
+              className={`tab-btn ${view === 'details' ? 'active' : ''}`}
               onClick={() => selectedTier && setView('details')}
               disabled={!selectedTier}
             >
@@ -381,67 +323,18 @@ const Tiers: React.FC = () => {
 
         {view === 'list' && (
           <div className="list-container">
-            <div className="dashboard-grid" style={{ marginBottom: '2rem' }}>
-              <div className="dashboard-card secondary">
-                <div className="card-icon"><ShoppingCart size={24} /></div>
-                <div className="card-content">
-                  <h3 className="card-title">Total Commandes</h3>
-                  <p className="card-value">{stats.total_orders}</p>
-                </div>
-              </div>
-              <div className="dashboard-card warning">
-                <div className="card-icon"><FileText size={24} /></div>
-                <div className="card-content">
-                  <h3 className="card-title">Total Factures</h3>
-                  <p className="card-value">{stats.total_invoices}</p>
-                </div>
-              </div>
-              <div className="dashboard-card primary">
-                <div className="card-icon"><Users size={24} /></div>
-                <div className="card-content">
-                  <h3 className="card-title">Tiers DSI / Total</h3>
-                  <p className="card-value">{stats.total_tiers_dsi} / {stats.total_tiers_all}</p>
-                </div>
-              </div>
-            </div>
-
             <div className="toolbar">
               <div className="toolbar-actions">
-                <button 
-                  className={`toolbar-btn ${showAll ? 'active' : ''}`}
-                  onClick={() => setShowAll(!showAll)}
-                  style={{ 
-                    background: showAll ? 'var(--color-navy)' : 'white', 
-                    color: showAll ? 'white' : 'var(--color-slate-700)',
-                    borderColor: showAll ? 'var(--color-navy)' : 'var(--color-slate-200)'
-                  }}
-                >
-                  <Users size={16} /> {showAll ? 'Tiers DSI uniquement' : 'Tous les tiers'}
-                </button>
                 <button className="toolbar-btn" onClick={() => setShowColumnConfig(true)}>
                   <Columns size={16} /> Colonnes
                 </button>
-                {(currentUser?.role === 'admin' || currentUser?.role === 'finances' || currentUser?.role === 'compta') && (
-                  <>
-                    <button className="toolbar-btn" onClick={handleImportClick}>
-                      <Upload size={16} /> Import Excel
-                    </button>
-                    <input 
-                      type="file" 
-                      ref={fileInputRef} 
-                      style={{ display: 'none' }} 
-                      accept=".xls,.xlsx" 
-                      onChange={handleFileChange} 
-                    />
-                  </>
-                )}
               </div>
               <div className="toolbar-filters">
                 <div className="search-input-wrapper">
                   <Search size={16} className="search-icon" />
-                  <input 
-                    type="text" 
-                    placeholder="Rechercher un tiers..." 
+                  <input
+                    type="text"
+                    placeholder="Rechercher un tiers..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="search-input"
@@ -452,24 +345,14 @@ const Tiers: React.FC = () => {
 
             <div className="table-card">
               <div className="table-responsive">
-                {isLoading || isImporting ? (
+                {isLoading ? (
                   <div style={{ padding: '6rem 4rem', textAlign: 'center', color: 'var(--color-navy)' }}>
                     <div className="loading-spinner-container">
                       <div className="loading-spinner-modern"></div>
                     </div>
-                    {isImporting ? (
-                      <div style={{ marginTop: '1.5rem' }}>
-                        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Importation en cours...</h3>
-                        <p style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>
-                          Cette opération peut prendre quelques minutes selon la taille du fichier.<br />
-                          Merci de patienter.
-                        </p>
-                      </div>
-                    ) : (
-                      <div style={{ marginTop: '1.5rem' }}>
-                        Chargement des {tiers.length || ''} tiers...
-                      </div>
-                    )}
+                    <div style={{ marginTop: '1.5rem' }}>
+                      Chargement des tiers...
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -486,8 +369,8 @@ const Tiers: React.FC = () => {
                                     <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
                                   )}
                                 </div>
-                                <input 
-                                  type="text" 
+                                <input
+                                  type="text"
                                   placeholder="Filtrer..."
                                   value={columnFilters[col.column_key] || ''}
                                   onChange={(e) => handleColumnFilterChange(col.column_key, e.target.value)}
@@ -499,134 +382,50 @@ const Tiers: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedGroupNames.slice(0, limit).length > 0 ? sortedGroupNames.slice(0, limit).map((name) => {
-                          const group = groupedTiers[name];
-                          const isExpanded = expandedTiers[name];
-                          const hasMulti = group.length > 1;
-                          
-                          return (
-                            <React.Fragment key={name}>
-                              <tr 
-                                onClick={() => {
-                                  if (hasMulti) {
-                                    setExpandedTiers(prev => ({ ...prev, [name]: !prev[name] }));
-                                  } else {
-                                    fetchTierDetails(group[0]);
-                                  }
-                                }} 
-                                style={{ cursor: 'pointer', background: hasMulti ? 'var(--color-slate-50)' : 'inherit' }}
-                              >
-                                <td style={{ textAlign: 'center', color: 'var(--color-navy)' }}>
-                                  {hasMulti ? (
-                                    isExpanded ? <ChevronRight size={16} style={{ transform: 'rotate(90deg)', transition: 'transform 0.2s' }} /> : <ChevronRight size={16} style={{ transition: 'transform 0.2s' }} />
-                                  ) : (
-                                    <ChevronRight size={16} />
-                                  )}
+                        {filteredTiers.slice(0, limit).length > 0 ? filteredTiers.slice(0, limit).map((tier) => (
+                          <tr key={tier.code} onClick={() => fetchTierDetails(tier)} style={{ cursor: 'pointer' }}>
+                            <td style={{ textAlign: 'center', color: 'var(--color-navy)' }}>
+                              <ChevronRight size={16} />
+                            </td>
+                            {columnSettings.filter(c => c.is_visible).map(col => {
+                              const val = tier[col.column_key];
+
+                              return (
+                                <td
+                                  key={col.column_key}
+                                  style={{
+                                    color: col.color || 'inherit',
+                                    fontWeight: col.is_bold ? 'bold' : 'normal',
+                                    fontStyle: col.is_italic ? 'italic' : 'normal'
+                                  }}
+                                >
+                                  {val}
                                 </td>
-                                {columnSettings.filter(c => c.is_visible).map(col => {
-                                  // For grouped row, we only show the name and aggregate counts if it's a multi-group
-                                  if (hasMulti && col.column_key !== 'nom' && col.column_key !== 'order_count' && col.column_key !== 'invoice_count') {
-                                    return <td key={col.column_key} style={{ color: 'var(--color-slate-400)', fontSize: '0.8rem', fontStyle: 'italic' }}>- Multiples ({group.length}) -</td>;
-                                  }
-
-                                  let val: any;
-                                  const hasRecipientInGroup = group.some(t => t.has_order_recipient && t.has_order_recipient > 0);
-                                  
-                                  if (hasMulti) {
-                                    if (col.column_key === 'nom') val = name;
-                                    else if (col.column_key === 'order_count') val = group[0].order_count;
-                                    else if (col.column_key === 'invoice_count') val = group[0].invoice_count;
-                                  } else {
-                                    val = group[0][col.column_key as keyof Tier];
-                                  }
-                                  
-                                  if (col.column_key === 'order_count' || col.column_key === 'invoice_count') {
-                                    return (
-                                      <td key={col.column_key} style={{ textAlign: 'center' }}>
-                                        <span className={`badge-count ${col.column_key === 'order_count' ? 'order-badge' : 'invoice-badge'}`}>
-                                          {val || 0}
-                                        </span>
-                                      </td>
-                                    );
-                                  }
-
-                                  return (
-                                    <td 
-                                      key={col.column_key}
-                                      style={{
-                                        color: col.color || 'inherit',
-                                        fontWeight: (col.is_bold || (hasMulti && col.column_key === 'nom')) ? 'bold' : 'normal',
-                                        fontStyle: col.is_italic ? 'italic' : 'normal'
-                                      }}
-                                    >
-                                      {col.column_key === 'nom' && hasRecipientInGroup && (
-                                        <span title="Destinataire des commandes">
-                                          <ShoppingCart size={14} style={{ color: 'var(--color-ivry)', marginRight: '8px', verticalAlign: 'middle' }} />
-                                        </span>
-                                      )}
-                                      {val}
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                              {hasMulti && isExpanded && group.map((tier, idx) => (
-                                <tr key={tier.id} onClick={() => fetchTierDetails(tier)} style={{ cursor: 'pointer', background: '#fff' }}>
-                                  <td style={{ textAlign: 'center', color: 'var(--color-slate-300)', paddingLeft: '1.5rem' }}>
-                                    <div style={{ width: '2px', height: '100%', background: 'var(--color-slate-200)', margin: '0 auto' }}></div>
-                                  </td>
-                                  {columnSettings.filter(c => c.is_visible).map(col => {
-                                    const val = tier[col.column_key as keyof Tier];
-                                    
-                                    if (col.column_key === 'order_count' || col.column_key === 'invoice_count') {
-                                      return (
-                                        <td key={col.column_key} style={{ textAlign: 'center', paddingLeft: '2rem' }}>
-                                          {/* On ne réaffiche pas les compteurs sur les doublons car ils sont globaux au nom */}
-                                          <span style={{ color: 'var(--color-slate-300)' }}>-</span>
-                                        </td>
-                                      );
-                                    }
-
-                                    return (
-                                      <td 
-                                        key={col.column_key}
-                                        style={{
-                                          paddingLeft: col.column_key === 'nom' ? '2rem' : '1rem',
-                                          color: col.color || 'inherit',
-                                          fontWeight: col.is_bold ? 'bold' : 'normal',
-                                          fontStyle: col.is_italic ? 'italic' : 'normal',
-                                          fontSize: '0.85rem'
-                                        }}
-                                      >
-                                        {col.column_key === 'nom' ? (
-                                          <>
-                                            {tier.has_order_recipient && tier.has_order_recipient > 0 && (
-                                              <ShoppingCart size={12} style={{ color: 'var(--color-ivry)', marginRight: '6px', verticalAlign: 'middle' }} />
-                                            )}
-                                            <span style={{ color: 'var(--color-slate-400)' }}>↳ {val} (v{idx+1})</span>
-                                          </>
-                                        ) : val}
-                                      </td>
-                                    );
-                                  })}
-                                </tr>
-                              ))}
-                            </React.Fragment>
-                          );
-                        }) : (
+                              );
+                            })}
+                          </tr>
+                        )) : (
                           <tr>
                             <td colSpan={columnSettings.filter(c => c.is_visible).length + 1} className="empty-state">
-                              Aucun tiers trouvé.
+                              {fetchError ? `Erreur : ${fetchError}` : searchTerm ? `Aucun tiers trouvé pour "${searchTerm}".` : 'Aucun tiers trouvé.'}
                             </td>
                           </tr>
                         )}
                       </tbody>
                     </table>
-                    {sortedGroupNames.length > limit && (
+                    {(totalTiers > 0 || filteredTiers.length > 0) && (
+                      <div style={{ padding: '1rem 1.5rem', textAlign: 'center', fontSize: '0.85rem', color: 'var(--color-slate-500)', borderTop: '1px solid var(--color-slate-100)' }}>
+                        {totalTiers > filteredTiers.length
+                          ? `${filteredTiers.length} tiers affichés sur ${totalTiers}`
+                          : `${filteredTiers.length} tiers`}
+                      </div>
+                    )}
+                    {filteredTiers.length > limit && (
                       <div style={{ padding: '1.5rem', textAlign: 'center', borderTop: '1px solid var(--color-slate-100)' }}>
                         <p style={{ fontSize: '0.85rem', color: 'var(--color-slate-500)', marginBottom: '1rem' }}>
-                          Affichage de {limit} groupes sur {sortedGroupNames.length}
+                          Affichage de {limit} sur {filteredTiers.length}
                         </p>
-                        <button 
+                        <button
                           className="toolbar-btn"
                           onClick={() => setLimit(prev => prev + 200)}
                         >
@@ -645,21 +444,21 @@ const Tiers: React.FC = () => {
           <div className="details-container">
             <div className="dashboard-grid">
               <div className="dashboard-card secondary">
-                <div className="card-icon"><Users size={24} /></div>
+                <div className="card-icon"><Building2 size={24} /></div>
                 <div className="card-content">
                   <h3 className="card-title">Nom du Tiers</h3>
                   <p className="card-value">{selectedTier.nom}</p>
                 </div>
               </div>
               <div className="dashboard-card primary">
-                <div className="card-icon"><FileText size={24} /></div>
+                <div className="card-icon"><Hash size={24} /></div>
                 <div className="card-content">
                   <h3 className="card-title">Code Tiers</h3>
                   <p className="card-value">{selectedTier.code}</p>
                 </div>
               </div>
               <div className="dashboard-card warning">
-                <div className="card-icon"><Info size={24} /></div>
+                <div className="card-icon"><CreditCard size={24} /></div>
                 <div className="card-content">
                   <h3 className="card-title">SIRET</h3>
                   <p className="card-value">{selectedTier.siret || 'N/A'}</p>
@@ -669,21 +468,21 @@ const Tiers: React.FC = () => {
 
             <div className="table-card">
               <div style={{ display: 'flex', borderBottom: '1px solid var(--color-slate-200)', background: 'var(--color-slate-50)' }}>
-                <button 
+                <button
                   className={`tab-btn ${activeDetailTab === 'info' ? 'active' : ''}`}
                   onClick={() => setActiveDetailTab('info')}
                   style={{ borderRadius: 0, padding: '1rem 1.5rem' }}
                 >
                   <Info size={16} style={{ marginRight: '8px' }} /> Informations
                 </button>
-                <button 
+                <button
                   className={`tab-btn ${activeDetailTab === 'contacts' ? 'active' : ''}`}
                   onClick={() => setActiveDetailTab('contacts')}
                   style={{ borderRadius: 0, padding: '1rem 1.5rem' }}
                 >
                   <Users size={16} style={{ marginRight: '8px' }} /> Contacts ({contacts.length})
                 </button>
-                <button 
+                <button
                   className={`tab-btn ${activeDetailTab === 'orders' ? 'active' : ''}`}
                   onClick={() => setActiveDetailTab('orders')}
                   style={{ borderRadius: 0, padding: '1rem 1.5rem' }}
@@ -696,35 +495,55 @@ const Tiers: React.FC = () => {
                 {activeDetailTab === 'info' && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem' }}>
                     <div className="info-section">
-                      <h4 style={{ textTransform: 'uppercase', fontSize: '0.75rem', color: 'var(--color-slate-400)', letterSpacing: '0.1em', marginBottom: '1.5rem', fontWeight: 800 }}>Coordonnées</h4>
+                      <h4 style={{ textTransform: 'uppercase', fontSize: '0.75rem', color: 'var(--color-slate-400)', letterSpacing: '0.1em', marginBottom: '1.5rem', fontWeight: 800 }}>Identité</h4>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                         <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                          <MapPin size={20} style={{ color: 'var(--color-slate-300)', marginTop: '2px' }} />
+                          <Building2 size={20} style={{ color: 'var(--color-slate-300)', marginTop: '2px' }} />
                           <div>
-                            <div style={{ fontWeight: 600, color: 'var(--color-slate-700)', fontSize: '0.9rem' }}>Adresse</div>
-                            <div style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>{selectedTier.adresse || 'N/A'}</div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-slate-700)', fontSize: '0.9rem' }}>Raison sociale</div>
+                            <div style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>{selectedTier.nom || 'N/A'}</div>
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                          <Phone size={20} style={{ color: 'var(--color-slate-300)', marginTop: '2px' }} />
+                          <Building2 size={20} style={{ color: 'var(--color-slate-300)', marginTop: '2px' }} />
                           <div>
-                            <div style={{ fontWeight: 600, color: 'var(--color-slate-700)', fontSize: '0.9rem' }}>Téléphone</div>
-                            <div style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>{selectedTier.telephone || 'N/A'}</div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-slate-700)', fontSize: '0.9rem' }}>Complément</div>
+                            <div style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>{selectedTier.complement_nom || 'N/A'}</div>
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                          <Mail size={20} style={{ color: 'var(--color-slate-300)', marginTop: '2px' }} />
+                          <Hash size={20} style={{ color: 'var(--color-slate-300)', marginTop: '2px' }} />
                           <div>
-                            <div style={{ fontWeight: 600, color: 'var(--color-slate-700)', fontSize: '0.9rem' }}>Email</div>
-                            <div style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>{selectedTier.email || 'N/A'}</div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-slate-700)', fontSize: '0.9rem' }}>Code tiers</div>
+                            <div style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>{selectedTier.code}</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                          <CreditCard size={20} style={{ color: 'var(--color-slate-300)', marginTop: '2px' }} />
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-slate-700)', fontSize: '0.9rem' }}>SIRET</div>
+                            <div style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>{selectedTier.siret || 'N/A'}</div>
                           </div>
                         </div>
                       </div>
                     </div>
                     <div className="info-section">
-                      <h4 style={{ textTransform: 'uppercase', fontSize: '0.75rem', color: 'var(--color-slate-400)', letterSpacing: '0.1em', marginBottom: '1.5rem', fontWeight: 800 }}>Détails Activité</h4>
-                      <div style={{ background: 'var(--color-slate-50)', padding: '1.5rem', borderRadius: '0.75rem', border: '1px solid var(--color-slate-200)', color: 'var(--color-slate-600)', fontStyle: 'italic', lineHeight: 1.6 }}>
-                        {selectedTier.activite || 'Aucune description d\'activité enregistrée.'}
+                      <h4 style={{ textTransform: 'uppercase', fontSize: '0.75rem', color: 'var(--color-slate-400)', letterSpacing: '0.1em', marginBottom: '1.5rem', fontWeight: 800 }}>Classification</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                          <Info size={20} style={{ color: 'var(--color-slate-300)', marginTop: '2px' }} />
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-slate-700)', fontSize: '0.9rem' }}>Nature juridique</div>
+                            <div style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>{selectedTier.nature_juridique || 'N/A'}</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                          <Calendar size={20} style={{ color: 'var(--color-slate-300)', marginTop: '2px' }} />
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-slate-700)', fontSize: '0.9rem' }}>Date de validité</div>
+                            <div style={{ color: 'var(--color-slate-500)', fontSize: '0.95rem' }}>{selectedTier.date_validite || 'N/A'}</div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -733,8 +552,8 @@ const Tiers: React.FC = () => {
                 {activeDetailTab === 'contacts' && (
                   <div className="contacts-view">
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.5rem' }}>
-                      <button 
-                        className="toolbar-btn" 
+                      <button
+                        className="toolbar-btn"
                         style={{ background: 'var(--color-navy)', color: 'white', border: 'none' }}
                         onClick={() => {
                           setEditingContact(null);
@@ -793,19 +612,19 @@ const Tiers: React.FC = () => {
                                   <span style={{ fontWeight: 800, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     {order["N° Commande"]}
                                     {order.COMMANDE_ROO_IMA_REF && (
-                                      <button 
+                                      <button
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           window.open(`${urlSedit}/FicheCommande.html?commandeId=${order.COMMANDE_ROO_IMA_REF}`, '_blank');
                                         }}
                                         className="sedit-btn-mini"
                                         title="Ouvrir dans Sedit"
-                                        style={{ 
-                                          padding: '2px 6px', 
-                                          fontSize: '0.65rem', 
-                                          background: 'var(--color-ivry)', 
-                                          color: 'white', 
-                                          border: 'none', 
+                                        style={{
+                                          padding: '2px 6px',
+                                          fontSize: '0.65rem',
+                                          background: 'var(--color-ivry)',
+                                          color: 'white',
+                                          border: 'none',
                                           borderRadius: '4px',
                                           display: 'flex',
                                           alignItems: 'center',
@@ -881,7 +700,7 @@ const Tiers: React.FC = () => {
                                   <span style={{ fontWeight: 800, color: 'var(--color-ivry)', fontSize: '1.2rem' }}>{group.total_ttc.toFixed(2)} €</span>
                                 </div>
                                 {group.hasFile && (
-                                  <button 
+                                  <button
                                     className="toolbar-btn"
                                     onClick={() => setPreviewFile({ url: `/${group.filePath}`, name: group.number })}
                                     style={{ background: 'var(--color-navy)', color: 'white', border: 'none' }}
@@ -939,9 +758,9 @@ const Tiers: React.FC = () => {
                 <button className="icon-btn" onClick={() => setPreviewFile(null)}><X size={20} /></button>
               </div>
               <div className="modal-body" style={{ flex: 1, padding: 0, overflow: 'hidden' }}>
-                <iframe 
-                  src={previewFile.url} 
-                  style={{ width: '100%', height: '100%', border: 'none' }} 
+                <iframe
+                  src={previewFile.url}
+                  style={{ width: '100%', height: '100%', border: 'none' }}
                   title="PDF Preview"
                 />
               </div>
@@ -966,17 +785,17 @@ const Tiers: React.FC = () => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {currentUser?.role === 'admin' && (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            <button 
-                              className="icon-btn" 
-                              style={{ padding: '2px' }} 
+                            <button
+                              className="icon-btn"
+                              style={{ padding: '2px' }}
                               disabled={index === 0}
                               onClick={() => moveColumn(index, 'up')}
                             >
                               <ArrowUp size={14} />
                             </button>
-                            <button 
-                              className="icon-btn" 
-                              style={{ padding: '2px' }} 
+                            <button
+                              className="icon-btn"
+                              style={{ padding: '2px' }}
                               disabled={index === columnSettings.length - 1}
                               onClick={() => moveColumn(index, 'down')}
                             >
@@ -986,33 +805,33 @@ const Tiers: React.FC = () => {
                         )}
                         <span className="toggle-label">{col.label}</span>
                       </div>
-                      
+
                       <div className="toggle-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         {currentUser?.role === 'admin' && (
                           <>
-                            <input 
-                              type="color" 
-                              value={col.color || '#334155'} 
+                            <input
+                              type="color"
+                              value={col.color || '#334155'}
                               onChange={(e) => updateColumnStyle(col.column_key, 'color', e.target.value)}
                               title="Couleur"
                               style={{ width: '28px', height: '28px', padding: '0', border: '1px solid var(--color-slate-200)', borderRadius: '4px', cursor: 'pointer' }}
                             />
-                            <button 
+                            <button
                               onClick={() => updateColumnStyle(col.column_key, 'is_bold', !col.is_bold)}
                               title="Gras"
-                              style={{ 
-                                background: col.is_bold ? 'var(--color-navy)' : 'transparent', 
+                              style={{
+                                background: col.is_bold ? 'var(--color-navy)' : 'transparent',
                                 color: col.is_bold ? 'white' : 'inherit'
                               }}
                               className="icon-btn"
                             >
                               <span style={{ fontWeight: 800 }}>B</span>
                             </button>
-                            <button 
+                            <button
                               onClick={() => updateColumnStyle(col.column_key, 'is_italic', !col.is_italic)}
                               title="Italique"
-                              style={{ 
-                                background: col.is_italic ? 'var(--color-navy)' : 'transparent', 
+                              style={{
+                                background: col.is_italic ? 'var(--color-navy)' : 'transparent',
                                 color: col.is_italic ? 'white' : 'inherit'
                               }}
                               className="icon-btn"
@@ -1021,7 +840,7 @@ const Tiers: React.FC = () => {
                             </button>
                           </>
                         )}
-                        <button 
+                        <button
                           className={`toggle-btn ${col.is_visible ? 'on' : 'off'}`}
                           onClick={() => toggleColumnVisibility(col.column_key, col.is_visible)}
                           style={{ minWidth: '90px', justifyContent: 'center' }}
@@ -1070,10 +889,10 @@ const Tiers: React.FC = () => {
                     <input type="email" className="search-input" style={{ width: '100%', minWidth: 'auto', paddingLeft: '1rem' }} value={newContact.email} onChange={(e) => setNewContact({...newContact, email: e.target.value})} />
                   </div>
                   <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--color-slate-50)', padding: '10px', borderRadius: '8px', border: '1px solid var(--color-slate-200)' }}>
-                   <input 
-                     type="checkbox" 
+                   <input
+                     type="checkbox"
                      id="is_order_recipient"
-                     checked={newContact.is_order_recipient === 1} 
+                     checked={newContact.is_order_recipient === 1}
                      onChange={e => setNewContact({...newContact, is_order_recipient: e.target.checked ? 1 : 0})}
                      style={{ width: '20px', height: '20px', cursor: 'pointer' }}
                    />
@@ -1082,11 +901,11 @@ const Tiers: React.FC = () => {
                    </label>
                   </div>
                   <div className="form-group">                    <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 800, color: 'var(--color-slate-400)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Note</label>
-                    <textarea 
-                      className="search-input" 
-                      style={{ width: '100%', minWidth: 'auto', paddingLeft: '1rem', height: '80px', paddingTop: '0.5rem' }} 
-                      value={newContact.commentaire} 
-                      onChange={(e) => setNewContact({...newContact, commentaire: e.target.value})} 
+                    <textarea
+                      className="search-input"
+                      style={{ width: '100%', minWidth: 'auto', paddingLeft: '1rem', height: '80px', paddingTop: '0.5rem' }}
+                      value={newContact.commentaire}
+                      onChange={(e) => setNewContact({...newContact, commentaire: e.target.value})}
                     />
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
@@ -1203,7 +1022,7 @@ const Tiers: React.FC = () => {
           cursor: pointer;
         }
         .toolbar-btn:hover { background: var(--color-slate-50); }
-        
+
         .toolbar-filters { display: flex; gap: 0.75rem; }
         .search-input-wrapper {
           position: relative;
@@ -1335,26 +1154,6 @@ const Tiers: React.FC = () => {
         }
         .badge.success { background: var(--color-green-50); color: var(--color-green-600); border: 1px solid #bbf7d0; }
 
-        .badge-count {
-          padding: 0.25rem 0.75rem;
-          border-radius: 6px;
-          font-size: 0.85rem;
-          font-weight: 800;
-          display: inline-block;
-          min-width: 2.5rem;
-          text-align: center;
-        }
-        .order-badge {
-          background: var(--color-blue-50);
-          color: var(--color-navy);
-          border: 1px solid #bfdbfe;
-        }
-        .invoice-badge {
-          background: #fff5f5;
-          color: var(--color-ivry);
-          border: 1px solid #fecaca;
-        }
-
         .empty-state {
           text-align: center;
           padding: 4rem !important;
@@ -1402,96 +1201,6 @@ const Tiers: React.FC = () => {
         }
         .icon-btn:hover { background: var(--color-slate-100); color: var(--color-slate-600); }
         .modal-body { padding: 1.5rem; }
-
-        /* Dashboard Grid */
-        .dashboard-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-          gap: 1.5rem;
-          margin-bottom: 2rem;
-        }
-        .dashboard-card {
-          background: white;
-          border-radius: 1rem;
-          padding: 1.5rem;
-          display: flex;
-          align-items: center;
-          gap: 1.25rem;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-          border-top: 4px solid transparent;
-          transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .dashboard-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-        .dashboard-card.primary { border-top-color: var(--color-ivry); }
-        .dashboard-card.secondary { border-top-color: var(--color-navy); }
-        .dashboard-card.warning { border-top-color: #f59e0b; }
-        .dashboard-card.neutral { border-top-color: var(--color-slate-400); }
-
-        .card-icon {
-          width: 3rem;
-          height: 3rem;
-          border-radius: 0.75rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: var(--color-slate-50);
-          color: var(--color-navy);
-        }
-        .dashboard-card.primary .card-icon { background: #fff5f5; color: var(--color-ivry); }
-        .dashboard-card.secondary .card-icon { background: #f0f7ff; color: var(--color-navy); }
-        .dashboard-card.warning .card-icon { background: #fffbeb; color: #f59e0b; }
-
-        .card-content { flex: 1; }
-        .card-title {
-          font-size: 0.875rem;
-          font-weight: 600;
-          color: var(--color-slate-500);
-          margin: 0 0 0.25rem 0;
-        }
-        .card-value {
-          font-size: 1.5rem;
-          font-weight: 800;
-          color: var(--color-navy);
-          margin: 0;
-        }
-
-        .column-toggles { 
-          display: flex; 
-          flex-direction: column; 
-          gap: 0.75rem; 
-          max-height: 400px; 
-          overflow-y: auto; 
-          padding-right: 0.5rem;
-        }
-        .column-toggles::-webkit-scrollbar { width: 6px; }
-        .column-toggles::-webkit-scrollbar-track { background: var(--color-slate-50); }
-        .column-toggles::-webkit-scrollbar-thumb { background: var(--color-slate-200); border-radius: 3px; }
-        .column-toggles::-webkit-scrollbar-thumb:hover { background: var(--color-slate-300); }
-        .toggle-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 0.75rem 1rem;
-          background: var(--color-slate-50);
-          border: 1px solid var(--color-slate-200);
-          border-radius: 0.5rem;
-        }
-        .toggle-label { font-weight: 600; color: var(--color-slate-700); font-size: 0.875rem; }
-        .toggle-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 0.375rem;
-          padding: 0.375rem 0.75rem;
-          border-radius: 0.375rem;
-          font-size: 0.75rem;
-          font-weight: 700;
-          cursor: pointer;
-        }
-        .toggle-btn.on { background: var(--color-navy); color: white; border: 1px solid var(--color-navy); }
-        .toggle-btn.off { background: white; color: var(--color-slate-500); border: 1px solid var(--color-slate-300); }
 
         .loading-spinner-container {
           display: flex;

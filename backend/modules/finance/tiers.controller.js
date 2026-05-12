@@ -1,136 +1,62 @@
+const { pool } = require('../../shared/pg_db');
 const { getSqlite } = require('../../shared/database');
-const { logMouchard } = require('../../shared/utils');
-const xlsx = require('xlsx');
-const updateTierStats = require('../../update_tier_stats');
-const fs = require('fs');
-const path = require('path');
 
 module.exports = {
     getTiers: async (req, res) => {
         try {
-            const db = getSqlite();
-            const showAll = req.query.all === 'true';
+            const { search, limit, offset } = req.query;
+            const searchNum = parseInt(limit, 10) || 0;
+            const searchOffset = parseInt(offset, 10) || 0;
 
-            let query = `
-                SELECT t.*, 
-                       COALESCE(ts.order_count, 0) as order_count, 
-                       COALESCE(ts.invoice_count, 0) as invoice_count,
-                       (SELECT COUNT(*) FROM contacts c WHERE c.tier_id = t.id AND c.is_order_recipient = 1) as has_order_recipient
-                FROM tiers t
-                LEFT JOIN tier_stats ts ON t.id = ts.tier_id
-            `;
-            if (!showAll) {
-                query += `
-                    WHERE LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM v_orders)
-                       OR LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM invoices)
-                `;
+            let sql = 'SELECT * FROM oracle.gf_oracle_tiers';
+            const params = [];
+            let paramIdx = 1;
+
+            if (search) {
+                sql += ` WHERE (
+                    CAST("TIERS_TIERS" AS TEXT) ILIKE $${paramIdx++}
+                    OR CAST("TIERS_POBJ_EXTRACT_2" AS TEXT) ILIKE $${paramIdx++}
+                    OR CAST("TIERS_POBJ_EXTRACT_1" AS TEXT) ILIKE $${paramIdx++}
+                    OR CAST("TIERS_POBJ_EXTRACT_3" AS TEXT) ILIKE $${paramIdx++}
+                    OR CAST("TIE_NATUREJURIDIQUE_LIBELLE" AS TEXT) ILIKE $${paramIdx++}
+                    OR CAST("TIERS_POBJ_EXTRACT" AS TEXT) ILIKE $${paramIdx++}
+                )`;
+                const like = `%${search}%`;
+                params.push(like, like, like, like, like, like);
             }
 
-            query += ` ORDER BY t.nom`;
+            let countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
+            const countResult = await pool.query(countSql, params);
+            const total = parseInt(countResult.rows[0].total, 10);
 
-            const tiers = await db.all(query);
+            sql += ` ORDER BY "TIERS_POBJ_EXTRACT_2"`;
 
-            const globalStats = await db.get(`
-                SELECT 
-                    (SELECT COUNT(*) FROM v_orders) as total_orders,
-                    (SELECT COUNT(*) FROM invoices) as total_invoices,
-                    (SELECT COUNT(*) FROM tiers) as total_tiers_all,
-                    (SELECT COUNT(DISTINCT LOWER(TRIM(t.nom))) FROM tiers t WHERE LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM v_orders) OR LOWER(TRIM(t.nom)) IN (SELECT DISTINCT LOWER(TRIM(Fournisseur)) FROM invoices)) as total_tiers_dsi
-            `);
+            if (searchNum > 0) {
+                sql += ` LIMIT $${paramIdx++} OFFSET $${paramIdx++}`;
+                params.push(searchNum, searchOffset);
+            }
 
-            res.json({ tiers, stats: globalStats || { total_orders: 0, total_invoices: 0, total_tiers_all: 0, total_tiers_dsi: 0 } });
+            const result = await pool.query(sql, params);
+            const tiers = result.rows.map(r => ({
+                code: r.TIERS_TIERS || r.tiers_tiers || '',
+                nom: r.TIERS_POBJ_EXTRACT_2 || r.tiers_pobj_extract_2 || '',
+                complement_nom: r.TIERS_POBJ_EXTRACT_3 || r.tiers_pobj_extract_3 || '',
+                siret: r.TIERS_POBJ_EXTRACT_4 || r.tiers_pobj_extract_4 || '',
+                nature_juridique: r.TIE_NATUREJURIDIQUE_LIBELLE || r.tie_naturejuridique_libelle || '',
+                date_validite: r.TIERS_DATEVALID || r.tiers_datevalid || '',
+                ...r
+            }));
+            res.json({ tiers, total, stats: null });
         } catch (error) {
+            console.error('[TIERS ERROR]', error.message, error.stack);
             res.status(500).json({ message: 'Erreur lors de la récupération des tiers', error: error.message });
-        }
-    },
-
-    importTiers: async (req, res) => {
-        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
-
-        try {
-            const db = getSqlite();
-            const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-            const sheetName = workbook.SheetNames[0];
-            const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-            let updated = 0;
-            let created = 0;
-
-            for (const row of data) {
-                const code = row['Code'];
-                if (!code) continue;
-
-                const existing = await db.get('SELECT id FROM tiers WHERE code = ?', [code]);
-
-                if (existing) {
-                    await db.run(`
-                        UPDATE tiers SET 
-                            nom = ?, activite = ?, siret = ?, adresse = ?, banque = ?, 
-                            guichet = ?, compte = ?, cle_rib = ?, date_creation = ?, 
-                            telephone = ?, fax = ?, tva_intra = ?, email = ?, origine = ?
-                        WHERE id = ?
-                    `, [
-                        row['Nom'] ? row['Nom'].trim() : null,
-                        row['Activité'],
-                        row['SIRET'],
-                        row['Adresse (Usuelle)'],
-                        row['Banque'],
-                        row['Guichet'],
-                        row['N° compte'],
-                        row['Clé RIB'],
-                        row['Date de création'],
-                        row['Téléphone'],
-                        row['Fax'],
-                        row['Tva Intra'],
-                        row['Email'],
-                        row['Origine'],
-                        existing.id
-                    ]);
-                    updated++;
-                } else {
-                    await db.run(`
-                        INSERT INTO tiers (
-                            code, nom, activite, siret, adresse, banque, guichet, 
-                            compte, cle_rib, date_creation, telephone, fax, 
-                            tva_intra, email, origine
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    `, [
-                        code,
-                        row['Nom'] ? row['Nom'].trim() : null,
-                        row['Activité'],
-                        row['SIRET'],
-                        row['Adresse (Usuelle)'],
-                        row['Banque'],
-                        row['Guichet'],
-                        row['N° compte'],
-                        row['Clé RIB'],
-                        row['Date de création'],
-                        row['Téléphone'],
-                        row['Fax'],
-                        row['Tva Intra'],
-                        row['Email'],
-                        row['Origine']
-                    ]);
-                    created++;
-                }
-            }
-
-            await updateTierStats(db);
-
-            const msg = `Import Excel tiers: ${created} créés, ${updated} mis à jour`;
-            logMouchard(`POST /api/tiers/import - par ${req.user.username}: ${msg}`);
-
-            res.json({ message: 'Import réussi', created, updated });
-        } catch (error) {
-            console.error('Import error:', error);
-            res.status(500).json({ message: "Erreur lors de l'import", error: error.message });
         }
     },
 
     getContacts: async (req, res) => {
         try {
             const db = getSqlite();
-            const contacts = await db.all('SELECT * FROM contacts WHERE tier_id = ?', [req.params.id]);
+            const contacts = await db.all('SELECT * FROM contacts WHERE tier_code = ?', [req.params.code]);
             res.json(contacts);
         } catch (error) {
             res.status(500).json({ message: 'Erreur contacts', error: error.message });
@@ -139,24 +65,58 @@ module.exports = {
 
     getHistory: async (req, res) => {
         try {
-            const db = getSqlite();
-            const tier = await db.get('SELECT nom FROM tiers WHERE id = ?', [req.params.id]);
-            if (!tier) return res.status(404).json({ message: 'Tiers non trouvé' });
+            const tier = await pool.query(
+                'SELECT "TIERS_POBJ_EXTRACT_2" FROM oracle.gf_oracle_tiers WHERE "TIERS_TIERS" = $1',
+                [req.params.code]
+            );
+            if (!tier.rows.length) return res.status(404).json({ message: 'Tiers non trouvé' });
 
-            const tierNom = tier.nom.trim();
-            const oracle_commande = await db.all('SELECT * FROM v_orders WHERE TRIM(UPPER("Fournisseur")) = TRIM(UPPER(?)) OR "Fournisseur" LIKE ?', [tierNom, `%${tierNom}%`]);
-            const invoices = await db.all('SELECT * FROM invoices WHERE TRIM(UPPER("Fournisseur")) = TRIM(UPPER(?)) OR "Fournisseur" LIKE ?', [tierNom, `%${tierNom}%`]);
+            const tierNom = tier.rows[0].TIERS_POBJ_EXTRACT_2.trim();
 
-            const invoicesList = invoices.map(inv => ({
+            const orders = await pool.query(
+                `SELECT *, "COMMANDE_COMMANDE" as id, "COMMANDE_COMMANDE" as "N° Commande",
+                 "COMMANDE_LIBELLE" as "Libellé",
+                 "COMMANDE_CMD_DATECOMMANDE" as "Date de la commande",
+                 "COMMANDE_MONTANT_TTC" as "Montant TTC",
+                 "SERVICEFI_LIBELLE" as "Fournisseur",
+                 "COMMANDE_MONTANT_HT" as "Montant HT",
+                 "COMMANDE_MONTANT_HT" as amount_ht,
+                 "COMMANDE_LIBELLE" as description,
+                 "COMMANDE_CMD_DATECOMMANDE" as date
+                 FROM oracle.gf_oracle_commande
+                 WHERE TRIM(UPPER("SERVICEFI_LIBELLE")) = TRIM(UPPER($1))
+                    OR "SERVICEFI_LIBELLE" LIKE $2`,
+                [tierNom, `%${tierNom}%`]
+            );
+
+            const invoices = await pool.query(
+                `SELECT *, "FACTURE_FACTURE" as id,
+                 "FACTURE_FACTURE" as "N° Facture interne",
+                 "FACTURE_REFERENCE" as "N° Facture fournisseur",
+                 "FACTURE_LIBELLE2" as "Fournisseur",
+                 "FACTURE_LIBELLE1" as "Libellé",
+                 "FACTURE_MONTANTTC_E" as "Montant TTC",
+                 "FACETAT_LIBELLE" as "Etat",
+                 "FACTURE_DATENTREE" as "Emission",
+                 "FACTURE_DATENTREE" as "Arrivée",
+                 "FACTURE_MONTANTTC_E" as total_ttc,
+                 substr("FACTURE_DATENTREE", 1, 4) as "Exercice"
+                 FROM oracle.gf_oracle_facture
+                 WHERE TRIM(UPPER("FACTURE_LIBELLE2")) = TRIM(UPPER($1))
+                    OR "FACTURE_LIBELLE2" LIKE $2`,
+                [tierNom, `%${tierNom}%`]
+            );
+
+            const invoicesList = invoices.rows.map(inv => ({
                 number: inv['N° Facture fournisseur'] || inv['N° Facture interne'] || 'Inconnu',
-                total_ttc: parseFloat(String(inv['Montant TTC']).replace(',', '.').replace(/[^\d.-]/g, '')) || 0,
+                total_ttc: parseFloat(String(inv.total_ttc || 0).replace(',', '.').replace(/[^\d.-]/g, '')) || 0,
                 lines: [inv],
                 hasFile: false,
                 filePath: null
             }));
 
             res.json({
-                oracle_commande: oracle_commande.map(o => ({ ...o, matchedInvoices: [] })),
+                oracle_commande: orders.rows.map(o => ({ ...o, matchedInvoices: [] })),
                 invoices: invoicesList
             });
         } catch (error) {
@@ -169,8 +129,8 @@ module.exports = {
         try {
             const db = getSqlite();
             const result = await db.run(
-                'INSERT INTO contacts (tier_id, nom, prenom, role, telephone, email, commentaire, is_order_recipient) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                [req.params.tierId, nom, prenom, role, telephone, email, commentaire, is_order_recipient ? 1 : 0]
+                'INSERT INTO contacts (tier_code, nom, prenom, role, telephone, email, commentaire, is_order_recipient) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [req.params.code, nom, prenom, role, telephone, email, commentaire, is_order_recipient ? 1 : 0]
             );
             res.json({ id: result.lastID, message: 'Contact ajouté' });
         } catch (error) {

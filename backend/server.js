@@ -20,9 +20,7 @@ const contactsRouter = require('./modules/finance/contacts.routes');
 const certificatesRouter = require('./modules/certificates/certificates.routes');
 const transcriptManagerRouter = require('./modules/transcriptmanager/transcriptmanager.routes');
 const { recalculateAllOperations } = require('./modules/finance/finance.controller');
-const updateTierStats = require('./update_tier_stats');
 const multer = require('multer');
-const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');
@@ -3801,7 +3799,7 @@ app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
         let pragmaSql = `PRAGMA table_info(${sourceTable})`;
         if (page === 'orders') pragmaSql = `PRAGMA table_info(v_orders)`; // TEMP view
         if (page === 'invoices') pragmaSql = `PRAGMA table_info(v_invoices)`; // Use the new TEMP view
-        if (page === 'tiers') pragmaSql = `PRAGMA gf.table_info(oracle_tiers)`;
+        if (page === 'tiers') pragmaSql = null; // handled via PG below
         if (page === 'services') pragmaSql = `PRAGMA gf.table_info(oracle_servicefi)`;
         if (page === 'factures') pragmaSql = `PRAGMA gf.table_info(oracle_facture)`;
         if (page === 'rh_extract') pragmaSql = `PRAGMA rh.table_info(oracle_v_extract_dsi)`;
@@ -3809,18 +3807,30 @@ app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
 
         // 1. Récupérer les colonnes réelles de la source
         let realCols = [];
-        try {
-            const info = await db.all(pragmaSql);
-            realCols = info.map(c => c.name);
-        } catch (e) { }
+        if (page === 'tiers') {
+            try {
+                const pgCols = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema = 'oracle' AND table_name = 'gf_oracle_tiers' ORDER BY ordinal_position");
+                realCols = pgCols.rows.map(r => r.column_name);
+            } catch (e) { realCols = []; }
+        } else {
+            try {
+                const info = await db.all(pragmaSql);
+                realCols = info.map(c => c.name);
+            } catch (e) { }
+        }
 
-        // 2. NETTOYAGE STRICT : Supprimer tout ce qui n'est plus en base
-        if (realCols.length > 0) {
+        // 2. NETTOYAGE : Supprimer les colonnes qui n'existent plus en base
+        //    Only cleanup if we got real columns AND there are already settings for this page
+        const existingSettings = await db.all('SELECT COUNT(*) as cnt FROM column_settings WHERE page = ?', [page]);
+        const hasExistingSettings = existingSettings[0]?.cnt > 0;
+
+        if (realCols.length > 0 && hasExistingSettings) {
             const placeholders = realCols.map(() => '?').join(',');
-            // On garde les colonnes virtuelles vitales
             await db.run(`DELETE FROM column_settings WHERE page = ? AND column_key NOT IN (${placeholders}, 'operation_label', 'actions')`, [page, ...realCols]);
+        }
 
-            // 3. Ajouter les nouvelles sans écraser les labels existants
+        // 3. Ajouter les nouvelles sans écraser les labels existants
+        if (realCols.length > 0) {
             for (const col of realCols) {
                 if (!['id', 'operation_id', 'budgetId', 'order_number', 'amount_ht', 'date'].includes(col)) {
                     await db.run('INSERT OR IGNORE INTO column_settings (page, column_key, label, is_visible) VALUES (?, ?, ?, 1)', [page, col, col]);
@@ -3953,14 +3963,15 @@ app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => 
 
         const tierNom = order.Fournisseur.trim();
 
-        // Trouver le tiers par son nom
-        const tier = await db.get('SELECT id FROM tiers WHERE TRIM(UPPER(nom)) = TRIM(UPPER(?))', [tierNom]);
-        if (!tier) {
+        // Trouver le tiers par son nom (via PG oracle)
+        const pgTier = await pool.query('SELECT "TIERS_TIERS" FROM oracle.gf_oracle_tiers WHERE TRIM(UPPER("TIERS_POBJ_EXTRACT_2")) = TRIM(UPPER($1))', [tierNom]);
+        const tierCode = pgTier.rows.length > 0 ? pgTier.rows[0].TIERS_TIERS.trim() : null;
+        if (!tierCode) {
             return res.status(404).json({ message: `Le tiers "${tierNom}" n'existe pas dans la base des tiers.` });
         }
 
         // Trouver les contacts destinataires
-        const contacts = await db.all('SELECT * FROM contacts WHERE tier_id = ? AND is_order_recipient = 1', [tier.id]);
+        const contacts = await db.all('SELECT * FROM contacts WHERE tier_code = ? AND is_order_recipient = 1', [tierCode]);
         res.json(contacts);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching recipients', error: error.message });
@@ -3984,10 +3995,11 @@ app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) =>
         }
 
         const tierNom = order.Fournisseur.trim();
-        const tier = await db.get('SELECT id FROM tiers WHERE TRIM(UPPER(nom)) = TRIM(UPPER(?))', [tierNom]);
-        if (!tier) return res.status(404).json({ message: 'Tiers introuvable' });
+        const pgTier = await pool.query('SELECT "TIERS_TIERS" FROM oracle.gf_oracle_tiers WHERE TRIM(UPPER("TIERS_POBJ_EXTRACT_2")) = TRIM(UPPER($1))', [tierNom]);
+        const tierCode = pgTier.rows.length > 0 ? pgTier.rows[0].TIERS_TIERS.trim() : null;
+        if (!tierCode) return res.status(404).json({ message: 'Tiers introuvable' });
 
-        const contacts = await db.all('SELECT * FROM contacts WHERE tier_id = ? AND is_order_recipient = 1', [tier.id]);
+        const contacts = await db.all('SELECT * FROM contacts WHERE tier_code = ? AND is_order_recipient = 1', [tierCode]);
         const validEmails = contacts.map(c => c.email).filter(e => e && e.includes('@'));
 
         if (validEmails.length === 0) {
