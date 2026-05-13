@@ -12,6 +12,7 @@ import Tiers from './pages/Tiers';
 import MagappAdmin from './pages/MagappAdmin';
 import AdminSQL from './pages/AdminSQL';
 import AdminSettings from './pages/AdminSettings';
+import AdminFinance from './pages/AdminFinance';
 import TelecomManagement from './pages/TelecomManagement';
 import AdminMessages from './pages/AdminMessages';
 import AdminIdeas from './pages/AdminIdeas';
@@ -103,6 +104,7 @@ function App() {
           <Route path="ideas" element={<AdminIdeas />} />
           <Route path="frizbi" element={<FrizbiSettings />} />
           <Route path="transcript" element={<Admin section="transcript" />} />
+          <Route path="finance" element={<AdminFinance />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />

@@ -196,7 +196,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [importReports, setImportReports] = useState<Record<string, any[]>>({});
   const [tableColumns, setTableColumns] = useState<Record<string, string[]>>({});
   const [substitutions, setSubstitutions] = useState<Record<string, Record<string, any>>>({});
-  const [activeSubstModal, setActiveSubstModal] = useState<{type: string, table: string} | null>(null);
+  
   const [activeSelectionModal, setActiveSelectionModal] = useState<{type: string, table: string} | null>(null);
   const [activeFieldConfig, setActiveFieldConfig] = useState<string | null>(null);
   const [allOracleTables, setAllOracleTables] = useState<Record<string, string[]>>({});
@@ -251,14 +251,17 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     }
   };
 
-  const fetchTableColumns = async (type: string, tableName: string) => {
+  const fetchTableColumns = async (type: string, tableName: string): Promise<string[]> => {
     try {
       const res = await axios.post('/api/oracle/table-columns', { type, tableName }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setTableColumns(prev => ({ ...prev, [`${type}:${tableName}`]: res.data.columns }));
+      const columns: string[] = res.data.columns;
+      setTableColumns(prev => ({ ...prev, [`${type}:${tableName}`]: columns }));
+      return columns;
     } catch (error) {
       console.error('Erreur colonnes:', error);
+      return [];
     }
   };
 
@@ -278,14 +281,14 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     setActiveFieldConfig(null);
     setSearchTableRef('');
 
-    if (!tableColumns[`${type}:${tableName}`]) {
-      await fetchTableColumns(type, tableName);
+    let columns = tableColumns[`${type}:${tableName}`];
+    if (!columns) {
+      columns = await fetchTableColumns(type, tableName);
     }
     if (!tablePreviews[`${type}:${tableName}`]) {
       await fetchTablePreview(type, tableName);
     }
     
-    // Charger la liste globale des tables pour les jointures
     if (!allOracleTables[type]) {
       try {
         const res = await axios.post('/api/oracle/check-tables', { type }, {
@@ -296,14 +299,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     }
 
     if (!selectedFields[`${type}:${tableName}`]) {
-      const cols = tableColumns[`${type}:${tableName}`] || [];
+      const cols = columns || tableColumns[`${type}:${tableName}`] || [];
       setSelectedFields(prev => ({ ...prev, [`${type}:${tableName}`]: [...cols] }));
     }
   };
 
-  const handleOpenSubstModal = (type: string, table: string) => {
-    setActiveSubstModal({ type, table });
-  };
+  
 
   const toggleFieldSelection = (type: string, table: string, field: string) => {
     const key = `${type}:${table}`;
@@ -2658,19 +2659,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                               e.preventDefault();
                                               handleOpenSelectionModal(type, tableName);
                                             }}
-                                          >
-                                            <Fingerprint size={12} className="text-blue-600" /> Structure
-                                          </button>
-                                          <button 
-                                            type="button"
-                                            className="btn-champs-config px-3 py-1 bg-white border border-gray-200 hover:bg-gray-50 rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors shadow-sm"
-                                            onClick={(e) => {
-                                              e.preventDefault();
-                                              handleOpenSubstModal(type, tableName);
-                                            }}
-                                          >
-                                            <Database size={12} className="text-emerald-600" /> Jointures
-                                          </button>
+>
+                                             <Fingerprint size={12} className="text-blue-600" /> Structure
+                                           </button>
                                         </div>
                                       </div>
                                     </div>
@@ -4293,20 +4284,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
-      {activeSubstModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-height-90vh overflow-auto">
-            <div className="p-6 border-b flex justify-between items-center">
-              <h3 className="text-xl font-bold">Configurations des Substitution ({activeSubstModal.table})</h3>
-              <button onClick={() => setActiveSubstModal(null)} className="p-2 hover:bg-gray-100 rounded-full"><X /></button>
-            </div>
-            <div className="p-6">
-              <p className="text-sm text-gray-500 mb-4">Fonctionnalité de jointure en cours de développement.</p>
-              <button onClick={() => setActiveSubstModal(null)} className="btn-primary w-full">Fermer</button>
-            </div>
-          </div>
-        </div>
-      )}
+      
     </div>
   );
 };

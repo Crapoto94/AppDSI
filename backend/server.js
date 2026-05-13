@@ -12,6 +12,7 @@ const { authenticateJWT, authenticateAdmin, authenticateInternalOrAdmin, authent
 const magappRouter = require('./modules/magapp/magapp.routes');
 const rhRouter = require('./modules/rh/rh.routes');
 const financeRouter = require('./modules/finance/finance.routes');
+const fieldMappingRouter = require('./modules/finance/field-mapping.routes');
 const glpiRouter = require('./modules/glpi/glpi.routes');
 const glpiController = require('./modules/glpi/glpi.controller');
 
@@ -1633,10 +1634,15 @@ app.post('/api/oracle/table-columns', authenticateAdmin, async (req, res) => {
         // Use SELECT WHERE 1=0 to get column metadata (works regardless of roles/privileges)
         const result = await connection.execute(`SELECT * FROM ${tableName} WHERE 1=0`, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
         const columns = result.metaData.map(m => m.name);
+        const columnTypes = {};
+        for (const m of result.metaData) {
+            columnTypes[m.name] = oracleDbTypeToPg(m.dbType);
+        }
 
         res.json({
             success: true,
-            columns
+            columns,
+            columnTypes
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -1811,10 +1817,21 @@ function parseOracleDate(val) {
     const s = String(val).trim();
     if (!s) return null;
 
-    // Si c'est déjà un format ISO YYYY-MM-DD
+    // Already ISO YYYY-MM-DD HH:MM:SS or YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(s)) return s.substring(0, 19);
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
 
-    // Format Français DD/MM/YYYY
+    // Format Français DD/MM/YYYY HH:MM:SS or DD/MM/YYYY
+    const frMatchFull = s.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})\s+(\d{1,2}):(\d{2}):?(\d{2})?/);
+    if (frMatchFull) {
+        const d = frMatchFull[1].padStart(2, '0');
+        const m = frMatchFull[2].padStart(2, '0');
+        const y = frMatchFull[3];
+        const h = frMatchFull[4].padStart(2, '0');
+        const mi = frMatchFull[5].padStart(2, '0');
+        const sec = (frMatchFull[6] || '00').padStart(2, '0');
+        return `${y}-${m}-${d} ${h}:${mi}:${sec}`;
+    }
     const frMatch = s.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})/);
     if (frMatch) {
         const d = frMatch[1].padStart(2, '0');
@@ -1823,7 +1840,37 @@ function parseOracleDate(val) {
         return `${y}-${m}-${d}`;
     }
 
-    // Tentative via JS Date native (nettoyage des parenthèses de timezone)
+    // Oracle format DD-MON-YYYY HH:MM:SS or DD-MON-YYYY
+    const oracleMatchFull = s.match(/^(\d{1,2})-(\w{3})-(\d{4})\s+(\d{1,2}):(\d{2}):?(\d{2})?/);
+    if (oracleMatchFull) {
+        try {
+            const cleanS = s.replace(/\s*\(.*\)$/, '');
+            const d = new Date(cleanS + (cleanS.includes(':') ? '' : ' 00:00:00'));
+            if (!isNaN(d.getTime())) {
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                const h = String(d.getHours()).padStart(2, '0');
+                const mi = String(d.getMinutes()).padStart(2, '0');
+                const sec = String(d.getSeconds()).padStart(2, '0');
+                return `${year}-${month}-${day} ${h}:${mi}:${sec}`;
+            }
+        } catch (e) { }
+    }
+    const oracleMatch = s.match(/^(\d{1,2})-(\w{3})-(\d{4})/);
+    if (oracleMatch) {
+        try {
+            const d = new Date(s.replace(/\s*\(.*\)$/, ''));
+            if (!isNaN(d.getTime())) {
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            }
+        } catch (e) { }
+    }
+
+    // Fallback: tentativo via JS Date native
     try {
         const cleanS = s.replace(/\s*\(.*\)$/, '');
         const d = new Date(cleanS);
@@ -1831,11 +1878,38 @@ function parseOracleDate(val) {
             const year = d.getFullYear();
             const month = String(d.getMonth() + 1).padStart(2, '0');
             const day = String(d.getDate()).padStart(2, '0');
+            const hours = String(d.getHours()).padStart(2, '0');
+            const mins = String(d.getMinutes()).padStart(2, '0');
+            const secs = String(d.getSeconds()).padStart(2, '0');
+            if (hours !== '00' || mins !== '00' || secs !== '00') {
+                return `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
+            }
             return `${year}-${month}-${day}`;
         }
     } catch (e) { }
 
     return s;
+}
+
+function parseOracleTimestamp(val) {
+    const parsed = parseOracleDate(val);
+    return parsed;
+}
+
+function oracleDbTypeToPg(dbType) {
+    if (!dbType) return 'TEXT';
+    const t = (typeof dbType === 'string') ? dbType.toUpperCase() : '';
+    // oracledb provides dbType as a number constant or string
+    // Common Oracle types
+    if (t.includes('DATE') || t === 'DATE' || dbType === oracledb.DB_TYPE_DATE) return 'TIMESTAMP';
+    if (t.includes('TIMESTAMP') || dbType === oracledb.DB_TYPE_TIMESTAMP_TZ || dbType === oracledb.DB_TYPE_TIMESTAMP_LTZ || dbType === oracledb.DB_TYPE_TIMESTAMP) return 'TIMESTAMP';
+    if (t.includes('NUMBER') || t.includes('NUMERIC') || dbType === oracledb.DB_TYPE_NUMBER) return 'NUMERIC';
+    if (t.includes('FLOAT') || t.includes('DOUBLE') || t.includes('REAL') || t === 'BINARY_DOUBLE' || t === 'BINARY_FLOAT' || dbType === oracledb.DB_TYPE_BINARY_DOUBLE || dbType === oracledb.DB_TYPE_BINARY_FLOAT) return 'DOUBLE PRECISION';
+    if (t.includes('INTEGER') || t.includes('INT') || dbType === oracledb.DB_TYPE_BINARY_INTEGER) return 'INTEGER';
+    if (t.includes('CLOB') || t.includes('NCLOB') || dbType === oracledb.DB_TYPE_CLOB || dbType === oracledb.DB_TYPE_NCLOB) return 'TEXT';
+    if (t.includes('BLOB') || dbType === oracledb.DB_TYPE_BLOB) return 'BYTEA';
+    if (t.includes('CHAR') || t === 'VARCHAR2' || t === 'NVARCHAR2' || t === 'VARCHAR' || dbType === oracledb.DB_TYPE_VARCHAR || dbType === oracledb.DB_TYPE_NVARCHAR || dbType === oracledb.DB_TYPE_CHAR || dbType === oracledb.DB_TYPE_NCHAR) return 'TEXT';
+    return 'TEXT';
 }
 
 app.post('/api/oracle/test-join', authenticateAdmin, async (req, res) => {
@@ -1973,6 +2047,12 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                 const localTableName = type.toUpperCase() === 'RH' ? tableName : `oracle_${tableName.toLowerCase()}`;
                 const finalColumns = result.metaData.map(m => m.name);
 
+                // Build column type mapping from Oracle metadata
+                const columnPgTypes = {};
+                for (const m of result.metaData) {
+                    columnPgTypes[m.name] = oracleDbTypeToPg(m.dbType);
+                }
+
                 // Identify EXTRACT columns and determine max sub-components
                 const extractCols = finalColumns.filter(c => c.endsWith('_EXTRACT'));
                 const maxSubCols = {};
@@ -2010,7 +2090,13 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                 await pool.query(`DROP TABLE IF EXISTS ${fullLocalTableName}`);
                 const pkLocalField = pkField ? `${mainPrefix}${pkField}` : null;
 
-                const createCols = columnsForSchema.map(col => `"${col}" TEXT${col === pkLocalField ? ' PRIMARY KEY' : ''}`).join(', ');
+                const createCols = columnsForSchema.map(col => {
+                    const colBase = col.replace(/_\d+$/, ''); // strip _1, _2 suffix from extract cols
+                    const pgType = columnPgTypes[col] || columnPgTypes[colBase] || 'TEXT';
+                    const isExtractSuffix = /_\d+$/.test(col);
+                    const finalType = isExtractSuffix ? 'TEXT' : pgType;
+                    return `"${col}" ${finalType}${col === pkLocalField ? ' PRIMARY KEY' : ''}`;
+                }).join(', ');
                 await pool.query(`CREATE TABLE ${fullLocalTableName} (${createCols})`);
 
                 if (result.rows.length > 0) {
@@ -2027,11 +2113,30 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
                             for (const col of finalColumns) {
                                 let val = rowObj[col];
                                 const originalFieldName = colSourceMap[col];
-                                // Auto-detect date fields by name or config
-                                if (originalFieldName && (tableDateFields.includes(originalFieldName) || originalFieldName.toUpperCase().includes('DATE'))) {
-                                    val = parseOracleDate(val);
+                                const isDateField = originalFieldName && (tableDateFields.includes(originalFieldName) || originalFieldName.toUpperCase().includes('DATE'));
+                                const pgType = columnPgTypes[col] || 'TEXT';
+                                if (isDateField) {
+                                    if (pgType === 'TIMESTAMP') {
+                                        val = parseOracleTimestamp(val);
+                                    } else {
+                                        val = parseOracleDate(val);
+                                    }
                                 }
-                                fullValues.push(val !== null ? String(val) : null);
+                                // Convert to appropriate JS types for pg driver
+                                if (val !== null && val !== undefined) {
+                                    if (pgType === 'NUMERIC' || pgType === 'DOUBLE PRECISION') {
+                                        const num = parseFloat(String(val));
+                                        val = isNaN(num) ? String(val) : num;
+                                    } else if (pgType === 'INTEGER') {
+                                        const num = parseInt(String(val), 10);
+                                        val = isNaN(num) ? String(val) : num;
+                                    } else {
+                                        val = String(val);
+                                    }
+                                } else {
+                                    val = null;
+                                }
+                                fullValues.push(val);
                             }
 
                             // 2. Extra decomposed columns
@@ -2079,6 +2184,7 @@ app.use('/api/certificates', certificatesRouter);
 
 // Finance & Tiers Module
 app.use('/api/budget', financeRouter);
+app.use('/api/finance/field-mapping', fieldMappingRouter);
 app.use('/api/tiers', tiersRouter);
 app.use('/api/contacts', contactsRouter);
 

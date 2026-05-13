@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import BudgetManagementTab from '../components/BudgetManagementTab';
+import MappedDataTable from '../components/MappedDataTable';
 import { useAuth } from '../contexts/AuthContext';
-import Tiers from './Tiers';
 
 const Budget: React.FC = () => {
   const { token, user } = useAuth();
@@ -139,26 +139,35 @@ const Budget: React.FC = () => {
       }
     };
 
+    fetchBudgets();
+  }, [token]);
+
+  useEffect(() => {
     const fetchFiscalYears = async () => {
       try {
-        const res = await fetch('/api/budget/orders/years', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setAvailableFiscalYears(data);
-          if (data.length > 0 && !data.includes(currentFiscalYear)) {
-            setCurrentFiscalYear(data[0]);
-          }
+        const rubriqueName = view === 'orders' ? 'Commandes' : view === 'invoices' ? 'Factures' : view === 'tiers' ? 'Tiers' : null;
+        let data: number[] = [];
+        if (rubriqueName) {
+          const res = await fetch(`/api/finance/field-mapping/years/${encodeURIComponent(rubriqueName)}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) data = await res.json();
+        } else {
+          const res = await fetch('/api/budget/orders/years', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) data = await res.json();
+        }
+        setAvailableFiscalYears(data);
+        if (data.length > 0 && !data.includes(currentFiscalYear)) {
+          setCurrentFiscalYear(data[0]);
         }
       } catch (e) {
         console.error('Error fetching fiscal years:', e);
       }
     };
-
-    fetchBudgets();
     fetchFiscalYears();
-  }, [token]);
+  }, [token, view]);
   
   // Gestion state
   const [showOpSelector, setShowOpSelector] = useState(false);
@@ -1069,7 +1078,7 @@ const Budget: React.FC = () => {
               </div>
             )}
 
-            {['lines', 'invoices', 'orders', 'operations'].includes(view) && (
+            {['lines', 'operations'].includes(view) && (
               <div className="orders-container">
                 <div className="toolbar">
                   <div className="toolbar-actions">
@@ -1652,10 +1661,25 @@ const Budget: React.FC = () => {
                     )}
             {view === 'tiers' && (
               <div className="animate-fade-in">
-                <Tiers embedded />
+                <MappedDataTable rubriqueName="Tiers" title="Tiers" fiscalYear={currentFiscalYear} />
               </div>
             )}
-                    {['orders', 'invoices', 'operations'].includes(view) && (
+            {view === 'orders' && (
+              <div className="animate-fade-in">
+                <MappedDataTable rubriqueName="Commandes" title="Commandes" fiscalYear={currentFiscalYear} />
+              </div>
+            )}
+            {view === 'invoices' && (
+              <div className="animate-fade-in">
+                <MappedDataTable rubriqueName="Factures" title="Factures" fiscalYear={currentFiscalYear} />
+              </div>
+            )}
+            {view === 'operations' && (
+              <div className="animate-fade-in" style={{ marginBottom: '2rem' }}>
+                <MappedDataTable rubriqueName="Opérations" title="Opérations" fiscalYear={currentFiscalYear} />
+              </div>
+            )}
+            {['orders', 'invoices', 'operations'].includes(view) && (
                       <div data-column-selector style={{ position: 'relative', display: 'inline-block' }}>
                         <button
                           className="toolbar-btn"

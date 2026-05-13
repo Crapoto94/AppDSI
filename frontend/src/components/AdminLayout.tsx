@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, Users, MessageSquare, ShieldCheck,
   Mail, Settings, LayoutGrid, Activity,
-  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -49,6 +49,7 @@ const AdminLayout: React.FC = () => {
     { title: "Liaison Oracle", icon: Database, path: "/admin/oracle" },
     { title: "Liaison MariaDB", icon: Database, path: "/admin/mariadb" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
+    { title: "Finances", icon: DollarSign, path: "/admin/finance" },
     { title: "Logs Système", icon: Activity, path: "/mouchard", external: true },
   ];
 

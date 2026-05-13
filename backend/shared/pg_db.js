@@ -142,55 +142,15 @@ async function setupPgDb() {
         id SERIAL PRIMARY KEY,
         show_tickets BOOLEAN DEFAULT TRUE,
         show_subscriptions BOOLEAN DEFAULT TRUE,
-        show_health_check BOOLEAN DEFAULT TRUE
+        show_health_check BOOLEAN DEFAULT TRUE,
+        show_create_buttons BOOLEAN DEFAULT true,
+        show_ideas BOOLEAN DEFAULT true,
+        show_rencontres BOOLEAN DEFAULT true,
+        show_library BOOLEAN DEFAULT false
       );
     `);
 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS magapp.versions (
-        id SERIAL PRIMARY KEY,
-        version_number VARCHAR(50) NOT NULL,
-        release_notes_html TEXT,
-        release_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active BOOLEAN DEFAULT FALSE
-      );
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS magapp.user_versions (
-        username VARCHAR(255) PRIMARY KEY,
-        last_seen_version_id INTEGER,
-        seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT fk_version FOREIGN KEY(last_seen_version_id) REFERENCES magapp.versions(id) ON DELETE CASCADE
-      );
-    `);
-
-    const settingsCount = await client.query('SELECT COUNT(*) FROM magapp.settings');
-    if (parseInt(settingsCount.rows[0].count) === 0) {
-      await client.query('INSERT INTO magapp.settings (show_tickets, show_subscriptions, show_health_check) VALUES (TRUE, TRUE, TRUE)');
-      console.log('[PG DB] MagApp settings initialized');
-    }
-
-    const columnsToMigrate = [
-      { name: 'app_type', type: "VARCHAR(50) DEFAULT 'Web'" },
-      { name: 'present_magapp', type: "VARCHAR(3) DEFAULT 'oui'" },
-      { name: 'present_onboard', type: "VARCHAR(3) DEFAULT 'oui'" },
-      { name: 'email_createur', type: "VARCHAR(255) DEFAULT ''" },
-      { name: 'lien_mercator', type: "VARCHAR(1024) DEFAULT ''" },
-      { name: 'mercator_id', type: "INTEGER DEFAULT NULL" },
-      { name: 'mercator_name', type: "VARCHAR(255) DEFAULT ''" }
-    ];
-
-    for (const col of columnsToMigrate) {
-      await client.query(`
-        DO $$ 
-        BEGIN 
-          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='magapp' AND table_name='apps' AND column_name='${col.name}') THEN
-            ALTER TABLE magapp.apps ADD COLUMN ${col.name} ${col.type};
-          END IF;
-        END $$;
-      `);
-    }
+    await client.query('INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres) VALUES (1, true, true, true, true, true, true) ON CONFLICT (id) DO NOTHING');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.favorites (
@@ -1286,31 +1246,36 @@ async function setupPgDb() {
         }
 
         try {
-          const ops = await sqlite.all("SELECT * FROM operations");
-          if (ops && ops.length > 0) {
-            let migrated = 0;
-            for (const o of ops) {
-              const allCols = Object.keys(o).filter(k => k !== 'id');
-              const cols = [];
-              const vals = [];
-              for (const k of allCols) {
-                if (o[k] !== undefined && o[k] !== null) {
-                  cols.push(`"${k}"`);
-                  vals.push(o[k]);
+          const existing = await client.query('SELECT COUNT(*) as cnt FROM oracle.operations');
+          if (parseInt(existing.rows[0].cnt) === 0) {
+            const ops = await sqlite.all("SELECT * FROM operations");
+            if (ops && ops.length > 0) {
+              let migrated = 0;
+              for (const o of ops) {
+                const allCols = Object.keys(o).filter(k => k !== 'id');
+                const cols = [];
+                const vals = [];
+                for (const k of allCols) {
+                  if (o[k] !== undefined && o[k] !== null) {
+                    cols.push(`"${k}"`);
+                    vals.push(o[k]);
+                  }
+                }
+                const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
+                try {
+                  await client.query(
+                    `INSERT INTO oracle.operations (${cols.join(',')}) VALUES (${placeholders})`,
+                    vals
+                  );
+                  migrated++;
+                } catch (insertErr) {
+                  console.log(`[PG DB] operations migration row skipped: ${insertErr.message}`);
                 }
               }
-              const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
-              try {
-                await client.query(
-                  `INSERT INTO oracle.operations (${cols.join(',')}) VALUES (${placeholders})`,
-                  vals
-                );
-                migrated++;
-              } catch (insertErr) {
-                console.log(`[PG DB] operations migration row skipped: ${insertErr.message}`);
-              }
+              console.log(`[PG DB] Migrated ${migrated} operations → oracle.operations`);
             }
-            console.log(`[PG DB] Migrated ${migrated} operations → oracle.operations`);
+          } else {
+            console.log(`[PG DB] oracle.operations already has ${existing.rows[0].cnt} rows, skipping import`);
           }
         } catch (e) {
           console.log('[PG DB] operations migration skipped:', e.message);
@@ -1319,6 +1284,46 @@ async function setupPgDb() {
     } catch (e) {
       console.log('[PG DB] SQLite data migration skipped:', e.message);
     }
+
+    await client.query('CREATE SCHEMA IF NOT EXISTS finance;');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.field_mapping_rubriques (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        pg_schema TEXT NOT NULL DEFAULT 'public',
+        pg_table TEXT NOT NULL,
+        fiscal_year_column TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    try {
+      await client.query(`ALTER TABLE finance.field_mapping_rubriques ADD COLUMN IF NOT EXISTS fiscal_year_column TEXT`);
+    } catch (e) {}
+
+    try {
+      await client.query(`ALTER TABLE finance.field_mapping_rubriques ADD COLUMN IF NOT EXISTS link_target TEXT`);
+      await client.query(`ALTER TABLE finance.field_mapping_rubriques ADD COLUMN IF NOT EXISTS link_id_column TEXT`);
+      await client.query(`ALTER TABLE finance.field_mapping_rubriques ADD COLUMN IF NOT EXISTS sedit_id_column TEXT`);
+    } catch (e) {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.field_mapping_variables (
+        id SERIAL PRIMARY KEY,
+        rubrique_id INTEGER NOT NULL REFERENCES finance.field_mapping_rubriques(id) ON DELETE CASCADE,
+        variable_name TEXT NOT NULL,
+        expression_type TEXT NOT NULL DEFAULT 'field',
+        expression TEXT NOT NULL,
+        display_type TEXT NOT NULL DEFAULT 'text',
+        display_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    try {
+      await client.query(`ALTER TABLE finance.field_mapping_variables ADD COLUMN IF NOT EXISTS display_type TEXT NOT NULL DEFAULT 'text'`);
+    } catch (e) {}
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
