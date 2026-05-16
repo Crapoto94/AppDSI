@@ -2335,9 +2335,9 @@ const Budget: React.FC = () => {
           font-family: 'Inter', system-ui, -apple-system, sans-serif;
         }
         .main-content {
-          max-width: 1400px;
+          max-width: 1600px;
           margin: 0 auto;
-          padding: 2rem;
+          padding: 1rem 1.5rem;
         }
 
         /* Typography & Colors */

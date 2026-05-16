@@ -444,8 +444,20 @@ resolveMapping: async (req, res) => {
       // For Commandes rubrique, add Section column from first line
       if (rubrique.name === 'Commandes') {
         try {
-          const sectionSelect = `(SELECT COALESCE(cl."Section", '') FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1) AS "Section"`;
-          const query = `SELECT ${selectParts.join(', ')}, ${sectionSelect} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
+          let sectionExpression;
+          // Check if gf_oracle_cmdligne has a Section column
+          const colCheck = await pool.query(`
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'oracle' AND table_name = 'gf_oracle_cmdligne' AND column_name = 'Section'
+          `);
+          if (colCheck.rows.length > 0) {
+            // Use the Section column directly
+            sectionExpression = `(SELECT COALESCE(cl."Section", '') FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1)`;
+          } else {
+            // Fallback: derive Section from imputation chapter
+            sectionExpression = `(SELECT CASE WHEN LEFT(SPLIT_PART(COALESCE(cl.CMDLIGNE_IMPUTATION,''), '-', 1), 1) = '2' THEN 'I' ELSE 'F' END FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1)`;
+          }
+          const query = `SELECT ${selectParts.join(', ')}, ${sectionExpression} AS "Section" FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
           const dataResult = await pool.query(query, params);
           rows = dataResult.rows;
           variables.push({
