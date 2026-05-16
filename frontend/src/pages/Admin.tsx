@@ -208,6 +208,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [dateFields, setDateFields] = useState<Record<string, string[]>>({});
   const [joinPreviewResult, setJoinPreviewResult] = useState<string | null>(null);
   const [oracleActiveTab, setOracleActiveTab] = useState<'configuration' | 'automatisation' | 'logs'>('configuration');
+  const [oracleAutomations, setOracleAutomations] = useState<Record<string, { enabled: boolean; frequency: string }>>({ FINANCES: { enabled: false, frequency: 'daily' }, RH: { enabled: false, frequency: 'daily' } });
+  const [isSavingAutomation, setIsSavingAutomation] = useState<Record<string, boolean>>({});
+  const [oracleSyncLogs, setOracleSyncLogs] = useState<any[]>([]);
+  const [isLoadingOracleLogs, setIsLoadingOracleLogs] = useState(false);
 
   const toggleDateField = (type: string, table: string, field: string) => {
     const key = `${type}:${table}`;
@@ -517,6 +521,55 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     }
   };
 
+  const fetchOracleAutomationConfig = async () => {
+    try {
+      const res = await axios.get('/api/oracle-automation/config', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const automations: Record<string, any> = {};
+      res.data.forEach((config: any) => {
+        automations[config.sync_type] = {
+          enabled: config.enabled,
+          frequency: config.frequency
+        };
+      });
+      setOracleAutomations(automations);
+    } catch (err) {
+      console.error('Error fetching oracle automation config:', err);
+    }
+  };
+
+  const saveOracleAutomationConfig = async (syncType: string) => {
+    setIsSavingAutomation({ ...isSavingAutomation, [syncType]: true });
+    try {
+      await axios.put('/api/oracle-automation/config', {
+        sync_type: syncType,
+        enabled: oracleAutomations[syncType]?.enabled || false,
+        frequency: oracleAutomations[syncType]?.frequency || 'daily'
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (err) {
+      console.error('Error saving oracle automation config:', err);
+    } finally {
+      setIsSavingAutomation({ ...isSavingAutomation, [syncType]: false });
+    }
+  };
+
+  const fetchOracleSyncLogs = async () => {
+    setIsLoadingOracleLogs(true);
+    try {
+      const res = await axios.get('/api/oracle-automation/logs?limit=50', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setOracleSyncLogs(res.data.logs || []);
+    } catch (err) {
+      console.error('Error fetching oracle sync logs:', err);
+    } finally {
+      setIsLoadingOracleLogs(false);
+    }
+  };
+
   const fetchOracleSettings = async () => {
     try {
       const res = await fetch('/api/oracle-settings', { headers: { 'Authorization': `Bearer ${token}` } });
@@ -608,7 +661,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     if (section === 'ad') fetchADSettings();
     if (section === 'azure-ad') fetchAzureSettings();
     if (section === 'glpi') { fetchGLPISettings(); fetchSyncLogs(); fetchScheduledSyncs(); }
-    if (section === 'oracle') fetchOracleSettings();
+    if (section === 'oracle') {
+      fetchOracleSettings();
+      fetchOracleAutomationConfig();
+      fetchOracleSyncLogs();
+    }
     if (section === 'mariadb') fetchMariaDBSettings();
     if (section === 'transcript') fetchTranscriptSettings();
     if (section === 'main') { fetchTiles(); fetchUsers(); }
@@ -2784,46 +2841,214 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
             {/* Contenu Automatisation */}
             {oracleActiveTab === 'automatisation' && (
-              <div style={{ padding: '2rem', background: '#f8fafc', borderRadius: '1rem', textAlign: 'center', minHeight: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <Zap size={48} style={{ color: '#0284c7', marginBottom: '1rem', opacity: 0.5 }} />
-                <h3 style={{ margin: '0 0 1rem 0', color: '#1e293b', fontSize: '1.25rem' }}>Automatisation des synchronisations</h3>
-                <p style={{ color: '#64748b', marginBottom: '2rem', maxWidth: '500px' }}>
-                  Configurez les tâches de synchronisation automatiques pour les bases Oracle RH et FINANCES. Planifiez les imports réguliers et consultez l'historique des exécutions.
-                </p>
-                <button style={{
-                  padding: '0.75rem 1.5rem',
-                  background: '#0284c7',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '0.375rem',
-                  cursor: 'pointer',
-                  fontWeight: '500',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem'
-                }}>
-                  <Plus size={18} />
-                  Ajouter une tâche
-                </button>
+              <div>
+                <div style={{ marginBottom: '2rem' }}>
+                  <h3 style={{ margin: '0 0 0.5rem 0', color: '#1e293b', fontSize: '1.25rem', fontWeight: '600' }}>Automatisation des synchronisations</h3>
+                  <p style={{ color: '#64748b', margin: 0, fontSize: '0.95rem' }}>Configurez la fréquence de synchronisation pour chaque base Oracle. Les tâches s'exécuteront automatiquement selon le calendrier défini.</p>
+                </div>
+
+                <div className="oracle-grid">
+                  {['FINANCES', 'RH'].map(type => (
+                    <div key={type} className="oracle-card glass-card">
+                      <div className="card-header">
+                        <div className="header-info">
+                          <div className="type-icon">
+                            {type === 'FINANCES' ? <Euro size={20} /> : <Users size={20} />}
+                          </div>
+                          <h3>Automatisation {type}</h3>
+                        </div>
+                        <label className="luxe-toggle">
+                          <input
+                            type="checkbox"
+                            checked={oracleAutomations[type]?.enabled || false}
+                            onChange={(e) => setOracleAutomations({
+                              ...oracleAutomations,
+                              [type]: { ...oracleAutomations[type], enabled: e.target.checked }
+                            })}
+                          />
+                          <span style={{ fontSize: '0.85rem' }}>
+                            {oracleAutomations[type]?.enabled ? 'Activée' : 'Désactivée'}
+                          </span>
+                        </label>
+                      </div>
+
+                      <div className="card-body">
+                        <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '0.5rem', marginBottom: '1rem' }}>
+                          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#475569', fontSize: '0.9rem' }}>
+                            <Clock size={14} style={{ marginRight: '0.5rem', display: 'inline' }} />
+                            Fréquence de synchronisation
+                          </label>
+                          <select
+                            value={oracleAutomations[type]?.frequency || 'daily'}
+                            onChange={(e) => setOracleAutomations({
+                              ...oracleAutomations,
+                              [type]: { ...oracleAutomations[type], frequency: e.target.value }
+                            })}
+                            disabled={!oracleAutomations[type]?.enabled}
+                            style={{
+                              width: '100%',
+                              padding: '0.625rem 0.75rem',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: '0.375rem',
+                              fontSize: '0.9rem',
+                              cursor: oracleAutomations[type]?.enabled ? 'pointer' : 'not-allowed',
+                              opacity: oracleAutomations[type]?.enabled ? 1 : 0.6,
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            <option value="hourly">Toutes les heures</option>
+                            <option value="daily">Une fois par jour</option>
+                            <option value="weekly">Une fois par semaine</option>
+                            <option value="monthly">Une fois par mois</option>
+                          </select>
+                        </div>
+
+                        <div style={{ padding: '1rem', background: '#eff6ff', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.9rem', color: '#0284c7', display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                          <Zap size={16} style={{ marginTop: '0.125rem', flexShrink: 0 }} />
+                          <div>
+                            <strong>Automatisation active</strong>
+                            <br />
+                            {oracleAutomations[type]?.enabled
+                              ? `Les synchronisations s'exécuteront ${oracleAutomations[type]?.frequency === 'hourly' ? 'toutes les heures' : oracleAutomations[type]?.frequency === 'daily' ? 'une fois par jour' : oracleAutomations[type]?.frequency === 'weekly' ? 'une fois par semaine' : 'une fois par mois'} automatiquement.`
+                              : 'Activez l\'automatisation pour démarrer les synchronisations planifiées.'}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => saveOracleAutomationConfig(type)}
+                          disabled={isSavingAutomation[type]}
+                          style={{
+                            width: '100%',
+                            padding: '0.75rem 1rem',
+                            background: '#10b981',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '0.375rem',
+                            cursor: isSavingAutomation[type] ? 'not-allowed' : 'pointer',
+                            fontWeight: '500',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.5rem',
+                            opacity: isSavingAutomation[type] ? 0.7 : 1,
+                            transition: 'all 0.2s ease'
+                          }}
+                        >
+                          {isSavingAutomation[type] ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                          {isSavingAutomation[type] ? 'Sauvegarde...' : 'Sauvegarder'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
             {/* Contenu Logs */}
             {oracleActiveTab === 'logs' && (
-              <div style={{ padding: '2rem', background: 'white', borderRadius: '1rem' }}>
-                <div style={{ marginBottom: '2rem' }}>
-                  <h3 style={{ margin: '0 0 1rem 0', color: '#1e293b', fontSize: '1.25rem' }}>Historique des synchronisations</h3>
-                  <p style={{ color: '#64748b', margin: 0 }}>Consultez les détails de toutes les synchronisations effectuées.</p>
+              <div>
+                <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 0.5rem 0', color: '#1e293b', fontSize: '1.25rem', fontWeight: '600' }}>Historique des synchronisations</h3>
+                    <p style={{ color: '#64748b', margin: 0, fontSize: '0.95rem' }}>Consultez les détails de toutes les synchronisations Oracle effectuées.</p>
+                  </div>
+                  <button
+                    onClick={() => fetchOracleSyncLogs()}
+                    disabled={isLoadingOracleLogs}
+                    style={{
+                      padding: '0.625rem 1rem',
+                      background: '#0284c7',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '0.375rem',
+                      cursor: isLoadingOracleLogs ? 'not-allowed' : 'pointer',
+                      fontWeight: '500',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      opacity: isLoadingOracleLogs ? 0.7 : 1
+                    }}
+                  >
+                    {isLoadingOracleLogs ? <Loader2 size={16} className="animate-spin" /> : <HistoryIcon size={16} />}
+                    {isLoadingOracleLogs ? 'Chargement...' : 'Actualiser'}
+                  </button>
                 </div>
-                <div style={{
-                  padding: '2rem',
-                  background: '#f8fafc',
-                  borderRadius: '0.75rem',
-                  textAlign: 'center',
-                  border: '2px dashed #cbd5e1'
-                }}>
-                  <HistoryIcon size={40} style={{ color: '#94a3b8', marginBottom: '1rem', opacity: 0.5 }} />
-                  <p style={{ color: '#64748b', margin: 0 }}>Aucun log disponible pour le moment.</p>
+
+                <div style={{ background: 'white', borderRadius: '0.75rem', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                  {oracleSyncLogs.length === 0 ? (
+                    <div style={{
+                      padding: '3rem 2rem',
+                      textAlign: 'center'
+                    }}>
+                      <HistoryIcon size={48} style={{ color: '#cbd5e1', marginBottom: '1rem', opacity: 0.5 }} />
+                      <p style={{ color: '#94a3b8', margin: 0, fontSize: '0.95rem' }}>Aucun log de synchronisation disponible pour le moment.</p>
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                          <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Date/Heure</th>
+                          <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Type</th>
+                          <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Statut</th>
+                          <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Enregistrements</th>
+                          <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Durée</th>
+                          <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Message</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {oracleSyncLogs.map((log, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.2s' }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <td style={{ padding: '1rem', color: '#1e293b', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                              {new Date(log.started_at).toLocaleString('fr-FR')}
+                            </td>
+                            <td style={{ padding: '1rem', color: '#1e293b' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '0.25rem 0.75rem',
+                                background: log.sync_type === 'RH' ? '#dbeafe' : '#fef3c7',
+                                color: log.sync_type === 'RH' ? '#0284c7' : '#92400e',
+                                borderRadius: '0.25rem',
+                                fontSize: '0.85rem',
+                                fontWeight: '500'
+                              }}>
+                                {log.sync_type}
+                              </span>
+                            </td>
+                            <td style={{ padding: '1rem' }}>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                padding: '0.25rem 0.75rem',
+                                background: log.status === 'success' ? '#dcfce7' : log.status === 'running' ? '#fef3c7' : '#fee2e2',
+                                color: log.status === 'success' ? '#166534' : log.status === 'running' ? '#92400e' : '#991b1b',
+                                borderRadius: '0.25rem',
+                                fontSize: '0.85rem',
+                                fontWeight: '500'
+                              }}>
+                                {log.status === 'success' && <CheckCircle2 size={14} />}
+                                {log.status === 'running' && <Loader2 size={14} className="animate-spin" />}
+                                {log.status === 'failed' && <AlertTriangle size={14} />}
+                                {log.status === 'success' ? 'Succès' : log.status === 'running' ? 'En cours' : 'Erreur'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '1rem', color: '#1e293b', textAlign: 'center' }}>
+                              <span style={{ fontWeight: '500' }}>{log.records_synced || 0}</span>
+                            </td>
+                            <td style={{ padding: '1rem', color: '#64748b', fontSize: '0.85rem' }}>
+                              {log.duration_ms ? `${(log.duration_ms / 1000).toFixed(2)}s` : '-'}
+                            </td>
+                            <td style={{ padding: '1rem', color: '#64748b', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={log.error_message}>
+                              {log.error_message || '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </div>
             )}

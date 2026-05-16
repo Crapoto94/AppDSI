@@ -15,6 +15,8 @@ const financeRouter = require('./modules/finance/finance.routes');
 const fieldMappingRouter = require('./modules/finance/field-mapping.routes');
 const glpiRouter = require('./modules/glpi/glpi.routes');
 const glpiController = require('./modules/glpi/glpi.controller');
+const oracleAutomationRouter = require('./routes/oracle-automation.routes');
+const oracleScheduler = require('./modules/oracle/oracle-scheduler');
 
 const tiersRouter = require('./modules/finance/tiers.routes');
 const contactsRouter = require('./modules/finance/contacts.routes');
@@ -2179,6 +2181,9 @@ app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
 // GLPI Module
 app.use('/api/glpi', glpiRouter);
 
+// Oracle Automation Module
+app.use('/api/oracle-automation', oracleAutomationRouter);
+
 // Certificates Module
 app.use('/api/certificates', certificatesRouter);
 
@@ -2731,6 +2736,13 @@ setupDb().then(async database => {
         console.error('[MIGRATION SQLite → magapp.users]', e.message);
     }
 
+    // Initialize Oracle Automation Scheduler
+    try {
+        await oracleScheduler.initializeScheduler();
+        console.log('[Oracle Scheduler] Scheduler initialized');
+    } catch (e) {
+        console.error('[Oracle Scheduler] Failed to initialize scheduler:', e.message);
+    }
 
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Backend server running on http://0.0.0.0:${PORT}`);
