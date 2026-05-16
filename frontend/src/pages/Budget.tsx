@@ -3,7 +3,7 @@ import Header from '../components/Header';
 import { 
   Upload, CheckCircle, Search, Filter, BookOpen, X, Eye, 
   Euro, FileText, ShoppingCart, AlertCircle, 
-  Plus, Trash2, Send, ExternalLink, Columns, Palette
+  Plus, Trash2, Send, ExternalLink, Columns, Palette, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import BudgetManagementTab from '../components/BudgetManagementTab';
@@ -701,6 +701,26 @@ const Budget: React.FC = () => {
   const [expandedLines, setExpandedLines] = useState<string[]>([]);
   const toggleExpandLine = (id: string) => setExpandedLines(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
+  const [expandedOps, setExpandedOps] = useState<Set<number>>(new Set());
+  const [opsCommandsData, setOpsCommandsData] = useState<Record<number, { columns: any[], rows: any[] }>>({});
+  const toggleExpandedOp = (opId: number) => {
+    setExpandedOps(prev => {
+      const next = new Set(prev);
+      if (next.has(opId)) { next.delete(opId); }
+      else {
+        next.add(opId);
+        if (!opsCommandsData[opId]) {
+          fetch(`/api/finance/field-mapping/resolve/Op%C3%A9rations/children/${opId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          }).then(r => r.ok && r.json()).then(data => {
+            if (data) setOpsCommandsData(prev => ({ ...prev, [opId]: { columns: data.columns || [], rows: data.rows || [] } }));
+          }).catch(() => {});
+        }
+      }
+      return next;
+    });
+  };
+
   const handleAssignOperation = async (operationId: number | null) => {
     if (!selectedOrderForOp) return;
     try {
@@ -1277,6 +1297,7 @@ const Budget: React.FC = () => {
                     <table className="modern-table table-bordered">
                       <thead>
                         <tr>
+                            {view === 'operations' && <th key="__expand" style={{ width: '32px', minWidth: '32px', padding: '10px 4px' }}></th>}
                           {(() => {
                             let cols = [...visibleColumns];
                             if (view === 'orders') {
@@ -1322,7 +1343,12 @@ const Budget: React.FC = () => {
                           } else if (view === 'lines') {
                             isExpandable = hasLines && linesCount > 1;
                             isExpanded = expandedLines.includes(row['Libellé'] || index.toString());
+                          } else if (view === 'operations') {
+                            isExpandable = true;
+                            isExpanded = expandedOps.has(row.id);
                           }
+
+                          const opsChild = view === 'operations' && expandedOps.has(row.id) ? opsCommandsData[row.id] : null;
                           
                           const rowSection = row.Section || row.section || (view === 'operations' ? getSectionFromM57(row['C. Nature']) : '');
                           const isRowCompleted = view === 'operations' && (row['Terminé'] || '').toString().toUpperCase() === 'OUI';
@@ -1343,6 +1369,14 @@ const Budget: React.FC = () => {
                                   fontWeight: row._isChapter ? 'bold' : 'normal'
                                 }}
                               >
+                                {view === 'operations' && (
+                                  <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '32px', padding: '4px' }}>
+                                    <button className="icon-btn" onClick={(e) => { e.stopPropagation(); toggleExpandedOp(row.id); }}
+                                      style={{ width: '28px', height: '28px', cursor: 'pointer' }} title="Voir les commandes liées">
+                                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                    </button>
+                                  </td>
+                                )}
                                 {(() => {
                                   let cols = [...visibleColumns];
                                   if (view === 'orders') {
@@ -1710,6 +1744,34 @@ const Budget: React.FC = () => {
                                   </td>
                                 </tr>
                               )}
+                              {isExpanded && view === 'operations' && opsChild && (
+                                <tr className="expanded-row-bg" style={{ backgroundColor: '#f8fafc' }}>
+                                  <td colSpan={visibleColumns.length + 1} style={{ padding: '10px 20px' }}>
+                                    {opsChild.rows.length === 0 ? (
+                                      <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Aucune commande associée.</span>
+                                    ) : (
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                        <thead>
+                                          <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
+                                            {opsChild.columns.map((col: any) => (
+                                              <th key={col.name} style={{ padding: '4px', whiteSpace: 'nowrap' }}>{col.name}</th>
+                                            ))}
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {opsChild.rows.map((cr: any, ci: number) => (
+                                            <tr key={ci} style={{ borderBottom: '1px dashed #e2e8f0' }}>
+                                              {opsChild.columns.map((col: any) => (
+                                                <td key={col.name} style={{ padding: '4px' }}>{cr[col.name]}</td>
+                                              ))}
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
                             </React.Fragment>
                           );
                         }) : (
@@ -1756,15 +1818,6 @@ const Budget: React.FC = () => {
                   columnStyles={invoiceColumnStyles}
                   visibleColumns={invoiceColumns}
                   onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Factures': cols }))} />
-              </div>
-            )}
-            {view === 'operations' && (
-              <div className="animate-fade-in" style={{ marginBottom: '2rem' }}>
-                <MappedDataTable rubriqueName="Opérations" title="Opérations" fiscalYear={currentFiscalYear}
-                  onOpenColumnSettings={() => setShowColumnSelector(true)}
-                  columnStyles={opColumnStyles}
-                  visibleColumns={opColumns}
-                  onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Opérations': cols }))} />
               </div>
             )}
             {['orders', 'invoices', 'operations', 'tiers'].includes(view) && (
