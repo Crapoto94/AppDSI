@@ -172,13 +172,17 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   };
 
   const formatCell = (value: any, col: MappingColumn) => {
-    if (col.name === 'Section' && (value === 'F' || value === 'I' || value === 'Fonctionnement' || value === 'Investissement')) {
+    if (col.name === 'Section') {
       const isF = value === 'F' || value === 'Fonctionnement';
-      return (
-        <span className={`section-badge ${isF ? 'f' : 'i'}`}>
-          {isF ? 'F' : 'I'}
-        </span>
-      );
+      const isI = value === 'I' || value === 'Investissement';
+      if (isF || isI) {
+        return (
+          <span className={`section-badge ${isF ? 'f' : 'i'}`}>
+            {isF ? 'F' : 'I'}
+          </span>
+        );
+      }
+      return '';
     }
     if (value === null || value === undefined) return '';
     const str = String(value);

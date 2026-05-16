@@ -441,41 +441,41 @@ resolveMapping: async (req, res) => {
 
       let rows;
 
+      const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
+      const dataResult = await pool.query(query, params);
+      rows = dataResult.rows;
+
       // For Commandes rubrique, add Section column from first line
       if (rubrique.name === 'Commandes') {
         try {
-          let sectionExpression;
-          // Check if gf_oracle_cmdligne has a Section column
-          const colCheck = await pool.query(`
-            SELECT column_name FROM information_schema.columns
-            WHERE table_schema = 'oracle' AND table_name = 'gf_oracle_cmdligne' AND column_name = 'Section'
-          `);
-          if (colCheck.rows.length > 0) {
-            // Use the Section column directly
-            sectionExpression = `(SELECT COALESCE(cl."Section", '') FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1)`;
-          } else {
-            // Fallback: derive Section from imputation chapter
-            sectionExpression = `(SELECT CASE WHEN LEFT(SPLIT_PART(COALESCE(cl.CMDLIGNE_IMPUTATION,''), '-', 1), 1) = '2' THEN 'I' ELSE 'F' END FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1)`;
+          const refs = rows.map(r => String(r.COMMANDE_ROO_IMA_REF || r.COMMANDE_COMMANDE || '').trim()).filter(Boolean);
+          if (refs.length > 0) {
+            const sectionRows = await pool.query(`
+              SELECT DISTINCT ON (cl.CMDLIGNE_COMMANDE) cl.CMDLIGNE_COMMANDE,
+                COALESCE(cl."Section", '') AS section,
+                LEFT(SPLIT_PART(COALESCE(cl.CMDLIGNE_IMPUTATION,''), '-', 1), 1) AS chap
+              FROM oracle.gf_oracle_cmdligne cl
+              WHERE cl.CMDLIGNE_COMMANDE = ANY($1)
+              ORDER BY cl.CMDLIGNE_COMMANDE, cl.CMDLIGNE_IMPUTATION
+            `, [refs]);
+            const sectionMap = new Map(sectionRows.rows.map(r => [
+              r.CMDLIGNE_COMMANDE,
+              r.section || (r.chap === '2' ? 'I' : 'F')
+            ]));
+            rows = rows.map(row => {
+              const ref = String(row.COMMANDE_ROO_IMA_REF || row.COMMANDE_COMMANDE || '').trim();
+              return { ...row, Section: sectionMap.get(ref) || '' };
+            });
+            variables.push({
+              variable_name: 'Section',
+              display_type: 'text',
+              expression: 'Section',
+              expression_type: 'field'
+            });
           }
-          const query = `SELECT ${selectParts.join(', ')}, ${sectionExpression} AS "Section" FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
-          const dataResult = await pool.query(query, params);
-          rows = dataResult.rows;
-          variables.push({
-            variable_name: 'Section',
-            display_type: 'text',
-            expression: 'Section',
-            expression_type: 'field'
-          });
         } catch (e) {
           console.log('[FieldMapping] Section enrichment skipped:', e.message);
-          const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
-          const dataResult = await pool.query(query, params);
-          rows = dataResult.rows;
         }
-      } else {
-        const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
-        const dataResult = await pool.query(query, params);
-        rows = dataResult.rows;
       }
 
       // Enrich rows with operation link data if link_target and link_id_column are configured
