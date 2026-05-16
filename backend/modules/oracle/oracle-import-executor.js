@@ -183,20 +183,36 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
         const prefix = prefixMap[type.toUpperCase()];
         const fullLocalTableName = `oracle.${prefix}_${localTableName}`;
 
-        console.log(`[Oracle Import Executor] Creating PostgreSQL table ${fullLocalTableName}`);
-        await pool.query(`DROP TABLE IF EXISTS ${fullLocalTableName}`);
-        const pkLocalField = pkField ? `${mainPrefix}${pkField}` : null;
+        // Check if table exists
+        const tableExistsResult = await pool.query(`
+          SELECT EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'oracle' AND table_name = $1
+          )
+        `, [prefix + '_' + localTableName]);
 
-        const createCols = columnsForSchema.map(col => {
-          const colBase = col.replace(/_\d+$/, '');
-          const pgType = columnPgTypes[col] || columnPgTypes[colBase] || 'TEXT';
-          const isExtractSuffix = /_\d+$/.test(col);
-          const finalType = isExtractSuffix ? 'TEXT' : pgType;
-          return `"${col}" ${finalType}${col === pkLocalField ? ' PRIMARY KEY' : ''}`;
-        }).join(', ');
+        const tableExists = tableExistsResult.rows[0].exists;
 
-        await pool.query(`CREATE TABLE ${fullLocalTableName} (${createCols})`);
-        console.log(`[Oracle Import Executor] PostgreSQL table ${fullLocalTableName} created successfully`);
+        if (tableExists) {
+          // Table exists: truncate it to clear data
+          console.log(`[Oracle Import Executor] Truncating existing table ${fullLocalTableName}`);
+          await pool.query(`TRUNCATE TABLE ${fullLocalTableName}`);
+        } else {
+          // Table doesn't exist: create it
+          console.log(`[Oracle Import Executor] Creating PostgreSQL table ${fullLocalTableName}`);
+          const pkLocalField = pkField ? `${mainPrefix}${pkField}` : null;
+
+          const createCols = columnsForSchema.map(col => {
+            const colBase = col.replace(/_\d+$/, '');
+            const pgType = columnPgTypes[col] || columnPgTypes[colBase] || 'TEXT';
+            const isExtractSuffix = /_\d+$/.test(col);
+            const finalType = isExtractSuffix ? 'TEXT' : pgType;
+            return `"${col}" ${finalType}${col === pkLocalField ? ' PRIMARY KEY' : ''}`;
+          }).join(', ');
+
+          await pool.query(`CREATE TABLE ${fullLocalTableName} (${createCols})`);
+          console.log(`[Oracle Import Executor] PostgreSQL table ${fullLocalTableName} created successfully`);
+        }
 
         // Insérer les données par batch
         if (result.rows.length > 0) {
