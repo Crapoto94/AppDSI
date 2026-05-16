@@ -661,18 +661,24 @@ const Budget: React.FC = () => {
       createFetch('/api/settings/public')
     ]);
 
-    if (linesRes.ok) setBudgetLines(await linesRes.json());
-    if (invoicesRes.ok) setInvoices(await invoicesRes.json());
-    if (ordersRes.ok) setOrders(await ordersRes.json());
-    if (operationsRes.ok) setOperations(await operationsRes.json());
-    if (m57Res.ok) setM57Plan(await m57Res.json());
-    if (settingsRes.ok) {
-      const settings = await settingsRes.json();
-      const seditSetting = settings.find((s: any) => s.setting_key === 'url_sedit_fi');
-      if (seditSetting) setUrlSedit(seditSetting.setting_value);
+    try {
+      if (linesRes.ok) setBudgetLines(await linesRes.json());
+      if (invoicesRes.ok) setInvoices(await invoicesRes.json());
+      if (ordersRes.ok) setOrders(await ordersRes.json());
+      if (operationsRes.ok) setOperations(await operationsRes.json());
+      if (m57Res.ok) setM57Plan(await m57Res.json());
+      if (settingsRes.ok) {
+        const settings = await settingsRes.json();
+        if (Array.isArray(settings)) {
+          const seditSetting = settings.find((s: any) => s.setting_key === 'url_sedit_fi');
+          if (seditSetting) setUrlSedit(seditSetting.setting_value);
 
-      const budgetSetting = settings.find((s: any) => s.setting_key === 'budget_principal');
-      if (budgetSetting) setBudgetPrincipal(budgetSetting.setting_value);
+          const budgetSetting = settings.find((s: any) => s.setting_key === 'budget_principal');
+          if (budgetSetting) setBudgetPrincipal(budgetSetting.setting_value);
+        }
+      }
+    } catch (e) {
+      // Silently fail if JSON parsing fails due to timeout
     }
   };
 
