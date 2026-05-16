@@ -1847,10 +1847,35 @@ const Budget: React.FC = () => {
             )}
             {view === 'orders' && (
               <div className="animate-fade-in">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                  <button
+                    className={`toolbar-btn ${sectionFilter === 'F' ? 'active' : ''}`}
+                    onClick={() => setSectionFilter(sectionFilter === 'F' ? 'all' : 'F')}
+                    style={{ 
+                      background: sectionFilter === 'F' ? 'var(--color-green-500)' : 'white', 
+                      color: sectionFilter === 'F' ? 'white' : 'inherit',
+                      borderColor: sectionFilter === 'F' ? 'var(--color-green-500)' : 'var(--color-slate-200)'
+                    }}
+                  >
+                    Fonc.
+                  </button>
+                  <button
+                    className={`toolbar-btn ${sectionFilter === 'I' ? 'active' : ''}`}
+                    onClick={() => setSectionFilter(sectionFilter === 'I' ? 'all' : 'I')}
+                    style={{ 
+                      background: sectionFilter === 'I' ? 'var(--color-blue-500)' : 'white', 
+                      color: sectionFilter === 'I' ? 'white' : 'inherit',
+                      borderColor: sectionFilter === 'I' ? 'var(--color-blue-500)' : 'var(--color-slate-200)'
+                    }}
+                  >
+                    Inv.
+                  </button>
+                </div>
                 <MappedDataTable rubriqueName="Commandes" title="Commandes" fiscalYear={currentFiscalYear}
                   onOpenColumnSettings={() => setShowColumnSelector(true)}
                   columnStyles={orderColumnStyles}
                   visibleColumns={orderColumns}
+                  sectionFilter={sectionFilter}
                   onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Commandes': cols }))} />
               </div>
             )}

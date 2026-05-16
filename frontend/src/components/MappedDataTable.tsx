@@ -28,9 +28,10 @@ interface MappedDataTableProps {
   columnStyles?: Record<string, ColumnStyle>;
   onColumnsReady?: (columns: string[]) => void;
   visibleColumns?: string[];
+  sectionFilter?: string;
 }
 
-const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 100, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns }) => {
+const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 100, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter }) => {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
   const storageKey = `mdt_cols_${rubriqueName}`;
@@ -228,9 +229,19 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === '_section');
 
   const etatCol = columns.find(c => c.name === 'Etat' || c.expression === 'FACETAT_LIBELLE');
-  const displayRows = pendingFilter && etatCol
-    ? rows.filter(r => String(r[etatCol.name] || '').trim() === 'XXXXX')
-    : rows;
+  const displayRows = (() => {
+    let filtered = pendingFilter && etatCol
+      ? rows.filter(r => String(r[etatCol.name] || '').trim() === 'XXXXX')
+      : rows;
+    if (sectionFilter && sectionFilter !== 'all') {
+      filtered = filtered.filter(r => {
+        const s = r._section || '';
+        return (sectionFilter === 'F' && (s === 'F' || s === 'Fonctionnement')) ||
+               (sectionFilter === 'I' && (s === 'I' || s === 'Investissement'));
+      });
+    }
+    return filtered;
+  })();
 
   return (
     <div className="mdt-container">
