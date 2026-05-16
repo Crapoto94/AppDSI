@@ -26,19 +26,14 @@ function parseOracleTimestamp(val) {
 }
 
 async function executeOracleImport(type, db, pool, getOracleConnection) {
-  console.log(`[Oracle Import Executor] Starting import for ${type}`);
-
   let connection;
   const report = [];
 
   try {
     // Récupérer la config depuis SQLite
-    console.log(`[Oracle Import Executor] Querying oracle_sync_config for type=${type}`);
     const savedConfig = await db.all('SELECT table_name, where_clause, config_json FROM oracle_sync_config WHERE type = ?', [type]);
-    console.log(`[Oracle Import Executor] Found ${savedConfig.length} configuration(s) for ${type}`);
 
     if (savedConfig.length === 0) {
-      console.error(`[Oracle Import Executor] No configuration found for ${type}`);
       return { success: false, message: `Aucune configuration trouvée pour ${type}` };
     }
 
@@ -49,17 +44,12 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
     }));
 
     // Récupérer les settings Oracle
-    console.log(`[Oracle Import Executor] Querying oracle_settings for type=${type}`);
     const settings = await db.get('SELECT * FROM oracle_settings WHERE type = ?', [type]);
     if (!settings) {
-      console.error(`[Oracle Import Executor] No oracle_settings found for ${type}`);
       return { success: false, message: `Pas de connexion Oracle configurée pour ${type}` };
     }
-    console.log(`[Oracle Import Executor] Oracle settings found for ${type}`);
 
-    console.log(`[Oracle Import Executor] Establishing Oracle connection for ${type}`);
     connection = await getOracleConnection(settings);
-    console.log(`[Oracle Import Executor] Oracle connection established for ${type}`);
 
     // Traiter chaque table
     for (const config of tablesToSync) {
@@ -141,9 +131,7 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
         }
 
         // Exécuter la requête Oracle
-        console.log(`[Oracle Import Executor] Executing Oracle query for ${tableName}`);
         const result = await connection.execute(query, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
-        console.log(`[Oracle Import Executor] Oracle query for ${tableName} returned ${result.rows.length} rows`);
         const localTableName = type.toUpperCase() === 'RH' ? tableName : `oracle_${tableName.toLowerCase()}`;
         const finalColumns = result.metaData.map(m => m.name);
 
@@ -195,11 +183,9 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
 
         if (tableExists) {
           // Table exists: truncate it to clear data
-          console.log(`[Oracle Import Executor] Truncating existing table ${fullLocalTableName}`);
           await pool.query(`TRUNCATE TABLE ${fullLocalTableName}`);
         } else {
           // Table doesn't exist: create it
-          console.log(`[Oracle Import Executor] Creating PostgreSQL table ${fullLocalTableName}`);
           const pkLocalField = pkField ? `${mainPrefix}${pkField}` : null;
 
           const createCols = columnsForSchema.map(col => {
@@ -211,12 +197,10 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
           }).join(', ');
 
           await pool.query(`CREATE TABLE ${fullLocalTableName} (${createCols})`);
-          console.log(`[Oracle Import Executor] PostgreSQL table ${fullLocalTableName} created successfully`);
         }
 
         // Insérer les données par batch
         if (result.rows.length > 0) {
-          console.log(`[Oracle Import Executor] Inserting ${result.rows.length} rows into ${fullLocalTableName}`);
           const BATCH_SIZE = 500;
           const client = await pool.connect();
           try {
@@ -283,22 +267,15 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
 
               await client.query(batchSql, batchValues);
               insertedCount += batch.length;
-              if (insertedCount % 500 === 0 || insertedCount === result.rows.length) {
-                console.log(`[Oracle Import Executor] Progress: ${insertedCount}/${result.rows.length} rows inserted into ${fullLocalTableName}`);
-              }
             }
 
             await client.query('COMMIT');
-            console.log(`[Oracle Import Executor] Successfully inserted ${insertedCount} rows into ${fullLocalTableName}`);
           } catch (e) {
-            console.error(`[Oracle Import Executor] Transaction failed for ${tableName}:`, e.message);
             await client.query('ROLLBACK');
             throw e;
           } finally {
             client.release();
           }
-        } else {
-          console.log(`[Oracle Import Executor] No rows to insert for ${tableName}`);
         }
 
         // Fix column types for specific tables (non-blocking optimization)
@@ -335,10 +312,8 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
         }
 
         report.push({ table: tableName, status: 'SUCCESS', count: result.rows.length });
-        console.log(`[Oracle Import Executor] ${tableName}: ${result.rows.length} rows imported`);
 
       } catch (err) {
-        console.error(`[Oracle Import Executor] Error on ${tableName}:`, err.message);
         report.push({ table: tableName, status: 'FAILED', message: err.message });
       }
     }
@@ -346,6 +321,26 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
     if (connection) {
       await connection.close();
     }
+
+    // Log final summary
+    const successTables = report.filter(r => r.status === 'SUCCESS');
+    const failedTables = report.filter(r => r.status === 'FAILED');
+    const totalRecords = successTables.reduce((sum, r) => sum + r.count, 0);
+
+    let logMessage = `[Oracle Sync] ${type} synchronization completed\n`;
+    logMessage += `Tables synced: ${successTables.length}/${report.length}\n`;
+    successTables.forEach(r => {
+      logMessage += `  • ${r.table}: ${r.count} records\n`;
+    });
+    if (failedTables.length > 0) {
+      logMessage += `Failed tables:\n`;
+      failedTables.forEach(r => {
+        logMessage += `  • ${r.table}: ${r.message}\n`;
+      });
+    }
+    logMessage += `Total records synced: ${totalRecords}`;
+
+    console.log(logMessage);
 
     return { success: true, message: `Synchronisation réussie`, report };
 
