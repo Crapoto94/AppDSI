@@ -17,7 +17,7 @@ async function getAutomationConfig() {
 
 async function executeSyncTask(syncType) {
   const startTime = new Date();
-  console.log(`[Oracle Sync] Starting ${syncType} sync at ${startTime.toISOString()}`);
+  console.log(`\n========== [Oracle Sync] Starting ${syncType} sync at ${startTime.toISOString()} ==========`);
 
   try {
     // Log: mark as running
@@ -93,9 +93,10 @@ async function executeSyncTask(syncType) {
         'UPDATE oracle_automation_config SET last_sync_at = $1, next_sync_at = $2 WHERE sync_type = $3',
         [endTime, nextTime, syncType]
       );
+      console.log(`[Oracle Sync] Updated next_sync_at for ${syncType}: ${nextTime.toISOString()}`);
     }
 
-    console.log(`[Oracle Sync] ${syncType} sync completed successfully in ${duration}ms (${recordsSynced} records)`);
+    console.log(`[Oracle Sync] ${syncType} sync completed successfully in ${duration}ms (${recordsSynced} records)\n========================================\n`);
   } catch (err) {
     console.error(`[Oracle Sync] Error during ${syncType} sync:`, err);
 
