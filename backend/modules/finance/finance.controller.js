@@ -499,16 +499,20 @@ module.exports = {
                     amtTtc: parseNum(line.CMDLIGNE_PRIXE)
                 }));
 
-                // Determine section from the first line's imputation code
+                // Determine section from the first line's Section column (set by field mapping / Oracle sync)
                 let section = '';
                 const firstLine = lines.length > 0 ? lines[0] : null;
                 if (firstLine) {
-                    const imputation = String(firstLine.CMDLIGNE_IMPUTATION || '').trim();
-                    const chapitre = imputation.split('-')[0] || '';
-                    if (chapitre.startsWith('0') || chapitre.startsWith('1') || chapitre.startsWith('6') || chapitre.startsWith('7')) {
-                        section = 'F';
-                    } else if (chapitre.startsWith('2')) {
-                        section = 'I';
+                    section = firstLine.Section || firstLine.section || '';
+                    if (!section) {
+                        // Fallback: derive from imputation chapter
+                        const imputation = String(firstLine.CMDLIGNE_IMPUTATION || '').trim();
+                        const chapitre = imputation.split('-')[0] || '';
+                        if (chapitre.startsWith('0') || chapitre.startsWith('1') || chapitre.startsWith('6') || chapitre.startsWith('7')) {
+                            section = 'F';
+                        } else if (chapitre.startsWith('2')) {
+                            section = 'I';
+                        }
                     }
                 }
 

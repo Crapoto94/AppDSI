@@ -441,57 +441,40 @@ resolveMapping: async (req, res) => {
 
       let rows;
 
-      // For Commandes rubrique, add hidden COMMANDE_ROO_IMA_REF column for line matching
-      let cmdRefCol;
-      if (rubrique.name === 'Commandes') {
-        cmdRefCol = `_cmd_ref`;
-        selectParts.push(`"_t"."COMMANDE_ROO_IMA_REF" AS "${cmdRefCol}"`);
-      }
-
-      const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
-      const dataResult = await pool.query(query, params);
-      rows = dataResult.rows;
-
-      // For Commandes rubrique, add Section column from first line
+      // For Commandes rubrique, add Section column from first line via LEFT JOIN
       if (rubrique.name === 'Commandes') {
         try {
-          const refs = rows.map(r => String(r[cmdRefCol] || r.COMMANDE_COMMANDE || r['N° Commande'] || '').trim()).filter(Boolean);
-          if (refs.length > 0) {
-            // Check if Section column exists on cmdligne
-            let sectionExpr;
-            const colCheck = await pool.query(
-              `SELECT column_name FROM information_schema.columns WHERE table_schema='oracle' AND table_name='gf_oracle_cmdligne' AND column_name='Section'`
-            );
-            if (colCheck.rows.length > 0) {
-              sectionExpr = `CASE WHEN cl."Section" IN ('F','I','Fonctionnement','Investissement') THEN cl."Section" WHEN LEFT(SPLIT_PART(COALESCE(cl.CMDLIGNE_IMPUTATION,''), '-', 1), 1) = '2' THEN 'I' ELSE 'F' END`;
-            } else {
-              sectionExpr = `CASE WHEN LEFT(SPLIT_PART(COALESCE(cl.CMDLIGNE_IMPUTATION,''), '-', 1), 1) = '2' THEN 'I' ELSE 'F' END`;
-            }
-            const sectionRows = await pool.query(`
-              SELECT DISTINCT ON (cl.CMDLIGNE_COMMANDE) cl.CMDLIGNE_COMMANDE,
-                ${sectionExpr} AS section
-              FROM oracle.gf_oracle_cmdligne cl
-              WHERE cl.CMDLIGNE_COMMANDE = ANY($1)
-              ORDER BY cl.CMDLIGNE_COMMANDE, cl.CMDLIGNE_IMPUTATION
-            `, [refs]);
-            const sectionMap = new Map(sectionRows.rows.map(r => [
-              r.CMDLIGNE_COMMANDE,
-              r.section === 'I' ? 'I' : 'F'
-            ]));
-            rows = rows.map(row => {
-              const ref = String(row[cmdRefCol] || row.COMMANDE_COMMANDE || row['N° Commande'] || '').trim();
-              return { ...row, Section: sectionMap.get(ref) || '' };
-            });
-            variables.push({
-              variable_name: 'Section',
-              display_type: 'text',
-              expression: 'Section',
-              expression_type: 'field'
-            });
+          const cmdligneCols = await pool.query(
+            `SELECT column_name FROM information_schema.columns WHERE table_schema='oracle' AND table_name='gf_oracle_cmdligne'`
+          );
+          const colNames = cmdligneCols.rows.map(r => r.column_name);
+          let sectionExpr;
+          if (colNames.includes('Section')) {
+            sectionExpr = `CASE WHEN cl."Section" IN ('F','I','Fonctionnement','Investissement') THEN cl."Section" WHEN LEFT(SPLIT_PART(COALESCE(cl.CMDLIGNE_IMPUTATION,''), '-', 1), 1) = '2' THEN 'I' ELSE 'F' END`;
+          } else {
+            sectionExpr = `CASE WHEN LEFT(SPLIT_PART(COALESCE(cl.CMDLIGNE_IMPUTATION,''), '-', 1), 1) = '2' THEN 'I' ELSE 'F' END`;
           }
+          const sectionSubquery = `LEFT JOIN LATERAL (SELECT ${sectionExpr} AS sec FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1) sec_sub ON true`;
+          const query = `SELECT ${selectParts.join(', ')}, sec_sub.sec AS "Section" FROM ${qualifiedTable} ${sectionSubquery} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
+          const dataResult = await pool.query(query, params);
+          rows = dataResult.rows;
+          variables.push({
+            variable_name: 'Section',
+            display_type: 'text',
+            expression: 'Section',
+            expression_type: 'field'
+          });
         } catch (e) {
-          console.log('[FieldMapping] Section enrichment skipped:', e.message);
+          console.log('[FieldMapping] Section LATERAL join failed:', e.message);
+          // Fallback: simple query without Section
+          const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
+          const dataResult = await pool.query(query, params);
+          rows = dataResult.rows;
         }
+      } else {
+        const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
+        const dataResult = await pool.query(query, params);
+        rows = dataResult.rows;
       }
 
       // Enrich rows with operation link data if link_target and link_id_column are configured
