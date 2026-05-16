@@ -253,8 +253,11 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
 
                 await client.query(insertSql, fullValues);
                 insertedCount++;
+                if (insertedCount % 100 === 0) {
+                  console.log(`[Oracle Import Executor] Progress: ${insertedCount}/${result.rows.length} rows inserted into ${fullLocalTableName}`);
+                }
               } catch (rowErr) {
-                console.error(`[Oracle Import Executor] Error inserting row for ${tableName}:`, rowErr.message);
+                console.error(`[Oracle Import Executor] Error inserting row ${insertedCount + 1}/${result.rows.length} for ${tableName}:`, rowErr.message);
                 throw rowErr;
               }
             }
