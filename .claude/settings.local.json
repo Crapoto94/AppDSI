@@ -108,7 +108,9 @@
       "Bash(curl -s \"http://localhost:3001/api/tiles\")",
       "Bash(find \"/c/dev/AppDSI/frontend/src\" -name \"*.tsx\" -exec grep -l \"show_tickets\\\\|magapp.*settings\" {} \\\\;)",
       "Bash(timeout 5 curl -s \"http://localhost:3001/api/magapp/settings?username=machevalier\")",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(npm run *)",
+      "Bash(node -e ' *)"
     ]
   }
 }

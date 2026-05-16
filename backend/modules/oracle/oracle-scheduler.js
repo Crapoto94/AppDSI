@@ -192,6 +192,17 @@ async function initializeScheduler() {
 
 async function updateSchedule(syncType, frequency, enabled) {
   await scheduleTask(syncType, frequency, enabled);
+
+  // Update next_sync_at in the database
+  try {
+    const nextTime = enabled ? calculateNextSyncTime(frequency) : null;
+    await pool.query(
+      'UPDATE oracle_automation_config SET next_sync_at = $1 WHERE sync_type = $2',
+      [nextTime, syncType]
+    );
+  } catch (err) {
+    console.error('[Oracle Scheduler] Error updating next_sync_at:', err);
+  }
 }
 
 module.exports = {

@@ -573,8 +573,14 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-    } catch (err) {
+
+      alert('Configuration de synchronisation enregistrée avec succès');
+
+      // Reload the config to get updated next_sync_at
+      setTimeout(fetchOracleAutomationConfig, 500);
+    } catch (err: any) {
       console.error('Error saving oracle automation config:', err);
+      alert(`Erreur lors de l'enregistrement: ${err.response?.data?.error || err.message}`);
     } finally {
       setIsSavingAutomation({ ...isSavingAutomation, [syncType]: false });
     }

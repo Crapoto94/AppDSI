@@ -1,5 +1,6 @@
 const { pool } = require('../../shared/database');
 const oracleSyncService = require('./oracle-sync.service');
+const oracleScheduler = require('./oracle-scheduler');
 
 exports.getAutomationConfig = async (req, res) => {
   try {
@@ -20,7 +21,7 @@ exports.updateAutomationConfig = async (req, res) => {
     return res.status(400).json({ error: 'Invalid sync_type' });
   }
 
-  if (!['hourly', 'daily', 'weekly', 'monthly'].includes(frequency)) {
+  if (!['every_10_minutes', 'hourly', 'daily', 'weekly', 'monthly'].includes(frequency)) {
     return res.status(400).json({ error: 'Invalid frequency' });
   }
 
@@ -32,6 +33,14 @@ exports.updateAutomationConfig = async (req, res) => {
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Automation config not found' });
+    }
+
+    // Update the scheduler with the new configuration
+    try {
+      await oracleScheduler.updateSchedule(sync_type, frequency, enabled);
+    } catch (schedulerErr) {
+      console.error('Error updating scheduler:', schedulerErr);
+      // Don't fail the response if scheduler update fails, just log it
     }
 
     res.json(result.rows[0]);
