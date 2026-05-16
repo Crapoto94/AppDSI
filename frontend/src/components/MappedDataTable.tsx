@@ -171,6 +171,14 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   };
 
   const formatCell = (value: any, col: MappingColumn) => {
+    if (col.name === '_section') {
+      const isF = value === 'F' || value === 'Fonctionnement';
+      return (
+        <span className={`section-badge ${isF ? 'f' : 'i'}`}>
+          {isF ? 'F' : 'I'}
+        </span>
+      );
+    }
     if (value === null || value === undefined) return '';
     const str = String(value);
     if (col.display_type === 'currency') {
@@ -217,7 +225,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     </div>;
   }
 
-  const activeCols = columns.filter(c => visibleCols.includes(c.name));
+  const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === '_section');
 
   const etatCol = columns.find(c => c.name === 'Etat' || c.expression === 'FACETAT_LIBELLE');
   const displayRows = pendingFilter && etatCol

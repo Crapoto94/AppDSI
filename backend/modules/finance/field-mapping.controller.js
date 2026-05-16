@@ -439,10 +439,32 @@ resolveMapping: async (req, res) => {
           : selectParts[0].split(' AS ')[0];
       }
 
-      const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
-      const dataResult = await pool.query(query, params);
+      let rows;
 
-      let rows = dataResult.rows;
+      // For Commandes rubrique, add Section column from first line
+      if (rubrique.name === 'Commandes') {
+        try {
+          const sectionSelect = `(SELECT COALESCE(cl."Section", '') FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1) AS "_section"`;
+          const query = `SELECT ${selectParts.join(', ')}, ${sectionSelect} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
+          const dataResult = await pool.query(query, params);
+          rows = dataResult.rows;
+          variables.push({
+            variable_name: '_section',
+            display_type: 'text',
+            expression: '_section',
+            expression_type: 'field'
+          });
+        } catch (e) {
+          console.log('[FieldMapping] Section enrichment skipped:', e.message);
+          const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
+          const dataResult = await pool.query(query, params);
+          rows = dataResult.rows;
+        }
+      } else {
+        const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
+        const dataResult = await pool.query(query, params);
+        rows = dataResult.rows;
+      }
 
       // Enrich rows with operation link data if link_target and link_id_column are configured
       const linkIdVar = rubrique.link_id_column ? variables.find(v => v.expression === rubrique.link_id_column) : null;
