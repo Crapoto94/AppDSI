@@ -97,14 +97,33 @@ const Budget: React.FC = () => {
 
   // Column selector state
   const [showColumnSelector, setShowColumnSelector] = useState(false);
-  const DEFAULT_ORDER_COLUMNS = ['N° Commande', 'Libellé', 'Date de la commande', 'Budget', 'Service émetteur', 'Montant HT', 'Montant TTC', 'Nb lignes'];
+  const DEFAULT_ORDER_COLUMNS = ['N° Commande', 'Libellé', 'Date de la commande', 'Budget', 'Service émetteur', 'Section', 'Montant HT', 'Montant TTC', 'Nb lignes'];
   const DEFAULT_INVOICE_COLUMNS = ['N° Facture interne', 'N° Facture fournisseur', 'Libellé', 'Fournisseur', 'Arrivée', 'Échéance', 'Montant TTC', 'Budget', 'Etat'];
   const DEFAULT_OP_COLUMNS = ['LIBELLE', 'Service', 'Section', 'C. Nature', 'Montant prévu', 'used_amount', 'Terminé'];
 
   const getStoredColumns = (viewKey: string, defaults: string[]) => {
     try {
       const stored = localStorage.getItem(`budgetCols_${viewKey}`);
-      return stored ? JSON.parse(stored) : defaults;
+      let cols = stored ? JSON.parse(stored) : defaults;
+
+      // Migrate lowercase 'section' to uppercase 'Section'
+      if (cols.includes('section')) {
+        cols = cols.map((c: string) => c === 'section' ? 'Section' : c);
+        localStorage.setItem(`budgetCols_${viewKey}`, JSON.stringify(cols));
+      }
+
+      // Ensure 'Section' is in orders columns if it's missing
+      if (viewKey === 'orders' && !cols.includes('Section')) {
+        const idx = cols.indexOf('Service émetteur');
+        if (idx !== -1) {
+          cols.splice(idx + 1, 0, 'Section');
+        } else {
+          cols.push('Section');
+        }
+        localStorage.setItem(`budgetCols_${viewKey}`, JSON.stringify(cols));
+      }
+
+      return cols;
     } catch { return defaults; }
   };
   const setStoredColumns = (viewKey: string, cols: string[]) => {
@@ -114,6 +133,23 @@ const Budget: React.FC = () => {
   const [orderColumns, setOrderColumns] = useState<string[]>(() => getStoredColumns('orders', DEFAULT_ORDER_COLUMNS));
   const [invoiceColumns, setInvoiceColumns] = useState<string[]>(() => getStoredColumns('invoices', DEFAULT_INVOICE_COLUMNS));
   const [opColumns, setOpColumns] = useState<string[]>(() => getStoredColumns('operations', DEFAULT_OP_COLUMNS));
+
+  useEffect(() => {
+    const stored = localStorage.getItem('budgetCols_orders');
+    let cols = orderColumns;
+
+    if (!cols.includes('Section') && !cols.includes('section')) {
+      const idx = cols.indexOf('Service émetteur');
+      const newCols = [...cols];
+      if (idx !== -1) {
+        newCols.splice(idx + 1, 0, 'Section');
+      } else {
+        newCols.push('Section');
+      }
+      setOrderColumns(newCols);
+      setStoredColumns('orders', newCols);
+    }
+  }, [orderColumns, setOrderColumns]);
 
   interface ColumnStyle { bold: boolean; color: string; }
   type ColumnStyles = Record<string, ColumnStyle>;
@@ -1461,12 +1497,18 @@ const Budget: React.FC = () => {
                                     }
                                   } else {
                                     if (col === 'Section' || col === 'section') {
-                                      const sec = col === 'section' && view === 'operations' ? rowSection : row[col];
-                                      content = (
-                                        <span className={`section-badge ${(sec === 'Fonctionnement' || sec === 'F') ? 'f' : 'i'}`}>
-                                          {(sec === 'Fonctionnement' || sec === 'F') ? 'F' : 'I'}
-                                        </span>
-                                      );
+                                      let sec = col === 'section' && view === 'operations' ? rowSection : (row[col] || row['section'] || row['Section']);
+                                      // If section doesn't exist in row, get it from the first line
+                                      if (!sec && view === 'orders' && row._lines && row._lines.length > 0) {
+                                        sec = row._lines[0].section || row._lines[0].Section;
+                                      }
+                                      if (sec) {
+                                        content = (
+                                          <span className={`section-badge ${(sec === 'Fonctionnement' || sec === 'F') ? 'f' : 'i'}`}>
+                                            {(sec === 'Fonctionnement' || sec === 'F') ? 'F' : 'I'}
+                                          </span>
+                                        );
+                                      }
                                     } else if (col === 'used_amount' || col === 'Montant utilisé') {
                                       const used = parseFloat(row[col] || 0);
                                       const planned = parseFloat(row['Montant prévu'] || row['montant_prevu'] || 0);

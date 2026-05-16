@@ -31,10 +31,11 @@ interface MappedDataTableProps {
   sectionFilter?: string;
 }
 
-const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 100, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter }) => {
+const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 25, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter }) => {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
   const storageKey = `mdt_cols_${rubriqueName}`;
+  const pageStorageKey = `mdt_pagesize_${rubriqueName}`;
   const [columns, setColumns] = useState<MappingColumn[]>([]);
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -43,6 +44,14 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
+  const [itemsPerPage, setItemsPerPage] = useState<number | 'all'>(() => {
+    try {
+      const s = localStorage.getItem(pageStorageKey);
+      if (s === 'all') return 'all';
+      const n = parseInt(s || '25');
+      return [10, 25, 50, 100, 250].includes(n) ? n : 25;
+    } catch { return 25; }
+  });
   const [visibleCols, setVisibleCols] = useState<string[]>(() => {
     try { const s = localStorage.getItem(storageKey); return s ? JSON.parse(s) : []; } catch { return []; }
   });
@@ -71,13 +80,17 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     }
   }, [visibleColumns]);
 
+  const effectivePageSize = itemsPerPage === 'all' ? 10000 : itemsPerPage;
+
   const fetchData = async (search?: string, offset?: number, sort?: { key: string; direction: 'asc' | 'desc' } | null) => {
     setLoading(true);
     setError(null);
     try {
-      const params: any = { limit: pageSize, offset: offset || 0 };
+      const params: any = { limit: effectivePageSize, offset: offset || 0 };
       if (search) params.search = search;
       if (fiscalYear) params.fiscal_year = String(fiscalYear);
+      if (pendingFilter && rubriqueName === 'Factures') params.etat_filter = 'XXXXX';
+      if (sectionFilter && sectionFilter !== 'all') params.section_filter = sectionFilter;
       const s = sort !== undefined ? sort : sortConfig;
       if (s) {
         params.sort_by = s.key;
@@ -121,15 +134,20 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   }, [columns]);
 
   useEffect(() => {
-    const timer = setTimeout(() => { fetchData(searchTerm, currentPage * pageSize); }, 400);
+    const timer = setTimeout(() => { setCurrentPage(0); fetchData(searchTerm, 0); }, 400);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
   useEffect(() => { setCurrentPage(0); fetchData(searchTerm, 0); }, [fiscalYear]);
-  useEffect(() => { fetchData(searchTerm, currentPage * pageSize); }, [currentPage]);
+  useEffect(() => { fetchData(searchTerm, currentPage * effectivePageSize); }, [currentPage, effectivePageSize]);
   useEffect(() => {
-    if (sortConfig) fetchData(searchTerm, currentPage * pageSize, sortConfig);
-  }, [sortConfig?.key, sortConfig?.direction]);
+    if (sortConfig) fetchData(searchTerm, currentPage * effectivePageSize, sortConfig);
+  }, [sortConfig?.key, sortConfig?.direction, effectivePageSize]);
+
+  useEffect(() => {
+    setCurrentPage(0);
+    fetchData(searchTerm, 0);
+  }, [pendingFilter, sectionFilter]);
 
   useEffect(() => {
     axios.get('/api/budget/operations', { headers }).then(res => setOperations(res.data || [])).catch(() => {});
@@ -214,7 +232,6 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     }
   };
 
-  const totalPages = Math.ceil(total / pageSize);
   const showActions = !!seditIdColumn;
 
   if (loading && rows.length === 0) {
@@ -232,11 +249,18 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section');
 
-  const etatCol = columns.find(c => c.name === 'Etat' || c.expression === 'FACETAT_LIBELLE');
+  const etatCol = columns.find(c => c.variable_name === 'Etat' || c.expression === 'FACETAT_LIBELLE');
+
+  // Apply filters locally as fallback (backend also filters but this ensures they work)
   const displayRows = (() => {
-    let filtered = pendingFilter && etatCol
-      ? rows.filter(r => String(r[etatCol.name] || '').trim() === 'XXXXX')
-      : rows;
+    let filtered = rows;
+
+    // Apply etat filter for invoices
+    if (pendingFilter && etatCol && rubriqueName === 'Factures') {
+      filtered = filtered.filter(r => String(r[etatCol.name] || '').trim() === 'XXXXX');
+    }
+
+    // Apply section filter
     if (sectionFilter && sectionFilter !== 'all') {
       filtered = filtered.filter(r => {
         const s = r.Section || '';
@@ -244,8 +268,19 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                (sectionFilter === 'I' && (s === 'I' || s === 'Investissement'));
       });
     }
+
     return filtered;
   })();
+
+  // Use 'total' from backend which is the filtered result count
+  const displayTotal = total;
+  const totalPages = itemsPerPage === 'all' ? 1 : Math.ceil(displayTotal / effectivePageSize);
+
+  const handleItemsPerPageChange = (newSize: number | 'all') => {
+    setItemsPerPage(newSize);
+    localStorage.setItem(pageStorageKey, String(newSize));
+    setCurrentPage(0);
+  };
 
   return (
     <div className="mdt-container">
@@ -263,6 +298,42 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
             </button>
           )}
           <span className="mdt-count">{pendingFilter ? displayRows.length : total} résultat{total > 1 ? 's' : ''}</span>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center', borderLeft: '1px solid #e2e8f0', paddingLeft: '8px' }}>
+            <span style={{ fontSize: '13px', color: '#64748b', whiteSpace: 'nowrap' }}>Lignes:</span>
+            {[10, 25, 50, 100, 250].map(size => (
+              <button
+                key={size}
+                onClick={() => handleItemsPerPageChange(size)}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  border: itemsPerPage === size ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                  background: itemsPerPage === size ? '#eff6ff' : 'white',
+                  color: itemsPerPage === size ? '#1e40af' : '#64748b',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: itemsPerPage === size ? '600' : '400'
+                }}
+              >
+                {size}
+              </button>
+            ))}
+            <button
+              onClick={() => handleItemsPerPageChange('all')}
+              style={{
+                padding: '4px 8px',
+                borderRadius: '4px',
+                border: itemsPerPage === 'all' ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                background: itemsPerPage === 'all' ? '#eff6ff' : 'white',
+                color: itemsPerPage === 'all' ? '#1e40af' : '#64748b',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: itemsPerPage === 'all' ? '600' : '400'
+              }}
+            >
+              Toutes
+            </button>
+          </div>
           {onOpenColumnSettings && (
             <button className="mdt-col-btn" onClick={onOpenColumnSettings} title="Configurer les colonnes">
               <Columns size={16} /> Colonnes

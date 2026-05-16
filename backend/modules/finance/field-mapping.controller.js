@@ -358,7 +358,7 @@ previewMapping: async (req, res) => {
 
 resolveMapping: async (req, res) => {
     const { name } = req.params;
-    const { limit, offset, search, fiscal_year, sort_by, sort_dir } = req.query;
+    const { limit, offset, search, fiscal_year, sort_by, sort_dir, etat_filter, section_filter } = req.query;
     try {
       const rubriqueResult = await pool.query(
         "SELECT * FROM finance.field_mapping_rubriques WHERE name = $1", [name]
@@ -373,8 +373,24 @@ resolveMapping: async (req, res) => {
       const variables = variablesResult.rows;
       if (variables.length === 0) return res.json({ columns: [], rows: [], total: 0, fiscal_year_column: rubrique.fiscal_year_column });
 
+      // For Commandes rubrique using the view, add section to variables if not already present
+      if (rubrique.name === 'Commandes' && !variables.find(v => v.variable_name === 'section')) {
+        variables.push({
+          variable_name: 'section',
+          display_type: 'text',
+          expression: 'section',
+          expression_type: 'field'
+        });
+      }
+
       const selectParts = variables.map(v => formatSelectPart(v, '_t'));
-      const qualifiedTable = `"${rubrique.pg_schema}"."${rubrique.pg_table}" AS "_t"`;
+      let tableRef = rubrique.pg_table;
+      let schemaRef = rubrique.pg_schema;
+      if (rubrique.name === 'Commandes' && rubrique.pg_table === 'gf_oracle_commande') {
+        tableRef = 'commandes_with_section';
+        schemaRef = 'oracle';
+      }
+      const qualifiedTable = `"${schemaRef}"."${tableRef}" AS "_t"`;
 
       const whereParts = [];
       const params = [];
@@ -400,6 +416,30 @@ resolveMapping: async (req, res) => {
           whereParts.push('(' + searchParts.join(' OR ') + ')');
           params.push(String(search));
           paramIdx++;
+        }
+      }
+
+      // Handle etat_filter for invoices
+      if (etat_filter && name === 'Factures') {
+        const etatVar = variables.find(v => v.variable_name === 'Etat' || v.expression === 'FACETAT_LIBELLE');
+        if (etatVar) {
+          const expr = etatVar.expression_type === 'field' ? `"${etatVar.expression}"` : etatVar.expression;
+          whereParts.push(`(${expr})::text = $${paramIdx}`);
+          params.push(String(etat_filter));
+          paramIdx++;
+        }
+      }
+
+      // Handle section_filter
+      if (section_filter && section_filter !== 'all') {
+        const sectionVar = variables.find(v => v.variable_name === 'Section');
+        if (sectionVar) {
+          const expr = sectionVar.expression_type === 'field' ? `"${sectionVar.expression}"` : sectionVar.expression;
+          const sectionValue = section_filter === 'F' ? 'F' : 'I';
+          whereParts.push(`((${expr})::text = $${paramIdx} OR (${expr})::text = $${paramIdx + 1})`);
+          params.push(sectionValue);
+          params.push(section_filter === 'F' ? 'Fonctionnement' : 'Investissement');
+          paramIdx += 2;
         }
       }
 
@@ -441,41 +481,9 @@ resolveMapping: async (req, res) => {
 
       let rows;
 
-      // For Commandes rubrique, add Section column from first line via LEFT JOIN
-      if (rubrique.name === 'Commandes') {
-        try {
-          const cmdligneCols = await pool.query(
-            `SELECT column_name FROM information_schema.columns WHERE table_schema='oracle' AND table_name='gf_oracle_cmdligne'`
-          );
-          const colNames = cmdligneCols.rows.map(r => r.column_name);
-          let sectionExpr;
-          if (colNames.includes('Section')) {
-            sectionExpr = `CASE WHEN cl."Section" IN ('F','I','Fonctionnement','Investissement') THEN cl."Section" WHEN LEFT(SPLIT_PART(COALESCE(cl.CMDLIGNE_IMPUTATION,''), '-', 1), 1) = '2' THEN 'I' ELSE 'F' END`;
-          } else {
-            sectionExpr = `CASE WHEN LEFT(SPLIT_PART(COALESCE(cl.CMDLIGNE_IMPUTATION,''), '-', 1), 1) = '2' THEN 'I' ELSE 'F' END`;
-          }
-          const sectionSubquery = `LEFT JOIN LATERAL (SELECT ${sectionExpr} AS sec FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1) sec_sub ON true`;
-          const query = `SELECT ${selectParts.join(', ')}, sec_sub.sec AS "Section" FROM ${qualifiedTable} ${sectionSubquery} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
-          const dataResult = await pool.query(query, params);
-          rows = dataResult.rows;
-          variables.push({
-            variable_name: 'Section',
-            display_type: 'text',
-            expression: 'Section',
-            expression_type: 'field'
-          });
-        } catch (e) {
-          console.log('[FieldMapping] Section LATERAL join failed:', e.message);
-          // Fallback: simple query without Section
-          const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
-          const dataResult = await pool.query(query, params);
-          rows = dataResult.rows;
-        }
-      } else {
-        const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
-        const dataResult = await pool.query(query, params);
-        rows = dataResult.rows;
-      }
+      const query = `SELECT ${selectParts.join(', ')} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
+      const dataResult = await pool.query(query, params);
+      rows = dataResult.rows;
 
       // Enrich rows with operation link data if link_target and link_id_column are configured
       const linkIdVar = rubrique.link_id_column ? variables.find(v => v.expression === rubrique.link_id_column) : null;

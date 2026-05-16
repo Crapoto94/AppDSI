@@ -462,10 +462,17 @@ module.exports = {
             const result = await pool.query(sql, params);
             const pgRows = result.rows;
 
-            // Get lines from oracle.gf_oracle_cmdligne, joined on CMDLIGNE_COMMANDE = COMMANDE_ROO_IMA_REF
+            // Get lines from oracle.gf_oracle_cmdligne, joined with gf_oracle_imputation for section
             let linesData = [];
             try {
-                const linesResult = await pool.query('SELECT * FROM oracle.gf_oracle_cmdligne');
+                const linesResult = await pool.query(`
+                    SELECT
+                        cl.*,
+                        i."IMPUTATION_TYPE_SECTION" as "Section"
+                    FROM oracle.gf_oracle_cmdligne cl
+                    LEFT JOIN oracle.gf_oracle_imputation i
+                        ON TRIM(cl."CMDLIGNE_IMPUTATION") = TRIM(i."IMPUTATION_ROO_IMA_REF")
+                `);
                 linesData = linesResult.rows;
             } catch (e) { /* table might not exist or be empty */ }
 
@@ -496,7 +503,8 @@ module.exports = {
                     nature: line.CMDLIGNE_IMPUTATION ? String(line.CMDLIGNE_IMPUTATION).trim() : '',
                     fonction: '',
                     amtHt: 0,
-                    amtTtc: parseNum(line.CMDLIGNE_PRIXE)
+                    amtTtc: parseNum(line.CMDLIGNE_PRIXE),
+                    section: line.section || line.Section || ''
                 }));
 
                 // Determine section from the first line's Section column (set by field mapping / Oracle sync)
