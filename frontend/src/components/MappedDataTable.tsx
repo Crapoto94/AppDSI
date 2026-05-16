@@ -154,8 +154,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     try {
       const res = await axios.get(`/api/finance/field-mapping/resolve/${encodeURIComponent(rubriqueName)}/children/${encodeURIComponent(seditId)}`, { headers });
       setChildrenData(prev => ({ ...prev, [seditId]: { columns: res.data.columns || [], rows: res.data.rows || [] } }));
-    } catch {
-      // silent
+    } catch (err) {
+      console.error('[MappedDataTable] fetchChildren error:', err);
     } finally {
       setLoadingChildren(prev => ({ ...prev, [seditId]: false }));
     }
