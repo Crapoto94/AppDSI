@@ -181,6 +181,20 @@ async function initializeScheduler() {
     const configs = await getAutomationConfig();
 
     for (const config of configs) {
+      // Initialize next_sync_at if not already set
+      if (config.enabled && !config.next_sync_at) {
+        const nextTime = calculateNextSyncTime(config.frequency);
+        try {
+          await pool.query(
+            'UPDATE oracle_automation_config SET next_sync_at = $1 WHERE sync_type = $2',
+            [nextTime, config.sync_type]
+          );
+          console.log(`[Oracle Scheduler] Initialized next_sync_at for ${config.sync_type}: ${nextTime.toISOString()}`);
+        } catch (updateErr) {
+          console.error(`[Oracle Scheduler] Error initializing next_sync_at for ${config.sync_type}:`, updateErr);
+        }
+      }
+
       await scheduleTask(config.sync_type, config.frequency, config.enabled);
     }
 
@@ -196,6 +210,7 @@ async function updateSchedule(syncType, frequency, enabled) {
   // Update next_sync_at in the database
   try {
     const nextTime = enabled ? calculateNextSyncTime(frequency) : null;
+    console.log(`[Oracle Scheduler] Updating ${syncType}: next_sync_at = ${nextTime?.toISOString()}`);
     await pool.query(
       'UPDATE oracle_automation_config SET next_sync_at = $1 WHERE sync_type = $2',
       [nextTime, syncType]

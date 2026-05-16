@@ -17,12 +17,16 @@ exports.getAutomationConfig = async (req, res) => {
 exports.updateAutomationConfig = async (req, res) => {
   const { sync_type, enabled, frequency } = req.body;
 
+  console.log(`[Oracle Config] Update request: sync_type=${sync_type}, enabled=${enabled}, frequency=${frequency}`);
+
   if (!sync_type || !['RH', 'FINANCES'].includes(sync_type)) {
     return res.status(400).json({ error: 'Invalid sync_type' });
   }
 
-  if (!['every_10_minutes', 'hourly', 'daily', 'weekly', 'monthly'].includes(frequency)) {
-    return res.status(400).json({ error: 'Invalid frequency' });
+  const validFrequencies = ['every_10_minutes', 'hourly', 'daily', 'weekly', 'monthly'];
+  if (!frequency || !validFrequencies.includes(frequency)) {
+    console.error(`[Oracle Config] Invalid frequency: "${frequency}". Valid options: ${validFrequencies.join(', ')}`);
+    return res.status(400).json({ error: `Invalid frequency. Valid options: ${validFrequencies.join(', ')}` });
   }
 
   try {
@@ -154,25 +158,28 @@ exports.testSync = async (req, res) => {
     let duration = 0;
     let oracleData = {};
 
+    // Check if Oracle settings are configured
+    if (!config.host || !config.port || !config.service_name || !config.username) {
+      throw new Error(`Oracle connection not configured for ${syncType}. Please configure connection details in the Configuration tab.`);
+    }
+
+    // Try to connect to Oracle and fetch real data
+    const configuredTables = await oracleSyncService.getConfiguredTables(config);
+
+    if (configuredTables.length === 0) {
+      throw new Error(`No tables configured for ${syncType}. Please configure tables to sync in the Configuration tab.`);
+    }
+
+    const oracleConnection = await oracleSyncService.getOracleConnection(config);
     try {
-      // Try to connect to Oracle and fetch data
-      const configuredTables = await oracleSyncService.getConfiguredTables(config);
-
-      if (configuredTables.length === 0) {
-        throw new Error(`No tables configured for ${syncType}. Please configure tables in the Configuration tab.`);
-      }
-
-      const oracleConnection = await oracleSyncService.getOracleConnection(config);
       oracleData = await oracleSyncService.fetchDataFromOracle(oracleConnection, configuredTables);
 
-      // Count total records fetched
+      // Count total records fetched from Oracle
       recordsSynced = Object.values(oracleData).reduce((sum, tableData) => sum + (tableData.length || 0), 0);
 
+      console.log(`[Oracle Test Sync] Successfully fetched ${recordsSynced} records from ${Object.keys(oracleData).length} tables`);
+    } finally {
       await oracleConnection.close();
-    } catch (oracleErr) {
-      // If Oracle connection fails, fall back to simulation for testing purposes
-      console.log(`[Oracle Test Sync] Oracle connection error: ${oracleErr.message}. Using simulated data for test.`);
-      recordsSynced = Math.floor(Math.random() * 500) + 100;
     }
 
     duration = Date.now() - testStart;
