@@ -860,6 +860,16 @@ const Budget: React.FC = () => {
 
   const filteredData = useMemo(() => {
     let data = view === 'lines' ? groupedBudgetLines : view === 'invoices' ? invoices : view === 'operations' ? operations : filteredOrders;
+
+    if (view === 'operations') {
+      const seen = new Set<number>();
+      data = data.filter((row: any) => {
+        const key = row.id ?? row.ID;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
     
     if (view === 'lines') {
       if (!showZeroBudget) {
