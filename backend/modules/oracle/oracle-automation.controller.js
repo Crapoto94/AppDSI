@@ -1,4 +1,5 @@
 const { pool } = require('../../shared/database');
+const { PORT } = require('../../shared/config');
 const oracleSyncService = require('./oracle-sync.service');
 const oracleScheduler = require('./oracle-scheduler');
 
@@ -176,7 +177,7 @@ exports.testSync = async (req, res) => {
       const data = JSON.stringify({});
       const options = {
         hostname: 'localhost',
-        port: process.env.PORT || 5000,
+        port: PORT,
         path: `/api/oracle-automation/exec-sync/${syncType}`,
         method: 'POST',
         headers: {

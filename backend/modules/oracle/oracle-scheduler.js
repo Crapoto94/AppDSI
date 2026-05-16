@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const { pool } = require('../../shared/database');
+const { PORT } = require('../../shared/config');
 const axios = require('axios');
 const oracleSyncService = require('./oracle-sync.service');
 
@@ -22,8 +23,7 @@ async function executeSyncTask(syncType) {
   try {
     // Appeler l'endpoint /api/oracle/import-tables sans config
     // Le backend récupérera automatiquement la config de SQLite
-    const axios = require('axios');
-    const baseUrl = `http://localhost:${process.env.PORT || 5000}`;
+    const baseUrl = `http://localhost:${PORT}`;
 
     console.log(`[Oracle Sync] Calling ${baseUrl}/api/oracle-automation/exec-sync/${syncType}`);
 
