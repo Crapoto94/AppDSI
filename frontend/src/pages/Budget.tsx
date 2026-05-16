@@ -862,11 +862,15 @@ const Budget: React.FC = () => {
     let data = view === 'lines' ? groupedBudgetLines : view === 'invoices' ? invoices : view === 'operations' ? operations : filteredOrders;
 
     if (view === 'operations') {
-      const seen = new Set<number>();
+      const seen = new Set<string>();
       data = data.filter((row: any) => {
-        const key = row.id ?? row.ID;
+        const key = `${row.id ?? row.ID}`;
         if (seen.has(key)) return false;
         seen.add(key);
+        // Also check for business-key duplicates (different ids, same name)
+        const bizKey = `${(row['LIBELLE'] || row['Libellé'] || '').trim().toLowerCase()}|${row['Section'] || ''}|${row['exercice'] || ''}`;
+        if (seen.has(bizKey)) return false;
+        seen.add(bizKey);
         return true;
       });
     }

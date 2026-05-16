@@ -1250,8 +1250,19 @@ async function setupPgDb() {
           if (parseInt(existing.rows[0].cnt) === 0) {
             const ops = await sqlite.all("SELECT * FROM operations");
             if (ops && ops.length > 0) {
-              let migrated = 0;
+              // Deduplicate by business key (LIBELLE, Section, exercice)
+              const seen = new Map();
               for (const o of ops) {
+                const key = ((o.LIBELLE || '').trim().toLowerCase() + '|' + (o.Section || '') + '|' + (o.exercice || ''));
+                if (!seen.has(key)) {
+                  seen.set(key, o);
+                } else {
+                  console.log(`[PG DB] Skipping duplicate operation in SQLite: "${o.LIBELLE}"`);
+                }
+              }
+              const uniqueOps = Array.from(seen.values());
+              let migrated = 0;
+              for (const o of uniqueOps) {
                 const allCols = Object.keys(o).filter(k => k !== 'id');
                 const cols = [];
                 const vals = [];
@@ -1277,9 +1288,9 @@ async function setupPgDb() {
           } else {
             console.log(`[PG DB] oracle.operations already has ${existing.rows[0].cnt} rows, skipping import`);
           }
-        } catch (e) {
-          console.log('[PG DB] operations migration skipped:', e.message);
-        }
+    } catch (e) {
+      console.log('[PG DB] operations migration skipped:', e.message);
+    }
       }
     } catch (e) {
       console.log('[PG DB] SQLite data migration skipped:', e.message);

@@ -45,8 +45,55 @@ const recalculateAllOperations = async () => {
     }
 };
 
+const deduplicateOperations = async () => {
+    try {
+        // Find duplicates grouped by the business key (LIBELLE, Section, exercice)
+        const dupes = await pool.query(`
+            SELECT LOWER(TRIM("LIBELLE")) AS lib, COALESCE("Section",'') AS sec, COALESCE(exercice,'') AS ex,
+                   COUNT(*) AS cnt, ARRAY_AGG(id ORDER BY id) AS ids
+            FROM oracle.operations
+            GROUP BY LOWER(TRIM("LIBELLE")), COALESCE("Section",''), COALESCE(exercice,'')
+            HAVING COUNT(*) > 1
+        `);
+        if (dupes.rows.length === 0) {
+            console.log('[Migration] Aucun doublon trouvé dans oracle.operations');
+            return;
+        }
+        let totalDeleted = 0;
+        for (const group of dupes.rows) {
+            const ids = group.ids; // sorted by id asc
+            // Check which duplicates have linked orders
+            const linkCounts = {};
+            for (const id of ids) {
+                const res = await pool.query(
+                    `SELECT COUNT(*) AS cnt FROM oracle.oracle_links WHERE operation_id = $1 AND target_table = 'orders'`,
+                    [id]
+                );
+                linkCounts[id] = parseInt(res.rows[0].cnt);
+            }
+            // Keep the one with the most links (or the first/lowest id if tie)
+            const sorted = [...ids].sort((a, b) => linkCounts[b] - linkCounts[a] || a - b);
+            const keep = sorted[0];
+            const toDelete = sorted.slice(1);
+            // Reassign all oracle_links from deleted to kept operation
+            await pool.query(
+                `UPDATE oracle.oracle_links SET operation_id = $1 WHERE operation_id = ANY($2)`,
+                [keep, toDelete]
+            );
+            // Remove the duplicates
+            const del = await pool.query('DELETE FROM oracle.operations WHERE id = ANY($1)', [toDelete]);
+            totalDeleted += del.rowCount;
+            console.log(`[Migration] Doublon "${group.lib}": gardé id=${keep}, supprimé ids=${toDelete.join(',')}`);
+        }
+        console.log(`[Migration] ${totalDeleted} opérations en double supprimées.`);
+    } catch (error) {
+        console.error('[Migration] Erreur déduplication opérations:', error);
+    }
+};
+
 module.exports = {
     recalculateAllOperations,
+    deduplicateOperations,
 
     getOperations: async (req, res) => {
         const { fiscalYear } = req.query;

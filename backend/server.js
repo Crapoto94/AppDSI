@@ -20,7 +20,7 @@ const tiersRouter = require('./modules/finance/tiers.routes');
 const contactsRouter = require('./modules/finance/contacts.routes');
 const certificatesRouter = require('./modules/certificates/certificates.routes');
 const transcriptManagerRouter = require('./modules/transcriptmanager/transcriptmanager.routes');
-const { recalculateAllOperations } = require('./modules/finance/finance.controller');
+const { recalculateAllOperations, deduplicateOperations } = require('./modules/finance/finance.controller');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
@@ -2700,6 +2700,18 @@ setupDb().then(async database => {
 
     // Initialize PostgreSQL for MagApp
     await setupPgDb();
+
+    // Deduplicate operations (keep the one with linked commands)
+    await deduplicateOperations();
+
+    // Add UNIQUE constraint to prevent future duplicates
+    try {
+      await pool.query('ALTER TABLE oracle.operations DROP CONSTRAINT IF EXISTS uq_operations');
+      await pool.query('ALTER TABLE oracle.operations ADD CONSTRAINT uq_operations UNIQUE ("LIBELLE", "Section", exercice)');
+      console.log('[Migration] UNIQUE constraint added on oracle.operations (LIBELLE, Section, exercice)');
+    } catch (e) {
+      console.log('[Migration] UNIQUE constraint skip:', e.message);
+    }
 
     // Copier les utilisateurs SQLite vers magapp.users
     try {
