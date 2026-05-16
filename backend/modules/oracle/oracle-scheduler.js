@@ -113,6 +113,9 @@ function calculateNextSyncTime(frequency) {
   const next = new Date(now);
 
   switch (frequency) {
+    case 'every_10_minutes':
+      next.setMinutes(next.getMinutes() + 10);
+      break;
     case 'hourly':
       next.setHours(next.getHours() + 1);
       break;
