@@ -1,4 +1,4 @@
-const pool = require('../../config/database');
+const { pool } = require('../../shared/database');
 
 exports.getAutomationConfig = async (req, res) => {
   try {

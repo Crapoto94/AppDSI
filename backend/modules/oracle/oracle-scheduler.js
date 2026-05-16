@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const pool = require('../../config/database');
+const { pool } = require('../../shared/database');
 const axios = require('axios');
 
 const scheduledTasks = {};
