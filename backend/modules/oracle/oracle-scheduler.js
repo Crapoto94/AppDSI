@@ -97,6 +97,8 @@ function getCronExpression(frequency) {
   // Format: minute hour day_of_month month day_of_week
 
   switch (frequency) {
+    case 'every_10_minutes':
+      return '*/10 * * * *'; // Every 10 minutes
     case 'hourly':
       return '0 * * * *'; // Every hour at minute 0
     case 'daily':

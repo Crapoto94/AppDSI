@@ -210,6 +210,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [oracleActiveTab, setOracleActiveTab] = useState<'configuration' | 'automatisation' | 'logs'>('configuration');
   const [oracleAutomations, setOracleAutomations] = useState<Record<string, { enabled: boolean; frequency: string }>>({ FINANCES: { enabled: false, frequency: 'daily' }, RH: { enabled: false, frequency: 'daily' } });
   const [isSavingAutomation, setIsSavingAutomation] = useState<Record<string, boolean>>({});
+  const [isTestingAutomation, setIsTestingAutomation] = useState<Record<string, boolean>>({});
   const [oracleSyncLogs, setOracleSyncLogs] = useState<any[]>([]);
   const [isLoadingOracleLogs, setIsLoadingOracleLogs] = useState(false);
 
@@ -567,6 +568,26 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       console.error('Error fetching oracle sync logs:', err);
     } finally {
       setIsLoadingOracleLogs(false);
+    }
+  };
+
+  const testOracleSync = async (syncType: string) => {
+    setIsTestingAutomation({ ...isTestingAutomation, [syncType]: true });
+    try {
+      const res = await axios.post(`/api/oracle-automation/test/${syncType}`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        alert(`Test de synchronisation ${syncType} réussi!\n${res.data.records_synced} enregistrements synchronisés`);
+        // Recharger les logs
+        setTimeout(fetchOracleSyncLogs, 500);
+      } else {
+        alert(`Erreur lors du test de synchronisation ${syncType}:\n${res.data.error}`);
+      }
+    } catch (err: any) {
+      alert(`Erreur lors du test: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setIsTestingAutomation({ ...isTestingAutomation, [syncType]: false });
     }
   };
 
@@ -2896,6 +2917,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                               transition: 'all 0.2s ease'
                             }}
                           >
+                            <option value="every_10_minutes">Toutes les 10 minutes</option>
                             <option value="hourly">Toutes les heures</option>
                             <option value="daily">Une fois par jour</option>
                             <option value="weekly">Une fois par semaine</option>
@@ -2914,29 +2936,56 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           </div>
                         </div>
 
-                        <button
-                          onClick={() => saveOracleAutomationConfig(type)}
-                          disabled={isSavingAutomation[type]}
-                          style={{
-                            width: '100%',
-                            padding: '0.75rem 1rem',
-                            background: '#10b981',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '0.375rem',
-                            cursor: isSavingAutomation[type] ? 'not-allowed' : 'pointer',
-                            fontWeight: '500',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '0.5rem',
-                            opacity: isSavingAutomation[type] ? 0.7 : 1,
-                            transition: 'all 0.2s ease'
-                          }}
-                        >
-                          {isSavingAutomation[type] ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-                          {isSavingAutomation[type] ? 'Sauvegarde...' : 'Sauvegarder'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <button
+                            onClick={() => testOracleSync(type)}
+                            disabled={isTestingAutomation[type]}
+                            style={{
+                              flex: 1,
+                              padding: '0.75rem 1rem',
+                              background: '#f59e0b',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '0.375rem',
+                              cursor: isTestingAutomation[type] ? 'not-allowed' : 'pointer',
+                              fontWeight: '500',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '0.5rem',
+                              opacity: isTestingAutomation[type] ? 0.7 : 1,
+                              transition: 'all 0.2s ease',
+                              fontSize: '0.9rem'
+                            }}
+                          >
+                            {isTestingAutomation[type] ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+                            {isTestingAutomation[type] ? 'Test...' : 'Test'}
+                          </button>
+                          <button
+                            onClick={() => saveOracleAutomationConfig(type)}
+                            disabled={isSavingAutomation[type]}
+                            style={{
+                              flex: 1,
+                              padding: '0.75rem 1rem',
+                              background: '#10b981',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '0.375rem',
+                              cursor: isSavingAutomation[type] ? 'not-allowed' : 'pointer',
+                              fontWeight: '500',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '0.5rem',
+                              opacity: isSavingAutomation[type] ? 0.7 : 1,
+                              transition: 'all 0.2s ease',
+                              fontSize: '0.9rem'
+                            }}
+                          >
+                            {isSavingAutomation[type] ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                            {isSavingAutomation[type] ? 'Sauvegarde...' : 'Sauvegarder'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}

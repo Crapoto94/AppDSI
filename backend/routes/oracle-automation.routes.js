@@ -15,4 +15,7 @@ router.get('/logs', verifyToken, oracleController.getSyncLogs);
 // Record sync log (internal use)
 router.post('/logs', oracleController.recordSyncLog);
 
+// Test sync for a specific type
+router.post('/test/:syncType', verifyToken, oracleController.testSync);
+
 module.exports = router;
