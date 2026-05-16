@@ -209,53 +209,59 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
             await client.query('BEGIN');
             let insertedCount = 0;
             for (const rowObj of result.rows) {
-              const fullValues = [];
+              try {
+                const fullValues = [];
 
-              for (const col of finalColumns) {
-                let val = rowObj[col];
-                const originalFieldName = colSourceMap[col];
-                const isDateField = originalFieldName && (tableDateFields.includes(originalFieldName) || originalFieldName.toUpperCase().includes('DATE'));
-                const pgType = columnPgTypes[col] || 'TEXT';
+                for (const col of finalColumns) {
+                  let val = rowObj[col];
+                  const originalFieldName = colSourceMap[col];
+                  const isDateField = originalFieldName && (tableDateFields.includes(originalFieldName) || originalFieldName.toUpperCase().includes('DATE'));
+                  const pgType = columnPgTypes[col] || 'TEXT';
 
-                if (isDateField) {
-                  if (pgType === 'TIMESTAMP') {
-                    val = parseOracleTimestamp(val);
+                  if (isDateField) {
+                    if (pgType === 'TIMESTAMP') {
+                      val = parseOracleTimestamp(val);
+                    } else {
+                      val = parseOracleDate(val);
+                    }
+                  }
+
+                  if (val !== null && val !== undefined) {
+                    if (pgType === 'NUMERIC' || pgType === 'DOUBLE PRECISION') {
+                      const num = parseFloat(String(val));
+                      val = isNaN(num) ? String(val) : num;
+                    } else if (pgType === 'INTEGER') {
+                      const num = parseInt(String(val), 10);
+                      val = isNaN(num) ? String(val) : num;
+                    } else {
+                      val = String(val);
+                    }
                   } else {
-                    val = parseOracleDate(val);
+                    val = null;
+                  }
+                  fullValues.push(val);
+                }
+
+                for (const col of extractCols) {
+                  const rawVal = rowObj[col];
+                  const components = (rawVal && typeof rawVal === 'string') ? rawVal.split('\x01') : [];
+                  for (let i = 0; i < maxSubCols[col]; i++) {
+                    const subVal = components[i];
+                    fullValues.push(subVal !== undefined && subVal !== null ? String(subVal).trim() : null);
                   }
                 }
 
-                if (val !== null && val !== undefined) {
-                  if (pgType === 'NUMERIC' || pgType === 'DOUBLE PRECISION') {
-                    const num = parseFloat(String(val));
-                    val = isNaN(num) ? String(val) : num;
-                  } else if (pgType === 'INTEGER') {
-                    const num = parseInt(String(val), 10);
-                    val = isNaN(num) ? String(val) : num;
-                  } else {
-                    val = String(val);
-                  }
-                } else {
-                  val = null;
-                }
-                fullValues.push(val);
+                await client.query(insertSql, fullValues);
+                insertedCount++;
+              } catch (rowErr) {
+                console.error(`[Oracle Import Executor] Error inserting row for ${tableName}:`, rowErr.message);
+                throw rowErr;
               }
-
-              for (const col of extractCols) {
-                const rawVal = rowObj[col];
-                const components = (rawVal && typeof rawVal === 'string') ? rawVal.split('\x01') : [];
-                for (let i = 0; i < maxSubCols[col]; i++) {
-                  const subVal = components[i];
-                  fullValues.push(subVal !== undefined && subVal !== null ? String(subVal).trim() : null);
-                }
-              }
-
-              await client.query(insertSql, fullValues);
-              insertedCount++;
             }
             await client.query('COMMIT');
             console.log(`[Oracle Import Executor] Successfully inserted ${insertedCount} rows into ${fullLocalTableName}`);
           } catch (e) {
+            console.error(`[Oracle Import Executor] Transaction failed for ${tableName}:`, e.message);
             await client.query('ROLLBACK');
             throw e;
           } finally {
