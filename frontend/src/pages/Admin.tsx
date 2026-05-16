@@ -527,8 +527,13 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const formatCountdown = (nextSyncTime: Date | null): string => {
     if (!nextSyncTime) return 'N/A';
     const now = new Date();
-    const diff = nextSyncTime.getTime() - now.getTime();
-    if (diff <= 0) return 'En cours ou dépassé';
+    const nextTime = new Date(nextSyncTime);
+    const diff = nextTime.getTime() - now.getTime();
+
+    // If time has passed but is within 1 minute, show "À peu près maintenant"
+    if (diff <= 0 && diff > -60000) return 'À peu près maintenant';
+    // If time is significantly in the past, return "Dépassé"
+    if (diff < -60000) return 'Dépassé - en attente de mise à jour';
 
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -537,7 +542,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
     if (days > 0) return `${days}j ${hours}h ${minutes}m`;
     if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-    return `${minutes}m ${seconds}s`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
   };
 
   const fetchOracleAutomationConfig = async () => {
