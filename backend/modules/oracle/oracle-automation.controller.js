@@ -38,7 +38,9 @@ exports.updateAutomationConfig = async (req, res) => {
 
       switch (frequency) {
         case 'every_10_minutes':
+          // Add 10 minutes + 30 seconds to ensure it's not immediately in the past
           next.setMinutes(next.getMinutes() + 10);
+          next.setSeconds(next.getSeconds() + 30);
           break;
         case 'hourly':
           next.setHours(next.getHours() + 1);
