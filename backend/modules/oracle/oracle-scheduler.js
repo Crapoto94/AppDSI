@@ -20,91 +20,66 @@ async function executeSyncTask(syncType) {
   console.log(`\n========== [Oracle Sync] Starting ${syncType} sync at ${startTime.toISOString()} ==========`);
 
   try {
-    // Log: mark as running
-    await pool.query(
-      `INSERT INTO oracle_sync_logs (sync_type, status, started_at)
-       VALUES ($1, 'running', $2)`,
-      [syncType, startTime]
+    // Appeler l'endpoint /api/oracle/import-tables sans config
+    // Le backend récupérera automatiquement la config de SQLite
+    const axios = require('axios');
+    const baseUrl = `http://localhost:${process.env.PORT || 5000}`;
+
+    console.log(`[Oracle Sync] Calling ${baseUrl}/api/oracle-automation/exec-sync/${syncType}`);
+
+    const syncResult = await axios.post(
+      `${baseUrl}/api/oracle-automation/exec-sync/${syncType}`,
+      {},
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        validateStatus: () => true,
+        timeout: 300000 // 5 minutes timeout
+      }
     );
 
-    const syncStartTime = Date.now();
-    let recordsSynced = 0;
-    let duration = 0;
+    console.log(`[Oracle Sync] Response status: ${syncResult.status}`);
 
-    try {
-      // Get the Oracle settings for this sync type
-      const settingsResult = await pool.query(
-        'SELECT * FROM oracle_settings WHERE type = $1',
-        [syncType]
+    if (syncResult.status === 200 && syncResult.data.success !== false) {
+      const reportCount = syncResult.data.report?.length || 0;
+      const successCount = syncResult.data.report?.filter(r => r.status === 'SUCCESS').length || 0;
+      let totalRecords = 0;
+      syncResult.data.report?.forEach(r => {
+        if (r.count) totalRecords += r.count;
+      });
+
+      // Log success
+      await pool.query(
+        `INSERT INTO oracle_sync_logs (sync_type, status, records_synced, duration_ms, completed_at, started_at)
+         VALUES ($1, 'success', $2, $3, NOW(), $4)`,
+        [syncType, totalRecords, Date.now() - startTime.getTime(), startTime]
       );
 
-      if (settingsResult.rows.length === 0) {
-        throw new Error(`No Oracle ${syncType} configuration found`);
-      }
+      console.log(`[Oracle Sync] ${syncType} sync completed successfully: ${successCount}/${reportCount} tables (${totalRecords} records)\n========================================\n`);
 
-      const settings = settingsResult.rows[0];
-      const isOracleConfigured = settings.host && settings.port && settings.service_name && settings.username && settings.password;
-
-      if (isOracleConfigured) {
-        const configuredTables = await oracleSyncService.getConfiguredTables(settings);
-
-        if (configuredTables.length === 0) {
-          console.log(`[Oracle Sync] No tables configured for ${syncType}. Skipping sync.`);
-          recordsSynced = 0;
-        } else {
-          // Connect to Oracle and fetch data
-          const oracleConnection = await oracleSyncService.getOracleConnection(settings);
-          const oracleData = await oracleSyncService.fetchDataFromOracle(oracleConnection, configuredTables);
-
-          // Count total records fetched
-          recordsSynced = Object.values(oracleData).reduce((sum, tableData) => sum + (tableData.length || 0), 0);
-
-          await oracleConnection.close();
-        }
-      } else {
-        // Oracle not configured - use simulated data
-        console.log(`[Oracle Sync] Oracle not configured for ${syncType}. Using simulated data.`);
-        recordsSynced = Math.floor(Math.random() * 500) + 100; // 100-600 records
-      }
-    } catch (oracleErr) {
-      // If Oracle sync fails, log the error and continue
-      console.log(`[Oracle Sync] Oracle sync failed: ${oracleErr.message}. Will retry on next scheduled sync.`);
-      recordsSynced = 0;
-      throw oracleErr; // Re-throw to trigger the catch block below
+    } else {
+      throw new Error(syncResult.data?.message || 'Erreur lors de la synchronisation');
     }
-
-    duration = Date.now() - syncStartTime;
-
-    const endTime = new Date();
-
-    // Update the log with success
-    await pool.query(
-      `UPDATE oracle_sync_logs
-       SET status = 'success', records_synced = $1, duration_ms = $2, completed_at = $3
-       WHERE sync_type = $4 AND status = 'running' AND started_at = $5`,
-      [recordsSynced, duration, endTime, syncType, startTime]
-    );
 
     // Update the next sync time
     const config = await pool.query('SELECT * FROM oracle_automation_config WHERE sync_type = $1', [syncType]);
     if (config.rows.length > 0) {
       const nextTime = calculateNextSyncTime(config.rows[0].frequency);
       await pool.query(
-        'UPDATE oracle_automation_config SET last_sync_at = $1, next_sync_at = $2 WHERE sync_type = $3',
-        [endTime, nextTime, syncType]
+        'UPDATE oracle_automation_config SET last_sync_at = NOW(), next_sync_at = $1 WHERE sync_type = $2',
+        [nextTime, syncType]
       );
       console.log(`[Oracle Sync] Updated next_sync_at for ${syncType}: ${nextTime.toISOString()}`);
     }
-
-    console.log(`[Oracle Sync] ${syncType} sync completed successfully in ${duration}ms (${recordsSynced} records)\n========================================\n`);
   } catch (err) {
     console.error(`[Oracle Sync] Error during ${syncType} sync:`, err);
 
+    // Log the failure
     await pool.query(
-      `UPDATE oracle_sync_logs
-       SET status = 'failed', duration_ms = $1, error_message = $2, completed_at = $3
-       WHERE sync_type = $4 AND status = 'running' AND started_at = $5`,
-      [Date.now() - startTime.getTime(), err.message, new Date(), syncType, startTime]
+      `INSERT INTO oracle_sync_logs (sync_type, status, error_message, duration_ms, completed_at, started_at)
+       VALUES ($1, 'failed', $2, $3, NOW(), $4)`,
+      [syncType, err.message, Date.now() - startTime.getTime(), startTime]
     );
   }
 }

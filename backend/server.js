@@ -2736,6 +2736,14 @@ setupDb().then(async database => {
         console.error('[MIGRATION SQLite → magapp.users]', e.message);
     }
 
+    // Initialize Oracle Automation Router dependencies
+    try {
+        oracleAutomationRouter.setDependencies(db, pool, getOracleConnection);
+        console.log('[Oracle Router] Dependencies initialized');
+    } catch (e) {
+        console.error('[Oracle Router] Failed to initialize dependencies:', e.message);
+    }
+
     // Initialize Oracle Automation Scheduler
     try {
         await oracleScheduler.initializeScheduler();

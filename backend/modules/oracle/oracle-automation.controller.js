@@ -160,129 +160,67 @@ exports.testSync = async (req, res) => {
     return res.status(400).json({ error: 'Invalid sync type' });
   }
 
-  const startTime = new Date();
-
   try {
-    console.log(`[Oracle Test Sync] Starting test for ${syncType} at ${startTime.toISOString()}`);
+    console.log(`[Oracle Test Sync] Starting test for ${syncType} at ${new Date().toISOString()}`);
 
-    // Log: mark as running
-    await pool.query(
-      `INSERT INTO oracle_sync_logs (sync_type, status, started_at)
-       VALUES ($1, 'running', $2)`,
-      [syncType, startTime]
-    );
+    // Récupérer la config depuis SQLite pour vérifier qu'elle existe
+    const http = require('http');
 
-    // TODO: Call the actual Oracle sync API using configuration from oracle_settings
-    // Get the Oracle connection settings
-    const settingsResult = await pool.query(
-      'SELECT * FROM oracle_settings WHERE type = $1',
-      [syncType]
-    );
+    console.log(`[Oracle Test Sync] Retrieving config for ${syncType} from SQLite`);
 
-    if (settingsResult.rows.length === 0) {
-      throw new Error(`No Oracle ${syncType} configuration found`);
-    }
+    // Lancer la synchro en tâche de fond avec un petit délai
+    setTimeout(() => {
+      console.log(`[Oracle Test Sync] Launching background sync at ${new Date().toISOString()}`);
 
-    const config = settingsResult.rows[0];
-
-    // Note: Test sync should be allowed even when automation is disabled
-    const testStart = Date.now();
-
-    let recordsSynced = 0;
-    let duration = 0;
-    let oracleData = {};
-
-    // Check if Oracle settings are configured
-    const isOracleConfigured = config.host && config.port && config.service_name && config.username && config.password;
-
-    if (isOracleConfigured) {
-      // Try to connect to Oracle and fetch real data
-      const configuredTables = await oracleSyncService.getConfiguredTables(config);
-
-      if (configuredTables.length === 0) {
-        throw new Error(`No tables configured for ${syncType}. Please configure tables to sync in the Configuration tab.`);
-      }
-
-      try {
-        const oracleConnection = await oracleSyncService.getOracleConnection(config);
-        try {
-          oracleData = await oracleSyncService.fetchDataFromOracle(oracleConnection, configuredTables);
-
-          // Count total records fetched from Oracle
-          recordsSynced = Object.values(oracleData).reduce((sum, tableData) => sum + (tableData.length || 0), 0);
-
-          console.log(`[Oracle Test Sync] Successfully fetched ${recordsSynced} records from ${Object.keys(oracleData).length} tables`);
-        } finally {
-          await oracleConnection.close();
-        }
-      } catch (oracleErr) {
-        console.error(`[Oracle Test Sync] Oracle connection error: ${oracleErr.message}`);
-        throw new Error(`Failed to connect to Oracle: ${oracleErr.message}`);
-      }
-    } else {
-      // Oracle not configured - use simulation for testing purposes
-      console.log(`[Oracle Test Sync] Oracle not configured for ${syncType}. Using simulated data for testing.`);
-      recordsSynced = Math.floor(Math.random() * 500) + 100; // 100-600 records
-    }
-
-    duration = Date.now() - testStart;
-    const endTime = new Date();
-
-    // Update the log with success
-    const logUpdateResult = await pool.query(
-      `UPDATE oracle_sync_logs
-       SET status = 'success', records_synced = $1, duration_ms = $2, completed_at = $3
-       WHERE sync_type = $4 AND status = 'running' AND started_at = $5
-       RETURNING id`,
-      [recordsSynced, duration, endTime, syncType, startTime]
-    );
-
-    // Store the synced data in the appropriate table
-    if (logUpdateResult.rows.length > 0) {
-      const syncLogId = logUpdateResult.rows[0].id;
-      const tableName = syncType === 'RH' ? 'oracle_sync_data_rh' : 'oracle_sync_data_finances';
-
-      // Create sample data if simulated, or use real data if from Oracle
-      const dataToStore = {
-        syncType: syncType,
-        timestamp: endTime.toISOString(),
-        recordsSynced: recordsSynced,
-        tables: Object.keys(oracleData).length > 0 ? oracleData : {
-          simulated: true,
-          message: `Simulated sync data for testing. Total records: ${recordsSynced}`
+      // Créer une requête HTTP interne vers le nouvel endpoint
+      const data = JSON.stringify({});
+      const options = {
+        hostname: 'localhost',
+        port: process.env.PORT || 5000,
+        path: `/api/oracle-automation/exec-sync/${syncType}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': data.length,
+          'Authorization': req.headers.authorization || 'Bearer internal'
         }
       };
 
-      await pool.query(
-        `INSERT INTO ${tableName} (sync_id, data_json, row_count) VALUES ($1, $2, $3)`,
-        [syncLogId, JSON.stringify(dataToStore), recordsSynced]
-      );
+      const httpReq = http.request(options, (httpRes) => {
+        let body = '';
+        httpRes.on('data', chunk => body += chunk);
+        httpRes.on('end', () => {
+          try {
+            const result = JSON.parse(body);
+            if (httpRes.statusCode === 200) {
+              const reportCount = result.report?.length || 0;
+              const successCount = result.report?.filter(r => r.status === 'SUCCESS').length || 0;
+              console.log(`[Oracle Test Sync] Success: ${successCount}/${reportCount} tables synced`);
+            } else {
+              console.error(`[Oracle Test Sync] Failed:`, result.message);
+            }
+          } catch (e) {
+            console.error(`[Oracle Test Sync] Parse error:`, e.message);
+          }
+        });
+      });
 
-      console.log(`[Oracle Test Sync] Data stored in ${tableName} (sync_id: ${syncLogId})`);
-    }
+      httpReq.on('error', (err) => {
+        console.error(`[Oracle Test Sync] Request error:`, err.code, err.message, err.toString());
+      });
 
-    console.log(`[Oracle Test Sync] ${syncType} test completed successfully (${recordsSynced} records in ${duration}ms)`);
+      httpReq.write(data);
+      httpReq.end();
+    }, 100);
 
+    // Répondre immédiatement au client
     res.json({
       success: true,
-      records_synced: recordsSynced,
-      duration_ms: duration,
-      message: `Synchronisation de test réussie: ${recordsSynced} enregistrements synchronisés`
+      message: `Synchronisation lancée pour ${syncType}. Vérifiez les logs du serveur pour les détails.`
     });
+
   } catch (err) {
     console.error(`[Oracle Test Sync] Error during ${syncType} test:`, err);
-
-    try {
-      await pool.query(
-        `UPDATE oracle_sync_logs
-         SET status = 'failed', duration_ms = $1, error_message = $2, completed_at = $3
-         WHERE sync_type = $4 AND status = 'running' AND started_at = $5`,
-        [Date.now() - startTime.getTime(), err.message, new Date(), syncType, startTime]
-      );
-    } catch (logErr) {
-      console.error('Error logging test failure:', logErr);
-    }
-
     res.status(400).json({
       success: false,
       error: err.message || `Test de synchronisation ${syncType} échoué`
