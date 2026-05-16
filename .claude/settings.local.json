@@ -107,7 +107,8 @@
       "Bash(sqlite3 \"/c/dev/AppDSI/backend/data.db\" \"SELECT COUNT\\(*\\) as tile_count FROM tiles; SELECT COUNT\\(*\\) as link_count FROM tile_links;\")",
       "Bash(curl -s \"http://localhost:3001/api/tiles\")",
       "Bash(find \"/c/dev/AppDSI/frontend/src\" -name \"*.tsx\" -exec grep -l \"show_tickets\\\\|magapp.*settings\" {} \\\\;)",
-      "Bash(timeout 5 curl -s \"http://localhost:3001/api/magapp/settings?username=machevalier\")"
+      "Bash(timeout 5 curl -s \"http://localhost:3001/api/magapp/settings?username=machevalier\")",
+      "Bash(git commit *)"
     ]
   }
 }

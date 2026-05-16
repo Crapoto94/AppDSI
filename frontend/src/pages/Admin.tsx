@@ -207,6 +207,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [primaryKeys, setPrimaryKeys] = useState<Record<string, string>>({});
   const [dateFields, setDateFields] = useState<Record<string, string[]>>({});
   const [joinPreviewResult, setJoinPreviewResult] = useState<string | null>(null);
+  const [oracleActiveTab, setOracleActiveTab] = useState<'configuration' | 'automatisation' | 'logs'>('configuration');
 
   const toggleDateField = (type: string, table: string, field: string) => {
     const key = `${type}:${table}`;
@@ -2469,6 +2470,43 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </div>
             </div>
 
+            {/* Onglets Oracle */}
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '2px solid #f1f5f9', paddingBottom: '1rem' }}>
+              {(['configuration', 'automatisation', 'logs'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setOracleActiveTab(tab)}
+                  style={{
+                    padding: '0.75rem 1.5rem',
+                    border: 'none',
+                    background: oracleActiveTab === tab ? '#0284c7' : 'transparent',
+                    color: oracleActiveTab === tab ? 'white' : '#64748b',
+                    borderRadius: '0.375rem',
+                    cursor: 'pointer',
+                    fontWeight: oracleActiveTab === tab ? '600' : '500',
+                    fontSize: '0.95rem',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (oracleActiveTab !== tab) {
+                      e.currentTarget.style.background = '#f1f5f9';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (oracleActiveTab !== tab) {
+                      e.currentTarget.style.background = 'transparent';
+                    }
+                  }}
+                >
+                  {tab === 'configuration' && '⚙️ Configuration'}
+                  {tab === 'automatisation' && '⏱️ Automatisation'}
+                  {tab === 'logs' && '📋 Logs'}
+                </button>
+              ))}
+            </div>
+
+            {/* Contenu Configuration */}
+            {oracleActiveTab === 'configuration' && (
             <div className="oracle-grid">
               {['FINANCES', 'RH'].map(type => {
                 const config = oracleConfigs.find(c => c.type === type) || { type, host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 };
@@ -2742,6 +2780,53 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 );
               })}
             </div>
+            )}
+
+            {/* Contenu Automatisation */}
+            {oracleActiveTab === 'automatisation' && (
+              <div style={{ padding: '2rem', background: '#f8fafc', borderRadius: '1rem', textAlign: 'center', minHeight: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <Zap size={48} style={{ color: '#0284c7', marginBottom: '1rem', opacity: 0.5 }} />
+                <h3 style={{ margin: '0 0 1rem 0', color: '#1e293b', fontSize: '1.25rem' }}>Automatisation des synchronisations</h3>
+                <p style={{ color: '#64748b', marginBottom: '2rem', maxWidth: '500px' }}>
+                  Configurez les tâches de synchronisation automatiques pour les bases Oracle RH et FINANCES. Planifiez les imports réguliers et consultez l'historique des exécutions.
+                </p>
+                <button style={{
+                  padding: '0.75rem 1.5rem',
+                  background: '#0284c7',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                  fontWeight: '500',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}>
+                  <Plus size={18} />
+                  Ajouter une tâche
+                </button>
+              </div>
+            )}
+
+            {/* Contenu Logs */}
+            {oracleActiveTab === 'logs' && (
+              <div style={{ padding: '2rem', background: 'white', borderRadius: '1rem' }}>
+                <div style={{ marginBottom: '2rem' }}>
+                  <h3 style={{ margin: '0 0 1rem 0', color: '#1e293b', fontSize: '1.25rem' }}>Historique des synchronisations</h3>
+                  <p style={{ color: '#64748b', margin: 0 }}>Consultez les détails de toutes les synchronisations effectuées.</p>
+                </div>
+                <div style={{
+                  padding: '2rem',
+                  background: '#f8fafc',
+                  borderRadius: '0.75rem',
+                  textAlign: 'center',
+                  border: '2px dashed #cbd5e1'
+                }}>
+                  <HistoryIcon size={40} style={{ color: '#94a3b8', marginBottom: '1rem', opacity: 0.5 }} />
+                  <p style={{ color: '#64748b', margin: 0 }}>Aucun log disponible pour le moment.</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
