@@ -229,12 +229,37 @@ exports.testSync = async (req, res) => {
     const endTime = new Date();
 
     // Update the log with success
-    await pool.query(
+    const logUpdateResult = await pool.query(
       `UPDATE oracle_sync_logs
        SET status = 'success', records_synced = $1, duration_ms = $2, completed_at = $3
-       WHERE sync_type = $4 AND status = 'running' AND started_at = $5`,
+       WHERE sync_type = $4 AND status = 'running' AND started_at = $5
+       RETURNING id`,
       [recordsSynced, duration, endTime, syncType, startTime]
     );
+
+    // Store the synced data in the appropriate table
+    if (logUpdateResult.rows.length > 0) {
+      const syncLogId = logUpdateResult.rows[0].id;
+      const tableName = syncType === 'RH' ? 'oracle_sync_data_rh' : 'oracle_sync_data_finances';
+
+      // Create sample data if simulated, or use real data if from Oracle
+      const dataToStore = {
+        syncType: syncType,
+        timestamp: endTime.toISOString(),
+        recordsSynced: recordsSynced,
+        tables: Object.keys(oracleData).length > 0 ? oracleData : {
+          simulated: true,
+          message: `Simulated sync data for testing. Total records: ${recordsSynced}`
+        }
+      };
+
+      await pool.query(
+        `INSERT INTO ${tableName} (sync_id, data_json, row_count) VALUES ($1, $2, $3)`,
+        [syncLogId, JSON.stringify(dataToStore), recordsSynced]
+      );
+
+      console.log(`[Oracle Test Sync] Data stored in ${tableName} (sync_id: ${syncLogId})`);
+    }
 
     console.log(`[Oracle Test Sync] ${syncType} test completed successfully (${recordsSynced} records in ${duration}ms)`);
 
