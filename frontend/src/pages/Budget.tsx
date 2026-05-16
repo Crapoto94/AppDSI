@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Header from '../components/Header';
 import { 
   Upload, CheckCircle, Search, Filter, BookOpen, X, Eye, 
   Euro, FileText, ShoppingCart, AlertCircle, 
-  Plus, Trash2, Send, ExternalLink, Columns
+  Plus, Trash2, Send, ExternalLink, Columns, Palette
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import BudgetManagementTab from '../components/BudgetManagementTab';
@@ -114,6 +114,89 @@ const Budget: React.FC = () => {
   const [orderColumns, setOrderColumns] = useState<string[]>(() => getStoredColumns('orders', DEFAULT_ORDER_COLUMNS));
   const [invoiceColumns, setInvoiceColumns] = useState<string[]>(() => getStoredColumns('invoices', DEFAULT_INVOICE_COLUMNS));
   const [opColumns, setOpColumns] = useState<string[]>(() => getStoredColumns('operations', DEFAULT_OP_COLUMNS));
+
+  interface ColumnStyle { bold: boolean; color: string; }
+  type ColumnStyles = Record<string, ColumnStyle>;
+  const getStoredColumnStyles = (viewKey: string): ColumnStyles => {
+    try {
+      const stored = localStorage.getItem(`budgetColStyles_${viewKey}`);
+      return stored ? JSON.parse(stored) : {};
+    } catch { return {}; }
+  };
+  const setStoredColumnStyles = (viewKey: string, styles: ColumnStyles) => {
+    localStorage.setItem(`budgetColStyles_${viewKey}`, JSON.stringify(styles));
+  };
+
+  const [orderColumnStyles, setOrderColumnStyles] = useState<ColumnStyles>(() => getStoredColumnStyles('orders'));
+  const [invoiceColumnStyles, setInvoiceColumnStyles] = useState<ColumnStyles>(() => getStoredColumnStyles('invoices'));
+  const [opColumnStyles, setOpColumnStyles] = useState<ColumnStyles>(() => getStoredColumnStyles('operations'));
+  const [tierColumnStyles, setTierColumnStyles] = useState<ColumnStyles>(() => getStoredColumnStyles('tiers'));
+
+  const getColumnStyle = (col: string): ColumnStyle | null => {
+    const styles = view === 'orders' ? orderColumnStyles : view === 'invoices' ? invoiceColumnStyles : view === 'operations' ? opColumnStyles : tierColumnStyles;
+    return styles[col] || null;
+  };
+  const setColumnStyle = (col: string, style: ColumnStyle) => {
+    if (view === 'orders') {
+      const next = { ...orderColumnStyles, [col]: style };
+      setOrderColumnStyles(next);
+      setStoredColumnStyles('orders', next);
+    } else if (view === 'invoices') {
+      const next = { ...invoiceColumnStyles, [col]: style };
+      setInvoiceColumnStyles(next);
+      setStoredColumnStyles('invoices', next);
+    } else if (view === 'operations') {
+      const next = { ...opColumnStyles, [col]: style };
+      setOpColumnStyles(next);
+      setStoredColumnStyles('operations', next);
+    } else {
+      const next = { ...tierColumnStyles, [col]: style };
+      setTierColumnStyles(next);
+      setStoredColumnStyles('tiers', next);
+    }
+  };
+  const removeColumnStyle = (col: string) => {
+    if (view === 'orders') {
+      const next = { ...orderColumnStyles }; delete next[col];
+      setOrderColumnStyles(next);
+      setStoredColumnStyles('orders', next);
+    } else if (view === 'invoices') {
+      const next = { ...invoiceColumnStyles }; delete next[col];
+      setInvoiceColumnStyles(next);
+      setStoredColumnStyles('invoices', next);
+    } else if (view === 'operations') {
+      const next = { ...opColumnStyles }; delete next[col];
+      setOpColumnStyles(next);
+      setStoredColumnStyles('operations', next);
+    } else {
+      const next = { ...tierColumnStyles }; delete next[col];
+      setTierColumnStyles(next);
+      setStoredColumnStyles('tiers', next);
+    }
+  };
+
+  const [dragCol, setDragCol] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+  const [colorPickerCol, setColorPickerCol] = useState<string | null>(null);
+
+  const [mappedColumns, setMappedColumns] = useState<Record<string, string[]>>({});
+  const colsInited = useRef<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const sync = (rubrique: string, stateCols: string[], setter: (cols: string[]) => void, storageKey: string) => {
+      const mapped = mappedColumns[rubrique];
+      if (!mapped || mapped.length === 0 || colsInited.current[rubrique]) return;
+      const hasMatch = stateCols.some(c => mapped.includes(c));
+      if (!hasMatch) {
+        setter(mapped);
+        setStoredColumns(storageKey, mapped);
+      }
+      colsInited.current[rubrique] = true;
+    };
+    sync('Commandes', orderColumns, setOrderColumns, 'orders');
+    sync('Factures', invoiceColumns, setInvoiceColumns, 'invoices');
+    sync('Opérations', opColumns, setOpColumns, 'operations');
+  }, [mappedColumns]);
 
   // New state for import modal
   const [showImportModal, setShowImportModal] = useState(false);
@@ -535,16 +618,6 @@ const Budget: React.FC = () => {
   useEffect(() => {
     if (token) fetchData();
   }, [currentFiscalYear, budgetScope, token]);
-
-  useEffect(() => {
-    if (!showColumnSelector) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('[data-column-selector]')) setShowColumnSelector(false);
-    };
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
-  }, [showColumnSelector]);
 
   useEffect(() => {
     if (isRaw) {
@@ -1215,7 +1288,7 @@ const Budget: React.FC = () => {
                                   <div className="th-content" onClick={() => requestSort(col)}>
                                     {col}
                                     {sortConfig?.key === col && (
-                                      <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' â†‘' : ' â†“'}</span>
+                                      <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
                                     )}
                                   </div>
                                   <input 
@@ -1661,82 +1734,184 @@ const Budget: React.FC = () => {
                     )}
             {view === 'tiers' && (
               <div className="animate-fade-in">
-                <MappedDataTable rubriqueName="Tiers" title="Tiers" fiscalYear={currentFiscalYear} />
+                <MappedDataTable rubriqueName="Tiers" title="Tiers" fiscalYear={currentFiscalYear}
+                  onOpenColumnSettings={() => setShowColumnSelector(true)}
+                  columnStyles={tierColumnStyles}
+                  onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Tiers': cols }))} />
               </div>
             )}
             {view === 'orders' && (
               <div className="animate-fade-in">
-                <MappedDataTable rubriqueName="Commandes" title="Commandes" fiscalYear={currentFiscalYear} />
+                <MappedDataTable rubriqueName="Commandes" title="Commandes" fiscalYear={currentFiscalYear}
+                  onOpenColumnSettings={() => setShowColumnSelector(true)}
+                  columnStyles={orderColumnStyles}
+                  visibleColumns={orderColumns}
+                  onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Commandes': cols }))} />
               </div>
             )}
             {view === 'invoices' && (
               <div className="animate-fade-in">
-                <MappedDataTable rubriqueName="Factures" title="Factures" fiscalYear={currentFiscalYear} />
+                <MappedDataTable rubriqueName="Factures" title="Factures" fiscalYear={currentFiscalYear}
+                  onOpenColumnSettings={() => setShowColumnSelector(true)}
+                  columnStyles={invoiceColumnStyles}
+                  visibleColumns={invoiceColumns}
+                  onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Factures': cols }))} />
               </div>
             )}
             {view === 'operations' && (
               <div className="animate-fade-in" style={{ marginBottom: '2rem' }}>
-                <MappedDataTable rubriqueName="Opérations" title="Opérations" fiscalYear={currentFiscalYear} />
+                <MappedDataTable rubriqueName="Opérations" title="Opérations" fiscalYear={currentFiscalYear}
+                  onOpenColumnSettings={() => setShowColumnSelector(true)}
+                  columnStyles={opColumnStyles}
+                  visibleColumns={opColumns}
+                  onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Opérations': cols }))} />
               </div>
             )}
-            {['orders', 'invoices', 'operations'].includes(view) && (
-                      <div data-column-selector style={{ position: 'relative', display: 'inline-block' }}>
-                        <button
-                          className="toolbar-btn"
-                          onClick={() => setShowColumnSelector(!showColumnSelector)}
-                          title="Choisir les colonnes"
-                          style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                        >
-                          <Columns size={14} />
-                          Colonnes
-                        </button>
-                        {showColumnSelector && (
-                          <div style={{
-                            position: 'absolute', top: '100%', right: 0, zIndex: 1000,
-                            background: 'white', border: '1px solid var(--color-slate-200)',
-                            borderRadius: '8px', padding: '12px', minWidth: '260px',
-                            maxHeight: '400px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                              <strong style={{ fontSize: '13px' }}>Colonnes affichées</strong>
-                              <button onClick={() => {
-                                const defaults = view === 'orders' ? DEFAULT_ORDER_COLUMNS : view === 'invoices' ? DEFAULT_INVOICE_COLUMNS : DEFAULT_OP_COLUMNS;
-                                if (view === 'orders') { setOrderColumns(defaults); setStoredColumns('orders', defaults); }
-                                else if (view === 'invoices') { setInvoiceColumns(defaults); setStoredColumns('invoices', defaults); }
-                                else { setOpColumns(defaults); setStoredColumns('operations', defaults); }
-                              }} style={{ fontSize: '11px', color: 'var(--color-blue-500)', background: 'none', border: 'none', cursor: 'pointer' }}>
-                                Par défaut
-                              </button>
-                            </div>
-                            {(() => {
-                              const allKeys = new Set<string>();
-                              filteredData.forEach((row: any) => Object.keys(row).forEach(k => { if (!k.startsWith('_') && k !== 'operation_label') allKeys.add(k); }));
-                              const currentCols = view === 'orders' ? orderColumns : view === 'invoices' ? invoiceColumns : opColumns;
-                              const setCurrentCols = view === 'orders' ? setOrderColumns : view === 'invoices' ? setInvoiceColumns : setOpColumns;
-                              const storageKey = view === 'orders' ? 'orders' : view === 'invoices' ? 'invoices' : 'operations';
-                              return Array.from(allKeys).sort().map(col => (
-                                <label key={col} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', padding: '3px 0', cursor: 'pointer' }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={currentCols.includes(col)}
-                                    onChange={() => {
-                                      const next = currentCols.includes(col)
-                                        ? currentCols.filter(c => c !== col)
-                                        : [...currentCols, col];
-                                      setCurrentCols(next);
-                                      setStoredColumns(storageKey, next);
-                                    }}
-                                  />
-                                  {col}
-                                </label>
-                              ));
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    )}
+            {['orders', 'invoices', 'operations', 'tiers'].includes(view) && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                <button
+                  className="toolbar-btn"
+                  onClick={() => setShowColumnSelector(true)}
+                  title="Choisir les colonnes"
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Columns size={16} />
+                  Colonnes
+                </button>
+              </div>
+            )}
                   </div>
         )}
+        {showColumnSelector && (() => {
+          const mappedCols = mappedColumns[view === 'tiers' ? 'Tiers' : view === 'orders' ? 'Commandes' : view === 'invoices' ? 'Factures' : 'Opérations'] || [];
+          const currentCols = view === 'orders' ? orderColumns : view === 'invoices' ? invoiceColumns : view === 'operations' ? opColumns : [];
+          const setCurrentCols: React.Dispatch<React.SetStateAction<string[]>> | null = view === 'orders' ? setOrderColumns : view === 'invoices' ? setInvoiceColumns : view === 'operations' ? setOpColumns : null;
+          const storageKey = view === 'orders' ? 'orders' : view === 'invoices' ? 'invoices' : view === 'operations' ? 'operations' : '';
+          const isTiers = view === 'tiers';
+          const COLORS = ['', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b'];
+          return (
+            <div className="modal-backdrop" onClick={() => { setShowColumnSelector(false); setColorPickerCol(null); }}>
+              <div className="modal-window modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+                <div className="modal-header">
+                  <h2 className="modal-title">Personnaliser les colonnes</h2>
+                  <button className="icon-btn" onClick={() => { setShowColumnSelector(false); setColorPickerCol(null); }}><X size={20} /></button>
+                </div>
+                <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                  {mappedCols.length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Aucune colonne configurée.</p>
+                  ) : (
+                    mappedCols.map((col) => {
+                      const style = getColumnStyle(col);
+                      const isVisible = currentCols.includes(col) || isTiers;
+                      return (
+                        <div key={col}
+                          draggable
+                          onDragStart={() => setDragCol(col)}
+                          onDragOver={(e) => { e.preventDefault(); setDragOverCol(col); }}
+                          onDrop={() => {
+                            if (!dragCol || dragCol === col || !setCurrentCols || !storageKey) { setDragCol(null); setDragOverCol(null); return; }
+                            const next = [...currentCols];
+                            const fromIdx = next.indexOf(dragCol);
+                            const toIdx = next.indexOf(col);
+                            if (fromIdx === -1 || toIdx === -1) { setDragCol(null); setDragOverCol(null); return; }
+                            next.splice(fromIdx, 1);
+                            next.splice(toIdx, 0, dragCol);
+                            setCurrentCols(next);
+                            setStoredColumns(storageKey, next);
+                            setDragCol(null);
+                            setDragOverCol(null);
+                          }}
+                          onDragEnd={() => { setDragCol(null); setDragOverCol(null); }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px',
+                            borderRadius: '6px', cursor: 'grab', userSelect: 'none',
+                            background: dragOverCol === col && dragCol !== col ? '#f1f5f9' : 'transparent',
+                            borderTop: dragOverCol === col && dragCol !== col ? '2px solid var(--color-blue-400)' : '2px solid transparent',
+                            marginTop: '2px'
+                          }}
+                        >
+                          <span style={{ color: '#94a3b8', fontSize: '14px' }}>⠿</span>
+                          {!isTiers && setCurrentCols && (
+                            <input
+                              type="checkbox"
+                              checked={isVisible}
+                              onChange={() => {
+                                const next = currentCols.includes(col)
+                                  ? currentCols.filter(c => c !== col)
+                                  : [...currentCols, col];
+                                setCurrentCols(next);
+                                setStoredColumns(storageKey, next);
+                              }}
+                              style={{ cursor: 'pointer' }}
+                            />
+                          )}
+                          {isTiers && (
+                            <input type="checkbox" checked disabled style={{ cursor: 'not-allowed', opacity: 0.5 }} />
+                          )}
+                          <span style={{ flex: 1, fontSize: '13px', fontWeight: style?.bold ? 'bold' : 'normal', color: style?.color || 'inherit' }}>
+                            {col}
+                          </span>
+                          <button
+                            className="icon-btn"
+                            onClick={() => {
+                              const existing = getColumnStyle(col);
+                              if (existing?.bold) { removeColumnStyle(col); } else { setColumnStyle(col, { bold: true, color: existing?.color || '' }); }
+                            }}
+                            style={{ width: '28px', height: '28px', fontWeight: 'bold', fontSize: '13px', opacity: style?.bold ? 1 : 0.4 }}
+                            title="Gras"
+                          >
+                            B
+                          </button>
+                          <div style={{ position: 'relative' }}>
+                            <button
+                              className="icon-btn"
+                              onClick={(e) => { e.stopPropagation(); setColorPickerCol(colorPickerCol === col ? null : col); }}
+                              style={{ width: '28px', height: '28px', color: style?.color || '#94a3b8', opacity: style?.color ? 1 : 0.4 }}
+                              title="Couleur"
+                            >
+                              <Palette size={14} />
+                            </button>
+                            {colorPickerCol === col && (
+                              <div style={{
+                                position: 'absolute', right: 0, top: '100%', zIndex: 1100,
+                                background: 'white', border: '1px solid var(--color-slate-200)',
+                                borderRadius: '8px', padding: '6px', display: 'flex', gap: '4px',
+                                flexWrap: 'wrap', width: '180px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                              }}>
+                                {COLORS.map(c => (
+                                  <div key={c || 'none'} onClick={(e) => { e.stopPropagation(); setColumnStyle(col, { bold: style?.bold || false, color: c }); setColorPickerCol(null); }}
+                                    style={{
+                                      width: '24px', height: '24px', borderRadius: '6px', cursor: 'pointer',
+                                      background: c || 'transparent', border: c ? `2px solid ${c}` : '2px dashed #cbd5e1',
+                                      outline: (style?.color || '') === c ? '2px solid var(--color-blue-400)' : 'none',
+                                      outlineOffset: '2px'
+                                    }}
+                                    title={c || 'Aucune'}
+                                  />
+                                ))}
+                              </div>
+                    )}
+                    {['orders', 'invoices', 'operations', 'tiers'].includes(view) && (
+                      <button
+                        className="toolbar-btn"
+                        onClick={() => setShowColumnSelector(true)}
+                        title="Choisir les colonnes"
+                        style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <Columns size={14} />
+                        Colonnes
+                      </button>
+                    )}
+                  </div>
+                </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         {showM57 && (
           <div className="modal-backdrop" onClick={() => setShowM57(false)}>
             <div className="modal-window" onClick={e => e.stopPropagation()}>

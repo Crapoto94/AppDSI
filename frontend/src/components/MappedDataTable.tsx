@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2 } from 'lucide-react';
@@ -17,14 +17,20 @@ interface Operation {
   Section?: string | null;
 }
 
+interface ColumnStyle { bold: boolean; color: string; }
+
 interface MappedDataTableProps {
   rubriqueName: string;
   title?: string;
   pageSize?: number;
   fiscalYear?: number | string;
+  onOpenColumnSettings?: () => void;
+  columnStyles?: Record<string, ColumnStyle>;
+  onColumnsReady?: (columns: string[]) => void;
+  visibleColumns?: string[];
 }
 
-const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 100, fiscalYear }) => {
+const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 100, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns }) => {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
   const storageKey = `mdt_cols_${rubriqueName}`;
@@ -39,7 +45,6 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [visibleCols, setVisibleCols] = useState<string[]>(() => {
     try { const s = localStorage.getItem(storageKey); return s ? JSON.parse(s) : []; } catch { return []; }
   });
-  const [showColSelector, setShowColSelector] = useState(false);
   const [seditIdColumn, setSeditIdColumn] = useState<string | null>(null);
   const [seditUrlPage, setSeditUrlPage] = useState('FicheCommande.html');
   const [seditUrlParam, setSeditUrlParam] = useState('commandeId');
@@ -58,6 +63,12 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [pendingFilter, setPendingFilter] = useState(false);
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(visibleCols)); }, [visibleCols, storageKey]);
+
+  useEffect(() => {
+    if (visibleColumns) {
+      setVisibleCols(visibleColumns);
+    }
+  }, [visibleColumns]);
 
   const fetchData = async (search?: string, offset?: number, sort?: { key: string; direction: 'asc' | 'desc' } | null) => {
     setLoading(true);
@@ -97,7 +108,16 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     }
   };
 
+  const onColumnsReadyRef = useRef(onColumnsReady);
+  onColumnsReadyRef.current = onColumnsReady;
+
   useEffect(() => { fetchData(); }, [token, rubriqueName, fiscalYear]);
+
+  useEffect(() => {
+    if (columns.length > 0 && onColumnsReadyRef.current) {
+      onColumnsReadyRef.current(columns.map(c => c.name));
+    }
+  }, [columns]);
 
   useEffect(() => {
     const timer = setTimeout(() => { fetchData(searchTerm, currentPage * pageSize); }, 400);
@@ -220,22 +240,11 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
             </button>
           )}
           <span className="mdt-count">{pendingFilter ? displayRows.length : total} résultat{total > 1 ? 's' : ''}</span>
-          <div style={{ position: 'relative' }} data-column-selector>
-            <button className="mdt-col-btn" onClick={() => setShowColSelector(!showColSelector)}>
+          {onOpenColumnSettings && (
+            <button className="mdt-col-btn" onClick={onOpenColumnSettings} title="Configurer les colonnes">
               <Columns size={16} /> Colonnes
             </button>
-            {showColSelector && (
-              <div className="mdt-col-dropdown">
-                {columns.map(col => (
-                  <label key={col.name} className="mdt-col-item">
-                    <input type="checkbox" checked={visibleCols.includes(col.name)}
-                      onChange={e => { setVisibleCols(prev => e.target.checked ? [...prev, col.name] : prev.filter(c => c !== col.name)); }} />
-                    <span>{col.name}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
@@ -244,8 +253,13 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
           <thead>
             <tr>
               {childRubriqueId && <th className="mdt-th" style={{ width: '32px', minWidth: '32px', padding: '10px 4px' }}></th>}
-              {activeCols.map(col => (
-                <th key={col.name} onClick={() => handleSort(col.name)} className="mdt-th">
+              {activeCols.map(col => {
+                const cs = columnStyles?.[col.name];
+                const thStyle: React.CSSProperties = {};
+                if (cs?.bold) thStyle.fontWeight = 'bold';
+                if (cs?.color && cs.color !== '#000000') thStyle.color = cs.color;
+                return (
+                <th key={col.name} onClick={() => handleSort(col.name)} className="mdt-th" style={thStyle}>
                   <div className="mdt-th-inner">
                     <span>{col.name}</span>
                     {sortConfig?.key === col.name && (
@@ -253,7 +267,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                     )}
                   </div>
                 </th>
-              ))}
+                );
+              })}
               {showActions && <th className="mdt-th" style={{ minWidth: '120px' }}>Actions</th>}
             </tr>
           </thead>
@@ -290,9 +305,13 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                         )}
                       </td>
                     )}
-                    {activeCols.map(col => (
-                      <td key={col.name} className="mdt-cell">{formatCell(row[col.name], col)}</td>
-                    ))}
+                    {activeCols.map(col => {
+                      const cs = columnStyles?.[col.name];
+                      const tdStyle: React.CSSProperties = {};
+                      if (cs?.bold) tdStyle.fontWeight = 'bold';
+                      if (cs?.color && cs.color !== '#000000') tdStyle.color = cs.color;
+                      return <td key={col.name} className="mdt-cell" style={tdStyle}>{formatCell(row[col.name], col)}</td>;
+                    })}
                     {showActions && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
