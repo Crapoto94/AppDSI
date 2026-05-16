@@ -30,9 +30,39 @@ exports.updateAutomationConfig = async (req, res) => {
   }
 
   try {
+    // Calculate next_sync_at immediately based on new frequency
+    let nextSyncAt = null;
+    if (enabled) {
+      const now = new Date();
+      const next = new Date(now);
+
+      switch (frequency) {
+        case 'every_10_minutes':
+          next.setMinutes(next.getMinutes() + 10);
+          break;
+        case 'hourly':
+          next.setHours(next.getHours() + 1);
+          break;
+        case 'daily':
+          next.setDate(next.getDate() + 1);
+          next.setHours(2, 0, 0, 0);
+          break;
+        case 'weekly':
+          next.setDate(next.getDate() + 7);
+          next.setHours(2, 0, 0, 0);
+          break;
+        case 'monthly':
+          next.setMonth(next.getMonth() + 1);
+          next.setDate(1);
+          next.setHours(2, 0, 0, 0);
+          break;
+      }
+      nextSyncAt = next;
+    }
+
     const result = await pool.query(
-      'UPDATE oracle_automation_config SET enabled = $1, frequency = $2, updated_at = NOW() WHERE sync_type = $3 RETURNING *',
-      [enabled, frequency, sync_type]
+      'UPDATE oracle_automation_config SET enabled = $1, frequency = $2, next_sync_at = $3, updated_at = NOW() WHERE sync_type = $4 RETURNING *',
+      [enabled, frequency, nextSyncAt, sync_type]
     );
 
     if (result.rows.length === 0) {
@@ -46,6 +76,8 @@ exports.updateAutomationConfig = async (req, res) => {
       console.error('Error updating scheduler:', schedulerErr);
       // Don't fail the response if scheduler update fails, just log it
     }
+
+    console.log(`[Oracle Config] Updated ${sync_type}: enabled=${enabled}, frequency=${frequency}, next_sync_at=${nextSyncAt?.toISOString()}`);
 
     res.json(result.rows[0]);
   } catch (err) {
