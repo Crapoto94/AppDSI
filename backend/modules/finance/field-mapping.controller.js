@@ -444,14 +444,14 @@ resolveMapping: async (req, res) => {
       // For Commandes rubrique, add Section column from first line
       if (rubrique.name === 'Commandes') {
         try {
-          const sectionSelect = `(SELECT COALESCE(cl."Section", '') FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1) AS "_section"`;
+          const sectionSelect = `(SELECT COALESCE(cl."Section", '') FROM oracle.gf_oracle_cmdligne cl WHERE cl.CMDLIGNE_COMMANDE = TRIM("_t"."COMMANDE_ROO_IMA_REF") ORDER BY cl.CMDLIGNE_IMPUTATION LIMIT 1) AS "Section"`;
           const query = `SELECT ${selectParts.join(', ')}, ${sectionSelect} FROM ${qualifiedTable} ${whereClause} ORDER BY ${orderBy} LIMIT ${limitVal} OFFSET ${offsetVal}`;
           const dataResult = await pool.query(query, params);
           rows = dataResult.rows;
           variables.push({
-            variable_name: '_section',
+            variable_name: 'Section',
             display_type: 'text',
-            expression: '_section',
+            expression: 'Section',
             expression_type: 'field'
           });
         } catch (e) {

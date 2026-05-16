@@ -172,7 +172,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   };
 
   const formatCell = (value: any, col: MappingColumn) => {
-    if (col.name === '_section') {
+    if (col.name === 'Section' && (value === 'F' || value === 'I' || value === 'Fonctionnement' || value === 'Investissement')) {
       const isF = value === 'F' || value === 'Fonctionnement';
       return (
         <span className={`section-badge ${isF ? 'f' : 'i'}`}>
@@ -226,7 +226,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     </div>;
   }
 
-  const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === '_section');
+  const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section');
 
   const etatCol = columns.find(c => c.name === 'Etat' || c.expression === 'FACETAT_LIBELLE');
   const displayRows = (() => {
@@ -235,7 +235,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       : rows;
     if (sectionFilter && sectionFilter !== 'all') {
       filtered = filtered.filter(r => {
-        const s = r._section || '';
+        const s = r.Section || '';
         return (sectionFilter === 'F' && (s === 'F' || s === 'Fonctionnement')) ||
                (sectionFilter === 'I' && (s === 'I' || s === 'Investissement'));
       });
