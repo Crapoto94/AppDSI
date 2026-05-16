@@ -493,17 +493,30 @@ module.exports = {
                 const mappedLines = lines.map(line => ({
                     nr: String(line.CMDLIGNE_IMPUTATION || '').trim(),
                     desc: String(line.CMDLIGNE_LIBELLE || '').trim(),
-                    nature: '',
+                    nature: line.CMDLIGNE_IMPUTATION ? String(line.CMDLIGNE_IMPUTATION).trim() : '',
                     fonction: '',
                     amtHt: 0,
                     amtTtc: parseNum(line.CMDLIGNE_PRIXE)
                 }));
 
+                // Determine section from the first line's imputation code
+                let section = '';
+                const firstLine = lines.length > 0 ? lines[0] : null;
+                if (firstLine) {
+                    const imputation = String(firstLine.CMDLIGNE_IMPUTATION || '').trim();
+                    const chapitre = imputation.split('-')[0] || '';
+                    if (chapitre.startsWith('0') || chapitre.startsWith('1') || chapitre.startsWith('6') || chapitre.startsWith('7')) {
+                        section = 'F';
+                    } else if (chapitre.startsWith('2')) {
+                        section = 'I';
+                    }
+                }
+
                 const cleaned = {
                     id: orderId,
                     operation_id: operationId,
                     operation_label: operationId ? opMap[operationId] : null,
-                    section: '',
+                    section,
                     _lines: mappedLines.filter(l => l.nr || l.desc),
                     _total_ht: parseNum(order.COMMANDE_MONTANT_HT),
                     _total_ttc: parseNum(order.COMMANDE_MONTANT_TTC),
