@@ -213,6 +213,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [isTestingAutomation, setIsTestingAutomation] = useState<Record<string, boolean>>({});
   const [oracleSyncLogs, setOracleSyncLogs] = useState<any[]>([]);
   const [isLoadingOracleLogs, setIsLoadingOracleLogs] = useState(false);
+  const [nextSyncTimes, setNextSyncTimes] = useState<Record<string, Date>>({});
+  const [countdowns, setCountdowns] = useState<Record<string, string>>({});
 
   const toggleDateField = (type: string, table: string, field: string) => {
     const key = `${type}:${table}`;
@@ -522,19 +524,40 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     }
   };
 
+  const formatCountdown = (nextSyncTime: Date | null): string => {
+    if (!nextSyncTime) return 'N/A';
+    const now = new Date();
+    const diff = nextSyncTime.getTime() - now.getTime();
+    if (diff <= 0) return 'En cours ou dépassé';
+
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+    if (days > 0) return `${days}j ${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+    return `${minutes}m ${seconds}s`;
+  };
+
   const fetchOracleAutomationConfig = async () => {
     try {
       const res = await axios.get('/api/oracle-automation/config', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const automations: Record<string, any> = {};
+      const nextTimes: Record<string, Date> = {};
       res.data.forEach((config: any) => {
         automations[config.sync_type] = {
           enabled: config.enabled,
           frequency: config.frequency
         };
+        if (config.next_sync_at) {
+          nextTimes[config.sync_type] = new Date(config.next_sync_at);
+        }
       });
       setOracleAutomations(automations);
+      setNextSyncTimes(nextTimes);
     } catch (err) {
       console.error('Error fetching oracle automation config:', err);
     }
@@ -691,6 +714,20 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     if (section === 'transcript') fetchTranscriptSettings();
     if (section === 'main') { fetchTiles(); fetchUsers(); }
   }, [section, token]);
+
+  useEffect(() => {
+    const updateCountdowns = () => {
+      const newCountdowns: Record<string, string> = {};
+      Object.entries(nextSyncTimes).forEach(([type, nextTime]) => {
+        newCountdowns[type] = formatCountdown(nextTime);
+      });
+      setCountdowns(newCountdowns);
+    };
+
+    updateCountdowns();
+    const interval = setInterval(updateCountdowns, 1000);
+    return () => clearInterval(interval);
+  }, [nextSyncTimes]);
 
   const handleSaveGLPI = async () => {
     setIsSaving(true);
@@ -2935,6 +2972,21 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                               : 'Activez l\'automatisation pour démarrer les synchronisations planifiées.'}
                           </div>
                         </div>
+
+                        {oracleAutomations[type]?.enabled && nextSyncTimes[type] && (
+                          <div style={{ padding: '1rem', background: '#f0fdf4', borderRadius: '0.5rem', marginBottom: '1rem', fontSize: '0.9rem', color: '#16a34a', display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                            <Clock size={16} style={{ marginTop: '0.125rem', flexShrink: 0 }} />
+                            <div>
+                              <strong>Prochaine synchronisation</strong>
+                              <br />
+                              {nextSyncTimes[type]?.toLocaleString('fr-FR')}
+                              <br />
+                              <strong style={{ fontSize: '1.1rem', color: '#15803d' }}>
+                                ⏱️ {countdowns[type] || 'Calcul...'}
+                              </strong>
+                            </div>
+                          </div>
+                        )}
 
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
                           <button
