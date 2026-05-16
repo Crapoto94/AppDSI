@@ -33,9 +33,12 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
 
   try {
     // Récupérer la config depuis SQLite
+    console.log(`[Oracle Import Executor] Querying oracle_sync_config for type=${type}`);
     const savedConfig = await db.all('SELECT table_name, where_clause, config_json FROM oracle_sync_config WHERE type = ?', [type]);
+    console.log(`[Oracle Import Executor] Found ${savedConfig.length} configuration(s) for ${type}`);
 
     if (savedConfig.length === 0) {
+      console.error(`[Oracle Import Executor] No configuration found for ${type}`);
       return { success: false, message: `Aucune configuration trouvée pour ${type}` };
     }
 
@@ -46,12 +49,17 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
     }));
 
     // Récupérer les settings Oracle
+    console.log(`[Oracle Import Executor] Querying oracle_settings for type=${type}`);
     const settings = await db.get('SELECT * FROM oracle_settings WHERE type = ?', [type]);
     if (!settings) {
+      console.error(`[Oracle Import Executor] No oracle_settings found for ${type}`);
       return { success: false, message: `Pas de connexion Oracle configurée pour ${type}` };
     }
+    console.log(`[Oracle Import Executor] Oracle settings found for ${type}`);
 
+    console.log(`[Oracle Import Executor] Establishing Oracle connection for ${type}`);
     connection = await getOracleConnection(settings);
+    console.log(`[Oracle Import Executor] Oracle connection established for ${type}`);
 
     // Traiter chaque table
     for (const config of tablesToSync) {
@@ -133,7 +141,9 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
         }
 
         // Exécuter la requête Oracle
+        console.log(`[Oracle Import Executor] Executing Oracle query for ${tableName}`);
         const result = await connection.execute(query, [], { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        console.log(`[Oracle Import Executor] Oracle query for ${tableName} returned ${result.rows.length} rows`);
         const localTableName = type.toUpperCase() === 'RH' ? tableName : `oracle_${tableName.toLowerCase()}`;
         const finalColumns = result.metaData.map(m => m.name);
 
@@ -173,6 +183,7 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
         const targetSchema = dbPrefixMap[type.toUpperCase()];
         const fullLocalTableName = `oracle.${targetSchema}_${localTableName}`;
 
+        console.log(`[Oracle Import Executor] Creating PostgreSQL table ${fullLocalTableName}`);
         await pool.query(`DROP TABLE IF EXISTS ${fullLocalTableName}`);
         const pkLocalField = pkField ? `${mainPrefix}${pkField}` : null;
 
@@ -185,15 +196,18 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
         }).join(', ');
 
         await pool.query(`CREATE TABLE ${fullLocalTableName} (${createCols})`);
+        console.log(`[Oracle Import Executor] PostgreSQL table ${fullLocalTableName} created successfully`);
 
         // Insérer les données
         if (result.rows.length > 0) {
+          console.log(`[Oracle Import Executor] Inserting ${result.rows.length} rows into ${fullLocalTableName}`);
           const pgPlaceholders = columnsForSchema.map((_, i) => `$${i + 1}`).join(',');
           const insertSql = `INSERT INTO ${fullLocalTableName} (${columnsForSchema.map(c => `"${c}"`).join(',')}) VALUES (${pgPlaceholders})`;
 
           const client = await pool.connect();
           try {
             await client.query('BEGIN');
+            let insertedCount = 0;
             for (const rowObj of result.rows) {
               const fullValues = [];
 
@@ -237,14 +251,18 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
               }
 
               await client.query(insertSql, fullValues);
+              insertedCount++;
             }
             await client.query('COMMIT');
+            console.log(`[Oracle Import Executor] Successfully inserted ${insertedCount} rows into ${fullLocalTableName}`);
           } catch (e) {
             await client.query('ROLLBACK');
             throw e;
           } finally {
             client.release();
           }
+        } else {
+          console.log(`[Oracle Import Executor] No rows to insert for ${tableName}`);
         }
 
         report.push({ table: tableName, status: 'SUCCESS', count: result.rows.length });
