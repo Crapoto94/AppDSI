@@ -245,19 +245,25 @@ const Budget: React.FC = () => {
   useEffect(() => {
     const fetchBudgets = async () => {
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
         const res = await fetch('/api/budgets', {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
+
         if (res.ok) {
           const data = await res.json();
           setAvailableBudgets(data);
         }
       } catch (e) {
-        console.error('Error fetching budgets:', e);
+        // Silently fail if timeout or error - don't block the page
       }
     };
 
-    fetchBudgets();
+    if (token) fetchBudgets();
   }, [token]);
 
   useEffect(() => {
@@ -266,14 +272,26 @@ const Budget: React.FC = () => {
         const rubriqueName = view === 'orders' ? 'Commandes' : view === 'invoices' ? 'Factures' : view === 'tiers' ? 'Tiers' : null;
         let data: number[] = [];
         if (rubriqueName) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
           const res = await fetch(`/api/finance/field-mapping/years/${encodeURIComponent(rubriqueName)}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${token}` },
+            signal: controller.signal
           });
+          clearTimeout(timeoutId);
+
           if (res.ok) data = await res.json();
         } else {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
           const res = await fetch('/api/budget/orders/years', {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${token}` },
+            signal: controller.signal
           });
+          clearTimeout(timeoutId);
+
           if (res.ok) data = await res.json();
         }
         setAvailableFiscalYears(data);
@@ -281,7 +299,7 @@ const Budget: React.FC = () => {
           setCurrentFiscalYear(data[0]);
         }
       } catch (e) {
-        console.error('Error fetching fiscal years:', e);
+        // Silently fail if timeout or error - don't block the page
       }
     };
     fetchFiscalYears();
@@ -626,15 +644,23 @@ const Budget: React.FC = () => {
       budgetScope: budgetScope
     }).toString();
 
+    const createFetch = (url: string) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      return fetch(url, { headers, signal: controller.signal })
+        .finally(() => clearTimeout(timeoutId))
+        .catch(() => ({ ok: false }));
+    };
+
     const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, settingsRes] = await Promise.all([
-      fetch(`/api/budget/lines?${queryParams}`, { headers }),
-      fetch(`/api/budget/invoices?${queryParams}`, { headers }),
-      fetch(`/api/budget/orders?${queryParams}`, { headers }),
-      fetch(`/api/budget/operations?${queryParams}`, { headers }),
-      fetch('/api/m57-plan', { headers }), // M57 plan is not year/scope specific
-      fetch('/api/settings/public', { headers }) // Settings
+      createFetch(`/api/budget/lines?${queryParams}`),
+      createFetch(`/api/budget/invoices?${queryParams}`),
+      createFetch(`/api/budget/orders?${queryParams}`),
+      createFetch(`/api/budget/operations?${queryParams}`),
+      createFetch('/api/m57-plan'),
+      createFetch('/api/settings/public')
     ]);
-    
+
     if (linesRes.ok) setBudgetLines(await linesRes.json());
     if (invoicesRes.ok) setInvoices(await invoicesRes.json());
     if (ordersRes.ok) setOrders(await ordersRes.json());
