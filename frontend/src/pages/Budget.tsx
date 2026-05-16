@@ -653,7 +653,7 @@ const Budget: React.FC = () => {
         return res;
       } catch (e) {
         clearTimeout(timeoutId);
-        return new Response('{}', { ok: false, status: 0 });
+        return new Response('{}', { status: 500 });
       }
     };
 
