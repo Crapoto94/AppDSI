@@ -99,7 +99,7 @@ const Budget: React.FC = () => {
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const DEFAULT_ORDER_COLUMNS = ['N° Commande', 'Libellé', 'Date de la commande', 'Budget', 'Service émetteur', 'Montant HT', 'Montant TTC', 'Nb lignes'];
   const DEFAULT_INVOICE_COLUMNS = ['N° Facture interne', 'N° Facture fournisseur', 'Libellé', 'Fournisseur', 'Arrivée', 'Échéance', 'Montant TTC', 'Budget', 'Etat'];
-  const DEFAULT_OP_COLUMNS = ['LIBELLE', 'Service', 'Section', 'C. Nature', 'Montant prévu', 'used_amount'];
+  const DEFAULT_OP_COLUMNS = ['LIBELLE', 'Service', 'Section', 'C. Nature', 'Montant prévu', 'used_amount', 'Terminé'];
 
   const getStoredColumns = (viewKey: string, defaults: string[]) => {
     try {
@@ -703,6 +703,7 @@ const Budget: React.FC = () => {
 
   const [expandedOps, setExpandedOps] = useState<Set<number>>(new Set());
   const [opsCommandsData, setOpsCommandsData] = useState<Record<number, { columns: any[], rows: any[] }>>({});
+  const [opsCmdVisibleCols, setOpsCmdVisibleCols] = useState<string[]>([]);
   const toggleExpandedOp = (opId: number) => {
     setExpandedOps(prev => {
       const next = new Set(prev);
@@ -1638,7 +1639,7 @@ const Budget: React.FC = () => {
                                       style={{ ...cellStyle, ...(isCellEditing ? { padding: '4px' } : {}) }} 
                                       title={!isCellEditing ? (tooltip || row[col] || '') : undefined}
                                       onDoubleClick={() => {
-                                        if (view === 'operations' && isAuthorizedToEdit) {
+                                        if (view === 'operations' && isAuthorizedToEdit && col !== 'used_amount' && col !== 'Montant utilisé') {
                                           setEditingCell({ id: row.id, key: col });
                                           setCellValue(row[col] || '');
                                         }
@@ -1750,24 +1751,52 @@ const Budget: React.FC = () => {
                                     {opsChild.rows.length === 0 ? (
                                       <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>Aucune commande associée.</span>
                                     ) : (
-                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                                        <thead>
-                                          <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
-                                            {opsChild.columns.map((col: any) => (
-                                              <th key={col.name} style={{ padding: '4px', whiteSpace: 'nowrap' }}>{col.name}</th>
-                                            ))}
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {opsChild.rows.map((cr: any, ci: number) => (
-                                            <tr key={ci} style={{ borderBottom: '1px dashed #e2e8f0' }}>
-                                              {opsChild.columns.map((col: any) => (
-                                                <td key={col.name} style={{ padding: '4px' }}>{cr[col.name]}</td>
+                                      <>
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: '4px' }}>
+                                          <div style={{ position: 'relative' }}>
+                                            <button className="mdt-col-btn" style={{ fontSize: '0.7rem', padding: '2px 8px' }}
+                                              onClick={() => {
+                                                const el = document.getElementById(`ops-child-cols`);
+                                                if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+                                              }}>
+                                              <Columns size={12} /> Colonnes
+                                            </button>
+                                            <div id="ops-child-cols" className="mdt-col-dropdown" style={{ display: 'none', right: 0, left: 'auto', minWidth: '150px' }}>
+                                              {opsChild.columns.map((cc: any) => {
+                                                const cur = opsCmdVisibleCols.length > 0 ? opsCmdVisibleCols : opsChild.columns.map((c: any) => c.name);
+                                                return (
+                                                  <label key={cc.name} className="mdt-col-item">
+                                                    <input type="checkbox" checked={cur.includes(cc.name)}
+                                                      onChange={e => {
+                                                        const next = e.target.checked ? [...cur, cc.name] : cur.filter((n: string) => n !== cc.name);
+                                                        setOpsCmdVisibleCols(next);
+                                                      }} />
+                                                    <span>{cc.name}</span>
+                                                  </label>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                          <thead>
+                                            <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
+                                              {(opsCmdVisibleCols.length > 0 ? opsCmdVisibleCols : opsChild.columns.map((c: any) => c.name)).map((cn: string) => (
+                                                <th key={cn} style={{ padding: '4px', whiteSpace: 'nowrap' }}>{cn}</th>
                                               ))}
                                             </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
+                                          </thead>
+                                          <tbody>
+                                            {opsChild.rows.map((cr: any, ci: number) => (
+                                              <tr key={ci} style={{ borderBottom: '1px dashed #e2e8f0' }}>
+                                                {(opsCmdVisibleCols.length > 0 ? opsCmdVisibleCols : opsChild.columns.map((c: any) => c.name)).map((cn: string) => (
+                                                  <td key={cn} style={{ padding: '4px' }}>{cr[cn]}</td>
+                                                ))}
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </>
                                     )}
                                   </td>
                                 </tr>
