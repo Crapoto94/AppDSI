@@ -285,6 +285,25 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
           console.log(`[Oracle Import Executor] No rows to insert for ${tableName}`);
         }
 
+        // Fix column types for specific tables
+        if (type.toUpperCase() === 'FINANCES' && tableName === 'gf_oracle_facture') {
+          try {
+            console.log(`[Oracle Import Executor] Converting FACTURE_DATENTREE to DATE type for ${fullLocalTableName}`);
+            await pool.query(`
+              ALTER TABLE ${fullLocalTableName}
+              ALTER COLUMN "FACTURE_DATENTREE" TYPE DATE
+              USING CASE
+                WHEN "FACTURE_DATENTREE" ~ '^\d{4}-\d{2}-\d{2}' THEN "FACTURE_DATENTREE"::date
+                WHEN "FACTURE_DATENTREE" ~ '^\d{8}$' THEN TO_DATE("FACTURE_DATENTREE", 'YYYYMMDD')::date
+                ELSE NULL
+              END
+            `);
+            console.log(`[Oracle Import Executor] FACTURE_DATENTREE converted to DATE successfully`);
+          } catch (convErr) {
+            console.error(`[Oracle Import Executor] Warning: Failed to convert FACTURE_DATENTREE to DATE:`, convErr.message);
+          }
+        }
+
         report.push({ table: tableName, status: 'SUCCESS', count: result.rows.length });
         console.log(`[Oracle Import Executor] ${tableName}: ${result.rows.length} rows imported`);
 
