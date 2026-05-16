@@ -110,7 +110,12 @@
       "Bash(timeout 5 curl -s \"http://localhost:3001/api/magapp/settings?username=machevalier\")",
       "Bash(git commit *)",
       "Bash(npm run *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(xargs grep -l \"import-tables\")",
+      "Bash(Get-ChildItem -Force)",
+      "Bash(Select-Object Name)",
+      "Bash(curl -s http://localhost:3001/health)",
+      "Bash(sqlite3 data/dsi.db \"SELECT * FROM oracle_sync_config WHERE type='RH';\")"
     ]
   }
 }

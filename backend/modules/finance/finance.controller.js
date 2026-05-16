@@ -452,8 +452,26 @@ module.exports = {
                 params.push('00');
             }
 
-            // Join with oracle_links for operation_id
-            let sql = `SELECT c.*, l.operation_id FROM oracle.gf_oracle_commande c LEFT JOIN oracle.oracle_links l ON l.target_id = TRIM(c."COMMANDE_COMMANDE") AND l.target_table = 'orders'`;
+            // Optimize: select only necessary columns instead of c.*
+            let sql = `SELECT
+                c."COMMANDE_COMMANDE",
+                c."COMMANDE_ROO_IMA_REF",
+                c."COMMANDE_LIBELLE",
+                c."COMMANDE_CMD_LIBELLE2",
+                c."COMMANDE_CMD_DATECOMMANDE",
+                c."COMMANDE_CMD_COMMENTAIRE",
+                c."COMMANDE_MONTANT_HT",
+                c."COMMANDE_MONTANT_TVA",
+                c."COMMANDE_MONTANT_TTC",
+                c."COMMANDE_NB_LIGNES_COMMANDE",
+                c."BUDGET_BUDGET",
+                c."BUDGET_LIBELLE",
+                c."TIERS_TIERS",
+                c."SERVICEFI_CLEACCES",
+                c."SERVICEFI_LIBELLE",
+                l.operation_id
+            FROM oracle.gf_oracle_commande c
+            LEFT JOIN oracle.oracle_links l ON l.target_id = TRIM(c."COMMANDE_COMMANDE") AND l.target_table = 'orders'`;
 
             if (whereClauses.length > 0) {
                 sql += ' WHERE ' + whereClauses.join(' AND ');
@@ -462,21 +480,31 @@ module.exports = {
             const result = await pool.query(sql, params);
             const pgRows = result.rows;
 
-            // Get lines from oracle.gf_oracle_cmdligne, joined with gf_oracle_imputation for section
-            let linesData = [];
-            try {
-                const linesResult = await pool.query(`
-                    SELECT
-                        cl.*,
-                        i."IMPUTATION_TYPE_SECTION" as "Section"
-                    FROM oracle.gf_oracle_cmdligne cl
-                    LEFT JOIN oracle.gf_oracle_imputation i
-                        ON TRIM(cl."CMDLIGNE_IMPUTATION") = TRIM(i."IMPUTATION_ROO_IMA_REF")
-                `);
-                linesData = linesResult.rows;
-            } catch (e) { /* table might not exist or be empty */ }
+            // Get order IDs for filtering lines
+            const orderIds = pgRows.map(o => o.COMMANDE_COMMANDE).filter(Boolean);
 
-            // Build line map keyed by COMMANDE_ROO_IMA_REF (trimmed)
+            // Get lines from oracle.gf_oracle_cmdligne with section, only for current orders
+            let linesData = [];
+            if (orderIds.length > 0) {
+                try {
+                    const placeholders = orderIds.map((_, i) => `$${i + 1}`).join(',');
+                    const linesResult = await pool.query(`
+                        SELECT
+                            cl."CMDLIGNE_COMMANDE",
+                            cl."CMDLIGNE_IMPUTATION",
+                            cl."CMDLIGNE_LIBELLE",
+                            cl."CMDLIGNE_PRIXE",
+                            i."IMPUTATION_TYPE_SECTION" as "Section"
+                        FROM oracle.gf_oracle_cmdligne cl
+                        LEFT JOIN oracle.gf_oracle_imputation i
+                            ON TRIM(cl."CMDLIGNE_IMPUTATION") = TRIM(i."IMPUTATION_ROO_IMA_REF")
+                        WHERE TRIM(cl."CMDLIGNE_COMMANDE") IN (${placeholders})
+                    `, orderIds);
+                    linesData = linesResult.rows;
+                } catch (e) { /* table might not exist or be empty */ }
+            }
+
+            // Build line map keyed by CMDLIGNE_COMMANDE (trimmed)
             const lineMap = {};
             for (const line of linesData) {
                 const parentRef = String(line.CMDLIGNE_COMMANDE || '').trim();
@@ -493,9 +521,8 @@ module.exports = {
 
             const cleanedOrders = pgRows.map(order => {
                 const orderId = String(order.COMMANDE_COMMANDE || '').trim();
-                const orderRef = String(order.COMMANDE_ROO_IMA_REF || '').trim();
                 const operationId = order.operation_id || null;
-                const lines = lineMap[orderRef] || [];
+                const lines = lineMap[orderId] || [];
 
                 const mappedLines = lines.map(line => ({
                     nr: String(line.CMDLIGNE_IMPUTATION || '').trim(),

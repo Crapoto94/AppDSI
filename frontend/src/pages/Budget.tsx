@@ -646,7 +646,7 @@ const Budget: React.FC = () => {
 
     const createFetch = (url: string) => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
       return fetch(url, { headers, signal: controller.signal })
         .finally(() => clearTimeout(timeoutId))
         .catch(() => ({ ok: false }));
