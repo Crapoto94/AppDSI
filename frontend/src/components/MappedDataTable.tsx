@@ -249,7 +249,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section');
 
-  const etatCol = columns.find(c => c.variable_name === 'Etat' || c.expression === 'FACETAT_LIBELLE');
+  const etatCol = columns.find(c => c.name === 'Etat' || c.expression === 'FACETAT_LIBELLE');
 
   // Apply filters locally as fallback (backend also filters but this ensures they work)
   const displayRows = (() => {

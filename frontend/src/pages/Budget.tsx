@@ -135,7 +135,6 @@ const Budget: React.FC = () => {
   const [opColumns, setOpColumns] = useState<string[]>(() => getStoredColumns('operations', DEFAULT_OP_COLUMNS));
 
   useEffect(() => {
-    const stored = localStorage.getItem('budgetCols_orders');
     let cols = orderColumns;
 
     if (!cols.includes('Section') && !cols.includes('section')) {
