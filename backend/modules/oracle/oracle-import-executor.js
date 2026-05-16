@@ -285,22 +285,36 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
           console.log(`[Oracle Import Executor] No rows to insert for ${tableName}`);
         }
 
-        // Fix column types for specific tables
+        // Fix column types for specific tables (non-blocking optimization)
         if (type.toUpperCase() === 'FINANCES' && tableName === 'gf_oracle_facture') {
           try {
-            console.log(`[Oracle Import Executor] Converting FACTURE_DATENTREE to DATE type for ${fullLocalTableName}`);
+            console.log(`[Oracle Import Executor] Optimizing FACTURE_DATENTREE column for ${fullLocalTableName}`);
+            // Create a temporary column and convert data more efficiently
             await pool.query(`
               ALTER TABLE ${fullLocalTableName}
-              ALTER COLUMN "FACTURE_DATENTREE" TYPE DATE
-              USING CASE
-                WHEN "FACTURE_DATENTREE" ~ '^\d{4}-\d{2}-\d{2}' THEN "FACTURE_DATENTREE"::date
-                WHEN "FACTURE_DATENTREE" ~ '^\d{8}$' THEN TO_DATE("FACTURE_DATENTREE", 'YYYYMMDD')::date
-                ELSE NULL
-              END
+              ADD COLUMN "FACTURE_DATENTREE_temp" DATE;
             `);
-            console.log(`[Oracle Import Executor] FACTURE_DATENTREE converted to DATE successfully`);
+
+            await pool.query(`
+              UPDATE ${fullLocalTableName}
+              SET "FACTURE_DATENTREE_temp" =
+                CASE
+                  WHEN "FACTURE_DATENTREE" ~ '^\d{4}-\d{2}-\d{2}' THEN "FACTURE_DATENTREE"::date
+                  WHEN "FACTURE_DATENTREE" ~ '^\d{8}$' THEN TO_DATE("FACTURE_DATENTREE", 'YYYYMMDD')::date
+                  ELSE NULL
+                END
+              WHERE "FACTURE_DATENTREE" IS NOT NULL;
+            `);
+
+            await pool.query(`
+              ALTER TABLE ${fullLocalTableName}
+              DROP COLUMN "FACTURE_DATENTREE",
+              RENAME COLUMN "FACTURE_DATENTREE_temp" TO "FACTURE_DATENTREE";
+            `);
+            console.log(`[Oracle Import Executor] FACTURE_DATENTREE column optimized successfully`);
           } catch (convErr) {
-            console.error(`[Oracle Import Executor] Warning: Failed to convert FACTURE_DATENTREE to DATE:`, convErr.message);
+            console.error(`[Oracle Import Executor] Warning: Failed to optimize FACTURE_DATENTREE:`, convErr.message);
+            // Non-blocking: continue even if this fails
           }
         }
 
