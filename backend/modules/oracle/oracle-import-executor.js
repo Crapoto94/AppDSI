@@ -177,11 +177,10 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
           }
         }
 
-        // Créer la table
-        await pool.query('CREATE SCHEMA IF NOT EXISTS oracle');
-        const dbPrefixMap = { 'FINANCES': 'gf', 'RH': 'rh' };
-        const targetSchema = dbPrefixMap[type.toUpperCase()];
-        const fullLocalTableName = `oracle.${targetSchema}_${localTableName}`;
+        // Créer la table dans le schéma public (comme les tables FINANCES)
+        const dbPrefixMap = { 'FINANCES': 'gf_oracle', 'RH': 'rh' };
+        const tablePrefix = dbPrefixMap[type.toUpperCase()];
+        const fullLocalTableName = `${tablePrefix}_${localTableName}`;
 
         console.log(`[Oracle Import Executor] Creating PostgreSQL table ${fullLocalTableName}`);
         await pool.query(`DROP TABLE IF EXISTS ${fullLocalTableName}`);
