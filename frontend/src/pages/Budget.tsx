@@ -644,12 +644,17 @@ const Budget: React.FC = () => {
       budgetScope: budgetScope
     }).toString();
 
-    const createFetch = (url: string) => {
+    const createFetch = async (url: string): Promise<Response> => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
-      return fetch(url, { headers, signal: controller.signal })
-        .finally(() => clearTimeout(timeoutId))
-        .catch(() => ({ ok: false }));
+      try {
+        const res = await fetch(url, { headers, signal: controller.signal });
+        clearTimeout(timeoutId);
+        return res;
+      } catch (e) {
+        clearTimeout(timeoutId);
+        return new Response('{}', { ok: false, status: 0 });
+      }
     };
 
     const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, settingsRes] = await Promise.all([
