@@ -179,7 +179,7 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
 
         // Créer la table dans le schéma oracle
         await pool.query('CREATE SCHEMA IF NOT EXISTS oracle');
-        const prefixMap = { 'FINANCES': 'gf_oracle', 'RH': 'rh' };
+        const prefixMap = { 'FINANCES': 'gf', 'RH': 'rh' };
         const prefix = prefixMap[type.toUpperCase()];
         const fullLocalTableName = `oracle.${prefix}_${localTableName}`;
 
