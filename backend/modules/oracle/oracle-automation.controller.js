@@ -137,9 +137,7 @@ exports.testSync = async (req, res) => {
 
     const config = settingsResult.rows[0];
 
-    if (!config.is_enabled) {
-      throw new Error(`Oracle ${syncType} is not enabled`);
-    }
+    // Note: Test sync should be allowed even when automation is disabled
 
     // TODO: Call Oracle to retrieve data using selected tables and fields from oracle_settings.sync_config_json
     // For now, simulate a successful sync
