@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { pool } = require('../../shared/database');
 const axios = require('axios');
+const oracleSyncService = require('./oracle-sync.service');
 
 const scheduledTasks = {};
 
@@ -26,12 +27,45 @@ async function executeSyncTask(syncType) {
       [syncType, startTime]
     );
 
-    // TODO: Call the actual Oracle sync API
-    // For now, simulate a successful sync
-    const duration = Math.floor(Math.random() * 10000) + 2000; // 2-12 seconds
-    const recordsSynced = Math.floor(Math.random() * 500) + 100; // 100-600 records
+    const syncStartTime = Date.now();
+    let recordsSynced = 0;
+    let duration = 0;
 
-    await new Promise(resolve => setTimeout(resolve, 500)); // Simulate work
+    try {
+      // Get the Oracle settings for this sync type
+      const settingsResult = await pool.query(
+        'SELECT * FROM oracle_settings WHERE type = $1',
+        [syncType]
+      );
+
+      if (settingsResult.rows.length === 0) {
+        throw new Error(`No Oracle ${syncType} configuration found`);
+      }
+
+      const settings = settingsResult.rows[0];
+      const configuredTables = await oracleSyncService.getConfiguredTables(settings);
+
+      if (configuredTables.length === 0) {
+        console.log(`[Oracle Sync] No tables configured for ${syncType}. Skipping sync.`);
+        recordsSynced = 0;
+      } else {
+        // Connect to Oracle and fetch data
+        const oracleConnection = await oracleSyncService.getOracleConnection(settings);
+        const oracleData = await oracleSyncService.fetchDataFromOracle(oracleConnection, configuredTables);
+
+        // Count total records fetched
+        recordsSynced = Object.values(oracleData).reduce((sum, tableData) => sum + (tableData.length || 0), 0);
+
+        await oracleConnection.close();
+      }
+    } catch (oracleErr) {
+      // If Oracle sync fails, log the error and continue
+      console.log(`[Oracle Sync] Oracle sync failed: ${oracleErr.message}. Will retry on next scheduled sync.`);
+      recordsSynced = 0;
+      throw oracleErr; // Re-throw to trigger the catch block below
+    }
+
+    duration = Date.now() - syncStartTime;
 
     const endTime = new Date();
 
