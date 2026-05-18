@@ -160,11 +160,19 @@ async function getColumnPgType(schema, table, column) {
 
 async function getFirstDateColumn(schema, table) {
   try {
-    const result = await pool.query(
+    // First try to find columns by data type (date, timestamp)
+    const typeResult = await pool.query(
       "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 AND data_type IN ('date', 'timestamp without time zone', 'timestamp with time zone') ORDER BY ordinal_position LIMIT 1",
       [schema, table]
     );
-    return result.rows.length > 0 ? result.rows[0] : null;
+    if (typeResult.rows.length > 0) return typeResult.rows[0];
+
+    // If no date type found, look for columns by name pattern (contains 'DAT' or 'DATE')
+    const nameResult = await pool.query(
+      "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 AND UPPER(column_name) LIKE '%DAT%' ORDER BY ordinal_position LIMIT 1",
+      [schema, table]
+    );
+    return nameResult.rows.length > 0 ? nameResult.rows[0] : null;
   } catch (e) {
     return null;
   }
@@ -399,7 +407,7 @@ resolveMapping: async (req, res) => {
       if (fiscal_year) {
         const dateCol = await getFirstDateColumn(rubrique.pg_schema, rubrique.pg_table);
         if (dateCol) {
-          whereParts.push(`EXTRACT(YEAR FROM "${dateCol.column_name}") = $${paramIdx}`);
+          whereParts.push(`EXTRACT(YEAR FROM "${dateCol.column_name}"::date) = $${paramIdx}`);
           params.push(String(fiscal_year));
           paramIdx++;
         }
@@ -652,12 +660,16 @@ resolveMapping: async (req, res) => {
       const rubrique = rubriqueResult.rows[0];
 
       const dateCol = await getFirstDateColumn(rubrique.pg_schema, rubrique.pg_table);
+      console.log(`[getAvailableYears] Rubrique: ${name}, Schema: ${rubrique.pg_schema}, Table: ${rubrique.pg_table}, DateCol: ${dateCol?.column_name || 'NOT FOUND'}`);
+
       if (!dateCol) return res.json([]);
 
       const result = await pool.query(
-        `SELECT DISTINCT EXTRACT(YEAR FROM "${dateCol.column_name}") AS year FROM "${rubrique.pg_schema}"."${rubrique.pg_table}" WHERE "${dateCol.column_name}" IS NOT NULL ORDER BY year DESC`
+        `SELECT DISTINCT EXTRACT(YEAR FROM "${dateCol.column_name}"::date) AS year FROM "${rubrique.pg_schema}"."${rubrique.pg_table}" WHERE "${dateCol.column_name}" IS NOT NULL ORDER BY year DESC`
       );
-      res.json(result.rows.map(r => parseInt(r.year)));
+      const years = result.rows.map(r => parseInt(r.year));
+      console.log(`[getAvailableYears] Found years: ${years}`);
+      res.json(years);
     } catch (error) {
       console.error('[FieldMapping] getAvailableYears error:', error);
       res.status(500).json({ message: "Erreur lors de la récupération des années", error: error.message });

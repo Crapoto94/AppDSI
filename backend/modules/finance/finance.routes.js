@@ -5,6 +5,34 @@ const { authenticateJWT, authenticateAdminOrFinances } = require('../../shared/m
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
 
+// Debug routes
+router.get('/debug/invoices-count', authenticateJWT, async (req, res) => {
+    try {
+        const result = await require('../../shared/database').pool.query('SELECT COUNT(*) FROM oracle.gf_oracle_facture');
+        res.json({ count: result.rows[0].count, message: 'Factures en base' });
+    } catch (e) {
+        res.json({ error: e.message, message: 'Erreur vérification factures' });
+    }
+});
+
+router.get('/debug/orders-count', authenticateJWT, async (req, res) => {
+    try {
+        const result = await require('../../shared/database').pool.query('SELECT COUNT(*) FROM oracle.gf_oracle_commande');
+        res.json({ count: result.rows[0].count, message: 'Commandes en base' });
+    } catch (e) {
+        res.json({ error: e.message, message: 'Erreur vérification commandes' });
+    }
+});
+
+router.get('/debug/orders-sample', authenticateJWT, async (req, res) => {
+    try {
+        const result = await require('../../shared/database').pool.query('SELECT "COMMANDE_COMMANDE", "COMMANDE_CMD_DATECOMMANDE", "COMMANDE_MONTANT_TTC" FROM oracle.gf_oracle_commande LIMIT 5');
+        res.json({ rows: result.rows, message: 'Sample de 5 commandes' });
+    } catch (e) {
+        res.json({ error: e.message, message: 'Erreur lecture sample' });
+    }
+});
+
 // Operations CRUD
 router.get('/operations', authenticateJWT, financeController.getOperations);
 router.post('/operations', authenticateAdminOrFinances, financeController.createOperation);

@@ -115,7 +115,8 @@
       "Bash(Get-ChildItem -Force)",
       "Bash(Select-Object Name)",
       "Bash(curl -s http://localhost:3001/health)",
-      "Bash(sqlite3 data/dsi.db \"SELECT * FROM oracle_sync_config WHERE type='RH';\")"
+      "Bash(sqlite3 data/dsi.db \"SELECT * FROM oracle_sync_config WHERE type='RH';\")",
+      "Bash(psql -h 10.103.130.106 -U postgres -d ivry_admin -c \"SELECT COUNT\\(*\\) as facture_count FROM oracle.gf_oracle_facture LIMIT 1;\")"
     ]
   }
 }

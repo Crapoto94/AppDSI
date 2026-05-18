@@ -179,60 +179,35 @@ module.exports = {
 
     importLines: async (req, res) => {
         if (!req.file) return res.status(400).send('No file uploaded.');
-        const budgetId = req.body.budgetId;
-        if (!budgetId) return res.status(400).send('budgetId is required.');
-
         try {
-            const db = getSqlite();
             const workbook = xlsx.readFile(req.file.path);
             const sheetName = workbook.SheetNames[0];
             const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-            if (rows.length > 0) {
-                const firstRow = rows[0];
-                for (const col of Object.keys(firstRow)) {
-                    try {
-                        await db.run(`ALTER TABLE budget_lines ADD COLUMN "${col}" TEXT`);
-                    } catch (e) { }
-                }
-            }
-
-            const tableColsInfo = await db.all("PRAGMA table_info(budget_lines)");
-            const tableCols = tableColsInfo.map(c => c.name);
+            if (rows.length === 0) return res.json({ message: '0 lignes importées' });
 
             let imported = 0;
-            for (const row of rows) {
-                const code = row['Code'] || row.code || row['Numéro de compte'] || '';
-                const year = row.Exercice || row.exercice || row.Annee || row.year || '';
-                if (!code) continue;
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                for (const row of rows) {
+                    const code = row['Code'] || row.code || row['Numéro de compte'] || '';
+                    if (!code) continue;
 
-                const mappedRow = { budgetId };
-                for (const col of tableCols) {
-                    if (row[col] !== undefined) {
-                        mappedRow[col] = row[col];
-                    }
+                    const keys = Object.keys(row).filter(k => row[k] !== undefined && row[k] !== null);
+                    const values = keys.map(k => row[k]);
+                    const placeholders = keys.map((_, i) => `$${i + 1}`).join(',');
+                    const quotedKeys = keys.map(k => `"${k}"`).join(',');
+                    await client.query(`INSERT INTO oracle.budget_lines (${quotedKeys}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`, values);
+                    imported++;
                 }
-
-                if (mappedRow.amount === undefined) {
-                    let amount = row['Budget voté'] || row['Mt. prévision'] || row.Montant || row.allocated_amount || 0;
-                    if (typeof amount === 'string') amount = parseFloat(amount.replace(',', '.').replace(/[^\d.-]/g, '')) || 0;
-                    mappedRow.amount = amount;
-                }
-
-                const exists = await db.get('SELECT id FROM budget_lines WHERE ("Code" = ? OR code = ?) AND year = ? AND budgetId = ?', [code, code, year, budgetId]);
-                const keys = Object.keys(mappedRow);
-                const values = Object.values(mappedRow);
-                const placeholders = keys.map(() => '?').join(',');
-
-                if (exists) {
-                    const updateStr = keys.map(k => `"${k}" = ?`).join(',');
-                    await db.run(`UPDATE budget_lines SET ${updateStr} WHERE id = ?`, [...values, exists.id]);
-                } else {
-                    await db.run(`INSERT INTO budget_lines (${keys.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`, values);
-                }
-                imported++;
+                await client.query('COMMIT');
+            } catch (e) {
+                await client.query('ROLLBACK');
+                throw e;
+            } finally {
+                client.release();
             }
-
             res.json({ message: `${imported} lignes importées ou mises à jour.` });
         } catch (error) {
             console.error('[Finance] Import Lines error:', error);
@@ -244,44 +219,33 @@ module.exports = {
 
     importInvoices: async (req, res) => {
         if (!req.file) return res.status(400).send('No file uploaded.');
-        const budgetId = req.body.budgetId;
-        if (!budgetId) return res.status(400).send('budgetId is required.');
-
         try {
-            const db = getSqlite();
             const workbook = xlsx.readFile(req.file.path);
             const sheetName = workbook.SheetNames[0];
             const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-            await db.run('DELETE FROM gf.invoices WHERE budgetId = ?', [budgetId]);
-
-            if (rows.length > 0) {
-                const firstRow = rows[0];
-                for (const col of Object.keys(firstRow)) {
-                    try {
-                        await db.run(`ALTER TABLE gf.invoices ADD COLUMN "${col}" TEXT`);
-                    } catch (e) { }
-                }
-            }
-
-            const tableColsInfo = await db.all("PRAGMA table_info(invoices)", [], { database: 'gf' });
-            const tableCols = tableColsInfo.map(c => c.name);
+            if (rows.length === 0) return res.json({ message: '0 factures importées' });
 
             let imported = 0;
-            for (const row of rows) {
-                const mappedRow = { budgetId };
-                for (const col of tableCols) {
-                    if (row[col] !== undefined) mappedRow[col] = row[col];
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                for (const row of rows) {
+                    const keys = Object.keys(row).filter(k => row[k] !== undefined && row[k] !== null);
+                    const values = keys.map(k => row[k]);
+                    const placeholders = keys.map((_, i) => `$${i + 1}`).join(',');
+                    const quotedKeys = keys.map(k => `"${k}"`).join(',');
+                    await client.query(`INSERT INTO oracle.gf_oracle_facture (${quotedKeys}) VALUES (${placeholders})`, values);
+                    imported++;
                 }
-
-                const keys = Object.keys(mappedRow);
-                const values = Object.values(mappedRow);
-                const placeholders = keys.map(() => '?').join(',');
-                await db.run(`INSERT INTO gf.invoices (${keys.map(c => `"${c}"`).join(',')}) VALUES (${placeholders})`, values);
-                imported++;
+                await client.query('COMMIT');
+            } catch (e) {
+                await client.query('ROLLBACK');
+                throw e;
+            } finally {
+                client.release();
             }
-
-            res.json({ message: `${imported} factures importées avec succès pour ce budget` });
+            res.json({ message: `${imported} factures importées avec succès` });
         } catch (error) {
             console.error('[Finance] Import Invoices error:', error);
             res.status(500).json({ message: 'Erreur import invoices', error: error.message });
@@ -292,49 +256,34 @@ module.exports = {
 
     importOrders: async (req, res) => {
         if (!req.file) return res.status(400).send('No file uploaded.');
-        const budgetId = req.body.budgetId;
-        if (!budgetId) return res.status(400).send('budgetId is required.');
-
         try {
-            const db = getSqlite();
             const workbook = xlsx.readFile(req.file.path);
             const sheetName = workbook.SheetNames[0];
             const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-            await db.run('DELETE FROM gf.oracle_commande WHERE budgetId = ?', [budgetId]);
-
-            if (rows.length > 0) {
-                const firstRow = rows[0];
-                for (const col of Object.keys(firstRow)) {
-                    try {
-                        await db.run(`ALTER TABLE gf.oracle_commande ADD COLUMN "${col}" TEXT`);
-                    } catch (e) { }
-                }
-            }
-
-            const tableColsInfo = await db.all("PRAGMA table_info(oracle_commande)", [], { database: 'gf' });
-            const tableCols = tableColsInfo.map(c => c.name).filter(c => c !== 'id' && c !== 'operation_id' && c !== 'budgetId');
+            if (rows.length === 0) return res.json({ message: '0 commandes importées' });
 
             let imported = 0;
-            for (const row of rows) {
-                const keys = [];
-                const values = [];
-                for (const col of tableCols) {
-                    if (row[col] !== undefined) {
-                        keys.push(`"${col}"`);
-                        values.push(row[col]);
-                    }
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                for (const row of rows) {
+                    const keys = Object.keys(row).filter(k => row[k] !== undefined && row[k] !== null && k !== 'id' && k !== 'operation_id');
+                    const values = keys.map(k => row[k]);
+                    const placeholders = keys.map((_, i) => `$${i + 1}`).join(',');
+                    const quotedKeys = keys.map(k => `"${k}"`).join(',');
+                    await client.query(`INSERT INTO oracle.gf_oracle_commande (${quotedKeys}) VALUES (${placeholders})`, values);
+                    imported++;
                 }
-
-                const finalKeys = [...keys, 'budgetId'];
-                const finalValues = [...values, budgetId];
-                const placeholders = finalKeys.map(() => '?').join(',');
-                await db.run(`INSERT INTO gf.oracle_commande (${finalKeys.join(',')}) VALUES (${placeholders})`, finalValues);
-                imported++;
+                await client.query('COMMIT');
+            } catch (e) {
+                await client.query('ROLLBACK');
+                throw e;
+            } finally {
+                client.release();
             }
-
             await recalculateAllOperations();
-            res.json({ message: `${imported} commandes importées avec succès pour ce budget` });
+            res.json({ message: `${imported} commandes importées avec succès` });
         } catch (error) {
             console.error('[Finance] Import Orders error:', error);
             res.status(500).json({ message: 'Erreur import orders', error: error.message });
@@ -355,7 +304,7 @@ module.exports = {
             }
 
             if (budgetScope === 'Ville') {
-                whereClauses.push(`TRIM(ob."BUDGET_BUDGET") = $${params.length + 1}`);
+                whereClauses.push(`TRIM(f."FACTURE_POBJ_EXTRACT_1") = $${params.length + 1}`);
                 params.push('00');
             }
 
@@ -365,17 +314,24 @@ module.exports = {
                 sql += ' WHERE ' + whereClauses.join(' AND ');
             }
 
+            console.log('[getInvoices] Query:', sql, 'Params:', params);
             const result = await pool.query(sql, params);
+            console.log('[getInvoices] Result count:', result.rows.length, 'fiscalYear param:', fiscalYear);
 
             const cleaned = result.rows.map(row => {
                 const budgetCode = String(row.BUDGET_ROO_IMA_REF || '').trim();
+                const parseNum = (val) => {
+                    if (!val || val === null || val === undefined) return 0;
+                    const num = parseFloat(String(val).trim().replace(',', '.').replace(/[^\d.\-]/g, ''));
+                    return isNaN(num) ? 0 : num;
+                };
                 return {
                     id: String(row.FACTURE_FACTURE || '').trim(),
                     'N° Facture interne': String(row.FACTURE_FACTURE || '').trim(),
                     'N° Facture fournisseur': String(row.FACTURE_REFERENCE || '').trim(),
                     'Fournisseur': String(row.FACTURE_LIBELLE2 || '').trim(),
                     'Libellé': String(row.FACTURE_LIBELLE1 || '').trim(),
-                    'Montant TTC': row.FACTURE_MONTANTTC_E,
+                    'Montant TTC': parseNum(row.FACTURE_MONTANTTC_E),
                     'Budget': row.BUDGET_LIBELLE,
                     'Etat': row.FACETAT_LIBELLE,
                     'Arrivée': row.FACTURE_DATENTREE,
@@ -388,7 +344,7 @@ module.exports = {
                     FACTURE_REFERENCE: row.FACTURE_REFERENCE,
                     FACTURE_LIBELLE1: row.FACTURE_LIBELLE1,
                     FACTURE_LIBELLE2: row.FACTURE_LIBELLE2,
-                    FACTURE_MONTANTTC_E: row.FACTURE_MONTANTTC_E,
+                    FACTURE_MONTANTTC_E: parseNum(row.FACTURE_MONTANTTC_E),
                     FACTURE_DATENTREE: row.FACTURE_DATENTREE,
                     FACTURE_DATPAIPREV: row.FACTURE_DATPAIPREV,
                     FACETAT_LIBELLE: row.FACETAT_LIBELLE,
@@ -407,29 +363,10 @@ module.exports = {
 
     getLines: async (req, res) => {
         const { fiscalYear, budgetScope } = req.query;
-        let query = 'SELECT * FROM budget_lines';
-        const params = [];
-        const where = [];
-
         try {
-            const db = getSqlite();
-            const principalBudgetSetting = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = "budget_principal"');
-            const principalBudgetRef = principalBudgetSetting ? principalBudgetSetting.setting_value.trim() : '00001000000000001901000';
-
-            if (budgetScope === 'Ville' && fiscalYear) {
-                where.push('TRIM("Code") = ?');
-                params.push(principalBudgetRef);
-                where.push('year = ?');
-                params.push(fiscalYear);
-            } else if (fiscalYear) {
-                where.push('(year = ? OR budgetId IN (SELECT id FROM budgets WHERE Annee = ?))');
-                params.push(fiscalYear, parseInt(fiscalYear));
-            }
-
-            if (where.length > 0) query += ' WHERE ' + where.join(' AND ');
-
-            const lines = await db.all(query, params);
-            res.json(lines);
+            // For now, return empty array as budget_lines sync is not yet implemented
+            // TODO: Implement budget lines sync from Oracle
+            res.json([]);
         } catch (error) {
             res.status(500).json({ message: 'Erreur lecture lignes', error: error.message });
         }
@@ -469,8 +406,9 @@ module.exports = {
                 c."TIERS_TIERS",
                 c."SERVICEFI_CLEACCES",
                 c."SERVICEFI_LIBELLE",
+                c."section",
                 l.operation_id
-            FROM oracle.gf_oracle_commande c
+            FROM oracle.commandes_with_section c
             LEFT JOIN oracle.oracle_links l ON l.target_id = TRIM(c."COMMANDE_COMMANDE") AND l.target_table = 'orders'`;
 
             if (whereClauses.length > 0) {
@@ -480,97 +418,54 @@ module.exports = {
             const result = await pool.query(sql, params);
             const pgRows = result.rows;
 
-            // Get order IDs for filtering lines
-            const orderIds = pgRows.map(o => o.COMMANDE_COMMANDE).filter(Boolean);
-
-            // Get lines from oracle.gf_oracle_cmdligne with section, only for current orders
-            let linesData = [];
-            if (orderIds.length > 0) {
-                try {
-                    const placeholders = orderIds.map((_, i) => `$${i + 1}`).join(',');
-                    const linesResult = await pool.query(`
-                        SELECT
-                            cl."CMDLIGNE_COMMANDE",
-                            cl."CMDLIGNE_IMPUTATION",
-                            cl."CMDLIGNE_LIBELLE",
-                            cl."CMDLIGNE_PRIXE",
-                            i."IMPUTATION_TYPE_SECTION" as "Section"
-                        FROM oracle.gf_oracle_cmdligne cl
-                        LEFT JOIN oracle.gf_oracle_imputation i
-                            ON TRIM(cl."CMDLIGNE_IMPUTATION") = TRIM(i."IMPUTATION_ROO_IMA_REF")
-                        WHERE TRIM(cl."CMDLIGNE_COMMANDE") IN (${placeholders})
-                    `, orderIds);
-                    linesData = linesResult.rows;
-                } catch (e) { /* table might not exist or be empty */ }
-            }
-
-            // Build line map keyed by CMDLIGNE_COMMANDE (trimmed)
-            const lineMap = {};
-            for (const line of linesData) {
-                const parentRef = String(line.CMDLIGNE_COMMANDE || '').trim();
-                if (parentRef) {
-                    if (!lineMap[parentRef]) lineMap[parentRef] = [];
-                    lineMap[parentRef].push(line);
-                }
-            }
-
             // Get operations for labels
             const opResult = await pool.query('SELECT id, "LIBELLE" FROM oracle.operations');
             const opMap = {};
             opResult.rows.forEach(o => { opMap[o.id] = o.LIBELLE; });
 
+            const parseNum = (val) => {
+                if (!val || val === null || val === undefined) return 0;
+                const num = parseFloat(String(val).trim().replace(',', '.').replace(/[^\d.\-]/g, ''));
+                return isNaN(num) ? 0 : num;
+            };
+
             const cleanedOrders = pgRows.map(order => {
                 const orderId = String(order.COMMANDE_COMMANDE || '').trim();
                 const operationId = order.operation_id || null;
-                const lines = lineMap[orderId] || [];
 
-                const mappedLines = lines.map(line => ({
-                    nr: String(line.CMDLIGNE_IMPUTATION || '').trim(),
-                    desc: String(line.CMDLIGNE_LIBELLE || '').trim(),
-                    nature: line.CMDLIGNE_IMPUTATION ? String(line.CMDLIGNE_IMPUTATION).trim() : '',
-                    fonction: '',
-                    amtHt: 0,
-                    amtTtc: parseNum(line.CMDLIGNE_PRIXE),
-                    section: line.section || line.Section || ''
-                }));
+                // Section comes directly from commandes_with_section view
+                let section = order.section || order.Section || order.TYPE_SECTION || '';
+                if (section === 'Fonctionnement') section = 'F';
+                if (section === 'Investissement') section = 'I';
 
-                // Determine section from the first line's Section column (set by field mapping / Oracle sync)
-                let section = '';
-                const firstLine = lines.length > 0 ? lines[0] : null;
-                if (firstLine) {
-                    section = firstLine.Section || firstLine.section || '';
-                    if (!section) {
-                        // Fallback: derive from imputation chapter
-                        const imputation = String(firstLine.CMDLIGNE_IMPUTATION || '').trim();
-                        const chapitre = imputation.split('-')[0] || '';
-                        if (chapitre.startsWith('0') || chapitre.startsWith('1') || chapitre.startsWith('6') || chapitre.startsWith('7')) {
-                            section = 'F';
-                        } else if (chapitre.startsWith('2')) {
-                            section = 'I';
-                        }
-                    }
+                // Debug first order
+                if (orderId === pgRows[0]?.COMMANDE_COMMANDE) {
+                    console.log('[getOrders] First order section value:', section, 'raw:', order.section, order.Section, order.TYPE_SECTION);
                 }
+
+                const htAmount = parseNum(order.COMMANDE_MONTANT_HT);
+                const ttcAmount = parseNum(order.COMMANDE_MONTANT_TTC);
 
                 const cleaned = {
                     id: orderId,
                     operation_id: operationId,
                     operation_label: operationId ? opMap[operationId] : null,
                     section,
-                    _lines: mappedLines.filter(l => l.nr || l.desc),
-                    _total_ht: parseNum(order.COMMANDE_MONTANT_HT),
-                    _total_ttc: parseNum(order.COMMANDE_MONTANT_TTC),
+                    _lines: [],
+                    _total_ht: htAmount,
+                    _total_ttc: ttcAmount,
                     'N° Commande': orderId,
                     'Libellé': String((order.COMMANDE_LIBELLE || '') + ' ' + (order.COMMANDE_CMD_LIBELLE2 || '')).trim(),
                     'Date de la commande': order.COMMANDE_CMD_DATECOMMANDE,
-                    'Montant HT': order.COMMANDE_MONTANT_HT,
-                    'Montant TTC': order.COMMANDE_MONTANT_TTC,
+                    'Montant HT': htAmount,
+                    'Montant TTC': ttcAmount,
                     'Fournisseur': order.SERVICEFI_LIBELLE,
                     'Service émetteur': order.SERVICEFI_LIBELLE,
                     'Budget': order.BUDGET_LIBELLE,
                     order_number: orderId,
                     description: order.COMMANDE_LIBELLE,
                     provider: order.SERVICEFI_LIBELLE,
-                    amount_ht: order.COMMANDE_MONTANT_HT,
+                    amount_ht: htAmount,
                     date: order.COMMANDE_CMD_DATECOMMANDE,
                     COMMANDE_ROO_IMA_REF: order.COMMANDE_ROO_IMA_REF,
                     BUDGET_BUDGET: order.BUDGET_BUDGET,
@@ -583,9 +478,9 @@ module.exports = {
                     COMMANDE_CMD_LIBELLE2: order.COMMANDE_CMD_LIBELLE2,
                     COMMANDE_CMD_DATECOMMANDE: order.COMMANDE_CMD_DATECOMMANDE,
                     COMMANDE_CMD_COMMENTAIRE: order.COMMANDE_CMD_COMMENTAIRE,
-                    COMMANDE_MONTANT_HT: order.COMMANDE_MONTANT_HT,
-                    COMMANDE_MONTANT_TVA: order.COMMANDE_MONTANT_TVA,
-                    COMMANDE_MONTANT_TTC: order.COMMANDE_MONTANT_TTC,
+                    COMMANDE_MONTANT_HT: htAmount,
+                    COMMANDE_MONTANT_TVA: parseNum(order.COMMANDE_MONTANT_TVA),
+                    COMMANDE_MONTANT_TTC: ttcAmount,
                     'Nb lignes': order.COMMANDE_NB_LIGNES_COMMANDE
                 };
 
@@ -601,7 +496,14 @@ module.exports = {
 
     getOrderYears: async (req, res) => {
         try {
-            const result = await pool.query(`SELECT DISTINCT EXTRACT(YEAR FROM "COMMANDE_CMD_DATECOMMANDE"::date) as year FROM oracle.gf_oracle_commande WHERE "COMMANDE_CMD_DATECOMMANDE" IS NOT NULL AND "COMMANDE_CMD_DATECOMMANDE" != '' ORDER BY year DESC`);
+            const result = await pool.query(`
+                SELECT DISTINCT EXTRACT(YEAR FROM "COMMANDE_CMD_DATECOMMANDE"::timestamp) as year
+                FROM oracle.gf_oracle_commande
+                WHERE "COMMANDE_CMD_DATECOMMANDE" IS NOT NULL
+                  AND "COMMANDE_CMD_DATECOMMANDE" != ''
+                  AND "COMMANDE_CMD_DATECOMMANDE" ~ '^\\d{4}-'
+                ORDER BY year DESC
+            `);
             const years = result.rows.map(r => parseInt(r.year)).filter(y => !isNaN(y) && y > 2000);
             if (years.length > 0) return res.json(years);
             const currentYear = new Date().getFullYear();

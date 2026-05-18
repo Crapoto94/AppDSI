@@ -267,10 +267,13 @@ const Budget: React.FC = () => {
   }, [token]);
 
   useEffect(() => {
+    if (!token) return;
+
     const fetchFiscalYears = async () => {
       try {
         const rubriqueName = view === 'orders' ? 'Commandes' : view === 'invoices' ? 'Factures' : view === 'tiers' ? 'Tiers' : null;
         let data: number[] = [];
+
         if (rubriqueName) {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -282,24 +285,41 @@ const Budget: React.FC = () => {
           clearTimeout(timeoutId);
 
           if (res.ok) data = await res.json();
-        } else {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
+        } else if (view === 'summary') {
+          // For summary, get years from all rubriques
+          const rubriques = ['Commandes', 'Factures', 'Tiers'];
+          const allYears = new Set<number>();
 
-          const res = await fetch('/api/budget/orders/years', {
-            headers: { 'Authorization': `Bearer ${token}` },
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
+          for (const rubrique of rubriques) {
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-          if (res.ok) data = await res.json();
+              const res = await fetch(`/api/finance/field-mapping/years/${encodeURIComponent(rubrique)}`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                signal: controller.signal
+              });
+              clearTimeout(timeoutId);
+
+              if (res.ok) {
+                const years = await res.json();
+                years.forEach((y: number) => allYears.add(y));
+              }
+            } catch (e) {
+              // Silently continue if one rubrique fails
+            }
+          }
+
+          data = Array.from(allYears).sort((a, b) => b - a);
         }
+
+        console.log('[fetchFiscalYears] view:', view, 'years:', data);
         setAvailableFiscalYears(data);
         if (data.length > 0 && !data.includes(currentFiscalYear)) {
           setCurrentFiscalYear(data[0]);
         }
       } catch (e) {
-        // Silently fail if timeout or error - don't block the page
+        console.error('[fetchFiscalYears] error:', e);
       }
     };
     fetchFiscalYears();
@@ -476,37 +496,77 @@ const Budget: React.FC = () => {
   };
 
   const chartData = useMemo(() => {
+    console.log('[CHART] Orders count:', orders.length);
+    if (orders.length > 0) {
+      console.log('[CHART] First order:', orders[0]);
+      console.log('[CHART] First order montant:', orders[0]['Montant TTC'], 'type:', typeof orders[0]['Montant TTC']);
+    }
+
     const weeklySums: Record<string, { f: number, i: number }> = {};
-    
-    orders.forEach(order => {
+    let debugCount = 0;
+    let validDates = 0;
+    let validAmounts = 0;
+
+    orders.forEach((order, idx) => {
       const dateStr = order['Date de la commande'] || order.date;
-      if (!dateStr) return;
-      
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return;
-      
+      if (!dateStr) {
+        if (idx === 0) console.log('[CHART] No date found for first order');
+        return;
+      }
+
+      let date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        // Fallback: try parsing as ISO string or Oracle format
+        const isoMatch = String(dateStr).match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (isoMatch) {
+          date = new Date(isoMatch[0]);
+        }
+        if (isNaN(date.getTime())) {
+          if (idx === 0) console.log('[CHART] Invalid date:', dateStr);
+          return;
+        }
+      }
+      validDates++;
+
       const week = getWeekNumber(date);
       const year = date.getFullYear();
       const weekKey = `${year}-W${week.toString().padStart(2, '0')}`;
-      
+
       if (!weeklySums[weekKey]) weeklySums[weekKey] = { f: 0, i: 0 };
-      
-      const amt = parseFloat(order['Montant TTC'] || order.amount_ttc || 0);
+
+      const amt = typeof order['Montant TTC'] === 'number' ? order['Montant TTC'] : parseFloat(String(order['Montant TTC'] || order.amount_ttc || 0).replace(',', '.')) || 0;
+      if (amt > 0) {
+        validAmounts++;
+        if (validAmounts === 1) console.log('[CHART] First valid amount:', amt, 'for week:', weekKey);
+      }
+
       const nature = order['Article par nature'] || order.nature || '';
       const section = order.section || order['Section'] || getSectionFromM57(nature);
-      
+
+      if (validAmounts === 1 || (validAmounts <= 3 && amt > 0)) {
+        console.log(`[CHART] Order section: "${section}", nature: "${nature}", amount: ${amt}`);
+      }
+
+      if (amt > 0) debugCount++;
+
       if (section === 'Fonctionnement' || section === 'F') {
         weeklySums[weekKey].f += amt;
       } else if (section === 'Investissement' || section === 'I') {
         weeklySums[weekKey].i += amt;
       }
     });
-    
+
+    console.log('[CHART] Summary - Valid dates:', validDates, 'Valid amounts:', validAmounts, 'Debug count:', debugCount, 'Weekly sums keys:', Object.keys(weeklySums).length);
+
+    if (debugCount === 0 && orders.length > 0) {
+      console.warn('[CHART DEBUG] Aucune commande avec montant valide. Total commandes:', orders.length);
+    }
+
     const sortedWeeks = Object.keys(weeklySums).sort();
     let cumF = 0;
     let cumI = 0;
-    
-    return sortedWeeks.map(week => {
+
+    const result = sortedWeeks.map(week => {
       cumF += weeklySums[week].f;
       cumI += weeklySums[week].i;
       return {
@@ -515,6 +575,14 @@ const Budget: React.FC = () => {
         investissement: Math.round(cumI)
       };
     });
+
+    if (result.length > 0) {
+      console.log('[CHART] Final data points:', result.length);
+      console.log('[CHART] First point:', result[0]);
+      console.log('[CHART] Last point:', result[result.length - 1]);
+    }
+
+    return result;
   }, [orders, m57Plan]);
 
   const invoiceStats = useMemo(() => {
