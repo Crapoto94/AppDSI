@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -34,6 +34,7 @@ interface AppItem {
   technical_doc_count?: number;
   project_manager_username?: string;
   project_manager_name?: string;
+  contract_count?: number;
 }
 
 interface AppUser {
@@ -164,6 +165,7 @@ const MagappAdmin: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [appToDelete, setAppToDelete] = useState<AppItem | null>(null);
   const [filterPublished, setFilterPublished] = useState<'all' | 'oui' | 'non'>('all');
+  const [filterContracts, setFilterContracts] = useState<'all' | 'with' | 'without'>('all');
 
   // User tracking states
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
@@ -218,9 +220,44 @@ const MagappAdmin: React.FC = () => {
 
   const fetchApps = async () => {
     try {
-      const res = await fetch('/api/magapp/apps', { headers: { 'Authorization': `Bearer ${token}` } });
-      if (res.ok) setApps(await res.json());
-    } catch (e) { console.error(e); }
+      const [appsRes, contratsRes] = await Promise.all([
+        fetch('/api/magapp/apps', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/contrats', { headers: { 'Authorization': `Bearer ${token}` } })
+      ]);
+
+      if (appsRes.ok) {
+        const appsList = await appsRes.json();
+        const contractCount: Record<number, number> = {};
+
+        // Compter les contrats par app_id
+        if (contratsRes.ok) {
+          try {
+            const contrats = await contratsRes.json();
+            if (Array.isArray(contrats)) {
+              contrats.forEach((c: any) => {
+                if (c.app_id) {
+                  contractCount[c.app_id] = (contractCount[c.app_id] || 0) + 1;
+                }
+              });
+              console.log('[MagappAdmin] Contrats comptés:', contractCount);
+            }
+          } catch (e) {
+            console.error('[MagappAdmin] Erreur parsing contrats:', e);
+          }
+        } else {
+          console.warn('[MagappAdmin] Contrats API non OK:', contratsRes.status);
+        }
+
+        // Ajouter le contract_count à chaque app
+        const appsWithContracts = appsList.map((app: AppItem) => ({
+          ...app,
+          contract_count: contractCount[app.id] || 0
+        }));
+
+        console.log('[MagappAdmin] Apps avec contrats:', appsWithContracts.filter(a => a.contract_count > 0));
+        setApps(appsWithContracts);
+      }
+    } catch (e) { console.error('[MagappAdmin] Erreur fetchApps:', e); }
   };
 
   const fetchLibrary = async () => {
@@ -371,7 +408,7 @@ const MagappAdmin: React.FC = () => {
     } catch (e) { console.error(e); }
   };
 
-  useEffect(() => { fetchData(); fetchVersions(); fetchSubscriptions(); fetchIdeas(); }, []);
+  useEffect(() => { fetchData(); fetchApps(); fetchVersions(); fetchSubscriptions(); fetchIdeas(); }, []);
   useEffect(() => { if (activeTab === 'subscriptions') fetchSubscriptions(); if (activeTab === 'versions') fetchVersions(); if (activeTab === 'ideas') fetchIdeas(); }, [activeTab]);
 
   // Set default category for "New App" when categories change
@@ -631,7 +668,14 @@ const MagappAdmin: React.FC = () => {
 
 
   const filteredStats = showAllStats ? stats : stats.filter(s => s.today_clicks > 0);
-  const filteredApps = apps.filter(app => filterPublished === 'all' || app.present_magapp === filterPublished);
+  const filteredApps = apps.filter(app => {
+    const publishedMatch = filterPublished === 'all' || app.present_magapp === filterPublished;
+    const contractMatch =
+      filterContracts === 'all' ||
+      (filterContracts === 'with' && (app.contract_count || 0) > 0) ||
+      (filterContracts === 'without' && (app.contract_count || 0) === 0);
+    return publishedMatch && contractMatch;
+  });
 
   return (
     <div className="magapp-admin-container animate-fade-in">
@@ -697,6 +741,27 @@ const MagappAdmin: React.FC = () => {
                         Masquées
                       </button>
                     </div>
+
+                    <div className="filter-group-v2" style={{ marginLeft: '10px' }}>
+                      <button
+                        className={`filter-btn-v2 ${filterContracts === 'all' ? 'active' : ''}`}
+                        onClick={() => setFilterContracts('all')}
+                      >
+                        Tous
+                      </button>
+                      <button
+                        className={`filter-btn-v2 ${filterContracts === 'with' ? 'active' : ''}`}
+                        onClick={() => setFilterContracts('with')}
+                      >
+                        Avec contrat
+                      </button>
+                      <button
+                        className={`filter-btn-v2 ${filterContracts === 'without' ? 'active' : ''}`}
+                        onClick={() => setFilterContracts('without')}
+                      >
+                        Sans contrat
+                      </button>
+                    </div>
                   </div>
                   <button className="primary-btn-v2" onClick={() => { setEditingApp(null); setShowAppModal(true); }}>
                     <Plus size={18} /> Nouvelle Application
@@ -722,6 +787,11 @@ const MagappAdmin: React.FC = () => {
                             {app.user_count !== undefined && app.user_count > 0 && (
                               <span title={`${app.user_count} utilisateur(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fee2e2', color: '#991b1b', fontSize: '0.72rem', fontWeight: 700 }}>
                                 👤 {app.user_count}
+                              </span>
+                            )}
+                            {app.contract_count !== undefined && app.contract_count > 0 && (
+                              <span title={`${app.contract_count} contrat(s) dans le module Contrats`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fef3c7', color: '#92400e', fontSize: '0.72rem', fontWeight: 700 }}>
+                                📋 {app.contract_count}
                               </span>
                             )}
                             <span
@@ -1643,125 +1713,155 @@ const MagappAdmin: React.FC = () => {
       {/* Doc Modal */}
       {showDocModal && (
         <div className="modal-overlay-v2">
-          <div className="modal-content-v2 animate-fade-in" style={{ maxWidth: '600px' }}>
-            <div className="modal-header-v2">
+          <div className="modal-content-v2 animate-fade-in" style={{ maxWidth: '700px' }}>
+            <div className="modal-header-v2" style={{ borderBottom: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                <div className="header-icon-v2"><GraduationCap size={24} /></div>
-                <h3>{editingDoc ? 'Modifier Document' : 'Nouveau Document'}</h3>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FileText size={28} style={{ color: '#7c3aed' }} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 700 }}>{editingDoc ? 'Modifier Document' : 'Nouveau Document'}</h3>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                    {editingDoc ? 'Mettre à jour les informations du document' : 'Ajouter un nouveau document à la bibliothèque'}
+                  </p>
+                </div>
               </div>
               <button className="close-modal-btn" onClick={() => setShowDocModal(false)}><X size={20} /></button>
             </div>
-            
-            <div className="modal-body-v2">
-              <div className="form-grid-v2" style={{ gridTemplateColumns: '1fr' }}>
-                <div className="form-group-v2">
-                  <label>Application associée</label>
-                  <select
-                    value={editingDoc ? editingDoc.app_id : newDoc.app_id}
-                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, app_id: parseInt(e.target.value)}) : setNewDoc({...newDoc, app_id: parseInt(e.target.value)})}
-                  >
-                    <option value={0}>Sélectionner une application</option>
-                    {apps.map(app => (
-                      <option key={app.id} value={app.id}>{app.name}</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div className="form-group-v2">
-                  <label>Titre du document</label>
-                  <input 
-                    type="text" 
-                    value={editingDoc ? editingDoc.title : newDoc.title} 
-                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, title: e.target.value}) : setNewDoc({...newDoc, title: e.target.value})}
-                    placeholder="Ex: Guide utilisateur, Vidéo de démo..."
-                  />
-                </div>
 
-                <div className="form-group-v2">
-                  <label>Description (optionnelle)</label>
-                  <textarea 
-                    value={editingDoc ? editingDoc.description : newDoc.description} 
-                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, description: e.target.value}) : setNewDoc({...newDoc, description: e.target.value})}
-                    placeholder="Précisez le contenu ou l'usage de ce document..."
-                    style={{ minHeight: '80px', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}
-                  />
-                </div>
-                
-                <div className="form-group-v2">
-                  <label>Type de document</label>
-                  <select 
-                    value={editingDoc ? editingDoc.doc_type : newDoc.doc_type} 
-                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, doc_type: e.target.value as any}) : setNewDoc({...newDoc, doc_type: e.target.value as any})}
-                  >
-                    <option value="pdf">Fichier PDF</option>
-                    <option value="youtube">Vidéo YouTube</option>
-                    <option value="link">Lien externe</option>
-                  </select>
-                </div>
-                
-                <div className="form-group-v2">
-                  <label>{(editingDoc ? editingDoc.doc_type : newDoc.doc_type) === 'youtube' ? 'ID de la vidéo ou URL' : 'URL (optionnel si fichier joint)'}</label>
-                  <input 
-                    type="text" 
-                    value={editingDoc ? editingDoc.url : newDoc.url} 
-                    onChange={e => editingDoc ? setEditingDoc({...editingDoc, url: e.target.value}) : setNewDoc({...newDoc, url: e.target.value})}
-                    placeholder="https://..."
-                  />
-                </div>
+            <div className="modal-body-v2" style={{ paddingTop: '28px' }}>
+              <div className="form-grid-v2" style={{ gridTemplateColumns: '1fr', gap: '24px' }}>
 
-                {(editingDoc ? editingDoc.doc_type : newDoc.doc_type) === 'pdf' && (
-                  <div className="form-group-v2">
-                    <label>Fichier PDF</label>
-                    <input 
-                      type="file" 
-                      accept=".pdf" 
-                      onChange={e => setDocFile(e.target.files ? e.target.files[0] : null)}
-                      style={{ padding: '10px', border: '1px dashed #cbd5e1', borderRadius: '12px', background: '#f8fafc' }}
-                    />
-                    {(editingDoc?.url || newDoc?.url) && !docFile && (
-                      <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '5px' }}>Fichier actuel : {editingDoc?.url || newDoc?.url}</p>
-                    )}
+                {/* Section Information générale */}
+                <div style={{ paddingBottom: '20px', borderBottom: '1px solid #f1f5f9' }}>
+                  <h4 style={{ margin: '0 0 16px 0', fontSize: '0.95rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>📋 Informations générales</h4>
+
+                  <div className="form-group-v2" style={{ marginBottom: '16px' }}>
+                    <label style={{ fontWeight: 600, marginBottom: '8px', display: 'block' }}>Application associée</label>
+                    <select
+                      value={editingDoc ? editingDoc.app_id : newDoc.app_id}
+                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, app_id: parseInt(e.target.value)}) : setNewDoc({...newDoc, app_id: parseInt(e.target.value)})}
+                      style={{ width: '100%', padding: '11px 12px', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.95rem', background: '#ffffff', color: '#1e293b', cursor: 'pointer', transition: 'all 0.2s' }}
+                    >
+                      <option value={0}>Sélectionner une application</option>
+                      {apps.map(app => (
+                        <option key={app.id} value={app.id}>{app.name}</option>
+                      ))}
+                    </select>
                   </div>
-                )}
-                
-                <div style={{ display: 'flex', gap: '20px', marginTop: '10px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={editingDoc ? editingDoc.is_favorite : newDoc.is_favorite} 
-                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_favorite: e.target.checked}) : setNewDoc({...newDoc, is_favorite: e.target.checked})}
+
+                  <div className="form-group-v2" style={{ marginBottom: '16px' }}>
+                    <label style={{ fontWeight: 600, marginBottom: '8px', display: 'block' }}>Titre du document</label>
+                    <input
+                      type="text"
+                      value={editingDoc ? editingDoc.title : newDoc.title}
+                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, title: e.target.value}) : setNewDoc({...newDoc, title: e.target.value})}
+                      placeholder="Ex: Guide utilisateur, Vidéo de démo..."
+                      style={{ width: '100%', padding: '11px 12px', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.95rem', transition: 'all 0.2s' }}
                     />
-                    Favori (en gras)
-                  </label>
-                  
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={editingDoc ? editingDoc.is_technical : newDoc.is_technical} 
-                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_technical: e.target.checked}) : setNewDoc({...newDoc, is_technical: e.target.checked})}
+                  </div>
+
+                  <div className="form-group-v2">
+                    <label style={{ fontWeight: 600, marginBottom: '8px', display: 'block' }}>Description</label>
+                    <textarea
+                      value={editingDoc ? editingDoc.description : newDoc.description}
+                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, description: e.target.value}) : setNewDoc({...newDoc, description: e.target.value})}
+                      placeholder="Précisez le contenu ou l'usage de ce document..."
+                      style={{ width: '100%', minHeight: '90px', padding: '11px 12px', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.95rem', fontFamily: 'inherit', resize: 'vertical' }}
                     />
-                    Document Technique
-                  </label>
-                  
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={editingDoc ? editingDoc.is_obsolete : newDoc.is_obsolete} 
-                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_obsolete: e.target.checked}) : setNewDoc({...newDoc, is_obsolete: e.target.checked})}
+                  </div>
+                </div>
+
+                {/* Section Contenu */}
+                <div style={{ paddingBottom: '20px', borderBottom: '1px solid #f1f5f9' }}>
+                  <h4 style={{ margin: '0 0 16px 0', fontSize: '0.95rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>📄 Contenu du document</h4>
+
+                  <div className="form-group-v2" style={{ marginBottom: '16px' }}>
+                    <label style={{ fontWeight: 600, marginBottom: '8px', display: 'block' }}>Type de document</label>
+                    <select
+                      value={editingDoc ? editingDoc.doc_type : newDoc.doc_type}
+                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, doc_type: e.target.value as any}) : setNewDoc({...newDoc, doc_type: e.target.value as any})}
+                      style={{ width: '100%', padding: '11px 12px', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.95rem', background: '#ffffff', color: '#1e293b', cursor: 'pointer' }}
+                    >
+                      <option value="pdf">📕 Fichier PDF</option>
+                      <option value="youtube">🎬 Vidéo YouTube</option>
+                      <option value="link">🔗 Lien externe</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group-v2">
+                    <label style={{ fontWeight: 600, marginBottom: '8px', display: 'block' }}>
+                      {(editingDoc ? editingDoc.doc_type : newDoc.doc_type) === 'youtube' ? '🎬 Identifiant ou URL vidéo' : '🔗 URL'}
+                    </label>
+                    <input
+                      type="text"
+                      value={editingDoc ? editingDoc.url : newDoc.url}
+                      onChange={e => editingDoc ? setEditingDoc({...editingDoc, url: e.target.value}) : setNewDoc({...newDoc, url: e.target.value})}
+                      placeholder="https://..."
+                      style={{ width: '100%', padding: '11px 12px', borderRadius: '10px', border: '1.5px solid #e2e8f0', fontSize: '0.95rem' }}
                     />
-                    Non publié (masqué pour les utilisateurs)
-                  </label>
+                  </div>
+
+                  {(editingDoc ? editingDoc.doc_type : newDoc.doc_type) === 'pdf' && (
+                    <div className="form-group-v2" style={{ marginTop: '16px' }}>
+                      <label style={{ fontWeight: 600, marginBottom: '8px', display: 'block' }}>📁 Fichier PDF</label>
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        onChange={e => setDocFile(e.target.files ? e.target.files[0] : null)}
+                        style={{ width: '100%', padding: '14px 12px', border: '2px dashed #cbd5e1', borderRadius: '10px', background: '#f8fafc', fontSize: '0.95rem', cursor: 'pointer' }}
+                      />
+                      {(editingDoc?.url || newDoc?.url) && !docFile && (
+                        <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '8px' }}>✓ Fichier actuel : {editingDoc?.url || newDoc?.url}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Section Options */}
+                <div>
+                  <h4 style={{ margin: '0 0 16px 0', fontSize: '0.95rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>⚙️ Options</h4>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '12px', borderRadius: '10px', background: '#fff7ed', border: '1px solid #fed7aa', transition: 'all 0.2s' }}>
+                      <input
+                        type="checkbox"
+                        checked={editingDoc ? editingDoc.is_favorite : newDoc.is_favorite}
+                        onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_favorite: e.target.checked}) : setNewDoc({...newDoc, is_favorite: e.target.checked})}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#f97316' }}
+                      />
+                      <span style={{ fontSize: '0.9rem', fontWeight: 500, color: '#92400e' }}>⭐ Favori</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '12px', borderRadius: '10px', background: '#dbeafe', border: '1px solid #bfdbfe', transition: 'all 0.2s' }}>
+                      <input
+                        type="checkbox"
+                        checked={editingDoc ? editingDoc.is_technical : newDoc.is_technical}
+                        onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_technical: e.target.checked}) : setNewDoc({...newDoc, is_technical: e.target.checked})}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#0284c7' }}
+                      />
+                      <span style={{ fontSize: '0.9rem', fontWeight: 500, color: '#0c4a6e' }}>🔧 Technique</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '12px', borderRadius: '10px', background: '#fee2e2', border: '1px solid #fecaca', transition: 'all 0.2s' }}>
+                      <input
+                        type="checkbox"
+                        checked={editingDoc ? editingDoc.is_obsolete : newDoc.is_obsolete}
+                        onChange={e => editingDoc ? setEditingDoc({...editingDoc, is_obsolete: e.target.checked}) : setNewDoc({...newDoc, is_obsolete: e.target.checked})}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#dc2626' }}
+                      />
+                      <span style={{ fontSize: '0.9rem', fontWeight: 500, color: '#7f1d1d' }}>🚫 Masqué</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
-            
-            <div className="modal-footer-v2">
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                <button className="filter-btn-v2" onClick={() => setShowDocModal(false)}>Annuler</button>
-                <button className="primary-btn-v2" onClick={editingDoc ? () => handleUpdateDoc(editingDoc) : handleCreateDoc} disabled={isUploading}>
-                  {isUploading ? <><div className="spinner-v2" style={{ width: '16px', height: '16px', border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Upload en cours...</> : <><Save size={18} /> {editingDoc ? 'Mettre à jour' : 'Créer le document'}</>}
-                </button>
-              </div>
+
+            <div className="modal-footer-v2" style={{ borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button className="filter-btn-v2" onClick={() => setShowDocModal(false)} style={{ padding: '10px 20px' }}>Annuler</button>
+              <button className="primary-btn-v2" onClick={editingDoc ? () => handleUpdateDoc(editingDoc) : handleCreateDoc} disabled={isUploading} style={{ padding: '10px 24px' }}>
+                {isUploading ? <><div className="spinner-v2" style={{ width: '16px', height: '16px', border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Upload...</> : <><Save size={18} /> {editingDoc ? 'Mettre à jour' : 'Créer le document'}</>}
+              </button>
             </div>
           </div>
         </div>
