@@ -697,6 +697,23 @@ const MagappAdmin: React.FC = () => {
                                   {app.user_count}
                                 </span>
                               )}
+                              {((app.normal_doc_count || 0) + (app.technical_doc_count || 0)) > 0 && (
+                                <span
+                                  title={`${app.normal_doc_count || 0} doc(s) normale(s), ${app.technical_doc_count || 0} doc(s) technique(s)`}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    padding: '2px 7px',
+                                    borderRadius: '12px',
+                                    backgroundColor: '#eef2ff',
+                                    color: '#4f46e5',
+                                    fontSize: '0.72rem',
+                                    fontWeight: '700',
+                                  }}
+                                >
+                                  ({app.normal_doc_count || 0},{app.technical_doc_count || 0})
+                                </span>
+                              )}
                             </div>
                           </div>
                           <p>{app.url}</p>
@@ -1572,7 +1589,7 @@ const MagappAdmin: React.FC = () => {
                   >
                     <option value={0}>Sélectionner une application</option>
                     {apps.map(app => (
-                      <option key={app.id} value={app.id}>{app.name} ({app.normal_doc_count || 0},{app.technical_doc_count || 0})</option>
+                      <option key={app.id} value={app.id}>{app.name}</option>
                     ))}
                   </select>
                 </div>
