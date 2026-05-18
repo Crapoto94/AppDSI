@@ -2126,7 +2126,9 @@ app.post('/api/admin/magapp/docs/upload', authenticateMagappControl, magappDocsU
     try {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier uploadé' });
 
-        const appName = req.body?.app_name || 'default';
+        const appName = (req.query?.app_name || 'default').toString().trim();
+        console.log(`[MagApp Upload] appName reçu: "${appName}", fichier: ${req.file.originalname}`);
+
         const appSubdir = path.join(magappDocsUploadDir, appName);
 
         if (!fs.existsSync(appSubdir)) {
@@ -2138,9 +2140,10 @@ app.post('/api/admin/magapp/docs/upload', authenticateMagappControl, magappDocsU
         fs.renameSync(oldPath, newPath);
 
         const fileUrl = `/uploads/magapp_docs/${appName}/${req.file.filename}`;
+        console.log(`[MagApp Upload] Fichier sauvegardé: ${fileUrl}`);
         res.json({ url: fileUrl });
     } catch (error) {
-        console.error('[MagApp Docs Upload] Erreur:', error.message);
+        console.error('[MagApp Docs Upload] Erreur:', error.message, error.stack);
         res.status(500).json({ message: error.message });
     }
 });

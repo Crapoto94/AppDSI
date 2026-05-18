@@ -248,9 +248,12 @@ const MagappAdmin: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('file', docFile);
-      formData.append('app_id', appId.toString());
-      formData.append('app_name', appName);
-      const res = await fetch('/api/admin/magapp/docs/upload', {
+      const sanitizedAppName = appName
+        .toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-z0-9_-]/g, '');
+
+      const res = await fetch(`/api/admin/magapp/docs/upload?app_name=${encodeURIComponent(sanitizedAppName)}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData

@@ -39,6 +39,24 @@ const MagAppController = {
         }
     },
 
+    updateApp: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name } = req.body;
+
+            await pgDb.run(`
+                UPDATE magapp_apps
+                SET name = ?, category_id = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ?, app_type = ?, present_magapp = ?, present_onboard = ?, email_createur = ?, mercator_id = ?, mercator_name = ?
+                WHERE id = ?
+            `, [name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, id]);
+
+            res.json({ message: 'Application mise à jour' });
+        } catch (err) {
+            console.error('[MAGAPP] Error updating app:', err.message);
+            res.status(500).json({ message: 'Error updating app', error: err.message });
+        }
+    },
+
     // Mercator Apps (MariaDB)
     getMercatorApps: async (req, res) => {
         try {

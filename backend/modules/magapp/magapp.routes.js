@@ -9,6 +9,7 @@ const magappBaseRouter = express.Router();
 
 magappBaseRouter.get('/categories', MagAppController.getCategories);
 magappBaseRouter.get('/apps', MagAppController.getApps);
+magappBaseRouter.put('/apps/:id', authenticateMagappControl, MagAppController.updateApp);
 magappBaseRouter.get('/mercator-apps', MagAppController.getMercatorApps);
 magappBaseRouter.post('/health-check', MagAppController.healthCheck);
 magappBaseRouter.get('/favorites', MagAppController.getFavorites);
