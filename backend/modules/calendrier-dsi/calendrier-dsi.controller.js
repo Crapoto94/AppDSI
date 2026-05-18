@@ -45,6 +45,93 @@ function nextGenId() {
   return genIdCounter--;
 }
 
+async function getEventsForDate(date) {
+  // Get manual events for this date
+  const result = await pool.query(
+    `SELECT id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at FROM hub_calendrier.evenements WHERE date::date = $1 ORDER BY categorie, periode`,
+    [date]
+  );
+  const events = [...result.rows];
+  genIdCounter = -1;
+
+  // Get all agents with their TT days and absences
+  const agentsResult = await pool.query(`
+    SELECT a.username, a.nom, a.email,
+      COALESCE((SELECT json_agg(t.jour_semaine ORDER BY t.jour_semaine) FROM hub_calendrier.agents_tt_days t WHERE t.agent_username = a.username), '[]') as tt_fixed_days,
+      COALESCE(json_agg(json_build_object('id', ap.id, 'jour_semaine', ap.jour_semaine, 'periode', ap.periode)) FILTER (WHERE ap.id IS NOT NULL), '[]') as absences
+    FROM hub_calendrier.agents_dsi a
+    LEFT JOIN hub_calendrier.absences_permanentes ap ON a.username = ap.agent_username
+    GROUP BY a.username
+  `);
+
+  // Build set of existing manual events
+  const manualKeys = new Set();
+  for (const row of result.rows) {
+    if (row.agent_username) {
+      manualKeys.add(`${row.agent_username}|${date}|${row.categorie}|${row.periode || ''}`);
+      if (row.periode === '') {
+        manualKeys.add(`${row.agent_username}|${date}|${row.categorie}|matin`);
+        manualKeys.add(`${row.agent_username}|${date}|${row.categorie}|apres-midi`);
+      }
+    }
+  }
+
+  const dateObj = new Date(date + 'T00:00:00');
+  const dayOfWeek = (dateObj.getDay() + 6) % 7; // Convert JS day (0=Sun) to our day (0=Mon)
+
+  // Add generated TT events
+  for (const agent of agentsResult.rows) {
+    const ttDays = agent.tt_fixed_days || [];
+    if (ttDays.includes(dayOfWeek)) {
+      if (!manualKeys.has(`${agent.username}|${date}|teletravail|`)) {
+        events.push({
+          id: nextGenId(),
+          date,
+          categorie: 'teletravail',
+          periode: '',
+          titre: agent.nom,
+          description: 'TT fixe',
+          agent_username: agent.username,
+          agent_nom: agent.nom,
+          agent_email: agent.email || '',
+          couleur: CATEGORY_COLORS.teletravail,
+          created_by: 'auto',
+          created_at: null,
+          generated: true
+        });
+      }
+    }
+  }
+
+  // Add generated absence events
+  for (const agent of agentsResult.rows) {
+    const absences = agent.absences || [];
+    for (const abs of absences) {
+      if (abs.jour_semaine === dayOfWeek) {
+        if (!manualKeys.has(`${agent.username}|${date}|absence|${abs.periode}`)) {
+          events.push({
+            id: nextGenId(),
+            date,
+            categorie: 'absence',
+            periode: abs.periode === 'journee' ? '' : abs.periode,
+            titre: agent.nom,
+            description: `Absence permanente ${abs.periode}`,
+            agent_username: agent.username,
+            agent_nom: agent.nom,
+            agent_email: agent.email || '',
+            couleur: CATEGORY_COLORS.absence,
+            created_by: 'auto',
+            created_at: null,
+            generated: true
+          });
+        }
+      }
+    }
+  }
+
+  return events;
+}
+
 module.exports = {
   setSendMail: (fn) => { sendMailFn = fn; },
 
@@ -237,12 +324,7 @@ module.exports = {
         return res.status(400).json({ message: 'Une date est requise' });
       }
 
-      const result = await pool.query(
-        `SELECT id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at FROM hub_calendrier.evenements WHERE date::date = $1 ORDER BY categorie, periode`,
-        [date]
-      );
-
-      const events = result.rows;
+      const events = await getEventsForDate(date);
       const formattedDate = new Date(date).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
       // Group events by category
