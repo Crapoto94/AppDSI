@@ -1077,9 +1077,6 @@ export default function CalendrierDSI() {
         }
       `}</style>
 
-      {/* Main Content Wrapper */}
-      <div className="calendrier-main">
-
       {/* Header */}
       <div className="cal-header">
         <div className="cal-header-content">
