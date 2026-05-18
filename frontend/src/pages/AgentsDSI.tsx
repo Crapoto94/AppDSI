@@ -7,9 +7,9 @@ const JOURS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'S
 const JOURS_COURT = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 
 const SERVICE_COLORS = [
-  '#E30613', '#003366', '#4CAF50', '#FF9800', '#9C27B0',
-  '#00BCD4', '#FF5722', '#795548', '#607D8B', '#8BC34A',
-  '#F44336', '#2196F3', '#3F51B5', '#CDDC39', '#E91E63'
+  '#e17055', '#00b894', '#0984e3', '#6c5ce7', '#fdcb6e',
+  '#00cec9', '#e84393', '#636e72', '#55a3e8', '#a29bfe',
+  '#fd79a8', '#74b9ff', '#f8a5c2', '#81ecec', '#ffb347',
 ];
 
 function getServiceColor(service: string): string {
