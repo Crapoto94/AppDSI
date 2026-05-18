@@ -1460,7 +1460,7 @@ const MagappAdmin: React.FC = () => {
                       >
                         <option value="all">Toutes les applications</option>
                         {apps.map(app => (
-                          <option key={app.id} value={app.id}>{app.name}</option>
+                          <option key={app.id} value={app.id}>{app.name} ({app.normal_doc_count || 0},{app.technical_doc_count || 0})</option>
                         ))}
                       </select>
                     </div>
