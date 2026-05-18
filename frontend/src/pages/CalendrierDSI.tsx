@@ -191,7 +191,7 @@ export default function CalendrierDSI() {
       const eventsData = await eventsRes.json();
       if (agentsRes.ok) {
         const agentsData = await agentsRes.json();
-        setAgents(Array.isArray(agentsData) ? agentsData.map((a: any) => ({ username: a.username, nom: a.nom, service: a.service || '' })) : []);
+        setAgents(Array.isArray(agentsData) ? agentsData.map((a: any) => ({ username: a.username, nom: a.nom, service: a.service || '', email: a.email || '' })) : []);
       }
       setEvents(Array.isArray(eventsData) ? eventsData : []);
     } catch (e: any) {
@@ -1143,7 +1143,7 @@ export default function CalendrierDSI() {
             <button onClick={navNext}><ChevronRight size={18} /></button>
             <button onClick={navToday}>Aujourd'hui</button>
             <button className="btn-add" onClick={() => openCreateModal()}><Plus size={16} /> Ajouter</button>
-            <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => setShowSendModal(true)} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={16} /> Envoyer</button>
+            <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => { setSelectedRecipients([]); setSendDate(formatDate(new Date())); setShowSendModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={16} /> Envoyer</button>
             <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={16} /> Agents DSI</a>
           </div>
         </div>
@@ -1508,10 +1508,15 @@ export default function CalendrierDSI() {
                     const isSelected = selectedRecipients.includes(a.email);
                     return (
                       <div key={a.username} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', borderBottom: idx < agents.length - 1 ? '1px solid #f1f5f9' : 'none', background: isSelected ? '#f0fdf4' : 'transparent', cursor: 'pointer', transition: 'all 0.15s' }} onClick={() => {
+                        console.log('[Send Modal] Clicking agent:', a.email, 'current isSelected:', isSelected, 'current selectedRecipients:', selectedRecipients);
                         if (isSelected) {
-                          setSelectedRecipients(selectedRecipients.filter(e => e !== a.email));
+                          const newList = selectedRecipients.filter(e => e !== a.email);
+                          console.log('[Send Modal] Removing, new list:', newList);
+                          setSelectedRecipients(newList);
                         } else {
-                          setSelectedRecipients([...selectedRecipients, a.email]);
+                          const newList = [...selectedRecipients, a.email];
+                          console.log('[Send Modal] Adding, new list:', newList);
+                          setSelectedRecipients(newList);
                         }
                       }}>
                         <input type="checkbox" checked={isSelected} onChange={() => {}} style={{ width: '20px', height: '20px', cursor: 'pointer', accentColor: '#16a34a' }} />
