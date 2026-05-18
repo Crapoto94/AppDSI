@@ -256,7 +256,7 @@ const MagappAdmin: React.FC = () => {
     } catch (e) { console.error(e); }
   };
 
-  const handleUploadDocFile = async (appId: number, appName: string): Promise<string | null> => {
+  const handleUploadDocFile = async (_appId: number, appName: string): Promise<string | null> => {
     if (!docFile) return null;
     setIsUploading(true);
     try {
