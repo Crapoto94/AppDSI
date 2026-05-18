@@ -754,6 +754,26 @@ const MagappAdmin: React.FC = () => {
                                   ({app.normal_doc_count || 0},{app.technical_doc_count || 0})
                                 </span>
                               )}
+                              {app.project_manager_name && (
+                                <span
+                                  title={`Chef de projet : ${app.project_manager_name}`}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    width: '28px',
+                                    height: '28px',
+                                    borderRadius: '50%',
+                                    backgroundColor: '#0ea5e9',
+                                    color: 'white',
+                                    fontSize: '0.65rem',
+                                    fontWeight: '800',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {app.project_manager_name.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase()}
+                                </span>
+                              )}
                             </div>
                           </div>
                           <p>{app.url}</p>
