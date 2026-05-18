@@ -1492,25 +1492,36 @@ export default function CalendrierDSI() {
             </div>
 
             <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '12px', fontWeight: 500, color: '#0f172a' }}>Destinataires:</label>
-              <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <label style={{ fontWeight: 500, color: '#0f172a' }}>Destinataires ({selectedRecipients.size}):</label>
+                {agents.length > 0 && (
+                  <button onClick={() => setSelectedRecipients(selectedRecipients.size === agents.length ? new Set() : new Set(agents.map(a => a.email)))} style={{ fontSize: '0.8rem', color: '#6c5ce7', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                    {selectedRecipients.size === agents.length ? 'Désélectionner tout' : 'Sélectionner tout'}
+                  </button>
+                )}
+              </div>
+              <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1.5px solid #e2e8f0', borderRadius: '8px', padding: '0' }}>
                 {agents.length === 0 ? (
-                  <p style={{ color: '#94a3b8', margin: 0 }}>Aucun agent disponible</p>
+                  <p style={{ color: '#94a3b8', margin: 0, padding: '16px' }}>Aucun agent disponible</p>
                 ) : (
-                  agents.map(a => (
-                    <label key={a.username} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 0', borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={selectedRecipients.has(a.email)} onChange={() => {
+                  agents.map((a, idx) => {
+                    const isSelected = selectedRecipients.has(a.email);
+                    return (
+                      <div key={a.username} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', borderBottom: idx < agents.length - 1 ? '1px solid #f1f5f9' : 'none', background: isSelected ? '#f0fdf4' : 'transparent', cursor: 'pointer', transition: 'all 0.15s' }} onClick={() => {
                         const newSet = new Set(selectedRecipients);
                         if (newSet.has(a.email)) newSet.delete(a.email);
                         else newSet.add(a.email);
                         setSelectedRecipients(newSet);
-                      }} style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#6c5ce7' }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#0f172a' }}>{a.nom}</div>
-                        <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{a.email}</div>
+                      }}>
+                        <input type="checkbox" checked={isSelected} onChange={() => {}} style={{ width: '20px', height: '20px', cursor: 'pointer', accentColor: '#16a34a' }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 500, color: '#0f172a' }}>{a.nom}</div>
+                          <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>{a.email}</div>
+                        </div>
+                        {isSelected && <span style={{ fontSize: '1.1rem', color: '#16a34a' }}>✓</span>}
                       </div>
-                    </label>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
