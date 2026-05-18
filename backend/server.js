@@ -4281,6 +4281,9 @@ app.delete('/api/reunion-attachments/:id', authenticateJWT, reunionsCtrl.deleteA
 // CALENDRIER DSI
 // ============================================
 const calendrierRouter = require('./modules/calendrier-dsi/calendrier-dsi.routes');
+const calendrierCtrl = require('./modules/calendrier-dsi/calendrier-dsi.controller');
+// Inject sendMail into calendrier controller
+calendrierCtrl.setSendMail(sendMail);
 
 // Sync agent services from AD (must be BEFORE the router to avoid Express pass-through issue)
 app.post('/api/calendrier-dsi/agents/sync-services', authenticateJWT, async (req, res) => {

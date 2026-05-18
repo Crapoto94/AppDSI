@@ -1,5 +1,7 @@
 const { pool } = require('../../shared/pg_db');
 
+let sendMailFn = null;
+
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 function formatDateStr(d) {
@@ -44,6 +46,8 @@ function nextGenId() {
 }
 
 module.exports = {
+  setSendMail: (fn) => { sendMailFn = fn; },
+
   getEvenements: async (req, res) => {
     try {
       const { debut, fin } = req.query;
@@ -281,17 +285,23 @@ module.exports = {
       `;
 
       // Send to each recipient
-      if (global.sendMailFn) {
-        for (const recipient of recipients) {
-          try {
-            await global.sendMailFn(recipient, `Calendrier DSI - ${formattedDate}`, html);
-          } catch (err) {
-            console.error(`[Calendrier DSI] Erreur envoi à ${recipient}:`, err);
-          }
+      if (!sendMailFn) {
+        return res.status(500).json({ message: 'Service email non configuré' });
+      }
+
+      let sent = 0;
+      let failed = 0;
+      for (const recipient of recipients) {
+        try {
+          await sendMailFn(recipient, `Calendrier DSI - ${formattedDate}`, html);
+          sent++;
+        } catch (err) {
+          console.error(`[Calendrier DSI] Erreur envoi à ${recipient}:`, err);
+          failed++;
         }
       }
 
-      res.json({ message: `Calendrier envoyé à ${recipients.length} destinataire(s)` });
+      res.json({ message: `Calendrier envoyé à ${sent} destinataire(s)${failed > 0 ? `, ${failed} échec(s)` : ''}` });
     } catch (error) {
       console.error('[Calendrier DSI] sendDailyCalendar error:', error);
       res.status(500).json({ message: 'Erreur lors de l\'envoi', error: error.message });
