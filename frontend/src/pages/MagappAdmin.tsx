@@ -32,6 +32,8 @@ interface AppItem {
   user_count?: number;
   normal_doc_count?: number;
   technical_doc_count?: number;
+  project_manager_username?: string;
+  project_manager_name?: string;
 }
 
 interface AppUser {
@@ -167,6 +169,11 @@ const MagappAdmin: React.FC = () => {
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
   const [adSearchQuery, setAdSearchQuery] = useState('');
   const [adResults, setAdResults] = useState<{username: string, displayName: string, email: string}[]>([]);
+
+  // Chef de projet AD search
+  const [pmSearchQuery, setPmSearchQuery] = useState('');
+  const [pmSearchResults, setPmSearchResults] = useState<{username: string, displayName: string, email: string}[]>([]);
+  const [isSearchingPM, setIsSearchingPM] = useState(false);
 
   // Ideas states
   const [allIdeas, setAllIdeas] = useState<{id: number, title: string, description: string, author_email: string, author_name: string, status: string, admin_response: string, created_at: string, attachments: any[]}[]>([]);
@@ -561,6 +568,30 @@ const MagappAdmin: React.FC = () => {
     finally { setIsSearchingAD(false); }
   };
 
+  const handleSearchPM = async () => {
+    if (pmSearchQuery.length < 2) return;
+    setIsSearchingPM(true);
+    try {
+      const response = await fetch('/api/magapp/ad/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ query: pmSearchQuery })
+      });
+      if (response.ok) setPmSearchResults(await response.json());
+    } catch (e) { console.error(e); }
+    finally { setIsSearchingPM(false); }
+  };
+
+  const selectPM = (username: string, displayName: string) => {
+    if (editingApp) {
+      setEditingApp({ ...editingApp, project_manager_username: username, project_manager_name: displayName });
+    } else {
+      setNewApp({ ...newApp, project_manager_username: username, project_manager_name: displayName });
+    }
+    setPmSearchQuery('');
+    setPmSearchResults([]);
+  };
+
   const handleAddUserToApp = async (username: string, displayName: string) => {
     if (!editingApp) return;
     try {
@@ -805,6 +836,50 @@ const MagappAdmin: React.FC = () => {
                           <div className="form-group-v2">
                             <label>Email Créateur</label>
                             <input type="text" value={editingApp ? editingApp.email_createur : newApp.email_createur} onChange={e => editingApp ? setEditingApp({...editingApp, email_createur: e.target.value}) : setNewApp({...newApp, email_createur: e.target.value})} />
+                          </div>
+
+                          <div className="form-group-v2 full-width">
+                            <label>Chef de projet</label>
+                            {(() => {
+                              const currentPM = editingApp ? editingApp.project_manager_name : newApp.project_manager_name;
+                              return (
+                                <div>
+                                  {currentPM && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px', padding: '8px 14px', background: '#eef2ff', borderRadius: '10px' }}>
+                                      <span style={{ fontWeight: 700, color: '#4f46e5' }}>{currentPM}</span>
+                                      <span style={{ fontSize: '0.8rem', color: '#64748b' }}>({editingApp ? editingApp.project_manager_username : newApp.project_manager_username})</span>
+                                      <button type="button" onClick={() => editingApp ? setEditingApp({...editingApp, project_manager_username: '', project_manager_name: ''}) : setNewApp({...newApp, project_manager_username: '', project_manager_name: ''})} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+                                    </div>
+                                  )}
+                                  <div style={{ display: 'flex', gap: '10px' }}>
+                                    <input
+                                      type="text"
+                                      placeholder="Rechercher dans l'AD..."
+                                      value={pmSearchQuery}
+                                      onChange={e => setPmSearchQuery(e.target.value)}
+                                      onKeyDown={e => e.key === 'Enter' && handleSearchPM()}
+                                      style={{ flex: 1, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem' }}
+                                    />
+                                    <button type="button" className="filter-btn-v2" onClick={handleSearchPM} disabled={isSearchingPM} style={{ padding: '0 16px' }}>
+                                      {isSearchingPM ? '...' : 'Rechercher'}
+                                    </button>
+                                  </div>
+                                  {pmSearchResults.length > 0 && (
+                                    <div style={{ marginTop: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+                                      {pmSearchResults.map(r => (
+                                        <div key={r.username} style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => selectPM(r.username, r.displayName)}>
+                                          <div>
+                                            <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{r.displayName}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{r.username}</div>
+                                          </div>
+                                          <button type="button" style={{ padding: '4px 10px', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>Sélectionner</button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
 
                           <div className="form-group-v2">

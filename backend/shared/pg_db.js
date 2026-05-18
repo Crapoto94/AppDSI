@@ -362,6 +362,12 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE magapp.app_docs ADD COLUMN IF NOT EXISTS is_technical BOOLEAN DEFAULT FALSE`);
     } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.apps ADD COLUMN IF NOT EXISTS project_manager_username VARCHAR(255) DEFAULT ''`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.apps ADD COLUMN IF NOT EXISTS project_manager_name VARCHAR(255) DEFAULT ''`);
+    } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.doc_interactions (
