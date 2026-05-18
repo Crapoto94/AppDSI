@@ -79,7 +79,7 @@ async function getEventsForDate(date) {
   // Parse date string and create date in local timezone
   const [year, month, day] = date.split('-').map(Number);
   const dateObj = new Date(year, month - 1, day);
-  const dayOfWeek = (dateObj.getDay() + 6) % 7; // Convert JS day (0=Sun) to our day (0=Mon)
+  const dayOfWeek = dateObj.getDay(); // Use same convention as getDatesForDayOfWeek (0=Sun, 1=Mon, etc)
 
   // Add generated TT events
   for (const agent of agentsResult.rows) {
