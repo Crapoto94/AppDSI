@@ -2125,7 +2125,19 @@ const magappDocsUpload = multer({ storage: magappDocsStorage });
 app.post('/api/admin/magapp/docs/upload', authenticateMagappControl, magappDocsUpload.single('file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier uploadé' });
-        const fileUrl = `/uploads/magapp_docs/${req.file.filename}`;
+
+        const appName = req.body?.app_name || 'default';
+        const appSubdir = path.join(magappDocsUploadDir, appName);
+
+        if (!fs.existsSync(appSubdir)) {
+            fs.mkdirSync(appSubdir, { recursive: true });
+        }
+
+        const oldPath = req.file.path;
+        const newPath = path.join(appSubdir, req.file.filename);
+        fs.renameSync(oldPath, newPath);
+
+        const fileUrl = `/uploads/magapp_docs/${appName}/${req.file.filename}`;
         res.json({ url: fileUrl });
     } catch (error) {
         console.error('[MagApp Docs Upload] Erreur:', error.message);

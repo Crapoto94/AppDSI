@@ -30,6 +30,8 @@ interface AppItem {
   mercator_id: number | null;
   mercator_name: string;
   user_count?: number;
+  normal_doc_count?: number;
+  technical_doc_count?: number;
 }
 
 interface AppUser {
@@ -240,12 +242,14 @@ const MagappAdmin: React.FC = () => {
     } catch (e) { console.error(e); }
   };
 
-  const handleUploadDocFile = async (): Promise<string | null> => {
+  const handleUploadDocFile = async (appId: number, appName: string): Promise<string | null> => {
     if (!docFile) return null;
     setIsUploading(true);
     try {
       const formData = new FormData();
       formData.append('file', docFile);
+      formData.append('app_id', appId.toString());
+      formData.append('app_name', appName);
       const res = await fetch('/api/admin/magapp/docs/upload', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
@@ -272,7 +276,8 @@ const MagappAdmin: React.FC = () => {
     try {
       let finalUrl = newDoc.url;
       if (newDoc.doc_type === 'pdf' && docFile) {
-        const uploadedUrl = await handleUploadDocFile();
+        const appName = apps.find(a => a.id === newDoc.app_id)?.name || '';
+        const uploadedUrl = await handleUploadDocFile(newDoc.app_id, appName);
         if (uploadedUrl) finalUrl = uploadedUrl;
       }
       
@@ -297,7 +302,8 @@ const MagappAdmin: React.FC = () => {
     try {
       let finalUrl = doc.url;
       if (doc.doc_type === 'pdf' && docFile) {
-        const uploadedUrl = await handleUploadDocFile();
+        const appName = apps.find(a => a.id === doc.app_id)?.name || '';
+        const uploadedUrl = await handleUploadDocFile(doc.app_id, appName);
         if (uploadedUrl) finalUrl = uploadedUrl;
       }
 
@@ -1448,6 +1454,7 @@ const MagappAdmin: React.FC = () => {
                   <table className="modern-table-v2">
                     <thead>
                       <tr>
+                        <th>Application</th>
                         <th>Titre</th>
                         <th>Type</th>
                         <th>Statut</th>
@@ -1479,6 +1486,9 @@ const MagappAdmin: React.FC = () => {
                               const s = docStats.find(st => st.id === doc.id);
                               return (
                                 <tr key={doc.id} style={{ opacity: doc.is_obsolete ? 0.6 : 1 }}>
+                                  <td>
+                                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#4f46e5' }}>{doc.app_name || 'N/A'}</span>
+                                  </td>
                                   <td>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                       {doc.is_favorite && <Star size={14} fill="#f59e0b" color="#f59e0b" />}
@@ -1553,13 +1563,13 @@ const MagappAdmin: React.FC = () => {
               <div className="form-grid-v2" style={{ gridTemplateColumns: '1fr' }}>
                 <div className="form-group-v2">
                   <label>Application associée</label>
-                  <select 
-                    value={editingDoc ? editingDoc.app_id : newDoc.app_id} 
+                  <select
+                    value={editingDoc ? editingDoc.app_id : newDoc.app_id}
                     onChange={e => editingDoc ? setEditingDoc({...editingDoc, app_id: parseInt(e.target.value)}) : setNewDoc({...newDoc, app_id: parseInt(e.target.value)})}
                   >
                     <option value={0}>Sélectionner une application</option>
                     {apps.map(app => (
-                      <option key={app.id} value={app.id}>{app.name}</option>
+                      <option key={app.id} value={app.id}>{app.name} ({app.normal_doc_count || 0},{app.technical_doc_count || 0})</option>
                     ))}
                   </select>
                 </div>
