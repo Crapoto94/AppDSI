@@ -709,79 +709,43 @@ const MagappAdmin: React.FC = () => {
                       <div className="app-card-inner-v2">
                         <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} />
                         <div className="app-details-v2">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h4>{app.name}</h4>
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              {app.mercator_id && <div className="status-dot mercator" title={`Lié à Mercator : ${app.mercator_name}`}></div>}
-                              {(!app.mercator_id && app.lien_mercator) && <div className="status-dot mercator" title="Lien Mercator renseigné (ancienne version)"></div>}
-                              {app.email_createur && <div className="status-dot creator" title="Email créateur renseigné"></div>}
-                              {app.present_magapp === 'oui' && <span className="published-badge">Publiée</span>}
-                              {app.user_count !== undefined && app.user_count > 0 && (
-                                <span
-                                  className="user-count-badge"
-                                  title={`${app.user_count} utilisateur(s)`}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: '24px',
-                                    height: '24px',
-                                    borderRadius: '50%',
-                                    backgroundColor: '#ef4444',
-                                    color: 'white',
-                                    fontSize: '0.75rem',
-                                    fontWeight: '700',
-                                    minWidth: '24px'
-                                  }}
-                                >
-                                  {app.user_count}
-                                </span>
-                              )}
-                              <span
-                                title={`${(app.normal_doc_count || 0) + (app.technical_doc_count || 0)} doc(s) — Cliquer pour ajouter un document`}
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  setEditingDoc(null);
-                                  setNewDoc({ title: '', description: '', app_id: app.id, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false });
-                                  setShowDocModal(true);
-                                }}
-                                style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  padding: '2px 7px',
-                                  borderRadius: '12px',
-                                  backgroundColor: '#eef2ff',
-                                  color: '#4f46e5',
-                                  fontSize: '0.72rem',
-                                  fontWeight: '700',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                ({app.normal_doc_count || 0},{app.technical_doc_count || 0})
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <h4 style={{ margin: 0 }}>{app.name}</h4>
+                            {app.mercator_id && <div className="status-dot mercator" title={`Lié à Mercator : ${app.mercator_name}`}></div>}
+                            {(!app.mercator_id && app.lien_mercator) && <div className="status-dot mercator" title="Lien Mercator renseigné (ancienne version)"></div>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                            {app.present_magapp === 'oui'
+                              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#dcfce7', color: '#166534', fontSize: '0.72rem', fontWeight: 700 }}>● Publiée</span>
+                              : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#f1f5f9', color: '#64748b', fontSize: '0.72rem', fontWeight: 700 }}>● Masquée</span>
+                            }
+                            {app.user_count !== undefined && app.user_count > 0 && (
+                              <span title={`${app.user_count} utilisateur(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fee2e2', color: '#991b1b', fontSize: '0.72rem', fontWeight: 700 }}>
+                                👤 {app.user_count}
                               </span>
-                              {app.project_manager_name && (
-                                <span
-                                  title={`Chef de projet : ${app.project_manager_name}`}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: '28px',
-                                    height: '28px',
-                                    borderRadius: '50%',
-                                    backgroundColor: '#0ea5e9',
-                                    color: 'white',
-                                    fontSize: '0.65rem',
-                                    fontWeight: '800',
-                                    flexShrink: 0,
-                                  }}
-                                >
+                            )}
+                            <span
+                              title="Cliquer pour ajouter un document"
+                              onClick={e => {
+                                e.stopPropagation();
+                                setEditingDoc(null);
+                                setNewDoc({ title: '', description: '', app_id: app.id, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false });
+                                setShowDocModal(true);
+                              }}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#eef2ff', color: '#4338ca', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              📄 {app.normal_doc_count || 0},{app.technical_doc_count || 0}
+                            </span>
+                            {app.project_manager_name && (
+                              <span title={`Chef de projet : ${app.project_manager_name}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 8px', borderRadius: '20px', background: '#e0f2fe', color: '#0369a1', fontSize: '0.72rem', fontWeight: 700 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '18px', height: '18px', borderRadius: '50%', background: '#0ea5e9', color: 'white', fontSize: '0.6rem', fontWeight: 800, flexShrink: 0 }}>
                                   {app.project_manager_name.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase()}
                                 </span>
-                              )}
-                            </div>
+                                {app.project_manager_name}
+                              </span>
+                            )}
                           </div>
-                          <p>{app.url}</p>
+                          <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>{app.url}</p>
                         </div>
                         <div className="app-actions-v2">
                           <button onClick={() => { setEditingApp(app); setShowAppModal(true); }}><Edit2 size={16} /></button>
