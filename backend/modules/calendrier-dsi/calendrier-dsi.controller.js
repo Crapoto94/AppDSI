@@ -245,41 +245,82 @@ module.exports = {
       const events = result.rows;
       const formattedDate = new Date(date).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
+      // Group events by category
+      const byCategory = {};
+      const CATEGORY_LABELS = {
+        absence: 'Absents',
+        teletravail: 'Télétravailleurs',
+        deploiement: 'Déploiements',
+        maintenance: 'Maintenances',
+        reunion: 'Réunions importantes'
+      };
+      const CATEGORY_COLORS = {
+        absence: '#E30613',
+        teletravail: '#003366',
+        deploiement: '#4CAF50',
+        maintenance: '#FF9800',
+        reunion: '#9C27B0'
+      };
+
+      for (const evt of events) {
+        if (!byCategory[evt.categorie]) byCategory[evt.categorie] = [];
+        byCategory[evt.categorie].push(evt);
+      }
+
       let html = `
         <html>
           <head>
             <meta charset="UTF-8">
             <style>
-              body { font-family: Arial, sans-serif; color: #333; }
-              h1 { color: #0f172a; border-bottom: 3px solid #0f172a; padding-bottom: 10px; }
-              .event { margin: 15px 0; padding: 12px; background: #f8fafc; border-left: 4px solid #0984e3; border-radius: 4px; }
-              .event-title { font-weight: bold; color: #0f172a; }
-              .event-cat { font-size: 0.85rem; color: #64748b; margin-top: 4px; }
-              .event-agent { font-size: 0.85rem; color: #475569; margin-top: 2px; }
-              .empty { color: #94a3b8; font-style: italic; }
+              body { font-family: Arial, sans-serif; color: #333; margin: 0; padding: 20px; background: #f8fafc; }
+              .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+              h1 { color: #0f172a; border-bottom: 3px solid #0f172a; padding-bottom: 15px; margin-bottom: 30px; text-align: center; }
+              .category-section { margin-bottom: 30px; }
+              .category-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 8px; margin-bottom: 15px; font-weight: 700; color: white; }
+              .category-item { padding: 12px 16px; background: #f8fafc; border-left: 4px solid #ccc; border-radius: 4px; margin-bottom: 10px; }
+              .item-name { font-weight: 600; color: #0f172a; font-size: 0.95rem; }
+              .item-period { color: #64748b; font-size: 0.85rem; margin-top: 4px; }
+              .item-desc { color: #475569; font-size: 0.85rem; margin-top: 4px; font-style: italic; }
+              .empty-day { text-align: center; color: #94a3b8; font-style: italic; padding: 40px 20px; }
             </style>
           </head>
           <body>
-            <h1>📅 Calendrier du ${formattedDate}</h1>
+            <div class="container">
+              <h1>📅 Calendrier du ${formattedDate}</h1>
       `;
 
       if (events.length === 0) {
-        html += '<p class="empty">Aucun événement prévu pour cette journée.</p>';
+        html += '<div class="empty-day">✅ Aucun événement prévu pour cette journée</div>';
       } else {
-        for (const evt of events) {
-          const periodLabel = evt.periode ? ` (${evt.periode === 'matin' ? 'Matin' : 'Après-midi'})` : '';
-          html += `
-            <div class="event">
-              <div class="event-title">${evt.titre}${periodLabel}</div>
-              <div class="event-cat">Catégorie: ${evt.categorie.charAt(0).toUpperCase() + evt.categorie.slice(1)}</div>
-              ${evt.agent_nom ? `<div class="event-agent">Agent: ${evt.agent_nom}</div>` : ''}
-              ${evt.description ? `<div class="event-agent">Description: ${evt.description}</div>` : ''}
-            </div>
-          `;
+        const categoryOrder = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion'];
+        for (const cat of categoryOrder) {
+          if (byCategory[cat]) {
+            const catEvents = byCategory[cat];
+            const bgColor = CATEGORY_COLORS[cat];
+            html += `
+              <div class="category-section">
+                <div class="category-header" style="background-color: ${bgColor}">
+                  ${cat === 'absence' ? '❌' : cat === 'teletravail' ? '💻' : cat === 'deploiement' ? '🔧' : cat === 'maintenance' ? '⚙️' : '📢'}
+                  ${CATEGORY_LABELS[cat]} (${catEvents.length})
+                </div>
+            `;
+            for (const evt of catEvents) {
+              const periodLabel = evt.periode ? ` - ${evt.periode === 'matin' ? 'Matin' : 'Après-midi'}` : ' - Journée entière';
+              html += `
+                <div class="category-item">
+                  <div class="item-name">${evt.titre}${periodLabel}</div>
+                  ${evt.agent_nom ? `<div class="item-period">👤 ${evt.agent_nom}</div>` : ''}
+                  ${evt.description ? `<div class="item-desc">${evt.description}</div>` : ''}
+                </div>
+              `;
+            }
+            html += '</div>';
+          }
         }
       }
 
       html += `
+            </div>
           </body>
         </html>
       `;
