@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
-import { ChevronLeft, ChevronRight, Plus, X, Edit3, Trash2, Calendar, Users, HardHat, Wrench, Megaphone, Settings } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, X, Edit3, Trash2, Calendar, Users, HardHat, Wrench, Megaphone, Settings, Mail } from 'lucide-react';
 
 const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion'] as const;
 type Categorie = typeof CATEGORIES[number];
@@ -169,6 +169,11 @@ export default function CalendrierDSI() {
   const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [sendDate, setSendDate] = useState(formatDate(new Date()));
+  const [selectedRecipients, setSelectedRecipients] = useState<Set<string>>(new Set());
+  const [sendingCalendar, setSendingCalendar] = useState(false);
 
   const fetchEvents = useCallback(async (debut: string, fin: string) => {
     console.log('[Calendrier] fetchEvents:', debut, fin);
@@ -423,6 +428,39 @@ export default function CalendrierDSI() {
       }
     } catch (e) {
       console.error('Erreur suppression', e);
+    }
+  };
+
+  const handleSendCalendar = async () => {
+    if (selectedRecipients.size === 0) {
+      setError('Sélectionne au least un destinataire');
+      return;
+    }
+    setSendingCalendar(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/calendrier-dsi/send-daily', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          date: sendDate,
+          recipients: Array.from(selectedRecipients)
+        })
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.message || `Erreur HTTP ${res.status}`);
+      }
+      const result = await res.json();
+      setShowSendModal(false);
+      setSelectedRecipients(new Set());
+      setError(null);
+      alert(result.message);
+    } catch (e: any) {
+      console.error('Erreur envoi calendrier', e);
+      setError(e.message || 'Erreur lors de l\'envoi');
+    } finally {
+      setSendingCalendar(false);
     }
   };
 
@@ -1105,6 +1143,7 @@ export default function CalendrierDSI() {
             <button onClick={navNext}><ChevronRight size={18} /></button>
             <button onClick={navToday}>Aujourd'hui</button>
             <button className="btn-add" onClick={() => openCreateModal()}><Plus size={16} /> Ajouter</button>
+            <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => setShowSendModal(true)} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={16} /> Envoyer</button>
             <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={16} /> Agents DSI</a>
           </div>
         </div>
@@ -1433,6 +1472,54 @@ export default function CalendrierDSI() {
                   {savingAgent ? '⏳ Enregistrement...' : '✓ Appliquer'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send calendar modal */}
+      {showSendModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowSendModal(false)}>
+          <div style={{ background: 'white', borderRadius: '16px', padding: '32px', width: '500px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📧</div>
+              <h2 style={{ margin: 0, fontSize: '1.3rem', color: '#0f172a', fontWeight: 700 }}>Envoyer le calendrier</h2>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500, color: '#0f172a' }}>Date:</label>
+              <input type="date" value={sendDate} onChange={(e) => setSendDate(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontSize: '0.95rem', fontFamily: 'inherit' }} />
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '12px', fontWeight: 500, color: '#0f172a' }}>Destinataires:</label>
+              <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px' }}>
+                {agents.length === 0 ? (
+                  <p style={{ color: '#94a3b8', margin: 0 }}>Aucun agent disponible</p>
+                ) : (
+                  agents.map(a => (
+                    <label key={a.username} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 0', borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={selectedRecipients.has(a.email)} onChange={() => {
+                        const newSet = new Set(selectedRecipients);
+                        if (newSet.has(a.email)) newSet.delete(a.email);
+                        else newSet.add(a.email);
+                        setSelectedRecipients(newSet);
+                      }} style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#6c5ce7' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 500, color: '#0f172a' }}>{a.nom}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{a.email}</div>
+                      </div>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowSendModal(false)} style={{ padding: '10px 24px', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', color: '#475569', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}>Annuler</button>
+              <button onClick={handleSendCalendar} disabled={sendingCalendar} style={{ padding: '10px 24px', borderRadius: '8px', background: '#6c5ce7', color: 'white', fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer', border: 'none', transition: 'all 0.2s', opacity: sendingCalendar ? 0.7 : 1 }}>
+                {sendingCalendar ? '⏳ Envoi...' : '✉️ Envoyer'}
+              </button>
             </div>
           </div>
         </div>

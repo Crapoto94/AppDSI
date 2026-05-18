@@ -9,6 +9,8 @@ router.post('/evenements', authenticateJWT, controller.createEvenement);
 router.put('/evenements/:id', authenticateJWT, controller.updateEvenement);
 router.delete('/evenements/:id', authenticateJWT, controller.deleteEvenement);
 
+router.post('/send-daily', authenticateJWT, controller.sendDailyCalendar);
+
 router.get('/agents', authenticateJWT, agentsController.getAgents);
 router.post('/agents', authenticateJWT, agentsController.createAgent);
 router.put('/agents/:username', authenticateJWT, agentsController.updateAgent);

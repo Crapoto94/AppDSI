@@ -221,5 +221,80 @@ module.exports = {
       console.error('[Calendrier DSI] deleteEvenement error:', error);
       res.status(500).json({ message: 'Erreur lors de la suppression', error: error.message });
     }
+  },
+
+  sendDailyCalendar: async (req, res) => {
+    try {
+      const { recipients, date } = req.body;
+      if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+        return res.status(400).json({ message: 'Au moins un destinataire requis' });
+      }
+      if (!date) {
+        return res.status(400).json({ message: 'Une date est requise' });
+      }
+
+      const result = await pool.query(
+        `SELECT id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at FROM hub_calendrier.evenements WHERE date::date = $1 ORDER BY categorie, periode`,
+        [date]
+      );
+
+      const events = result.rows;
+      const formattedDate = new Date(date).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+      let html = `
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              body { font-family: Arial, sans-serif; color: #333; }
+              h1 { color: #0f172a; border-bottom: 3px solid #0f172a; padding-bottom: 10px; }
+              .event { margin: 15px 0; padding: 12px; background: #f8fafc; border-left: 4px solid #0984e3; border-radius: 4px; }
+              .event-title { font-weight: bold; color: #0f172a; }
+              .event-cat { font-size: 0.85rem; color: #64748b; margin-top: 4px; }
+              .event-agent { font-size: 0.85rem; color: #475569; margin-top: 2px; }
+              .empty { color: #94a3b8; font-style: italic; }
+            </style>
+          </head>
+          <body>
+            <h1>📅 Calendrier du ${formattedDate}</h1>
+      `;
+
+      if (events.length === 0) {
+        html += '<p class="empty">Aucun événement prévu pour cette journée.</p>';
+      } else {
+        for (const evt of events) {
+          const periodLabel = evt.periode ? ` (${evt.periode === 'matin' ? 'Matin' : 'Après-midi'})` : '';
+          html += `
+            <div class="event">
+              <div class="event-title">${evt.titre}${periodLabel}</div>
+              <div class="event-cat">Catégorie: ${evt.categorie.charAt(0).toUpperCase() + evt.categorie.slice(1)}</div>
+              ${evt.agent_nom ? `<div class="event-agent">Agent: ${evt.agent_nom}</div>` : ''}
+              ${evt.description ? `<div class="event-agent">Description: ${evt.description}</div>` : ''}
+            </div>
+          `;
+        }
+      }
+
+      html += `
+          </body>
+        </html>
+      `;
+
+      // Send to each recipient
+      if (global.sendMailFn) {
+        for (const recipient of recipients) {
+          try {
+            await global.sendMailFn(recipient, `Calendrier DSI - ${formattedDate}`, html);
+          } catch (err) {
+            console.error(`[Calendrier DSI] Erreur envoi à ${recipient}:`, err);
+          }
+        }
+      }
+
+      res.json({ message: `Calendrier envoyé à ${recipients.length} destinataire(s)` });
+    } catch (error) {
+      console.error('[Calendrier DSI] sendDailyCalendar error:', error);
+      res.status(500).json({ message: 'Erreur lors de l\'envoi', error: error.message });
+    }
   }
 };

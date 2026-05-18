@@ -120,7 +120,8 @@
       "Bash(node -e \"const xlsx = require\\('xlsx'\\); const wb = xlsx.readFile\\('/dev/DSI_CONTRATS/Suivi Maintenance 2026.xlsx'\\); console.log\\('Sheets:', wb.SheetNames\\); const sheet = wb.Sheets[wb.SheetNames[0]]; const rows = xlsx.utils.sheet_to_json\\(sheet\\); console.log\\('Columns:', Object.keys\\(rows[0]\\).slice\\(0, 15\\)\\);\")",
       "Bash(echo \"Backend started in background, PID: $!\")",
       "Bash(curl -X PUT http://localhost:3001/api/contrats/208 -H 'Content-Type: application/json' -H 'Authorization: Bearer test_token' -d '{ *)",
-      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(xargs grep -l \"email\\\\|mail\\\\|send\")"
     ]
   }
 }
