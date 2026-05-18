@@ -34,6 +34,7 @@ interface Evenement {
   id: number;
   date: string;
   categorie: Categorie;
+  periode: string;
   titre: string;
   description: string;
   agent_username: string | null;
@@ -145,6 +146,7 @@ export default function CalendrierDSI() {
   const [formCategorie, setFormCategorie] = useState<Categorie>('absence');
   const [formTitre, setFormTitre] = useState('');
   const [formDescription, setFormDescription] = useState('');
+  const [formPeriode, setFormPeriode] = useState('');
 
   const [adQuery, setAdQuery] = useState('');
   const [adResults, setAdResults] = useState<ADUser[]>([]);
@@ -219,6 +221,7 @@ export default function CalendrierDSI() {
   const [agentToggles, setAgentToggles] = useState<Record<string, boolean>>({});
   const [savingAgent, setSavingAgent] = useState(false);
   const [agentServiceFilter, setAgentServiceFilter] = useState('');
+  const [agentPeriode, setAgentPeriode] = useState('');
 
   const openAgentSelect = (date: string, cat: Categorie) => {
     setAgentSelectDate(date);
@@ -230,6 +233,7 @@ export default function CalendrierDSI() {
     }
     setAgentToggles(toggles);
     setAgentServiceFilter('');
+    setAgentPeriode('');
     setShowAgentSelect(true);
   };
 
@@ -239,15 +243,16 @@ export default function CalendrierDSI() {
     try {
       const dateStr = agentSelectDate.split('T')[0];
       const cellEvents = events.filter(e => e.date.split('T')[0] === dateStr && e.categorie === agentSelectCat);
-      const manualEvts = cellEvents.filter(e => e.id > 0);
-      const agentInCell = new Set(cellEvents.map(e => e.agent_username));
-      // Delete un-toggled manual events
+      const periodeEvents = agentPeriode ? cellEvents.filter(e => e.periode === agentPeriode) : cellEvents;
+      const manualEvts = periodeEvents.filter(e => e.id > 0);
+      const agentInCell = new Set(periodeEvents.map(e => e.agent_username));
+      // Delete un-toggled manual events (per periode if selected)
       for (const evt of manualEvts) {
         if (!agentToggles[evt.agent_username || '']) {
           await fetch(`/api/calendrier-dsi/evenements/${evt.id}`, { method: 'DELETE', headers });
         }
       }
-      // Create events for newly toggled agents that don't have any event (manual or generated)
+      // Create events for newly toggled agents
       for (const a of agents) {
         if (agentToggles[a.username] && !agentInCell.has(a.username)) {
           const catColor = agentSelectCat === 'teletravail' ? '#003366' : '#E30613';
@@ -257,6 +262,7 @@ export default function CalendrierDSI() {
             body: JSON.stringify({
               date: dateStr,
               categorie: agentSelectCat,
+              periode: agentPeriode,
               titre: a.nom,
               description: '',
               agent_username: a.username,
@@ -303,9 +309,7 @@ export default function CalendrierDSI() {
     setSelectedAgent(agent);
     setAdQuery(agent.displayName);
     setAdResults([]);
-    if (formCategorie === 'absence' || formCategorie === 'teletravail') {
-      setFormTitre(agent.displayName);
-    }
+    setFormTitre(agent.displayName);
   };
 
   const openCreateModal = (date?: string) => {
@@ -314,6 +318,7 @@ export default function CalendrierDSI() {
     setFormCategorie('absence');
     setFormTitre('');
     setFormDescription('');
+    setFormPeriode('');
     setSelectedAgent(null);
     setAdQuery('');
     setAdResults([]);
@@ -326,6 +331,7 @@ export default function CalendrierDSI() {
     setFormCategorie(evt.categorie);
     setFormTitre(evt.titre);
     setFormDescription(evt.description || '');
+    setFormPeriode(evt.periode || '');
     if (evt.agent_nom) {
       setSelectedAgent({
         username: evt.agent_username || '',
@@ -351,6 +357,7 @@ export default function CalendrierDSI() {
     const body = {
       date: formDate,
       categorie: formCategorie,
+      periode: formPeriode,
       titre: formTitre,
       description: formDescription,
       agent_username: selectedAgent?.username || null,
@@ -437,116 +444,686 @@ export default function CalendrierDSI() {
     <div className="calendrier-container">
       <Header />
       <style>{`
-        .calendrier-container { padding: 20px; max-width: 1400px; margin: 0 auto; }
-        .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
-        .cal-header h1 { margin: 0; font-size: 1.5rem; color: #003366; display: flex; align-items: center; gap: 8px; }
-        .cal-nav { display: flex; align-items: center; gap: 10px; }
-        .cal-nav button { background: none; border: 1px solid #ddd; border-radius: 6px; padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 0.9rem; }
-        .cal-nav button:hover { background: #f0f0f0; }
-        .cal-nav button:active { background: #e0e0e0; }
-        .cal-nav .label { font-weight: 600; min-width: 250px; text-align: center; }
-        .view-toggle { display: flex; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
-        .view-toggle button { padding: 6px 16px; border: none; background: #fff; cursor: pointer; font-size: 0.85rem; }
-        .view-toggle button.active { background: #003366; color: #fff; }
-        .view-toggle button:not(.active):hover { background: #f0f0f0; }
-        .btn-add { background: #E30613; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.9rem; font-weight: 600; }
-        .btn-add:hover { background: #c00510; }
+        .calendrier-container {
+          min-height: 100vh;
+          background: #f8fafc;
+          padding-bottom: 40px;
+        }
 
-        /* Week grid */
-        .week-grid { display: grid; grid-template-columns: 140px repeat(5, 1fr); border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
-        .week-grid .cell { border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; padding: 8px; min-height: 80px; }
-        .week-grid .cell:last-child { border-right: none; }
-        .week-grid .header-cell { background: #f8f9fa; font-weight: 600; text-align: center; padding: 10px 8px; border-bottom: 2px solid #003366; }
-        .week-grid .header-cell .day-date { font-size: 0.75rem; color: #666; font-weight: 400; }
-        .week-grid .cat-cell { background: #f8f9fa; font-weight: 600; font-size: 0.8rem; display: flex; align-items: center; gap: 6px; padding: 8px; color: #333; }
-        .week-grid .cat-label { display: flex; align-items: center; gap: 6px; }
-        .week-grid .cat-label .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-        .week-grid .today { background: #fff8e1; }
+        /* Header Section */
+        .cal-header {
+          background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+          border-bottom: 1px solid #e2e8f0;
+          padding: 32px 40px;
+          margin-bottom: 32px;
+        }
+        .cal-header-content {
+          max-width: 1600px;
+          margin: 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 24px;
+        }
+        .cal-header h1 {
+          margin: 0;
+          font-size: 2rem;
+          font-weight: 700;
+          color: #0f172a;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .cal-nav {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          flex-wrap: wrap;
+        }
 
-        /* Pastille */
-        .pastille { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 500; cursor: pointer; margin: 2px; transition: opacity 0.15s; white-space: nowrap; color: #fff; max-width: 100%; overflow: hidden; text-overflow: ellipsis; border: none; }
-        .pastille:hover { opacity: 0.85; }
-        .pastille .initials { width: 20px; height: 20px; border-radius: 50%; background: rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; flex-shrink: 0; }
-        .pastille-sm { font-size: 0.7rem; padding: 2px 6px; margin: 1px; max-width: 100%; }
-        .empty-cell { color: #ccc; font-size: 0.75rem; text-align: center; padding: 10px 0; }
+        /* View Toggle */
+        .view-toggle {
+          display: flex;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          overflow: hidden;
+          padding: 4px;
+        }
+        .view-toggle button {
+          padding: 8px 20px;
+          border: none;
+          background: transparent;
+          cursor: pointer;
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #64748b;
+          transition: all 0.2s;
+          border-radius: 8px;
+        }
+        .view-toggle button.active {
+          background: #0f172a;
+          color: #fff;
+        }
+        .view-toggle button:not(.active):hover {
+          background: #f1f5f9;
+        }
 
-        /* Month grid */
-        .month-grid { display: grid; grid-template-columns: repeat(7, 1fr); border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
-        .month-grid .day-header { background: #f8f9fa; font-weight: 600; text-align: center; padding: 8px; border-bottom: 2px solid #003366; font-size: 0.85rem; }
-        .month-grid .day-cell { min-height: 100px; border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; padding: 4px; position: relative; }
-        .month-grid .day-cell:nth-child(7n) { border-right: none; }
-        .month-grid .day-cell.other-month { background: #fafafa; }
-        .month-grid .day-cell.today { background: #fff8e1; }
-        .month-grid .day-num { font-size: 0.85rem; font-weight: 600; color: #333; margin-bottom: 2px; }
-        .month-grid .day-cell.other-month .day-num { color: #ccc; }
-        .month-grid .day-events { display: flex; flex-direction: column; gap: 1px; }
+        /* Navigation Buttons */
+        .cal-nav button {
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          padding: 8px 14px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 0.9rem;
+          font-weight: 500;
+          color: #475569;
+          transition: all 0.2s;
+        }
+        .cal-nav button:hover {
+          background: #f1f5f9;
+          border-color: #cbd5e1;
+        }
+        .cal-nav .label {
+          font-weight: 700;
+          min-width: 280px;
+          text-align: center;
+          font-size: 1.1rem;
+          color: #0f172a;
+        }
+        .btn-add {
+          background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          padding: 10px 20px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 0.95rem;
+          font-weight: 600;
+          transition: all 0.2s;
+          box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+        }
+        .btn-add:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2);
+        }
+
+        /* Main Content */
+        .calendrier-main {
+          max-width: 1600px;
+          margin: 0 auto;
+          padding: 0 40px;
+        }
+
+        /* Legend */
+        .legend {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 16px;
+          margin-bottom: 32px;
+          padding: 20px;
+          background: #ffffff;
+          border-radius: 12px;
+          border: 1px solid #e2e8f0;
+          align-items: center;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        .legend-title {
+          font-size: 0.9rem;
+          font-weight: 700;
+          color: #0f172a;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .legend-item {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 0.85rem;
+          color: #475569;
+          font-weight: 500;
+        }
+        .legend-dot {
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          flex-shrink: 0;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        /* Week Grid */
+        .week-grid {
+          display: grid;
+          grid-template-columns: 140px repeat(5, 1fr);
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          overflow: hidden;
+          background: #ffffff;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+          margin-bottom: 32px;
+        }
+        .week-grid .header-cell {
+          background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+          border-right: 1px solid #e2e8f0;
+          border-bottom: 2px solid #0f172a;
+          padding: 16px 12px;
+          font-weight: 700;
+          font-size: 0.85rem;
+          color: #0f172a;
+          text-align: center;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          gap: 6px;
+        }
+        .week-grid .header-cell.today {
+          background: linear-gradient(135deg, #efe9ff 0%, #ddd6fe 100%);
+          color: #7c3aed;
+        }
+        .week-grid .header-cell:last-child {
+          border-right: none;
+        }
+        .week-grid .day-date {
+          font-size: 1.1rem;
+          font-weight: 700;
+        }
+        .week-grid .cat-cell {
+          background: #f8fafc;
+          border-right: 1px solid #e2e8f0;
+          border-bottom: 1px solid #e2e8f0;
+          padding: 12px;
+          font-weight: 600;
+          font-size: 0.8rem;
+          color: #475569;
+          display: flex;
+          align-items: center;
+        }
+        .week-grid .cat-cell:last-of-type {
+          border-right: none;
+        }
+        .cat-label {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .cat-label .dot {
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          flex-shrink: 0;
+        }
+        .week-grid .cell {
+          border-right: 1px solid #e2e8f0;
+          border-bottom: 1px solid #e2e8f0;
+          padding: 8px;
+          min-height: 120px;
+          display: flex;
+          gap: 6px;
+          background: #ffffff;
+          transition: background 0.15s;
+          cursor: pointer;
+          position: relative;
+        }
+        .week-grid .cell:hover {
+          background: #f8fafc;
+        }
+        .week-grid .cell.today {
+          background: #fffbf0;
+        }
+        .week-grid .cell:last-child {
+          border-right: none;
+        }
+        .cell-left {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          border-right: 1px dashed #e2e8f0;
+          padding-right: 6px;
+          min-width: 0;
+        }
+        .cell-right {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-width: 0;
+        }
+        .cell-am, .cell-pm {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: flex-start;
+          gap: 4px;
+          min-height: 24px;
+          padding: 2px 0;
+        }
+        .cell-am {
+          border-bottom: 1px dashed #e2e8f0;
+          padding-bottom: 4px;
+        }
+        .empty-cell {
+          color: #cbd5e1;
+          font-size: 1.4rem;
+          text-align: center;
+          padding: 10px 0;
+          width: 100%;
+        }
+
+        /* Pastilles */
+        .pastille {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px 10px;
+          border-radius: 16px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          cursor: pointer;
+          color: #fff;
+          border: none;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 100%;
+          transition: all 0.15s;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .pastille:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        .pastille .initials {
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.25);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.6rem;
+          font-weight: 700;
+          flex-shrink: 0;
+          backdrop-filter: blur(4px);
+        }
+        .pastille-dot {
+          width: 36px;
+          height: 36px;
+          border-radius: 50%;
+          cursor: pointer;
+          border: none;
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #fff;
+          font-size: 0.7rem;
+          font-weight: 700;
+          transition: all 0.15s;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+        }
+        .pastille-dot:hover {
+          transform: scale(1.08);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        /* Month Grid */
+        .month-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          overflow: hidden;
+          background: #ffffff;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .month-grid .day-header {
+          background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+          font-weight: 700;
+          text-align: center;
+          padding: 16px 8px;
+          border-bottom: 2px solid #0f172a;
+          border-right: 1px solid #e2e8f0;
+          font-size: 0.85rem;
+          color: #0f172a;
+        }
+        .month-grid .day-header:last-child {
+          border-right: none;
+        }
+        .month-grid .day-cell {
+          min-height: 120px;
+          border-right: 1px solid #e2e8f0;
+          border-bottom: 1px solid #e2e8f0;
+          padding: 8px;
+          position: relative;
+          background: #ffffff;
+          transition: background 0.15s;
+        }
+        .month-grid .day-cell:hover {
+          background: #f8fafc;
+        }
+        .month-grid .day-cell:nth-child(7n) {
+          border-right: none;
+        }
+        .month-grid .day-cell.other-month {
+          background: #f8fafc;
+        }
+        .month-grid .day-cell.today {
+          background: #fffbf0;
+        }
+        .month-grid .day-num {
+          font-size: 0.9rem;
+          font-weight: 700;
+          color: #0f172a;
+          margin-bottom: 4px;
+        }
+        .month-grid .day-cell.other-month .day-num {
+          color: #cbd5e1;
+        }
+        .month-grid .day-events {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-height: 30px;
+        }
+        .month-grid .month-left {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          border-right: 1px dashed #e2e8f0;
+          padding-right: 4px;
+        }
+        .month-grid .month-right {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .month-grid .month-am, .month-grid .month-pm {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 2px;
+        }
 
         /* Modal */
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .modal-content { background: #fff; border-radius: 12px; padding: 24px; width: 480px; max-width: 90vw; max-height: 85vh; overflow-y: auto; }
-        .modal-content h2 { margin: 0 0 16px; font-size: 1.2rem; color: #003366; }
-        .modal-content label { display: block; font-size: 0.85rem; font-weight: 600; color: #555; margin-bottom: 4px; margin-top: 12px; }
-        .modal-content input, .modal-content select, .modal-content textarea { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem; box-sizing: border-box; }
-        .modal-content textarea { min-height: 60px; resize: vertical; }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-        .modal-actions button { padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; border: none; font-weight: 600; }
-        .modal-actions .btn-cancel { background: #f0f0f0; color: #333; }
-        .modal-actions .btn-cancel:hover { background: #e0e0e0; }
-        .modal-actions .btn-save { background: #E30613; color: #fff; }
-        .modal-actions .btn-save:hover { background: #c00510; }
-        .modal-actions .btn-delete { background: #fff; color: #E30613; border: 1px solid #E30613; }
-        .modal-actions .btn-delete:hover { background: #fff5f5; }
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+          backdrop-filter: blur(2px);
+        }
+        .modal-content {
+          background: #fff;
+          border-radius: 16px;
+          padding: 32px;
+          width: 520px;
+          max-width: 90vw;
+          max-height: 85vh;
+          overflow-y: auto;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        }
+        .modal-content h2 {
+          margin: 0 0 20px;
+          font-size: 1.4rem;
+          font-weight: 700;
+          color: #0f172a;
+        }
+        .modal-content label {
+          display: block;
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #475569;
+          margin-bottom: 6px;
+          margin-top: 16px;
+        }
+        .modal-content input, .modal-content select, .modal-content textarea {
+          width: 100%;
+          padding: 10px 12px;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 10px;
+          font-size: 0.95rem;
+          box-sizing: border-box;
+          transition: all 0.2s;
+        }
+        .modal-content input:focus, .modal-content select:focus, .modal-content textarea:focus {
+          outline: none;
+          border-color: #0f172a;
+          box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.1);
+        }
+        .modal-content textarea {
+          min-height: 80px;
+          resize: vertical;
+          font-family: inherit;
+        }
+        .modal-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+          margin-top: 28px;
+          padding-top: 20px;
+          border-top: 1px solid #e2e8f0;
+        }
+        .modal-actions button {
+          padding: 10px 24px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 0.95rem;
+          border: none;
+          font-weight: 600;
+          transition: all 0.2s;
+        }
+        .modal-actions .btn-cancel {
+          background: #f1f5f9;
+          color: #475569;
+        }
+        .modal-actions .btn-cancel:hover {
+          background: #e2e8f0;
+        }
+        .modal-actions .btn-save {
+          background: #0f172a;
+          color: #fff;
+        }
+        .modal-actions .btn-save:hover {
+          background: #1e293b;
+        }
+        .modal-actions .btn-delete {
+          background: #fff;
+          color: #dc2626;
+          border: 1px solid #fecaca;
+        }
+        .modal-actions .btn-delete:hover {
+          background: #fee2e2;
+        }
 
-        /* AD search */
-        .ad-search-wrapper { position: relative; }
-        .ad-results { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 0 0 6px 6px; max-height: 200px; overflow-y: auto; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .ad-result-item { padding: 8px 12px; cursor: pointer; font-size: 0.85rem; border-bottom: 1px solid #f0f0f0; }
-        .ad-result-item:hover { background: #f0f7ff; }
-        .ad-result-item .ad-name { font-weight: 600; }
-        .ad-result-item .ad-detail { font-size: 0.75rem; color: #888; }
-        .ad-selected { display: inline-flex; align-items: center; gap: 6px; background: #f0f7ff; border: 1px solid #003366; border-radius: 20px; padding: 4px 12px; font-size: 0.85rem; margin-top: 4px; }
-        .ad-selected .remove { cursor: pointer; color: #E30613; font-weight: 700; margin-left: 4px; }
+        /* AD Search */
+        .ad-search-wrapper {
+          position: relative;
+        }
+        .ad-results {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          right: 0;
+          background: #fff;
+          border: 1px solid #e2e8f0;
+          border-radius: 0 0 10px 10px;
+          border-top: none;
+          max-height: 220px;
+          overflow-y: auto;
+          z-index: 10;
+          box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+        }
+        .ad-result-item {
+          padding: 10px 14px;
+          cursor: pointer;
+          font-size: 0.85rem;
+          border-bottom: 1px solid #f1f5f9;
+          transition: background 0.15s;
+        }
+        .ad-result-item:hover {
+          background: #f8fafc;
+        }
+        .ad-result-item .ad-name {
+          font-weight: 600;
+          color: #0f172a;
+        }
+        .ad-result-item .ad-detail {
+          font-size: 0.8rem;
+          color: #94a3b8;
+          margin-top: 2px;
+        }
+        .ad-selected {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          background: #f0fdf4;
+          border: 1.5px solid #22c55e;
+          border-radius: 20px;
+          padding: 6px 14px;
+          font-size: 0.85rem;
+          margin-top: 6px;
+          font-weight: 500;
+          color: #166534;
+        }
+        .ad-selected .remove {
+          cursor: pointer;
+          color: #dc2626;
+          font-weight: 700;
+          margin-left: 4px;
+        }
 
-        /* Confirm delete */
-        .confirm-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 1100; }
-        .confirm-box { background: #fff; border-radius: 10px; padding: 24px; width: 360px; max-width: 90vw; text-align: center; }
-        .confirm-box h3 { margin: 0 0 8px; color: #E30613; }
-        .confirm-box p { color: #666; margin-bottom: 20px; }
-        .confirm-box .actions { display: flex; justify-content: center; gap: 10px; }
-        .confirm-box button { padding: 8px 24px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; border: none; font-weight: 600; }
-        .confirm-box .btn-yes { background: #E30613; color: #fff; }
-        .confirm-box .btn-yes:hover { background: #c00510; }
-        .confirm-box .btn-no { background: #f0f0f0; color: #333; }
+        /* Confirm Delete */
+        .confirm-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1100;
+          backdrop-filter: blur(2px);
+        }
+        .confirm-box {
+          background: #fff;
+          border-radius: 16px;
+          padding: 32px;
+          width: 400px;
+          max-width: 90vw;
+          text-align: center;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        }
+        .confirm-box h3 {
+          margin: 0 0 12px;
+          color: #dc2626;
+          font-size: 1.2rem;
+        }
+        .confirm-box p {
+          color: #64748b;
+          margin-bottom: 24px;
+        }
+        .confirm-box .actions {
+          display: flex;
+          justify-content: center;
+          gap: 12px;
+        }
+        .confirm-box button {
+          padding: 10px 24px;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 0.95rem;
+          border: none;
+          font-weight: 600;
+          transition: all 0.2s;
+        }
+        .confirm-box .btn-yes {
+          background: #dc2626;
+          color: #fff;
+        }
+        .confirm-box .btn-yes:hover {
+          background: #b91c1c;
+        }
+        .confirm-box .btn-no {
+          background: #f1f5f9;
+          color: #475569;
+        }
+        .confirm-box .btn-no:hover {
+          background: #e2e8f0;
+        }
 
         @media (max-width: 900px) {
           .week-grid { grid-template-columns: 100px repeat(5, 1fr); }
-          .week-grid .cell { min-height: 60px; padding: 4px; }
+          .week-grid .cell { min-height: 70px; padding: 6px; }
+          .cal-header { padding: 24px 20px; }
+          .calendrier-main { padding: 0 20px; }
         }
       `}</style>
 
+      {/* Main Content Wrapper */}
+      <div className="calendrier-main">
+
       {/* Header */}
       <div className="cal-header">
-        <h1><Calendar size={22} /> Calendrier DSI</h1>
-        <div className="cal-nav">
-          <div className="view-toggle">
-            <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Semaine</button>
-            <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Mois</button>
+        <div className="cal-header-content">
+          <h1><Calendar size={28} /> Calendrier DSI</h1>
+          <div className="cal-nav">
+            <div className="view-toggle">
+              <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>📅 Semaine</button>
+              <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>📆 Mois</button>
+            </div>
+            <button onClick={navPrev}><ChevronLeft size={18} /></button>
+            <span className="label">{weekLabel}</span>
+            <button onClick={navNext}><ChevronRight size={18} /></button>
+            <button onClick={navToday}>Aujourd'hui</button>
+            <button className="btn-add" onClick={() => openCreateModal()}><Plus size={16} /> Ajouter</button>
+            <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={16} /> Agents DSI</a>
           </div>
-          <button onClick={navPrev}><ChevronLeft size={18} /></button>
-          <span className="label">{weekLabel}</span>
-          <button onClick={navNext}><ChevronRight size={18} /></button>
-          <button onClick={navToday}>Aujourd'hui</button>
-          <button className="btn-add" onClick={() => openCreateModal()}><Plus size={16} /> Ajouter</button>
-          <a href="/calendrier-dsi/agents" style={{ background: '#003366', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.9rem', fontWeight: 600, textDecoration: 'none' }}><Settings size={16} /> Agents DSI</a>
         </div>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div style={{ background: '#fff0f0', border: '1px solid #E30613', borderRadius: 6, padding: '10px 16px', marginBottom: 16, color: '#c00510', fontSize: '0.9rem' }}>
-          {error}
-        </div>
-      )}
+      <div className="calendrier-main">
+        {/* Error */}
+        {error && (
+          <div style={{ background: '#fee2e2', border: '1.5px solid #dc2626', borderRadius: '10px', padding: '14px 16px', marginBottom: '24px', color: '#991b1b', fontSize: '0.95rem', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+            {error}
+          </div>
+        )}
+
+      {/* Service color legend */}
+      {(() => {
+        const services = [...new Set(agents.map(a => a.service).filter(Boolean))].sort();
+        if (services.length === 0) return null;
+        return (
+          <div className="legend">
+            <span className="legend-title">Services :</span>
+            {services.map(s => (
+              <span key={s} className="legend-item">
+                <span className="legend-dot" style={{ background: getServiceColor(s) }} />
+                {s}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Week View */}
       {view === 'week' && (
@@ -571,21 +1148,43 @@ export default function CalendrierDSI() {
               {weekDays.map(d => {
                 const ds = formatDate(d);
                 const evts = eventsByDateAndCat(ds, cat);
+                const fullEvts = evts.filter(e => e.periode === '');
+                const amEvts = evts.filter(e => e.periode === 'matin');
+                const pmEvts = evts.filter(e => e.periode === 'apres-midi');
+                const hasAny = evts.length > 0;
+                const renderPastille = (evt: Evenement) => {
+                  const bgColor = evt.agent_username && serviceMap.has(evt.agent_username)
+                    ? getServiceColor(serviceMap.get(evt.agent_username)!)
+                    : CATEGORY_COLORS[cat];
+                  const isAgent = evt.agent_username != null;
+                  return isAgent ? (
+                    <div key={evt.id} className="pastille-dot" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.agent_nom || ''}>
+                      {getInitials(evt.agent_nom)}
+                    </div>
+                  ) : (
+                    <div key={evt.id} className="pastille" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                      {evt.titre}
+                    </div>
+                  );
+                };
                 return (
                   <div key={ds} className={`cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`} onClick={() => { if (cat === 'teletravail' || cat === 'absence') { openAgentSelect(ds, cat); } else { openCreateModal(ds); } }}>
-                    {evts.length === 0 ? (
+                    {!hasAny ? (
                       <div className="empty-cell">+</div>
                     ) : (
-                      evts.map(evt => {
-                        const bgColor = evt.agent_username && serviceMap.has(evt.agent_username)
-                          ? getServiceColor(serviceMap.get(evt.agent_username)!)
-                          : CATEGORY_COLORS[cat];
-                        return (
-                        <div key={evt.id} className="pastille" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
-                          {evt.agent_nom ? <span className="initials">{getInitials(evt.agent_nom)}</span> : evt.titre}
+                      <>
+                        <div className="cell-left">
+                          <div className="cell-am">
+                            {amEvts.length > 0 ? amEvts.map(renderPastille) : null}
+                          </div>
+                          <div className="cell-pm">
+                            {pmEvts.length > 0 ? pmEvts.map(renderPastille) : null}
+                          </div>
                         </div>
-                        );
-                      })
+                        <div className="cell-right">
+                          {fullEvts.length > 0 && fullEvts.map(renderPastille)}
+                        </div>
+                      </>
                     )}
                   </div>
                 );
@@ -611,24 +1210,42 @@ export default function CalendrierDSI() {
               <div key={ds} className={`day-cell${isToday ? ' today' : ''}${!isCurrentMonth ? ' other-month' : ''}`} onClick={() => { if (isCurrentMonth) { setCurrentDate(d); setView('week'); } }}>
                 <div className="day-num">{d.getDate()}</div>
                 <div className="day-events">
-                  {CATEGORIES.map(cat =>
-                    eventsByDateAndCat(ds, cat).map(evt => {
+                  {(() => {
+                    const fullEvts = CATEGORIES.flatMap(cat => eventsByDateAndCat(ds, cat).filter(e => e.periode === ''));
+                    const amEvts = CATEGORIES.flatMap(cat => eventsByDateAndCat(ds, cat).filter(e => e.periode === 'matin'));
+                    const pmEvts = CATEGORIES.flatMap(cat => eventsByDateAndCat(ds, cat).filter(e => e.periode === 'apres-midi'));
+                    const renderDot = (evt: Evenement) => {
                       const bgColor = evt.agent_username && serviceMap.has(evt.agent_username)
                         ? getServiceColor(serviceMap.get(evt.agent_username)!)
-                        : CATEGORY_COLORS[cat];
-                      return (
-                      <div key={evt.id} className="pastille pastille-sm" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
-                        {evt.agent_nom ? getInitials(evt.agent_nom) : evt.titre}
-                      </div>
+                        : CATEGORY_COLORS[evt.categorie];
+                      const isAgent = evt.agent_username != null;
+                      return isAgent ? (
+                        <div key={evt.id} className="pastille-dot-sm" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.agent_nom || evt.titre}>
+                          {evt.agent_nom ? getInitials(evt.agent_nom) : ''}
+                        </div>
+                      ) : (
+                        <div key={evt.id} className="pastille pastille-sm" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                          {evt.titre}
+                        </div>
                       );
-                    })
-                  )}
+                    };
+                    return (
+                      <>
+                        <div className="month-left">
+                          <div className="month-am">{amEvts.map(renderDot)}</div>
+                          <div className="month-pm">{pmEvts.map(renderDot)}</div>
+                        </div>
+                        <div className="month-right">{fullEvts.map(renderDot)}</div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+      </div>
 
       {/* Modal */}
       {showModal && (
@@ -644,33 +1261,30 @@ export default function CalendrierDSI() {
               {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
             </select>
 
-            {(formCategorie === 'absence' || formCategorie === 'teletravail') && (
-              <>
-                <label>Agent</label>
-                <div className="ad-search-wrapper">
-                  <input
-                    type="text" placeholder="Rechercher un agent (min 2 caractères)..."
-                    value={adQuery} onChange={e => searchAD(e.target.value)}
-                  />
-                  {adResults.length > 0 && (
-                    <div className="ad-results">
-                      {adResults.map(u => (
-                        <div key={u.username} className="ad-result-item" onClick={() => selectAgent(u)}>
-                          <div className="ad-name">{u.displayName}</div>
-                          <div className="ad-detail">{u.email} {u.service ? `- ${u.service}` : ''}</div>
-                        </div>
-                      ))}
+            <label>Agent / Service</label>
+            <div className="ad-search-wrapper">
+              <input
+                type="text" placeholder="Rechercher un agent (min 2 caractères)..."
+                value={adQuery} onChange={e => searchAD(e.target.value)}
+              />
+              {adResults.length > 0 && (
+                <div className="ad-results">
+                  {adResults.map(u => (
+                    <div key={u.username} className="ad-result-item" onClick={() => selectAgent(u)}>
+                      <div className="ad-name">{u.displayName}</div>
+                      <div className="ad-detail">{u.email} {u.service ? `- ${u.service}` : ''}</div>
                     </div>
-                  )}
-                  {searchingAD && <div style={{ fontSize: '0.8rem', color: '#888', marginTop: 2 }}>Recherche...</div>}
+                  ))}
                 </div>
-                {selectedAgent && (
-                  <div className="ad-selected">
-                    <strong>{selectedAgent.displayName}</strong>
-                    <span className="remove" onClick={() => { setSelectedAgent(null); setAdQuery(''); setFormTitre(''); }}>✕</span>
-                  </div>
-                )}
-              </>
+              )}
+              {searchingAD && <div style={{ fontSize: '0.8rem', color: '#888', marginTop: 2 }}>Recherche...</div>}
+            </div>
+            {selectedAgent && (
+              <div className="ad-selected">
+                <strong>{selectedAgent.displayName}</strong>
+                {selectedAgent.service && <span style={{ fontSize: '0.75rem', color: '#666', marginLeft: 4 }}>({selectedAgent.service})</span>}
+                <span className="remove" onClick={() => { setSelectedAgent(null); setAdQuery(''); setFormTitre(''); }}>✕</span>
+              </div>
             )}
 
             <label>Titre</label>
@@ -678,6 +1292,13 @@ export default function CalendrierDSI() {
 
             <label>Description</label>
             <textarea value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Optionnel" />
+
+            <label>Période</label>
+            <select value={formPeriode} onChange={e => setFormPeriode(e.target.value)}>
+              <option value="">Journée entière</option>
+              <option value="matin">Matin</option>
+              <option value="apres-midi">Après-midi</option>
+            </select>
 
             <div className="modal-actions">
               {editingEvent && (
@@ -702,6 +1323,15 @@ export default function CalendrierDSI() {
                 <div>
                   <h2 style={{ margin: '0 0 8px 0', fontSize: '1.4rem', fontWeight: 700, color: '#0f172a' }}>{CATEGORY_LABELS[agentSelectCat]}</h2>
                   <p style={{ margin: 0, fontSize: '0.9rem', color: '#64748b' }}>📅 {agentSelectDate}</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Période:</span>
+                    {['', 'matin', 'apres-midi'].map(p => (
+                      <button key={p} onClick={() => setAgentPeriode(p)}
+                        style={{ padding: '4px 14px', borderRadius: '16px', border: agentPeriode === p ? '2px solid #0f172a' : '1px solid #cbd5e1', background: agentPeriode === p ? '#0f172a' : 'white', color: agentPeriode === p ? 'white' : '#475569', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer' }}>
+                        {p === '' ? 'Journée' : p === 'matin' ? 'Matin' : 'Après-midi'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <button onClick={() => setShowAgentSelect(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', color: '#94a3b8', fontSize: '1.4rem' }}>×</button>
               </div>
