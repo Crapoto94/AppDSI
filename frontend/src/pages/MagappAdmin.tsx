@@ -209,6 +209,13 @@ const MagappAdmin: React.FC = () => {
     } catch (e) { console.error(e); }
   };
 
+  const fetchApps = async () => {
+    try {
+      const res = await fetch('/api/magapp/apps', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setApps(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
   const fetchLibrary = async () => {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
@@ -294,6 +301,7 @@ const MagappAdmin: React.FC = () => {
         setDocFile(null);
         setShowDocModal(false);
         fetchLibrary();
+        fetchApps();
       } else {
         const err = await response.json();
         alert(`Erreur : ${err.message}`);
@@ -320,6 +328,7 @@ const MagappAdmin: React.FC = () => {
         setDocFile(null);
         setShowDocModal(false);
         fetchLibrary();
+        fetchApps();
       }
     } catch (err) { console.error(err); }
   };
@@ -327,11 +336,11 @@ const MagappAdmin: React.FC = () => {
   const handleDeleteDoc = async (id: number) => {
     if (window.confirm('Supprimer ce document ?')) {
       try {
-        const response = await fetch(`/api/admin/magapp/docs/${id}`, { 
+        const response = await fetch(`/api/admin/magapp/docs/${id}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (response.ok) fetchLibrary();
+        if (response.ok) { fetchLibrary(); fetchApps(); }
       } catch (err) { console.error(err); }
     }
   };
