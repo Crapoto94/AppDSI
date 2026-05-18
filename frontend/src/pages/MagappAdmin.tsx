@@ -737,23 +737,28 @@ const MagappAdmin: React.FC = () => {
                                   {app.user_count}
                                 </span>
                               )}
-                              {((app.normal_doc_count || 0) + (app.technical_doc_count || 0)) > 0 && (
-                                <span
-                                  title={`${app.normal_doc_count || 0} doc(s) normale(s), ${app.technical_doc_count || 0} doc(s) technique(s)`}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    padding: '2px 7px',
-                                    borderRadius: '12px',
-                                    backgroundColor: '#eef2ff',
-                                    color: '#4f46e5',
-                                    fontSize: '0.72rem',
-                                    fontWeight: '700',
-                                  }}
-                                >
-                                  ({app.normal_doc_count || 0},{app.technical_doc_count || 0})
-                                </span>
-                              )}
+                              <span
+                                title={`${(app.normal_doc_count || 0) + (app.technical_doc_count || 0)} doc(s) — Cliquer pour ajouter un document`}
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setEditingDoc(null);
+                                  setNewDoc({ title: '', description: '', app_id: app.id, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false });
+                                  setShowDocModal(true);
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  padding: '2px 7px',
+                                  borderRadius: '12px',
+                                  backgroundColor: '#eef2ff',
+                                  color: '#4f46e5',
+                                  fontSize: '0.72rem',
+                                  fontWeight: '700',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ({app.normal_doc_count || 0},{app.technical_doc_count || 0})
+                              </span>
                               {app.project_manager_name && (
                                 <span
                                   title={`Chef de projet : ${app.project_manager_name}`}
