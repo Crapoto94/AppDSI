@@ -15,8 +15,8 @@ const SERVICE_COLORS = [
 // Fixed service color mapping for consistency
 const SERVICE_COLOR_MAP: Record<string, string> = {
   'Bureau Des Projets': '#e17055',
-  'Service Infrastructure Réseaux Systèmes': '#00b894',
-  'Service Support Déploiement': '#0984e3',
+  'Service Infrastructure Réseaux Systèmes': '#27ae60',
+  'Service Support Déploiement': '#3498db',
   'Direction des Systèmes d\'Information': '#6c5ce7',
   'Tous': '#636e72'
 };

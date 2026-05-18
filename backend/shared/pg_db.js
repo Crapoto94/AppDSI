@@ -15,6 +15,8 @@ function convertSqliteToPostgres(sql) {
                     .replace(/magapp_clicks/gi, 'magapp.clicks')
                     .replace(/magapp_subscriptions/gi, 'magapp.subscriptions')
                     .replace(/magapp_settings/gi, 'magapp.settings')
+                    .replace(/(?<!hub_contrats\.)\bcontrats\b(?!\s*\.)/gi, 'hub_contrats.contrats')
+                    .replace(/(?<!hub_contrats\.)\bcontrat_documents\b/gi, 'hub_contrats.contrat_documents')
                     .replace(/(?<!hub\.)\busers\b/gi, 'hub.users')
                     .replace(/(?<!hub_rencontres\.)\brencontres_budgetaires\b/gi, 'hub_rencontres.rencontres_budgetaires')
                     .replace(/(?<!hub_rencontres\.)\brencontres_participants\b/gi, 'hub_rencontres.rencontres_participants')
@@ -104,6 +106,7 @@ async function setupPgDb() {
     await client.query('CREATE SCHEMA IF NOT EXISTS glpi;');
     await client.query('CREATE SCHEMA IF NOT EXISTS oracle;');
     await client.query('CREATE SCHEMA IF NOT EXISTS transcript;');
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_contrats;');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.categories (
@@ -1302,6 +1305,124 @@ async function setupPgDb() {
       console.log('[PG DB] SQLite data migration skipped:', e.message);
     }
 
+    // hub_contrats tables
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_contrats.contrats (
+        id SERIAL PRIMARY KEY,
+        svc VARCHAR(255) DEFAULT '',
+        objet VARCHAR(255) DEFAULT '',
+        budget VARCHAR(255) DEFAULT '',
+        raison_sociale VARCHAR(255) DEFAULT '',
+        tiers VARCHAR(255) DEFAULT '',
+        app_id INTEGER,
+        type_contrat VARCHAR(255) DEFAULT '',
+        annee_initiale INTEGER,
+        direction VARCHAR(255) DEFAULT '',
+        service VARCHAR(255) DEFAULT '',
+        perimetre VARCHAR(255) DEFAULT '',
+        nature VARCHAR(255) DEFAULT '',
+        fonction VARCHAR(255) DEFAULT '',
+        date_debut DATE,
+        duree_annees NUMERIC,
+        nb_reconductions INTEGER,
+        date_fin DATE,
+        marche_contrat VARCHAR(255) DEFAULT '',
+        piece VARCHAR(255) DEFAULT '',
+        date_reconduction VARCHAR(255) DEFAULT '',
+        reconduction VARCHAR(255) DEFAULT '',
+        montant_2022 NUMERIC,
+        montant_2023 NUMERIC,
+        montant_2024 NUMERIC,
+        montant_2025 NUMERIC,
+        montant_2026 NUMERIC,
+        prevision_2026 NUMERIC,
+        prevision_2027 NUMERIC,
+        prevision_2028 NUMERIC,
+        commentaires TEXT DEFAULT '',
+        gti VARCHAR(255) DEFAULT '',
+        gtr VARCHAR(255) DEFAULT '',
+        penalite VARCHAR(255) DEFAULT '',
+        indice_revision VARCHAR(255) DEFAULT '',
+        numero_facture VARCHAR(255) DEFAULT '',
+        statut VARCHAR(50) DEFAULT 'actif',
+        renouvellement_statut VARCHAR(50),
+        renouvellement_commentaire TEXT DEFAULT '',
+        doc_principal_path VARCHAR(1024) DEFAULT '',
+        doc_principal_nom VARCHAR(255) DEFAULT '',
+        contrat_renouvellement_id INTEGER,
+        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_contrats.contrat_documents (
+        id SERIAL PRIMARY KEY,
+        contrat_id INTEGER NOT NULL REFERENCES hub_contrats.contrats(id) ON DELETE CASCADE,
+        file_path VARCHAR(1024),
+        file_name VARCHAR(255),
+        nature VARCHAR(255),
+        est_principal INTEGER DEFAULT 0,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Add missing columns to existing contrats table
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='hub_contrats' AND table_name='contrats' AND column_name='tiers') THEN
+            ALTER TABLE hub_contrats.contrats ADD COLUMN tiers VARCHAR(255) DEFAULT '';
+          END IF;
+        END $$;
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration tiers column:', e.message);
+    }
+
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='hub_contrats' AND table_name='contrats' AND column_name='app_id') THEN
+            ALTER TABLE hub_contrats.contrats ADD COLUMN app_id INTEGER;
+          END IF;
+        END $$;
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration app_id column:', e.message);
+    }
+
+    // Create gf_oracle_tiers table for tier lookups
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS gf_oracle_tiers (
+          id SERIAL PRIMARY KEY,
+          code VARCHAR(255) UNIQUE,
+          nom VARCHAR(255),
+          activite VARCHAR(255),
+          siret VARCHAR(255),
+          adresse VARCHAR(255),
+          banque VARCHAR(255),
+          guichet VARCHAR(255),
+          compte VARCHAR(255),
+          cle_rib VARCHAR(255),
+          is_dsi INTEGER DEFAULT 0
+        );
+      `);
+      console.log('[PG DB] gf_oracle_tiers table created or already exists');
+    } catch (e) {
+      console.log('[PG DB] Error creating gf_oracle_tiers:', e.message);
+    }
+
+    // Create indices for better performance
+    try {
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_contrats_statut ON hub_contrats.contrats(statut)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_contrats_direction ON hub_contrats.contrats(direction)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_contrats_date_fin ON hub_contrats.contrats(date_fin)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_contrat_documents_contrat_id ON hub_contrats.contrat_documents(contrat_id)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_gf_oracle_tiers_code ON gf_oracle_tiers(code)');
+    } catch (e) {}
+
     await client.query('CREATE SCHEMA IF NOT EXISTS finance;');
 
     await client.query(`
@@ -1340,6 +1461,80 @@ async function setupPgDb() {
 
     try {
       await client.query(`ALTER TABLE finance.field_mapping_variables ADD COLUMN IF NOT EXISTS display_type TEXT NOT NULL DEFAULT 'text'`);
+    } catch (e) {}
+
+    // Create hub_calendrier schema and table
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_calendrier;');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_calendrier.evenements (
+        id SERIAL PRIMARY KEY,
+        date DATE NOT NULL,
+        categorie TEXT NOT NULL,
+        periode TEXT DEFAULT '',
+        titre TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        agent_username TEXT,
+        agent_nom TEXT,
+        agent_email TEXT,
+        couleur TEXT DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Agents DSI table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_calendrier.agents_dsi (
+        username TEXT PRIMARY KEY,
+        nom TEXT NOT NULL,
+        email TEXT DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // TT fixed days (multiple per agent)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_calendrier.agents_tt_days (
+        id SERIAL PRIMARY KEY,
+        agent_username TEXT NOT NULL REFERENCES hub_calendrier.agents_dsi(username) ON DELETE CASCADE,
+        jour_semaine INTEGER NOT NULL CHECK (jour_semaine >= 0 AND jour_semaine <= 6),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(agent_username, jour_semaine)
+      );
+    `);
+
+    // Remove old single-column tt_fixed_day if it exists
+    try {
+      await client.query(`ALTER TABLE hub_calendrier.agents_dsi DROP COLUMN IF EXISTS tt_fixed_day`);
+    } catch (e) {}
+    // Add service column
+    try {
+      await client.query(`ALTER TABLE hub_calendrier.agents_dsi ADD COLUMN IF NOT EXISTS service TEXT DEFAULT ''`);
+    } catch (e) {}
+    // Add periode column to evenements
+    try {
+      await client.query(`ALTER TABLE hub_calendrier.evenements ADD COLUMN IF NOT EXISTS periode TEXT DEFAULT ''`);
+    } catch (e) {}
+
+    // Permanent absences (part-time)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_calendrier.absences_permanentes (
+        id SERIAL PRIMARY KEY,
+        agent_username TEXT NOT NULL REFERENCES hub_calendrier.agents_dsi(username) ON DELETE CASCADE,
+        jour_semaine INTEGER NOT NULL CHECK (jour_semaine >= 0 AND jour_semaine <= 6),
+        periode TEXT NOT NULL DEFAULT 'journee' CHECK (periode IN ('journee', 'matin', 'apres-midi')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Set default fiscal_year_column for known rubriques
+    try {
+      await client.query(`UPDATE finance.field_mapping_rubriques SET fiscal_year_column = 'COMMANDE_CMD_DATECOMMANDE' WHERE name = 'Commandes' AND (fiscal_year_column IS NULL OR fiscal_year_column = '')`);
+    } catch (e) {}
+    try {
+      await client.query(`UPDATE finance.field_mapping_rubriques SET fiscal_year_column = 'FACTURE_DATENTREE' WHERE name = 'Factures' AND (fiscal_year_column IS NULL OR fiscal_year_column = '')`);
     } catch (e) {}
 
     console.log('[PG DB] Schema and tables initialized successfully');

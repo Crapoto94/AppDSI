@@ -116,7 +116,11 @@
       "Bash(Select-Object Name)",
       "Bash(curl -s http://localhost:3001/health)",
       "Bash(sqlite3 data/dsi.db \"SELECT * FROM oracle_sync_config WHERE type='RH';\")",
-      "Bash(psql -h 10.103.130.106 -U postgres -d ivry_admin -c \"SELECT COUNT\\(*\\) as facture_count FROM oracle.gf_oracle_facture LIMIT 1;\")"
+      "Bash(psql -h 10.103.130.106 -U postgres -d ivry_admin -c \"SELECT COUNT\\(*\\) as facture_count FROM oracle.gf_oracle_facture LIMIT 1;\")",
+      "Bash(node -e \"const xlsx = require\\('xlsx'\\); const wb = xlsx.readFile\\('/dev/DSI_CONTRATS/Suivi Maintenance 2026.xlsx'\\); console.log\\('Sheets:', wb.SheetNames\\); const sheet = wb.Sheets[wb.SheetNames[0]]; const rows = xlsx.utils.sheet_to_json\\(sheet\\); console.log\\('Columns:', Object.keys\\(rows[0]\\).slice\\(0, 15\\)\\);\")",
+      "Bash(echo \"Backend started in background, PID: $!\")",
+      "Bash(curl -X PUT http://localhost:3001/api/contrats/208 -H 'Content-Type: application/json' -H 'Authorization: Bearer test_token' -d '{ *)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")"
     ]
   }
 }

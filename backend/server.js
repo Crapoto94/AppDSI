@@ -17,6 +17,7 @@ const glpiRouter = require('./modules/glpi/glpi.routes');
 const glpiController = require('./modules/glpi/glpi.controller');
 const oracleAutomationRouter = require('./routes/oracle-automation.routes');
 const oracleScheduler = require('./modules/oracle/oracle-scheduler');
+const contratsRouter = require('./modules/contrats/contrats.routes');
 
 const tiersRouter = require('./modules/finance/tiers.routes');
 const contactsRouter = require('./modules/finance/contacts.routes');
@@ -241,7 +242,7 @@ async function getADUserInfo(username, config) {
 }
 
 // Configuration Multer dynamique
-const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img', 'file_telecom', 'file_reunions', 'file_projets', 'logs'];
+const folders = ['uploads', 'file_commandes', 'file_factures', 'file_certif', 'magapp_img', 'file_telecom', 'file_reunions', 'file_projets', 'file_contrats', 'logs'];
 folders.forEach(f => {
     const dir = path.join(__dirname, f);
     if (!fs.existsSync(dir)) {
@@ -387,6 +388,26 @@ app.use('/api/file_certif', express.static(path.join(__dirname, 'file_certif')))
 app.use('/file_reunions', express.static(path.join(__dirname, 'file_reunions')));
 app.use('/api/file_reunions', express.static(path.join(__dirname, 'file_reunions')));
 app.use('/api/file_projets', express.static(path.join(__dirname, 'file_projets')));
+app.use('/file_contrats', express.static(path.join(__dirname, 'file_contrats')));
+app.use('/api/file_contrats', express.static(path.join(__dirname, 'file_contrats')));
+
+// Route API pour servir les documents des contrats (compatible avec développement multi-port)
+app.get(/^\/api\/contrats\/documents\/(.+)$/, (req, res) => {
+    try {
+        let filename = decodeURIComponent(req.params[0]);
+        if (filename.startsWith('file_contrats/')) {
+            filename = filename.substring('file_contrats/'.length);
+        }
+        const filepath = path.join(__dirname, 'file_contrats', filename);
+        if (fs.existsSync(filepath)) {
+            res.sendFile(filepath);
+        } else {
+            res.status(404).json({ message: 'Fichier non trouvé' });
+        }
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+});
 
 app.use('/api/transcriptmanager', transcriptManagerRouter);
 app.use('/api', magappRouter);
@@ -1963,6 +1984,9 @@ app.use('/api/oracle-automation', oracleAutomationRouter);
 
 // Certificates Module
 app.use('/api/certificates', certificatesRouter);
+
+// Contrats Module
+app.use('/api/contrats', contratsRouter);
 
 // Finance & Tiers Module
 app.use('/api/budget', financeRouter);
@@ -4252,6 +4276,41 @@ app.put('/api/rencontres-suivi/:id', authenticateJWT, rencontresCtrl.updateSuivi
 app.delete('/api/rencontres-suivi/:id', authenticateJWT, rencontresCtrl.deleteSuivi);
 app.delete('/api/reunion-participants/:id', authenticateJWT, reunionsCtrl.deleteParticipant);
 app.delete('/api/reunion-attachments/:id', authenticateJWT, reunionsCtrl.deleteAttachment);
+
+// ============================================
+// CALENDRIER DSI
+// ============================================
+const calendrierRouter = require('./modules/calendrier-dsi/calendrier-dsi.routes');
+
+// Sync agent services from AD (must be BEFORE the router to avoid Express pass-through issue)
+app.post('/api/calendrier-dsi/agents/sync-services', authenticateJWT, async (req, res) => {
+    try {
+        const agents = await pool.query(`SELECT username, nom FROM hub_calendrier.agents_dsi WHERE (service IS NULL OR service = '') ORDER BY username`);
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) {
+            return res.status(400).json({ message: 'AD non configuré' });
+        }
+        const results = { total: agents.rows.length, updated: 0, errors: [] };
+        for (const agent of agents.rows) {
+            try {
+                const user = await searchADUsersByQuery(agent.username, adSettings);
+                const match = user.find(u => u.username.toLowerCase() === agent.username.toLowerCase());
+                if (match && match.service) {
+                    await pool.query('UPDATE hub_calendrier.agents_dsi SET service = $1 WHERE username = $2', [match.service, agent.username]);
+                    results.updated++;
+                }
+            } catch (e) {
+                results.errors.push({ username: agent.username, error: e.message });
+            }
+        }
+        res.json(results);
+    } catch (error) {
+        console.error('[Agents DSI] sync-services error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+app.use('/api/calendrier-dsi', calendrierRouter);
 
 // ============================================
 // PROJETS - Gestion de portefeuille

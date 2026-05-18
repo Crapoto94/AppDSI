@@ -524,12 +524,6 @@ async function setupDb() {
             FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE CASCADE
         );
 
-        CREATE INDEX IF NOT EXISTS idx_rencontres_direction ON rencontres_budgetaires(direction);
-        CREATE INDEX IF NOT EXISTS idx_rencontres_annee ON rencontres_budgetaires(annee);
-        CREATE INDEX IF NOT EXISTS idx_rencontres_statut ON rencontres_budgetaires(statut);
-        CREATE INDEX IF NOT EXISTS idx_direction_emails ON direction_emails(direction);
-        CREATE INDEX IF NOT EXISTS idx_direction_emails_email ON direction_emails(email);
-
         CREATE TABLE IF NOT EXISTS transcript_meetings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT,
@@ -545,6 +539,61 @@ async function setupDb() {
             start_seconds REAL,
             text TEXT,
             FOREIGN KEY (meeting_id) REFERENCES transcript_meetings(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS contrats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            svc TEXT DEFAULT '',
+            objet TEXT DEFAULT '',
+            budget TEXT DEFAULT '',
+            raison_sociale TEXT DEFAULT '',
+            type_contrat TEXT DEFAULT '',
+            annee_initiale INTEGER,
+            direction TEXT DEFAULT '',
+            service TEXT DEFAULT '',
+            perimetre TEXT DEFAULT '',
+            nature TEXT DEFAULT '',
+            fonction TEXT DEFAULT '',
+            date_debut DATE,
+            duree_annees REAL,
+            nb_reconductions INTEGER,
+            date_fin DATE,
+            marche_contrat TEXT DEFAULT '',
+            piece TEXT DEFAULT '',
+            date_reconduction TEXT DEFAULT '',
+            reconduction TEXT DEFAULT '',
+            montant_2022 REAL,
+            montant_2023 REAL,
+            montant_2024 REAL,
+            montant_2025 REAL,
+            montant_2026 REAL,
+            prevision_2026 REAL,
+            prevision_2027 REAL,
+            prevision_2028 REAL,
+            commentaires TEXT DEFAULT '',
+            gti TEXT DEFAULT '',
+            gtr TEXT DEFAULT '',
+            penalite TEXT DEFAULT '',
+            indice_revision TEXT DEFAULT '',
+            numero_facture TEXT DEFAULT '',
+            statut TEXT DEFAULT 'actif',
+            renouvellement_statut TEXT DEFAULT NULL,
+            renouvellement_commentaire TEXT DEFAULT '',
+            doc_principal_path TEXT DEFAULT '',
+            doc_principal_nom TEXT DEFAULT '',
+            contrat_renouvellement_id INTEGER DEFAULT NULL,
+            imported_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS contrat_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contrat_id INTEGER NOT NULL,
+            file_path TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            nature TEXT DEFAULT '',
+            est_principal INTEGER DEFAULT 0,
+            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (contrat_id) REFERENCES contrats(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS transcript_tasks (
@@ -563,6 +612,17 @@ async function setupDb() {
 
         CREATE INDEX IF NOT EXISTS idx_transcript_cues_meeting ON transcript_cues(meeting_id);
         CREATE INDEX IF NOT EXISTS idx_transcript_tasks_meeting ON transcript_tasks(meeting_id);
+
+        CREATE INDEX IF NOT EXISTS idx_rencontres_direction ON rencontres_budgetaires(direction);
+        CREATE INDEX IF NOT EXISTS idx_rencontres_annee ON rencontres_budgetaires(annee);
+        CREATE INDEX IF NOT EXISTS idx_rencontres_statut ON rencontres_budgetaires(statut);
+        CREATE INDEX IF NOT EXISTS idx_direction_emails ON direction_emails(direction);
+        CREATE INDEX IF NOT EXISTS idx_direction_emails_email ON direction_emails(email);
+
+        CREATE INDEX IF NOT EXISTS idx_contrats_statut ON contrats(statut);
+        CREATE INDEX IF NOT EXISTS idx_contrats_direction ON contrats(direction);
+        CREATE INDEX IF NOT EXISTS idx_contrats_date_fin ON contrats(date_fin);
+        CREATE INDEX IF NOT EXISTS idx_contrat_documents_contrat_id ON contrat_documents(contrat_id);
     `);
 
     try {
@@ -677,7 +737,25 @@ async function setupDb() {
             }
         }
     } catch (e) {}
-    
+
+    try {
+        const existingTile = await db.get("SELECT id FROM tiles WHERE title = 'Gestion des Contrats'");
+        if (!existingTile) {
+            const maxOrder = await db.get("SELECT MAX(sort_order) as max FROM tiles");
+            const result = await db.run(
+                "INSERT INTO tiles (title, icon, description, status, sort_order, is_public) VALUES (?, ?, ?, ?, ?, ?)",
+                ['Gestion des Contrats', 'FileSignature', 'Gérez les contrats de maintenance', 'active', (maxOrder?.max || 999) + 1, 0]
+            );
+            const tileId = result.lastID;
+            const existingLink = await db.get("SELECT id FROM tile_links WHERE tile_id = ? AND label = 'Voir les contrats'", [tileId]);
+            if (!existingLink) {
+                try {
+                    await db.run("INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)", [tileId, 'Voir les contrats', '/contrats', 1]);
+                } catch (e2) {}
+            }
+        }
+    } catch (e) {}
+
     try {
         const result = await db.all("PRAGMA table_info(tiles)");
         const hasIsPublicColumn = result.some(col => col.name === 'is_public');
@@ -691,7 +769,20 @@ async function setupDb() {
     try { await db.run("ALTER TABLE certificates ADD COLUMN observations TEXT DEFAULT ''"); } catch (e) {}
     try { await db.run("ALTER TABLE certificates ADD COLUMN renewal_status TEXT DEFAULT NULL"); } catch (e) {}
     try { await db.run("ALTER TABLE certificates ADD COLUMN renewal_comment TEXT DEFAULT ''"); } catch (e) {}
-    
+
+    // Migrations table contrats
+    try { await db.run("ALTER TABLE contrats ADD COLUMN gti TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN gtr TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN penalite TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN indice_revision TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN numero_facture TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN statut TEXT DEFAULT 'actif'"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN renouvellement_statut TEXT DEFAULT NULL"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN renouvellement_commentaire TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN doc_principal_path TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN doc_principal_nom TEXT DEFAULT ''"); } catch (e) {}
+    try { await db.run("ALTER TABLE contrats ADD COLUMN contrat_renouvellement_id INTEGER DEFAULT NULL"); } catch (e) {}
+
     // GLPI Settings migrations
         try { await db.exec("ALTER TABLE glpi_settings ADD COLUMN login TEXT"); } catch (e) {}
     try { await db.run("ALTER TABLE glpi_settings ADD COLUMN password TEXT"); } catch (e) {}

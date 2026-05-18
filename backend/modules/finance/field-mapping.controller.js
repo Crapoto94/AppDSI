@@ -405,7 +405,16 @@ resolveMapping: async (req, res) => {
       let paramIdx = 1;
 
       if (fiscal_year) {
-        const dateCol = await getFirstDateColumn(rubrique.pg_schema, rubrique.pg_table);
+        let dateCol = null;
+        if (rubrique.fiscal_year_column) {
+          dateCol = { column_name: rubrique.fiscal_year_column };
+          console.log(`[resolveMapping] ${name}: using configured fiscal_year_column=${rubrique.fiscal_year_column}`);
+        } else if (rubrique.name !== 'Tiers') {
+          dateCol = await getFirstDateColumn(rubrique.pg_schema, rubrique.pg_table);
+          console.log(`[resolveMapping] ${name}: auto-detected dateCol=${dateCol?.column_name || 'null'} (schema=${rubrique.pg_schema}, table=${rubrique.pg_table})`);
+        } else {
+          console.log(`[resolveMapping] ${name}: skipped (Tiers)`);
+        }
         if (dateCol) {
           whereParts.push(`EXTRACT(YEAR FROM "${dateCol.column_name}"::date) = $${paramIdx}`);
           params.push(String(fiscal_year));
@@ -659,7 +668,12 @@ resolveMapping: async (req, res) => {
       if (rubriqueResult.rowCount === 0) return res.status(404).json({ message: `Rubrique '${name}' non trouvée` });
       const rubrique = rubriqueResult.rows[0];
 
-      const dateCol = await getFirstDateColumn(rubrique.pg_schema, rubrique.pg_table);
+      let dateCol = null;
+      if (rubrique.fiscal_year_column) {
+        dateCol = { column_name: rubrique.fiscal_year_column };
+      } else {
+        dateCol = await getFirstDateColumn(rubrique.pg_schema, rubrique.pg_table);
+      }
       console.log(`[getAvailableYears] Rubrique: ${name}, Schema: ${rubrique.pg_schema}, Table: ${rubrique.pg_table}, DateCol: ${dateCol?.column_name || 'NOT FOUND'}`);
 
       if (!dateCol) return res.json([]);

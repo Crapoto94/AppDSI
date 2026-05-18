@@ -28,6 +28,9 @@ import RevueDeProjets from './pages/RevueDeProjets';
 import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
+import Contrats from './pages/Contrats';
+import CalendrierDSI from './pages/CalendrierDSI';
+import AgentsDSI from './pages/AgentsDSI';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -77,6 +80,9 @@ function App() {
         
         <Route path="/transcriptmanager" element={<PrivateRoute path="/transcriptmanager"><TranscriptManager /></PrivateRoute>} />
         <Route path="/transcriptmanager/meeting/:id" element={<PrivateRoute path="/transcriptmanager"><TranscriptMeetingDetail /></PrivateRoute>} />
+        <Route path="/contrats" element={<PrivateRoute path="/contrats"><Contrats /></PrivateRoute>} />
+        <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
+        <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
 
         {/* Admin Routes with Sidebar Layout */}
         <Route 
