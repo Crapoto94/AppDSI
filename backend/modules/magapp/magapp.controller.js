@@ -39,6 +39,22 @@ const MagAppController = {
         }
     },
 
+    createApp: async (req, res) => {
+        try {
+            const { name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name } = req.body;
+
+            const result = await pgDb.run(`
+                INSERT INTO magapp_apps (name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name]);
+
+            res.json({ id: result.lastID, message: 'Application créée' });
+        } catch (err) {
+            console.error('[MAGAPP] Error creating app:', err.message);
+            res.status(500).json({ message: 'Error creating app', error: err.message });
+        }
+    },
+
     updateApp: async (req, res) => {
         try {
             const { id } = req.params;
@@ -54,6 +70,19 @@ const MagAppController = {
         } catch (err) {
             console.error('[MAGAPP] Error updating app:', err.message);
             res.status(500).json({ message: 'Error updating app', error: err.message });
+        }
+    },
+
+    deleteApp: async (req, res) => {
+        try {
+            const { id } = req.params;
+
+            await pgDb.run('DELETE FROM magapp_apps WHERE id = ?', [id]);
+
+            res.json({ message: 'Application supprimée' });
+        } catch (err) {
+            console.error('[MAGAPP] Error deleting app:', err.message);
+            res.status(500).json({ message: 'Error deleting app', error: err.message });
         }
     },
 
