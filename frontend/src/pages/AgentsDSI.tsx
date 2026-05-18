@@ -12,7 +12,22 @@ const SERVICE_COLORS = [
   '#fd79a8', '#74b9ff', '#f8a5c2', '#81ecec', '#ffb347',
 ];
 
+// Fixed service color mapping for consistency
+const SERVICE_COLOR_MAP: Record<string, string> = {
+  'Bureau Des Projets': '#0984e3',
+  'Service Infrastructure Réseaux Systèmes': '#00b894',
+  'Service Support Déploiement': '#0984e3',
+  'Direction des Systèmes d\'Information': '#6c5ce7',
+  'Tous': '#636e72'
+};
+
 function getServiceColor(service: string): string {
+  if (!service) return '#666';
+  // Check if service has a fixed color mapping
+  if (SERVICE_COLOR_MAP[service]) {
+    return SERVICE_COLOR_MAP[service];
+  }
+  // Fallback to hash-based color
   let hash = 0;
   for (let i = 0; i < service.length; i++) {
     hash = service.charCodeAt(i) + ((hash << 5) - hash);
