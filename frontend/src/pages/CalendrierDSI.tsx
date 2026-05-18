@@ -172,7 +172,7 @@ export default function CalendrierDSI() {
 
   const [showSendModal, setShowSendModal] = useState(false);
   const [sendDate, setSendDate] = useState(formatDate(new Date()));
-  const [selectedRecipients, setSelectedRecipients] = useState<Set<string>>(new Set());
+  const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [sendingCalendar, setSendingCalendar] = useState(false);
 
   const fetchEvents = useCallback(async (debut: string, fin: string) => {
@@ -432,7 +432,7 @@ export default function CalendrierDSI() {
   };
 
   const handleSendCalendar = async () => {
-    if (selectedRecipients.size === 0) {
+    if (selectedRecipients.length === 0) {
       setError('Sélectionne au least un destinataire');
       return;
     }
@@ -444,7 +444,7 @@ export default function CalendrierDSI() {
         headers,
         body: JSON.stringify({
           date: sendDate,
-          recipients: Array.from(selectedRecipients)
+          recipients: selectedRecipients
         })
       });
       if (!res.ok) {
@@ -453,7 +453,7 @@ export default function CalendrierDSI() {
       }
       const result = await res.json();
       setShowSendModal(false);
-      setSelectedRecipients(new Set());
+      setSelectedRecipients([]);
       setError(null);
       alert(result.message);
     } catch (e: any) {
@@ -1493,10 +1493,10 @@ export default function CalendrierDSI() {
 
             <div style={{ marginBottom: '20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                <label style={{ fontWeight: 500, color: '#0f172a' }}>Destinataires ({selectedRecipients.size}):</label>
+                <label style={{ fontWeight: 500, color: '#0f172a' }}>Destinataires ({selectedRecipients.length}):</label>
                 {agents.length > 0 && (
-                  <button onClick={() => setSelectedRecipients(selectedRecipients.size === agents.length ? new Set() : new Set(agents.map(a => a.email)))} style={{ fontSize: '0.8rem', color: '#6c5ce7', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
-                    {selectedRecipients.size === agents.length ? 'Désélectionner tout' : 'Sélectionner tout'}
+                  <button onClick={() => setSelectedRecipients(selectedRecipients.length === agents.length ? [] : agents.map(a => a.email))} style={{ fontSize: '0.8rem', color: '#6c5ce7', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                    {selectedRecipients.length === agents.length ? 'Désélectionner tout' : 'Sélectionner tout'}
                   </button>
                 )}
               </div>
@@ -1505,13 +1505,14 @@ export default function CalendrierDSI() {
                   <p style={{ color: '#94a3b8', margin: 0, padding: '16px' }}>Aucun agent disponible</p>
                 ) : (
                   agents.map((a, idx) => {
-                    const isSelected = selectedRecipients.has(a.email);
+                    const isSelected = selectedRecipients.includes(a.email);
                     return (
                       <div key={a.username} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', borderBottom: idx < agents.length - 1 ? '1px solid #f1f5f9' : 'none', background: isSelected ? '#f0fdf4' : 'transparent', cursor: 'pointer', transition: 'all 0.15s' }} onClick={() => {
-                        const newSet = new Set(selectedRecipients);
-                        if (newSet.has(a.email)) newSet.delete(a.email);
-                        else newSet.add(a.email);
-                        setSelectedRecipients(newSet);
+                        if (isSelected) {
+                          setSelectedRecipients(selectedRecipients.filter(e => e !== a.email));
+                        } else {
+                          setSelectedRecipients([...selectedRecipients, a.email]);
+                        }
                       }}>
                         <input type="checkbox" checked={isSelected} onChange={() => {}} style={{ width: '20px', height: '20px', cursor: 'pointer', accentColor: '#16a34a' }} />
                         <div style={{ flex: 1 }}>
