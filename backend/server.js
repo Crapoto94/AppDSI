@@ -4362,6 +4362,61 @@ app.post('/api/calendrier-dsi/agents/sync-services', authenticateJWT, async (req
 app.use('/api/calendrier-dsi', calendrierRouter);
 
 // ============================================
+// EMAIL AUTOMATION
+// ============================================
+const emailAutoRouter = require('./modules/email-automation/email-automation.routes');
+const emailAutoCtrl = require('./modules/email-automation/email-automation.controller');
+emailAutoCtrl.setSendMail(sendMail);
+
+app.use('/api/admin/email-automation', emailAutoRouter);
+
+// Cron: every minute, check and run due automations
+cron.schedule('* * * * *', async () => {
+    try {
+        const automations = await pgDb.all('SELECT * FROM email_automations WHERE enabled = 1');
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mm = String(now.getMinutes()).padStart(2, '0');
+        const day = now.getDay();
+
+        for (const a of automations) {
+            let shouldRun = false;
+
+            if (a.frequency.startsWith('daily:')) {
+                const [, fhh, fmm] = a.frequency.match(/daily:(\d{2}):(\d{2})/) || [];
+                shouldRun = (hh === fhh && mm === fmm);
+            } else if (a.frequency.startsWith('weekly:')) {
+                const [, fday, fhh, fmm] = a.frequency.match(/weekly:(\d):(\d{2}):(\d{2})/) || [];
+                shouldRun = (String(day) === fday && hh === fhh && mm === fmm);
+            } else if (a.frequency.startsWith('every:')) {
+                const interval = parseInt(a.frequency.match(/every:(\d+)/)?.[1], 10);
+                if (interval > 0) {
+                    if (!a.last_sent_at) {
+                        shouldRun = true;
+                    } else {
+                        const elapsed = (now.getTime() - new Date(a.last_sent_at).getTime()) / 60000;
+                        shouldRun = elapsed >= interval;
+                    }
+                }
+            }
+
+            if (shouldRun) {
+                console.log(`[EMAIL-AUTO CRON] Running automation "${a.name}" (id=${a.id}, freq=${a.frequency})`);
+                try {
+                    const result = await emailAutoCtrl._runAutomation(a);
+                    console.log(`[EMAIL-AUTO CRON] Result:`, result.message);
+                } catch (e) {
+                    console.error(`[EMAIL-AUTO CRON] Error running automation ${a.id}:`, e.message);
+                }
+            }
+        }
+    } catch (e) {
+        console.error('[EMAIL-AUTO CRON] Error:', e.message);
+    }
+});
+console.log('[EMAIL-AUTO CRON] Cron job registered (every minute)');
+
+// ============================================
 // PROJETS - Gestion de portefeuille
 // ============================================
 const projetsRouter = require('./modules/projets/projets.routes');

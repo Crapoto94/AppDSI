@@ -328,6 +328,7 @@ async function getEventsForDate(date) {
 
 module.exports = {
   setSendMail: (fn) => { sendMailFn = fn; },
+  getEventsForDate,
 
   getEvenements: async (req, res) => {
     try {

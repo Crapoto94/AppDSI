@@ -52,7 +52,10 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!projets\.)\bprojet_comites_membres\b/gi, 'projets.projet_comites_membres')
                     .replace(/(?<!projets\.)\bprojet_etapes\b/gi, 'projets.projet_etapes')
                     .replace(/(?<!projets\.)\bprojet_applications\b/gi, 'projets.projet_applications')
-                    .replace(/(?<!projets\.)\bprojet_taches_standalone\b/gi, 'projets.projet_taches_standalone');
+                    .replace(/(?<!projets\.)\bprojet_taches_standalone\b/gi, 'projets.projet_taches_standalone')
+                    .replace(/(?<!hub\.)\bemail_automations\b/gi, 'hub.email_automations')
+                    .replace(/(?<!hub\.)\bemail_automation_recipients\b/gi, 'hub.email_automation_recipients')
+                    .replace(/(?<!hub\.)\bemail_automation_logs\b/gi, 'hub.email_automation_logs');
 
     newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
                     .replace(/transcript_cues/gi, 'transcript.cues')
@@ -1602,6 +1605,39 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE hub_calendrier.demabs ADD COLUMN IF NOT EXISTS prenom TEXT DEFAULT ''`);
     } catch (e) {}
+
+    // Email automation tables
+    await client.query(`CREATE TABLE IF NOT EXISTS hub.email_automations (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        frequency TEXT NOT NULL DEFAULT 'daily:08:00',
+        enabled INTEGER DEFAULT 1,
+        content_type TEXT DEFAULT 'calendar_daily',
+        content_url TEXT DEFAULT '',
+        subject_template TEXT DEFAULT '',
+        condition_type TEXT DEFAULT 'none',
+        condition_value TEXT DEFAULT '',
+        last_sent_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await client.query(`CREATE TABLE IF NOT EXISTS hub.email_automation_recipients (
+        id SERIAL PRIMARY KEY,
+        automation_id INTEGER NOT NULL REFERENCES hub.email_automations(id) ON DELETE CASCADE,
+        email TEXT NOT NULL,
+        name TEXT DEFAULT '',
+        source TEXT DEFAULT 'manual'
+    )`);
+    await client.query(`CREATE TABLE IF NOT EXISTS hub.email_automation_logs (
+        id SERIAL PRIMARY KEY,
+        automation_id INTEGER NOT NULL REFERENCES hub.email_automations(id) ON DELETE CASCADE,
+        recipient_email TEXT NOT NULL,
+        subject TEXT,
+        status TEXT NOT NULL DEFAULT 'sent',
+        error_message TEXT,
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
 
     // Set default fiscal_year_column for known rubriques
     try {

@@ -702,9 +702,10 @@ export default function CalendrierDSI() {
           border-right: 1px solid #e2e8f0;
           border-bottom: 1px solid #e2e8f0;
           padding: 8px;
-          min-height: 120px;
+          min-height: 80px;
           display: flex;
-          gap: 6px;
+          flex-direction: column;
+          gap: 2px;
           background: #ffffff;
           transition: background 0.15s;
           cursor: pointer;
@@ -719,33 +720,27 @@ export default function CalendrierDSI() {
         .week-grid .cell:last-child {
           border-right: none;
         }
-        .cell-left {
-          flex: 1;
+        .cell-period {
           display: flex;
-          flex-direction: column;
-          gap: 4px;
-          border-right: 1px dashed #e2e8f0;
-          padding-right: 6px;
-          min-width: 0;
-        }
-        .cell-right {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          min-width: 0;
-        }
-        .cell-am, .cell-pm {
-          display: flex;
-          flex-wrap: wrap;
           align-items: flex-start;
           gap: 4px;
-          min-height: 24px;
-          padding: 2px 0;
+          margin-bottom: 2px;
         }
-        .cell-am {
-          border-bottom: 1px dashed #e2e8f0;
-          padding-bottom: 4px;
+        .period-label {
+          font-size: 0.65rem;
+          font-weight: 700;
+          color: #94a3b8;
+          min-width: 10px;
+          padding-top: 2px;
+        }
+        .cell-refs {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 3px;
+          align-items: flex-start;
+        }
+        .cell-refs-full {
+          margin-top: 2px;
         }
         .empty-cell {
           color: #cbd5e1;
@@ -1267,17 +1262,21 @@ const renderPastille = (evt: Evenement) => {
                       <div className="empty-cell">+</div>
                     ) : (
                       <>
-                        <div className="cell-left">
-                          <div className="cell-am">
-                            {amEvts.length > 0 ? amEvts.map(renderPastille) : null}
+                        {amEvts.length > 0 && (
+                          <div className="cell-period">
+                            <span className="period-label">M</span>
+                            <div className="cell-refs">{amEvts.map(renderPastille)}</div>
                           </div>
-                          <div className="cell-pm">
-                            {pmEvts.length > 0 ? pmEvts.map(renderPastille) : null}
+                        )}
+                        {pmEvts.length > 0 && (
+                          <div className="cell-period">
+                            <span className="period-label">A</span>
+                            <div className="cell-refs">{pmEvts.map(renderPastille)}</div>
                           </div>
-                        </div>
-                        <div className="cell-right">
-                          {fullEvts.length > 0 && fullEvts.map(renderPastille)}
-                        </div>
+                        )}
+                        {fullEvts.length > 0 && (
+                          <div className="cell-refs cell-refs-full">{fullEvts.map(renderPastille)}</div>
+                        )}
                       </>
                     )}
                   </div>

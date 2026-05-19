@@ -21,6 +21,7 @@ import AdminAccessRequests from './pages/AdminAccessRequests';
 import AccessRequestOverlay from './components/AccessRequestOverlay';
 import AdminLayout from './components/AdminLayout';
 import FrizbiSettings from './pages/FrizbiSettings';
+import EmailAutomation from './pages/EmailAutomation';
 import RencontresBudgetaires from './pages/RencontresBudgetaires';
 import MesReunions from './pages/MesReunions';
 import PortefeuilleProjets from './pages/PortefeuilleProjets';
@@ -111,6 +112,7 @@ function App() {
           <Route path="frizbi" element={<FrizbiSettings />} />
           <Route path="transcript" element={<Admin section="transcript" />} />
           <Route path="finance" element={<AdminFinance />} />
+          <Route path="email-automation" element={<EmailAutomation />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />
