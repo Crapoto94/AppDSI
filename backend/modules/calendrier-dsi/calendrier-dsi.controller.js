@@ -95,7 +95,7 @@ async function getDemabsEventsForRange(debut, fin) {
   const demabsEvents = [];
   try {
     const demabsResult = await pool.query(`
-      SELECT a.username, a.nom, a.email, a.matricule,
+      SELECT DISTINCT a.username, a.nom, a.email, a.matricule,
              d."TPS_DMDA_DT_DEBUT", d."TPS_DMDA_DT_FIN",
              d."TPS_DMDA_TYPE", d."TPS_DMDA_CHRONO",
              d."TPS_DMDA_TYPJOUR_DEB", d."TPS_DMDA_TYPJOUR_FIN",
@@ -394,17 +394,17 @@ module.exports = {
       // Dates are stored as JS toString text, so we filter in JS not SQL
       try {
         const demabsResult = await pool.query(`
-          SELECT a.username, a.nom, a.email, a.matricule,
+          SELECT DISTINCT a.username, a.nom, a.email, a.matricule,
                  d."TPS_DMDA_DT_DEBUT", d."TPS_DMDA_DT_FIN",
                  d."TPS_DMDA_TYPE", d."TPS_DMDA_CHRONO",
                  d."TPS_DMDA_TYPJOUR_DEB", d."TPS_DMDA_TYPJOUR_FIN",
                  d."TPS_DMDA_HR_DEBUT", d."TPS_DMDA_HR_FIN",
                  d."TPS_DMDA_ETAT"
-          FROM hub_calendrier.agents_dsi a
-          JOIN oracle.rh_tps_demabs d ON TRIM(a.matricule) = TRIM(d."RH_AGENT_MATRICULE")
-          WHERE a.matricule IS NOT NULL AND a.matricule != ''
-            AND d."TPS_DMDA_DT_DEBUT" IS NOT NULL
-            AND (d."TPS_DMDA_SUPPR" IS NULL OR TRIM(d."TPS_DMDA_SUPPR") = '0')
+           FROM hub_calendrier.agents_dsi a
+           JOIN oracle.rh_tps_demabs d ON TRIM(a.matricule) = TRIM(d."RH_AGENT_MATRICULE")
+           WHERE a.matricule IS NOT NULL AND a.matricule != ''
+             AND d."TPS_DMDA_DT_DEBUT" IS NOT NULL
+             AND (d."TPS_DMDA_SUPPR" IS NULL OR TRIM(d."TPS_DMDA_SUPPR") = '0')
         `);
 
         const parseJsDate = (d) => {
