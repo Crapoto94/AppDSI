@@ -604,6 +604,12 @@ module.exports = {
         }
       }
 
+      // Debug: log RH absences raw data
+      if (rhAbsences.length > 0) {
+        const debugInfo = rhAbsences.map((e, i) => `[${i}] username="${e.agent_username}" nom="${e.agent_nom}" titre="${e.titre}" periode="${e.periode}" pending="${e.pending}" source="${e.source}" created_by="${e.created_by}" categorie="${e.categorie}" date="${e.date}"`).join(' | ');
+        console.log('[Calendrier DSI] RH absences for email:', debugInfo);
+      }
+
       let html = `
         <html>
           <head>
@@ -731,7 +737,7 @@ module.exports = {
         }
       }
 
-      res.json({ message: `Calendrier envoyé à ${sent} destinataire(s)${failed > 0 ? `, ${failed} échec(s)` : ''}` });
+      res.json({ message: `Calendrier envoyé à ${sent} destinataire(s)${failed > 0 ? `, ${failed} échec(s)` : ''}`, debug: rhAbsences.map(e => ({ titre: e.titre, periode: e.periode, agent_username: e.agent_username, pending: e.pending, source: e.source, created_by: e.created_by, date: e.date, categorie: e.categorie })) });
     } catch (error) {
       console.error('[Calendrier DSI] sendDailyCalendar error:', error);
       res.status(500).json({ message: 'Erreur lors de l\'envoi', error: error.message });
