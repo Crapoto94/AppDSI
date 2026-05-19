@@ -573,6 +573,16 @@ module.exports = {
         }
       }
 
+      // O365 calendar events
+      try {
+        const o365Ctrl = require('../o365-calendar/o365-calendar.controller');
+        const o365Events = await o365Ctrl.getEventsForDateRange(debut, fin);
+        console.log('[Calendrier DSI] O365 events found:', o365Events.length, 'for range', debut, '-', fin, o365Events.map(e => ({ date: e.date, titre: e.titre })));
+        events.push(...o365Events);
+      } catch (e) {
+        console.error('[Calendrier DSI] O365 events error (non-blocking):', e.message);
+      }
+
       events.sort((a, b) => a.date.localeCompare(b.date) || a.categorie.localeCompare(b.categorie));
 
       res.json(events);

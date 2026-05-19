@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
-import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail } from 'lucide-react';
+import axios from 'axios';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud } from 'lucide-react';
 
 const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion'] as const;
 type Categorie = typeof CATEGORIES[number];
@@ -159,6 +160,73 @@ export default function CalendrierDSI() {
   const [sendDate, setSendDate] = useState(formatDate(new Date()));
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [sendingCalendar, setSendingCalendar] = useState(false);
+
+  const [showO365Modal, setShowO365Modal] = useState(false);
+  const [o365Calendars, setO365Calendars] = useState<any[]>([]);
+  const [o365Loading, setO365Loading] = useState(false);
+  const [o365Syncing, setO365Syncing] = useState<number | null>(null);
+  const [o365Available, setO365Available] = useState<any[]>([]);
+  const [o365Searching, setO365Searching] = useState(false);
+  const [o365SearchEmail, setO365SearchEmail] = useState('');
+
+  const fetchO365Calendars = async () => {
+    setO365Loading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/admin/o365-calendar/status', { headers: { Authorization: `Bearer ${token}` } });
+      setO365Calendars(res.data);
+    } catch (e) { console.error('[O365] Error fetching calendars:', e); }
+    finally { setO365Loading(false); }
+  };
+
+  const syncO365 = async (id: number) => {
+    setO365Syncing(id);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`/api/admin/o365-calendar/${id}/sync`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      alert(res.data.message);
+      fetchO365Calendars();
+    } catch (e: any) { alert(e.response?.data?.error || e.response?.data?.message || 'Erreur de synchronisation'); }
+    finally { setO365Syncing(null); }
+  };
+
+  const searchO365 = async () => {
+    if (!o365SearchEmail) return;
+    setO365Searching(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/admin/o365-calendar/available', { params: { email: o365SearchEmail }, headers: { Authorization: `Bearer ${token}` } });
+      setO365Available(res.data);
+    } catch (e: any) { alert(e.response?.data?.error || 'Erreur lors de la recherche'); }
+    finally { setO365Searching(false); }
+  };
+
+  const addO365Calendar = async (cal: any) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('/api/admin/o365-calendar', { name: cal.name, email: o365SearchEmail, calendar_id: cal.id }, { headers: { Authorization: `Bearer ${token}` } });
+      fetchO365Calendars();
+      setO365Available([]);
+      setO365SearchEmail('');
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  };
+
+  const deleteO365Calendar = async (id: number) => {
+    if (!confirm('Supprimer ce calendrier Office 365 ?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`/api/admin/o365-calendar/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      fetchO365Calendars();
+    } catch (e) { console.error(e); }
+  };
+
+  const toggleO365Enabled = async (cal: any) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`/api/admin/o365-calendar/${cal.id}`, { ...cal, enabled: cal.enabled ? 0 : 1 }, { headers: { Authorization: `Bearer ${token}` } });
+      fetchO365Calendars();
+    } catch (e) { console.error(e); }
+  };
 
   const fetchEvents = useCallback(async (debut: string, fin: string) => {
     console.log('[Calendrier] fetchEvents:', debut, fin);
@@ -1165,6 +1233,7 @@ export default function CalendrierDSI() {
             <button onClick={navToday}>Aujourd'hui</button>
             <button className="btn-add" onClick={() => openCreateModal()}><Plus size={16} /> Ajouter</button>
             <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => { setSelectedRecipients([]); setSendDate(formatDate(new Date())); setShowSendModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={16} /> Envoyer</button>
+            <button style={{ background: '#0078d4', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0, 120, 212, 0.2)' }} onClick={() => { setShowO365Modal(true); fetchO365Calendars(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 120, 212, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 120, 212, 0.2)')}><Cloud size={16} /> O365</button>
             <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={16} /> Agents DSI</a>
           </div>
         </div>
@@ -1593,6 +1662,65 @@ const renderDot = (evt: Evenement) => {
                 {sendingCalendar ? '⏳ Envoi...' : '✉️ Envoyer'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* O365 Calendar Modal */}
+      {showO365Modal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowO365Modal(false)}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 30, width: '90%', maxWidth: 700, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800, color: '#0f172a' }}>Calendriers Office 365</h2>
+                <p style={{ color: '#64748b', marginTop: 4, fontSize: '0.9rem' }}>Connectez des calendriers Outlook pour afficher leurs événements.</p>
+              </div>
+              <button onClick={() => setShowO365Modal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
+
+            <h4 style={{ margin: '20px 0 10px', color: '#0f172a' }}>Ajouter un calendrier</h4>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input value={o365SearchEmail} onChange={e => setO365SearchEmail(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') searchO365(); }} style={{ flex: 1, padding: '10px 14px', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: '0.95rem' }} placeholder="Email du calendrier Outlook..." />
+              <button onClick={searchO365} disabled={o365Searching} style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid #0078d4', background: o365Searching ? '#e2e8f0' : '#fff', color: '#0078d4', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem' }}>
+                {o365Searching ? '...' : 'Chercher'}
+              </button>
+            </div>
+
+            {o365Available.length > 0 && (
+              <div style={{ marginTop: 10, border: '1px solid #e2e8f0', borderRadius: 10, maxHeight: 150, overflow: 'auto' }}>
+                {o365Available.map((cal: any, i: number) => (
+                  <div key={i} style={{ padding: '10px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#0f172a' }}>{cal.name}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{cal.owner}</div>
+                    </div>
+                    <button onClick={() => addO365Calendar(cal)} style={{ padding: '6px 14px', borderRadius: 8, background: '#0078d4', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>Ajouter</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <h4 style={{ margin: '20px 0 10px', color: '#0f172a' }}>Calendriers connectés</h4>
+            {o365Loading ? (
+              <p style={{ color: '#94a3b8', textAlign: 'center', padding: 20 }}>Chargement...</p>
+            ) : o365Calendars.length === 0 ? (
+              <p style={{ color: '#94a3b8', textAlign: 'center', padding: 20 }}>Aucun calendrier O365 connecté</p>
+            ) : o365Calendars.map((cal: any) => (
+              <div key={cal.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#f8fafc', borderRadius: 12, marginBottom: 8, border: '1px solid #e2e8f0' }}>
+                <Cloud size={20} style={{ color: cal.enabled ? '#0078d4' : '#94a3b8' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{cal.name}</div>
+                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{cal.email}{cal.last_sync_at ? ` · Dernière synchro: ${new Date(cal.last_sync_at).toLocaleString('fr-FR')}` : ' · Jamais synchronisé'}{cal.event_count !== undefined ? ` · ${cal.event_count} événements` : ''}</div>
+                </div>
+                <button onClick={() => toggleO365Enabled(cal)} style={{ padding: '6px 12px', borderRadius: 8, border: `1px solid ${cal.enabled ? '#22c55e' : '#e2e8f0'}`, background: cal.enabled ? '#f0fdf4' : '#f8fafc', color: cal.enabled ? '#166534' : '#94a3b8', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                  {cal.enabled ? '✓ Actif' : 'Inactif'}
+                </button>
+                <button onClick={() => syncO365(cal.id)} disabled={o365Syncing === cal.id} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #0078d4', background: '#eff6ff', color: '#0078d4', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+                  {o365Syncing === cal.id ? '...' : '↻ Synchro'}
+                </button>
+                <button onClick={() => deleteO365Calendar(cal.id)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #fecdd3', background: '#fff1f2', color: '#e11d48', cursor: 'pointer', fontSize: '0.8rem' }}>✕</button>
+              </div>
+            ))}
           </div>
         </div>
       )}

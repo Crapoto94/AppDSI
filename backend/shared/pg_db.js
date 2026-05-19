@@ -55,7 +55,9 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!projets\.)\bprojet_taches_standalone\b/gi, 'projets.projet_taches_standalone')
                     .replace(/(?<!hub\.)\bemail_automations\b/gi, 'hub.email_automations')
                     .replace(/(?<!hub\.)\bemail_automation_recipients\b/gi, 'hub.email_automation_recipients')
-                    .replace(/(?<!hub\.)\bemail_automation_logs\b/gi, 'hub.email_automation_logs');
+                    .replace(/(?<!hub\.)\bemail_automation_logs\b/gi, 'hub.email_automation_logs')
+                    .replace(/(?<!hub_calendrier\.)\bo365_calendars\b/gi, 'hub_calendrier.o365_calendars')
+                    .replace(/(?<!hub_calendrier\.)\bo365_events\b/gi, 'hub_calendrier.o365_events');
 
     newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
                     .replace(/transcript_cues/gi, 'transcript.cues')
@@ -1638,6 +1640,42 @@ async function setupPgDb() {
         error_message TEXT,
         sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    // O365 calendar subscriptions
+    await client.query(`CREATE TABLE IF NOT EXISTS hub_calendrier.o365_calendars (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        calendar_id TEXT DEFAULT '',
+        enabled INTEGER DEFAULT 1,
+        default_categorie TEXT DEFAULT 'reunion',
+        last_sync_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await client.query(`CREATE TABLE IF NOT EXISTS hub_calendrier.o365_events (
+        id SERIAL PRIMARY KEY,
+        calendar_id INTEGER NOT NULL REFERENCES hub_calendrier.o365_calendars(id) ON DELETE CASCADE,
+        o365_id TEXT NOT NULL,
+        subject TEXT DEFAULT '',
+        body_preview TEXT DEFAULT '',
+        start_date TIMESTAMP,
+        end_date TIMESTAMP,
+        is_all_day INTEGER DEFAULT 0,
+        location TEXT DEFAULT '',
+        organizer TEXT DEFAULT '',
+        categorie TEXT DEFAULT 'reunion',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(calendar_id, o365_id)
+    )`);
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_o365_events_calendar_date ON hub_calendrier.o365_events (calendar_id, start_date)`);
+    } catch (e) {}
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_o365_calendars_enabled ON hub_calendrier.o365_calendars (enabled)`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE hub_calendrier.o365_calendars ADD COLUMN IF NOT EXISTS default_categorie TEXT DEFAULT 'reunion'`);
+    } catch (e) {}
 
     // Set default fiscal_year_column for known rubriques
     try {

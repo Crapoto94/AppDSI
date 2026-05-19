@@ -4366,9 +4366,27 @@ app.use('/api/calendrier-dsi', calendrierRouter);
 // ============================================
 const emailAutoRouter = require('./modules/email-automation/email-automation.routes');
 const emailAutoCtrl = require('./modules/email-automation/email-automation.controller');
+const o365CalendarRouter = require('./modules/o365-calendar/o365-calendar.routes');
+const o365CalendarCtrl = require('./modules/o365-calendar/o365-calendar.controller');
 emailAutoCtrl.setSendMail(sendMail);
 
 app.use('/api/admin/email-automation', emailAutoRouter);
+
+// ============================================
+// O365 CALENDAR
+// ============================================
+app.use('/api/admin/o365-calendar', o365CalendarRouter);
+
+// Cron: auto-sync O365 calendars every 30 minutes
+cron.schedule('*/30 * * * *', async () => {
+    try {
+        const result = await o365CalendarCtrl.syncAllEnabled();
+        console.log(`[O365 AUTO-SYNC] Done: ${result.synced} synced, ${result.errors} errors`);
+    } catch (e) {
+        console.error('[O365 AUTO-SYNC] Cron error:', e.message);
+    }
+});
+console.log('[O365 AUTO-SYNC] Cron job registered (every 30 min)');
 
 // Cron: every minute, check and run due automations
 cron.schedule('* * * * *', async () => {
