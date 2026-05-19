@@ -835,6 +835,18 @@ export default function CalendrierDSI() {
           outline: 1.5px dashed #000;
           outline-offset: -1px;
         }
+        .pastille-maint {
+          outline: 2px solid #000;
+          outline-offset: -1px;
+        }
+        .pastille-dot-maint {
+          outline: 2px solid #000;
+          outline-offset: -1px;
+        }
+        .pastille-dot-sm-maint {
+          outline: 1.5px solid #000;
+          outline-offset: -1px;
+        }
         .rh-legend { display: flex; align-items: center; gap: 16px; padding: 6px 0 0 4px; font-size: 0.78rem; color: #666; margin-bottom: 8px; }
         .rh-legend-item { display: flex; align-items: center; gap: 6px; }
         .rh-legend-dot { width: 10px; height: 10px; border-radius: 50%; background: #E30613; }
@@ -1228,18 +1240,23 @@ const renderPastille = (evt: Evenement) => {
                     : CATEGORY_COLORS[cat];
                   const isAgent = evt.agent_username != null;
                   const isRh = evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
+                  const isMaint = evt.source === 'app-maintenance';
                   const isPending = evt.pending || evt.created_by === 'auto-rh-pending';
                   let rhClass = '';
                   if (isRh) {
                     if (isPending) rhClass = isAgent ? ' pastille-dot-rh-pending' : ' pastille-rh-pending';
                     else rhClass = isAgent ? ' pastille-dot-rh' : ' pastille-rh';
                   }
+                  let maintClass = '';
+                  if (isMaint) {
+                    maintClass = isAgent ? ' pastille-dot-maint' : ' pastille-maint';
+                  }
                   return isAgent ? (
-                    <div key={evt.id} className={`pastille-dot${rhClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.agent_nom || evt.description || ''}>
+                    <div key={evt.id} className={`pastille-dot${rhClass}${maintClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.agent_nom || evt.description || ''}>
                       {getInitials(evt.agent_nom)}
                     </div>
                   ) : (
-                    <div key={evt.id} className={`pastille${rhClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                    <div key={evt.id} className={`pastille${rhClass}${maintClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
                       {evt.titre}
                     </div>
                   );
@@ -1297,18 +1314,23 @@ const renderDot = (evt: Evenement) => {
                         : CATEGORY_COLORS[evt.categorie];
                       const isAgent = evt.agent_username != null;
                       const isRh = evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
+                      const isMaint = evt.source === 'app-maintenance';
                       const isPending = evt.pending || evt.created_by === 'auto-rh-pending';
                       let rhClass = '';
                       if (isRh) {
                         if (isPending) rhClass = isAgent ? ' pastille-dot-sm-rh-pending' : ' pastille-rh-pending';
                         else rhClass = isAgent ? ' pastille-dot-sm-rh' : ' pastille-rh';
                       }
+                      let maintClass = '';
+                      if (isMaint) {
+                        maintClass = isAgent ? ' pastille-dot-sm-maint' : ' pastille-maint';
+                      }
                       return isAgent ? (
-                        <div key={evt.id} className={`pastille-dot-sm${rhClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.description || evt.agent_nom || evt.titre}>
+                        <div key={evt.id} className={`pastille-dot-sm${rhClass}${maintClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.description || evt.agent_nom || evt.titre}>
                           {evt.agent_nom ? getInitials(evt.agent_nom) : ''}
                         </div>
                       ) : (
-                        <div key={evt.id} className={`pastille pastille-sm${rhClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                        <div key={evt.id} className={`pastille pastille-sm${rhClass}${maintClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
                           {evt.titre}
                         </div>
                       );

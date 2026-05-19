@@ -227,10 +227,11 @@ async function getEventsForDate(date) {
           agent_nom: agent.nom,
           agent_email: agent.email || '',
           couleur: CATEGORY_COLORS.teletravail,
-          created_by: 'auto',
-          created_at: null,
-          generated: true
-        });
+            created_by: 'auto',
+            created_at: null,
+            generated: true,
+            source: 'app-maintenance'
+          });
       }
     }
   }
