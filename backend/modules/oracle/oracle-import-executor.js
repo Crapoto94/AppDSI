@@ -175,7 +175,7 @@ async function executeOracleImport(type, db, pool, getOracleConnection) {
         const tableExistsResult = await pool.query(`
           SELECT EXISTS (
             SELECT 1 FROM information_schema.tables
-            WHERE table_schema = 'oracle' AND table_name = $1
+            WHERE table_schema = 'oracle' AND LOWER(table_name) = LOWER($1)
           )
         `, [prefix + '_' + localTableName]);
 
