@@ -95,7 +95,7 @@ async function getDemabsEventsForRange(debut, fin) {
   const demabsEvents = [];
   try {
     const demabsResult = await pool.query(`
-      SELECT DISTINCT a.username, a.nom, a.email, a.matricule,
+          SELECT DISTINCT a.username, TRIM(a.nom) as nom, a.email, a.matricule,
              d."TPS_DMDA_DT_DEBUT", d."TPS_DMDA_DT_FIN",
              d."TPS_DMDA_TYPE", d."TPS_DMDA_CHRONO",
              d."TPS_DMDA_TYPJOUR_DEB", d."TPS_DMDA_TYPJOUR_FIN",
@@ -186,7 +186,7 @@ async function getEventsForDate(date) {
 
   // Get all agents with their TT days and absences
   const agentsResult = await pool.query(`
-    SELECT a.username, a.nom, a.email,
+    SELECT a.username, TRIM(a.nom) as nom, a.email,
       COALESCE((SELECT json_agg(t.jour_semaine ORDER BY t.jour_semaine) FROM hub_calendrier.agents_tt_days t WHERE t.agent_username = a.username), '[]') as tt_fixed_days,
       COALESCE(json_agg(json_build_object('id', ap.id, 'jour_semaine', ap.jour_semaine, 'periode', ap.periode)) FILTER (WHERE ap.id IS NOT NULL), '[]') as absences
     FROM hub_calendrier.agents_dsi a
@@ -245,9 +245,9 @@ async function getEventsForDate(date) {
             id: nextGenId(),
             date,
             categorie: 'absence',
-            periode: (abs.periode || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '') === 'journee' ? '' : abs.periode,
+            periode: (abs.periode || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === 'journee' ? '' : (abs.periode || '').trim(),
             titre: agent.nom,
-            description: `Absence permanente ${abs.periode}`,
+            description: `Absence permanente ${(abs.periode || '').trim()}`,
             agent_username: agent.username,
             agent_nom: agent.nom,
             agent_email: agent.email || '',
@@ -305,7 +305,7 @@ module.exports = {
           [debut, fin]
         ),
         pool.query(`
-          SELECT a.username, a.nom, a.email,
+    SELECT a.username, TRIM(a.nom) as nom, a.email,
             COALESCE((SELECT json_agg(t.jour_semaine ORDER BY t.jour_semaine) FROM hub_calendrier.agents_tt_days t WHERE t.agent_username = a.username), '[]') as tt_fixed_days,
             COALESCE(json_agg(json_build_object('id', ap.id, 'jour_semaine', ap.jour_semaine, 'periode', ap.periode)) FILTER (WHERE ap.id IS NOT NULL), '[]') as absences
           FROM hub_calendrier.agents_dsi a
@@ -375,9 +375,9 @@ module.exports = {
               id: nextGenId(),
               date,
               categorie: 'absence',
-            periode: (abs.periode || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '') === 'journee' ? '' : abs.periode,
+            periode: (abs.periode || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === 'journee' ? '' : (abs.periode || '').trim(),
               titre: agent.nom,
-              description: `Absence permanente ${abs.periode}`,
+              description: `Absence permanente ${(abs.periode || '').trim()}`,
               agent_username: agent.username,
               agent_nom: agent.nom,
               agent_email: agent.email || '',
@@ -394,7 +394,7 @@ module.exports = {
       // Dates are stored as JS toString text, so we filter in JS not SQL
       try {
         const demabsResult = await pool.query(`
-          SELECT DISTINCT a.username, a.nom, a.email, a.matricule,
+      SELECT DISTINCT a.username, TRIM(a.nom) as nom, a.email, a.matricule,
                  d."TPS_DMDA_DT_DEBUT", d."TPS_DMDA_DT_FIN",
                  d."TPS_DMDA_TYPE", d."TPS_DMDA_CHRONO",
                  d."TPS_DMDA_TYPJOUR_DEB", d."TPS_DMDA_TYPJOUR_FIN",
@@ -652,15 +652,23 @@ module.exports = {
 
         // RH absences section
         if (rhAbsences.length > 0) {
-          const validated = rhAbsences.filter(e => !e.pending);
-          const pending = rhAbsences.filter(e => e.pending);
+          // Final dedup by visible content (titre + periode)
+          const rhKeys = new Set();
+          const uniqueRh = rhAbsences.filter(e => {
+            const k = `${e.titre || ''}|${e.periode || ''}`;
+            if (rhKeys.has(k)) return false;
+            rhKeys.add(k);
+            return true;
+          });
+          const validated = uniqueRh.filter(e => !e.pending);
+          const pending = uniqueRh.filter(e => e.pending);
           html += `
             <div class="category-section">
               <div class="category-header" style="background-color: ${CATEGORY_COLORS.absence}">
                 🏥 Absences RH${validated.length > 0 ? ` (${validated.length} validée${validated.length > 1 ? 's' : ''})` : ''}${pending.length > 0 ? ` (${pending.length} en attente)` : ''}
               </div>
           `;
-            for (const evt of rhAbsences) {
+            for (const evt of uniqueRh) {
               const periodLabel = evt.periode ? ` - ${evt.periode === 'matin' ? 'Matin' : 'Après-midi'}` : ' - Journée entière';
               const badge = evt.pending ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-left:8px">⏳ En attente</span>' : '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-left:8px">✅ Validé</span>';
               html += `
