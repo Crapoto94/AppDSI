@@ -437,10 +437,12 @@ export default function CalendrierDSI() {
         throw new Error(errBody.message || `Erreur HTTP ${res.status}`);
       }
       const result = await res.json();
+      console.log('[Send Calendar] Response:', result);
       setShowSendModal(false);
       setSelectedRecipients([]);
       setError(null);
-      alert(result.message);
+      const debugStr = result.debug ? result.debug.map((d: any, i: number) => `[${i}] titre="${d.titre}" periode="${d.periode}" username="${d.agent_username}" date="${d.date}"`).join('\n') : '';
+      alert(result.message + (debugStr ? '\n\nDEBUG RH absences:\n' + debugStr : ''));
     } catch (e: any) {
       console.error('Erreur envoi calendrier', e);
       setError(e.message || 'Erreur lors de l\'envoi');
