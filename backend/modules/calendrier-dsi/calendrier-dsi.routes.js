@@ -13,7 +13,11 @@ router.post('/send-daily', authenticateJWT, controller.sendDailyCalendar);
 
 router.get('/agents', authenticateJWT, agentsController.getAgents);
 router.post('/agents', authenticateJWT, agentsController.createAgent);
+router.get('/agents/search-matricule', authenticateJWT, agentsController.searchMatricule);
+router.post('/sync-demabs', authenticateJWT, agentsController.syncDemabs);
+router.get('/demabs-sync-info', authenticateJWT, agentsController.getDemabsSyncInfo);
 router.put('/agents/:username', authenticateJWT, agentsController.updateAgent);
+router.put('/agents/:username/matricule', authenticateJWT, agentsController.linkMatricule);
 router.post('/agents/:username/absences', authenticateJWT, agentsController.addAbsence);
 router.delete('/agents/absences/:id', authenticateJWT, agentsController.deleteAbsence);
 router.delete('/agents/:username', authenticateJWT, agentsController.deleteAgent);

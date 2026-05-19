@@ -254,7 +254,7 @@ const MagappAdmin: React.FC = () => {
           contract_count: contractCount[app.id] || 0
         }));
 
-        console.log('[MagappAdmin] Apps avec contrats:', appsWithContracts.filter(a => a.contract_count > 0));
+        console.log('[MagappAdmin] Apps avec contrats:', appsWithContracts.filter((a: AppItem) => (a.contract_count || 0) > 0));
         setApps(appsWithContracts);
       }
     } catch (e) { console.error('[MagappAdmin] Erreur fetchApps:', e); }

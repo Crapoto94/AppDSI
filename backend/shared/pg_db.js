@@ -1529,6 +1529,43 @@ async function setupPgDb() {
       );
     `);
 
+    // Add matricule column to agents_dsi
+    try {
+      await client.query(`ALTER TABLE hub_calendrier.agents_dsi ADD COLUMN IF NOT EXISTS matricule TEXT DEFAULT ''`);
+    } catch (e) {}
+
+    // Demabs table - synced from Oracle rh_tps_demabs
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_calendrier.demabs (
+        id SERIAL PRIMARY KEY,
+        matricule TEXT NOT NULL,
+        nom TEXT DEFAULT '',
+        prenom TEXT DEFAULT '',
+        date_debut DATE,
+        date_fin DATE,
+        type_absence TEXT DEFAULT '',
+        motif TEXT DEFAULT '',
+        periode_debut TEXT DEFAULT '',
+        periode_fin TEXT DEFAULT '',
+        statut TEXT DEFAULT '',
+        commentaire TEXT DEFAULT '',
+        raw_data JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_demabs_matricule ON hub_calendrier.demabs (matricule)`);
+    } catch (e) {}
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_demabs_date_debut ON hub_calendrier.demabs (date_debut)`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE hub_calendrier.demabs ADD COLUMN IF NOT EXISTS nom TEXT DEFAULT ''`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE hub_calendrier.demabs ADD COLUMN IF NOT EXISTS prenom TEXT DEFAULT ''`);
+    } catch (e) {}
+
     // Set default fiscal_year_column for known rubriques
     try {
       await client.query(`UPDATE finance.field_mapping_rubriques SET fiscal_year_column = 'COMMANDE_CMD_DATECOMMANDE' WHERE name = 'Commandes' AND (fiscal_year_column IS NULL OR fiscal_year_column = '')`);

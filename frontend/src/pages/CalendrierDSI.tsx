@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
-import { ChevronLeft, ChevronRight, Plus, X, Edit3, Trash2, Calendar, Users, HardHat, Wrench, Megaphone, Settings, Mail } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail } from 'lucide-react';
 
 const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion'] as const;
 type Categorie = typeof CATEGORIES[number];
@@ -22,14 +22,6 @@ const CATEGORY_LABELS: Record<Categorie, string> = {
   reunion: 'Réunions importantes'
 };
 
-const CATEGORY_ICONS: Record<Categorie, React.ReactNode> = {
-  absence: <Users size={14} />,
-  teletravail: <Users size={14} />,
-  deploiement: <HardHat size={14} />,
-  maintenance: <Wrench size={14} />,
-  reunion: <Megaphone size={14} />
-};
-
 interface Evenement {
   id: number;
   date: string;
@@ -43,6 +35,8 @@ interface Evenement {
   couleur: string;
   created_by: string;
   created_at: string;
+  source?: string;
+  pending?: boolean;
 }
 
 interface ADUser {
@@ -72,16 +66,7 @@ function formatDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function formatFrench(d: Date): string {
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-}
-
-function formatFrenchShort(d: Date): string {
-  return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
-}
-
 function getMonthDays(year: number, month: number): Date[] {
-  const first = new Date(year, month, 1);
   const last = new Date(year, month + 1, 0);
   const days: Date[] = [];
   for (let d = 1; d <= last.getDate(); d++) {
@@ -149,9 +134,9 @@ export default function CalendrierDSI() {
   const [view, setView] = useState<'week' | 'month'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [events, setEvents] = useState<Evenement[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [agents, setAgents] = useState<{ username: string; nom: string; service: string }[]>([]);
+  const [agents, setAgents] = useState<{ username: string; nom: string; service: string; email: string }[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Evenement | null>(null);
   const [saving, setSaving] = useState(false);
@@ -826,6 +811,35 @@ export default function CalendrierDSI() {
           transform: scale(1.08);
           box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
+        .pastille-rh {
+          outline: 2px solid #000;
+          outline-offset: -1px;
+        }
+        .pastille-dot-rh {
+          outline: 2px solid #000;
+          outline-offset: -1px;
+        }
+        .pastille-dot-sm-rh {
+          outline: 1.5px solid #000;
+          outline-offset: -1px;
+        }
+        .pastille-rh-pending {
+          outline: 2px dashed #000;
+          outline-offset: -1px;
+        }
+        .pastille-dot-rh-pending {
+          outline: 2px dashed #000;
+          outline-offset: -1px;
+        }
+        .pastille-dot-sm-rh-pending {
+          outline: 1.5px dashed #000;
+          outline-offset: -1px;
+        }
+        .rh-legend { display: flex; align-items: center; gap: 16px; padding: 6px 0 0 4px; font-size: 0.78rem; color: #666; margin-bottom: 8px; }
+        .rh-legend-item { display: flex; align-items: center; gap: 6px; }
+        .rh-legend-dot { width: 10px; height: 10px; border-radius: 50%; background: #E30613; }
+        .rh-legend-dot-rh { width: 14px; height: 14px; border-radius: 50%; background: #E30613; outline: 2px solid #000; outline-offset: -1px; }
+        .rh-legend-dot-rh-pending { width: 14px; height: 14px; border-radius: 50%; background: #E30613; outline: 2px dashed #000; outline-offset: -1px; }
 
         /* Month Grid */
         .month-grid {
@@ -1150,6 +1164,12 @@ export default function CalendrierDSI() {
       </div>
 
       <div className="calendrier-main">
+        {/* RH Legend */}
+        <div className="rh-legend">
+          <div className="rh-legend-item"><div className="rh-legend-dot"></div> Absence saisie</div>
+          <div className="rh-legend-item"><div className="rh-legend-dot-rh"></div> Absence RH validée</div>
+          <div className="rh-legend-item"><div className="rh-legend-dot-rh-pending"></div> Absence RH en attente</div>
+        </div>
         {/* Error */}
         {error && (
           <div style={{ background: '#fee2e2', border: '1.5px solid #dc2626', borderRadius: '10px', padding: '14px 16px', marginBottom: '24px', color: '#991b1b', fontSize: '0.95rem', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1202,17 +1222,24 @@ export default function CalendrierDSI() {
                 const amEvts = evts.filter(e => e.periode === 'matin');
                 const pmEvts = evts.filter(e => e.periode === 'apres-midi');
                 const hasAny = evts.length > 0;
-                const renderPastille = (evt: Evenement) => {
+const renderPastille = (evt: Evenement) => {
                   const bgColor = evt.agent_username && serviceMap.has(evt.agent_username)
                     ? getServiceColor(serviceMap.get(evt.agent_username)!)
                     : CATEGORY_COLORS[cat];
                   const isAgent = evt.agent_username != null;
+                  const isRh = evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
+                  const isPending = evt.pending || evt.created_by === 'auto-rh-pending';
+                  let rhClass = '';
+                  if (isRh) {
+                    if (isPending) rhClass = isAgent ? ' pastille-dot-rh-pending' : ' pastille-rh-pending';
+                    else rhClass = isAgent ? ' pastille-dot-rh' : ' pastille-rh';
+                  }
                   return isAgent ? (
-                    <div key={evt.id} className="pastille-dot" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.agent_nom || ''}>
+                    <div key={evt.id} className={`pastille-dot${rhClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.agent_nom || evt.description || ''}>
                       {getInitials(evt.agent_nom)}
                     </div>
                   ) : (
-                    <div key={evt.id} className="pastille" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                    <div key={evt.id} className={`pastille${rhClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
                       {evt.titre}
                     </div>
                   );
@@ -1264,17 +1291,24 @@ export default function CalendrierDSI() {
                     const fullEvts = CATEGORIES.flatMap(cat => eventsByDateAndCat(ds, cat).filter(e => e.periode === ''));
                     const amEvts = CATEGORIES.flatMap(cat => eventsByDateAndCat(ds, cat).filter(e => e.periode === 'matin'));
                     const pmEvts = CATEGORIES.flatMap(cat => eventsByDateAndCat(ds, cat).filter(e => e.periode === 'apres-midi'));
-                    const renderDot = (evt: Evenement) => {
+const renderDot = (evt: Evenement) => {
                       const bgColor = evt.agent_username && serviceMap.has(evt.agent_username)
                         ? getServiceColor(serviceMap.get(evt.agent_username)!)
                         : CATEGORY_COLORS[evt.categorie];
                       const isAgent = evt.agent_username != null;
+                      const isRh = evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
+                      const isPending = evt.pending || evt.created_by === 'auto-rh-pending';
+                      let rhClass = '';
+                      if (isRh) {
+                        if (isPending) rhClass = isAgent ? ' pastille-dot-sm-rh-pending' : ' pastille-rh-pending';
+                        else rhClass = isAgent ? ' pastille-dot-sm-rh' : ' pastille-rh';
+                      }
                       return isAgent ? (
-                        <div key={evt.id} className="pastille-dot-sm" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.agent_nom || evt.titre}>
+                        <div key={evt.id} className={`pastille-dot-sm${rhClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }} title={evt.description || evt.agent_nom || evt.titre}>
                           {evt.agent_nom ? getInitials(evt.agent_nom) : ''}
                         </div>
                       ) : (
-                        <div key={evt.id} className="pastille pastille-sm" style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                        <div key={evt.id} className={`pastille pastille-sm${rhClass}`} style={{ background: bgColor }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
                           {evt.titre}
                         </div>
                       );

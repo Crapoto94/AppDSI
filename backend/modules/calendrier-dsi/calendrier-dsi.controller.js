@@ -33,6 +33,52 @@ function getDatesForDayOfWeek(debut, fin, dayOfWeek) {
   return dates;
 }
 
+function periodeLabel(code) {
+  if (!code) return '';
+  const normalized = code.toUpperCase().trim();
+  if (['MATIN', 'M', 'AM'].includes(normalized)) return 'matin';
+  if (['APRES-MIDI', 'APRES MIDI', 'APRESMIDI', 'PM', 'APM'].includes(normalized)) return 'apres-midi';
+  if (['JOURNEE', 'JOUR', 'J'].includes(normalized)) return '';
+  return '';
+}
+
+function computePeriodes(typjourDeb, typjourFin, hrDeb, hrFin) {
+  // Returns array of periode strings: ['matin'], ['apres-midi'], or ['matin', 'apres-midi'] (full day -> '')
+  const deb = (typjourDeb || '').toUpperCase().trim();
+  const fin = (typjourFin || '').toUpperCase().trim();
+
+  // Case 1: explicit Matin/Apres-midi
+  if (deb === 'MATIN' && fin === 'MATIN') return ['matin'];
+  if (deb === 'APRES MIDI' || deb === 'APRES-MIDI') return ['apres-midi'];
+  if (fin === 'APRES MIDI' || fin === 'APRES-MIDI') return ['matin', 'apres-midi']; // Matin -> Apres midi = full day
+  if (deb === 'MATIN') {
+    if (fin === 'APRES MIDI' || fin === 'APRES-MIDI' || fin === '') return ['matin', 'apres-midi'];
+    if (fin === 'MATIN') return ['matin'];
+    return ['matin', 'apres-midi']; // default to full day
+  }
+
+  // Case 2: Heure - use actual times
+  if (deb === 'HEURE' || fin === 'HEURE') {
+    let startHour = 12;
+    let endHour = 12;
+    if (hrDeb instanceof Date) startHour = hrDeb.getHours();
+    else if (hrDeb && typeof hrDeb === 'object' && hrDeb.getHours) startHour = hrDeb.getHours();
+    if (hrFin instanceof Date) endHour = hrFin.getHours();
+    else if (hrFin && typeof hrFin === 'object' && hrFin.getHours) endHour = hrFin.getHours();
+
+    const startsMorning = startHour < 12;
+    const endsAfternoon = endHour > 12 || (endHour === 12 && hrFin instanceof Date && hrFin.getMinutes() > 0);
+
+    if (startsMorning && endsAfternoon) return ['matin', 'apres-midi'];
+    if (startsMorning && !endsAfternoon) return ['matin'];
+    if (!startsMorning) return ['apres-midi'];
+    return ['matin', 'apres-midi']; // fallback
+  }
+
+  // Default: full day
+  return ['matin', 'apres-midi'];
+}
+
 const CATEGORY_COLORS = {
   absence: '#E30613',
   teletravail: '#003366',
@@ -43,6 +89,90 @@ let genIdCounter = -1;
 
 function nextGenId() {
   return genIdCounter--;
+}
+
+async function getDemabsEventsForRange(debut, fin) {
+  const demabsEvents = [];
+  try {
+    const demabsResult = await pool.query(`
+      SELECT a.username, a.nom, a.email, a.matricule,
+             d."TPS_DMDA_DT_DEBUT", d."TPS_DMDA_DT_FIN",
+             d."TPS_DMDA_TYPE", d."TPS_DMDA_CHRONO",
+             d."TPS_DMDA_TYPJOUR_DEB", d."TPS_DMDA_TYPJOUR_FIN",
+             d."TPS_DMDA_HR_DEBUT", d."TPS_DMDA_HR_FIN",
+             d."TPS_DMDA_ETAT"
+      FROM hub_calendrier.agents_dsi a
+      JOIN oracle.rh_tps_demabs d ON TRIM(a.matricule) = TRIM(d."RH_AGENT_MATRICULE")
+      WHERE a.matricule IS NOT NULL AND a.matricule != ''
+        AND d."TPS_DMDA_DT_DEBUT" IS NOT NULL
+        AND (d."TPS_DMDA_SUPPR" IS NULL OR TRIM(d."TPS_DMDA_SUPPR") = '0')
+    `);
+
+    const parseJsDate = (d) => {
+      if (!d) return null;
+      if (d instanceof Date) {
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      }
+      if (typeof d === 'string') {
+        const m = d.match(/(\w{3}) (\w{3}) (\d{1,2}) (\d{4})/);
+        if (m) { return new Date(d).toISOString().split('T')[0]; }
+        return d.split('T')[0];
+      }
+      return null;
+    };
+
+    const typeLabels = { '1': 'Congé annuel', '2': 'Maladie', '3': 'Maternité', '4': 'PAT', '5': 'Sans solde', '6': 'Formation', '7': 'Convenance', '8': 'Autorisation absence' };
+
+    const seenKeys = new Set();
+
+    for (const row of demabsResult.rows) {
+      const startDate = parseJsDate(row.TPS_DMDA_DT_DEBUT);
+      const endDate = parseJsDate(row.TPS_DMDA_DT_FIN) || startDate;
+      if (!startDate) continue;
+      if (endDate < debut || startDate > fin) continue;
+
+      const dates = getDatesInRange(
+        startDate > debut ? startDate : debut,
+        endDate < fin ? endDate : fin
+      );
+      if (dates.length === 0) continue;
+
+      const periodes = computePeriodes(row.TPS_DMDA_TYPJOUR_DEB, row.TPS_DMDA_TYPJOUR_FIN, row.TPS_DMDA_HR_DEBUT, row.TPS_DMDA_HR_FIN);
+      const periode = periodes.length === 2 ? '' : periodes[0] || '';
+      const typeNum = String(row.TPS_DMDA_TYPE || '').trim();
+      const typeLabel = typeLabels[typeNum] || `Type ${typeNum}`;
+      const etat = String(row.TPS_DMDA_ETAT || '').trim();
+      const chrono = String(row.TPS_DMDA_CHRONO || '').trim();
+      const etatLabel = etat === 'A' ? 'En attente' : etat === 'E' ? 'En cours' : '';
+      const isPending = etat === 'A' || etat === 'E';
+      const periodeStr = periode === 'matin' ? 'Matin' : periode === 'apres-midi' ? 'Après-midi' : '';
+      const description = `${typeLabel}${periodeStr ? ' (' + periodeStr + ')' : ''}${chrono ? ' - ' + chrono : ''}${etatLabel ? ' ⏳ ' + etatLabel : ''}`;
+
+      for (const date of dates) {
+        const dedupeKey = `${row.username}|${date}|${periode}`;
+        if (seenKeys.has(dedupeKey)) continue;
+        seenKeys.add(dedupeKey);
+
+        demabsEvents.push({
+          date,
+          categorie: 'absence',
+          periode,
+          titre: row.nom,
+          description,
+          agent_username: row.username,
+          agent_nom: row.nom,
+          agent_email: row.email || '',
+          couleur: CATEGORY_COLORS.absence,
+          source: 'demabs',
+          pending: isPending,
+          demabs_id: null
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[Calendrier DSI] getDemabsEventsForRange error:', err.message);
+  }
+  return demabsEvents;
 }
 
 async function getEventsForDate(date) {
@@ -128,6 +258,25 @@ async function getEventsForDate(date) {
           });
         }
       }
+    }
+  }
+
+  // Add demabs (RH absence) events
+  const finDate = new Date(date + 'T00:00:00');
+  finDate.setDate(finDate.getDate() + 1);
+  const finStr = formatDateStr(finDate);
+  const demabsEvts = await getDemabsEventsForRange(date, finStr);
+  for (const de of demabsEvts) {
+    const dedupeKey = `${de.agent_username}|${de.date}|absence|${de.periode || ''}`;
+    if (!manualKeys.has(dedupeKey)) {
+      events.push({
+        id: nextGenId(),
+        ...de,
+        created_by: de.pending ? 'auto-rh-pending' : 'auto-rh',
+        created_at: null,
+        generated: true
+      });
+      manualKeys.add(dedupeKey);
     }
   }
 
@@ -234,6 +383,95 @@ module.exports = {
         }
       }
 
+      // Demabs (RH absence) events for linked agents — read directly from oracle.rh_tps_demabs
+      // Dates are stored as JS toString text, so we filter in JS not SQL
+      try {
+        const demabsResult = await pool.query(`
+          SELECT a.username, a.nom, a.email, a.matricule,
+                 d."TPS_DMDA_DT_DEBUT", d."TPS_DMDA_DT_FIN",
+                 d."TPS_DMDA_TYPE", d."TPS_DMDA_CHRONO",
+                 d."TPS_DMDA_TYPJOUR_DEB", d."TPS_DMDA_TYPJOUR_FIN",
+                 d."TPS_DMDA_HR_DEBUT", d."TPS_DMDA_HR_FIN",
+                 d."TPS_DMDA_ETAT"
+          FROM hub_calendrier.agents_dsi a
+          JOIN oracle.rh_tps_demabs d ON TRIM(a.matricule) = TRIM(d."RH_AGENT_MATRICULE")
+          WHERE a.matricule IS NOT NULL AND a.matricule != ''
+            AND d."TPS_DMDA_DT_DEBUT" IS NOT NULL
+            AND (d."TPS_DMDA_SUPPR" IS NULL OR TRIM(d."TPS_DMDA_SUPPR") = '0')
+        `);
+
+        const parseJsDate = (d) => {
+          if (!d) return null;
+          if (d instanceof Date) {
+            return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          }
+          if (typeof d === 'string') {
+            const m = d.match(/(\w{3}) (\w{3}) (\d{1,2}) (\d{4})/);
+            if (m) { return new Date(d).toISOString().split('T')[0]; }
+            return d.split('T')[0];
+          }
+          return null;
+        };
+
+        for (const de of demabsResult.rows) {
+          const startDate = parseJsDate(de.TPS_DMDA_DT_DEBUT);
+          const endDate = parseJsDate(de.TPS_DMDA_DT_FIN) || startDate;
+          if (!startDate) continue;
+
+          // Only include if the absence overlaps the visible range
+          if (endDate < debut || startDate > fin) continue;
+
+          const dates = getDatesInRange(
+            startDate > debut ? startDate : debut,
+            endDate < fin ? endDate : fin
+          );
+          if (dates.length === 0) continue;
+
+          const periodes = computePeriodes(de.TPS_DMDA_TYPJOUR_DEB, de.TPS_DMDA_TYPJOUR_FIN, de.TPS_DMDA_HR_DEBUT, de.TPS_DMDA_HR_FIN);
+          // If both matin and apres-midi => full day (periode = '')
+          const periode = periodes.length === 2 ? '' : periodes[0] || '';
+          const typeNum = String(de.TPS_DMDA_TYPE || '').trim();
+          const etat = String(de.TPS_DMDA_ETAT || '').trim();
+          const chrono = String(de.TPS_DMDA_CHRONO || '').trim();
+
+          // Type 1=congé annuel, 2=maladie, etc.
+          const typeLabels = { '1': 'Congé annuel', '2': 'Maladie', '3': 'Maternité', '4': 'PAT', '5': 'Sans solde', '6': 'Formation', '7': 'Convenance', '8': 'Autorisation absence' };
+          const typeLabel = typeLabels[typeNum] || `Type ${typeNum}`;
+
+          // ETAT: T=Validé, A=En attente, E=En cours
+          const etatLabel = etat === 'A' ? 'En attente' : etat === 'E' ? 'En cours' : '';
+          const isPending = etat === 'A' || etat === 'E';
+          const periodeStr = periode === 'matin' ? 'Matin' : periode === 'apres-midi' ? 'Après-midi' : '';
+          const description = `${typeLabel}${periodeStr ? ' (' + periodeStr + ')' : ''}${chrono ? ' - ' + chrono : ''}${etatLabel ? ' ⏳ ' + etatLabel : ''}`;
+
+          for (const date of dates) {
+            const dedupeKey = `${de.username}|${date}|absence|${periode}`;
+            if (!manualKeys.has(dedupeKey)) {
+              events.push({
+                id: nextGenId(),
+                date,
+                categorie: 'absence',
+                periode: periode,
+                titre: de.nom,
+                description: description,
+                agent_username: de.username,
+                agent_nom: de.nom,
+                agent_email: de.email || '',
+                couleur: CATEGORY_COLORS.absence,
+                created_by: isPending ? 'auto-rh-pending' : 'auto-rh',
+                created_at: null,
+                generated: true,
+                source: 'demabs',
+                pending: isPending
+              });
+              manualKeys.add(dedupeKey);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Calendrier DSI] demabs query error:', err.message);
+      }
+
       // Maintenance events from app store (one per day in range)
       for (const app of appsResult.rows) {
         const start = app.maintenance_start > debut ? app.maintenance_start : debut;
@@ -329,8 +567,10 @@ module.exports = {
       const events = await getEventsForDate(date);
       const formattedDate = new Date(date).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-      // Group events by category
+      // Group events by category, splitting absence into manual and RH
       const byCategory = {};
+      const rhAbsences = [];
+      const manualAbsences = [];
       const CATEGORY_LABELS = {
         absence: 'Absents',
         teletravail: 'Télétravailleurs',
@@ -347,8 +587,14 @@ module.exports = {
       };
 
       for (const evt of events) {
-        if (!byCategory[evt.categorie]) byCategory[evt.categorie] = [];
-        byCategory[evt.categorie].push(evt);
+        if (evt.categorie === 'absence' && (evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending')) {
+          rhAbsences.push(evt);
+        } else if (evt.categorie === 'absence') {
+          manualAbsences.push(evt);
+        } else {
+          if (!byCategory[evt.categorie]) byCategory[evt.categorie] = [];
+          byCategory[evt.categorie].push(evt);
+        }
       }
 
       let html = `
@@ -376,7 +622,51 @@ module.exports = {
       if (events.length === 0) {
         html += '<div class="empty-day">✅ Aucun événement prévu pour cette journée</div>';
       } else {
-        const categoryOrder = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion'];
+        // Manual absences section
+        if (manualAbsences.length > 0) {
+          html += `
+            <div class="category-section">
+              <div class="category-header" style="background-color: ${CATEGORY_COLORS.absence}">
+                ❌ Absences saisies (${manualAbsences.length})
+              </div>
+          `;
+          for (const evt of manualAbsences) {
+            const periodLabel = evt.periode ? ` - ${evt.periode === 'matin' ? 'Matin' : 'Après-midi'}` : ' - Journée entière';
+            html += `
+              <div class="category-item">
+                <div class="item-name">${evt.titre}${periodLabel}</div>
+                ${evt.agent_nom ? `<div class="item-period">👤 ${evt.agent_nom}</div>` : ''}
+                ${evt.description ? `<div class="item-desc">${evt.description}</div>` : ''}
+              </div>
+            `;
+          }
+          html += '</div>';
+        }
+
+        // RH absences section
+        if (rhAbsences.length > 0) {
+          const validated = rhAbsences.filter(e => !e.pending);
+          const pending = rhAbsences.filter(e => e.pending);
+          html += `
+            <div class="category-section">
+              <div class="category-header" style="background-color: ${CATEGORY_COLORS.absence}">
+                🏥 Absences RH${validated.length > 0 ? ` (${validated.length} validée${validated.length > 1 ? 's' : ''})` : ''}${pending.length > 0 ? ` (${pending.length} en attente)` : ''}
+              </div>
+          `;
+            for (const evt of rhAbsences) {
+              const periodLabel = evt.periode ? ` - ${evt.periode === 'matin' ? 'Matin' : 'Après-midi'}` : ' - Journée entière';
+              const badge = evt.pending ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-left:8px">⏳ En attente</span>' : '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-size:0.75rem;margin-left:8px">✅ Validé</span>';
+              html += `
+                <div class="category-item" style="${evt.pending ? 'border-left-color: #f59e0b; background: #fffbeb;' : ''}">
+                  <div class="item-name">${evt.titre}${periodLabel}${badge}</div>
+                  ${evt.agent_nom ? `<div class="item-period">👤 ${evt.agent_nom}</div>` : ''}
+                </div>
+              `;
+            }
+          html += '</div>';
+        }
+
+        const categoryOrder = ['teletravail', 'deploiement', 'maintenance', 'reunion'];
         for (const cat of categoryOrder) {
           if (byCategory[cat]) {
             const catEvents = byCategory[cat];
@@ -384,7 +674,7 @@ module.exports = {
             html += `
               <div class="category-section">
                 <div class="category-header" style="background-color: ${bgColor}">
-                  ${cat === 'absence' ? '❌' : cat === 'teletravail' ? '💻' : cat === 'deploiement' ? '🔧' : cat === 'maintenance' ? '⚙️' : '📢'}
+                  ${cat === 'teletravail' ? '💻' : cat === 'deploiement' ? '🔧' : cat === 'maintenance' ? '⚙️' : '📢'}
                   ${CATEGORY_LABELS[cat]} (${catEvents.length})
                 </div>
             `;
