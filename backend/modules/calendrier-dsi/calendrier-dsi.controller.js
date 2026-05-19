@@ -280,10 +280,10 @@ async function getEventsForDate(date) {
     }
   }
 
-  // Final dedup pass: remove any remaining duplicates by agent+date+cat+periode
+  // Final dedup pass: remove any remaining duplicates by displayed content (titre+date+cat+periode)
   const finalKeys = new Set();
   return events.filter(e => {
-    const k = `${e.agent_username || ''}|${e.date}|${e.categorie}|${e.periode || ''}`;
+    const k = `${e.titre || ''}|${e.date}|${e.categorie}|${e.periode || ''}`;
     if (finalKeys.has(k)) return false;
     finalKeys.add(k);
     return true;
