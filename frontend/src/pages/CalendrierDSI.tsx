@@ -1240,7 +1240,7 @@ const renderPastille = (evt: Evenement) => {
                     : CATEGORY_COLORS[cat];
                   const isAgent = evt.agent_username != null;
                   const isRh = evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
-                  const isMaint = evt.source === 'app-maintenance';
+                  const isMaint = evt.source === 'maintenance-table';
                   const isPending = evt.pending || evt.created_by === 'auto-rh-pending';
                   let rhClass = '';
                   if (isRh) {
@@ -1314,7 +1314,7 @@ const renderDot = (evt: Evenement) => {
                         : CATEGORY_COLORS[evt.categorie];
                       const isAgent = evt.agent_username != null;
                       const isRh = evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
-                      const isMaint = evt.source === 'app-maintenance';
+                      const isMaint = evt.source === 'maintenance-table';
                       const isPending = evt.pending || evt.created_by === 'auto-rh-pending';
                       let rhClass = '';
                       if (isRh) {

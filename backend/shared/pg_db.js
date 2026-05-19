@@ -371,6 +371,9 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE magapp.apps ADD COLUMN IF NOT EXISTS project_manager_name VARCHAR(255) DEFAULT ''`);
     } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.apps ADD COLUMN IF NOT EXISTS dsi_only BOOLEAN DEFAULT FALSE`);
+    } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.doc_interactions (
@@ -387,6 +390,40 @@ async function setupPgDb() {
       INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres)
       VALUES (1, true, true, true, true, true, true)
       ON CONFLICT (id) DO NOTHING;
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.maintenances (
+        id SERIAL PRIMARY KEY,
+        app_id INTEGER NOT NULL REFERENCES magapp.apps(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        description TEXT DEFAULT '',
+        severity VARCHAR(10) NOT NULL DEFAULT 'mineure',
+        has_interruption BOOLEAN DEFAULT false,
+        start_date TIMESTAMP NOT NULL,
+        end_date TIMESTAMP NOT NULL,
+        created_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      -- Convert existing dates from local time (Europe/Paris) to UTC if they look like local time
+      UPDATE magapp.maintenances
+        SET start_date = start_date AT TIME ZONE 'Europe/Paris' AT TIME ZONE 'UTC',
+            end_date = end_date AT TIME ZONE 'Europe/Paris' AT TIME ZONE 'UTC'
+        WHERE EXTRACT(HOUR FROM start_date) >= 12;
+
+      CREATE TABLE IF NOT EXISTS magapp.maintenance_attachments (
+        id SERIAL PRIMARY KEY,
+        maintenance_id INTEGER NOT NULL REFERENCES magapp.maintenances(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        file_size INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     await client.query(`

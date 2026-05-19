@@ -6,6 +6,16 @@ const fs = require('fs');
 const mariadb = require('mariadb');
 const ldap = require('ldapjs');
 
+function formatLocal(d) {
+    const y = d.getFullYear();
+    const M = String(d.getMonth() + 1).padStart(2, '0');
+    const D = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const s = String(d.getSeconds()).padStart(2, '0');
+    return `${y}-${M}-${D}T${h}:${m}:${s}`;
+}
+
 /**
  * MagApp Controller
  */
@@ -21,17 +31,79 @@ const MagAppController = {
         }
     },
 
+    createCategory: async (req, res) => {
+        try {
+            const { name, icon, display_order } = req.body;
+            if (!name) return res.status(400).json({ message: 'Le nom est requis' });
+            const result = await pgDb.run(
+                'INSERT INTO magapp_categories (name, icon, display_order) VALUES (?, ?, ?)',
+                [name, icon || '', display_order || 0]
+            );
+            res.json({ id: result.lastID, message: 'Catégorie créée' });
+        } catch (err) {
+            console.error('[MAGAPP] Error creating category:', err.message);
+            res.status(500).json({ message: 'Error creating category', error: err.message });
+        }
+    },
+
+    updateCategory: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { name, icon, display_order } = req.body;
+            await pgDb.run(
+                'UPDATE magapp_categories SET name = ?, icon = ?, display_order = ? WHERE id = ?',
+                [name, icon || '', display_order || 0, id]
+            );
+            res.json({ message: 'Catégorie mise à jour' });
+        } catch (err) {
+            console.error('[MAGAPP] Error updating category:', err.message);
+            res.status(500).json({ message: 'Error updating category', error: err.message });
+        }
+    },
+
+    deleteCategory: async (req, res) => {
+        try {
+            const { id } = req.params;
+            await pgDb.run('DELETE FROM magapp_categories WHERE id = ?', [id]);
+            res.json({ message: 'Catégorie supprimée' });
+        } catch (err) {
+            console.error('[MAGAPP] Error deleting category:', err.message);
+            res.status(500).json({ message: 'Error deleting category', error: err.message });
+        }
+    },
+
     // Apps
     getApps: async (req, res) => {
         try {
-            const apps = await pgDb.all(`
+            let apps = await pgDb.all(`
                 SELECT a.*,
+                CASE WHEN (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date <= CURRENT_TIMESTAMP AND end_date >= CURRENT_TIMESTAMP) > 0 THEN 1 ELSE a.is_maintenance END as is_maintenance,
                 (SELECT COUNT(*) FROM magapp.app_users WHERE app_id = a.id) as user_count,
                 (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE AND is_technical = FALSE) as normal_doc_count,
-                (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE AND is_technical = TRUE) as technical_doc_count
+                (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE AND is_technical = TRUE) as technical_doc_count,
+                (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date > CURRENT_TIMESTAMP) as future_maintenance_count,
+                (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date <= CURRENT_TIMESTAMP AND end_date >= CURRENT_TIMESTAMP) as ongoing_maintenance_count
                 FROM magapp_apps a
                 ORDER BY a.name ASC
             `);
+            // Hide DSI-only apps for non-admin users (admin = global admin OR user with magapp tile)
+            let isMagappAdmin = req.user && (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin');
+            if (!isMagappAdmin && req.user && req.user.id) {
+                try {
+                    const db = getSqlite();
+                    const authorized = await db.get(`
+                        SELECT 1 FROM user_tiles ut
+                        JOIN tile_links tl ON ut.tile_id = tl.tile_id
+                        WHERE ut.user_id = ? AND tl.url = '/admin/magapp'
+                    `, [req.user.id]);
+                    isMagappAdmin = !!authorized;
+                } catch (e) {
+                    console.error('[MAGAPP] Error checking tile for DSI-only filter:', e.message);
+                }
+            }
+            if (!isMagappAdmin) {
+                apps = apps.filter(a => !a.dsi_only);
+            }
             res.json(apps);
         } catch (err) {
             console.error('[MAGAPP] Error fetching apps:', err.message);
@@ -41,12 +113,12 @@ const MagAppController = {
 
     createApp: async (req, res) => {
         try {
-            const { name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name } = req.body;
+            const { name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name, dsi_only } = req.body;
 
             const result = await pgDb.run(`
-                INSERT INTO magapp_apps (name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username || '', project_manager_name || '']);
+                INSERT INTO magapp_apps (name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name, dsi_only)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username || '', project_manager_name || '', dsi_only ? 1 : 0]);
 
             res.json({ id: result.lastID, message: 'Application créée' });
         } catch (err) {
@@ -58,13 +130,13 @@ const MagAppController = {
     updateApp: async (req, res) => {
         try {
             const { id } = req.params;
-            const { name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name } = req.body;
+            const { name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name, dsi_only } = req.body;
 
             await pgDb.run(`
                 UPDATE magapp_apps
-                SET name = ?, category_id = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ?, app_type = ?, present_magapp = ?, present_onboard = ?, email_createur = ?, mercator_id = ?, mercator_name = ?, project_manager_username = ?, project_manager_name = ?
+                SET name = ?, category_id = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ?, app_type = ?, present_magapp = ?, present_onboard = ?, email_createur = ?, mercator_id = ?, mercator_name = ?, project_manager_username = ?, project_manager_name = ?, dsi_only = ?
                 WHERE id = ?
-            `, [name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username || '', project_manager_name || '', id]);
+            `, [name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username || '', project_manager_name || '', dsi_only ? 1 : 0, id]);
 
             res.json({ message: 'Application mise à jour' });
         } catch (err) {
@@ -931,6 +1003,120 @@ const MagAppController = {
         } catch (error) {
             console.error('[MAGAPP] Error fetching doc stats:', error.message);
             res.status(500).json({ message: 'Erreur lors de la récupération des statistiques' });
+        }
+    },
+
+    // Maintenances
+    getMaintenances: async (req, res) => {
+        try {
+            const maintenances = await pgDb.all(`
+                SELECT m.id, m.app_id, m.name, m.description, m.severity, m.has_interruption,
+                       to_char(m.start_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as start_date,
+                       to_char(m.end_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as end_date,
+                       m.created_by,
+                       to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+                       to_char(m.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+                       a.name as app_name, a.icon as app_icon
+                FROM magapp.maintenances m
+                JOIN magapp_apps a ON m.app_id = a.id
+                ORDER BY m.start_date DESC
+            `);
+            res.json(maintenances);
+        } catch (error) {
+            console.error('[MAGAPP] Error fetching maintenances:', error.message);
+            res.status(500).json({ message: 'Erreur lors de la récupération des maintenances' });
+        }
+    },
+
+    getAppMaintenances: async (req, res) => {
+        try {
+            const { appId } = req.params;
+            const maintenances = await pgDb.all(
+                `SELECT m.id, m.app_id, m.name, m.description, m.severity, m.has_interruption,
+                        to_char(m.start_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as start_date,
+                        to_char(m.end_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as end_date,
+                        m.created_by,
+                        to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+                        to_char(m.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+                        a.name as app_name, a.icon as app_icon
+                 FROM magapp.maintenances m
+                 JOIN magapp_apps a ON m.app_id = a.id
+                 WHERE m.app_id = $1
+                 ORDER BY m.start_date DESC`,
+                [appId]
+            );
+            res.json(maintenances);
+        } catch (error) {
+            console.error('[MAGAPP] Error fetching app maintenances:', error.message);
+            res.status(500).json({ message: 'Erreur lors de la récupération des maintenances' });
+        }
+    },
+
+    createMaintenance: async (req, res) => {
+        try {
+            const { app_id, name, description, severity, has_interruption, start_date, end_date } = req.body;
+            if (!app_id || !name || !start_date || !end_date) {
+                return res.status(400).json({ message: 'Champs obligatoires manquants' });
+            }
+            const username = req.user?.username || 'admin';
+            // Convert local dates to UTC for storage
+            const startUTC = new Date(start_date).toISOString();
+            const endUTC = new Date(end_date).toISOString();
+            const result = await pool.query(
+                `INSERT INTO magapp.maintenances (app_id, name, description, severity, has_interruption, start_date, end_date, created_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+                [app_id, name, description, severity, has_interruption, startUTC, endUTC, username]
+            );
+            res.json(result.rows[0]);
+        } catch (error) {
+            console.error('[MAGAPP] Error creating maintenance:', error.message);
+            res.status(500).json({ message: 'Erreur lors de la création de la maintenance' });
+        }
+    },
+
+    updateMaintenance: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { name, description, severity, has_interruption, start_date, end_date } = req.body;
+            const startUTC = new Date(start_date).toISOString();
+            const endUTC = new Date(end_date).toISOString();
+            await pool.query(
+                `UPDATE magapp.maintenances
+                 SET name = $1, description = $2, severity = $3, has_interruption = $4,
+                     start_date = $5, end_date = $6, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $7`,
+                [name, description, severity, has_interruption, startUTC, endUTC, id]
+            );
+            res.json({ message: 'Maintenance mise à jour' });
+        } catch (error) {
+            console.error('[MAGAPP] Error updating maintenance:', error.message);
+            res.status(500).json({ message: 'Erreur lors de la mise à jour de la maintenance' });
+        }
+    },
+
+    deleteMaintenance: async (req, res) => {
+        try {
+            const { id } = req.params;
+            await pool.query('DELETE FROM magapp.maintenance_attachments WHERE maintenance_id = $1', [id]);
+            await pool.query('DELETE FROM magapp.maintenances WHERE id = $1', [id]);
+            res.json({ message: 'Maintenance supprimée' });
+        } catch (error) {
+            console.error('[MAGAPP] Error deleting maintenance:', error.message);
+            res.status(500).json({ message: 'Erreur lors de la suppression de la maintenance' });
+        }
+    },
+
+    getMaintenanceAttachments: async (req, res) => {
+        try {
+            const { maintenanceId } = req.params;
+            const attachments = await pgDb.all(
+                'SELECT * FROM magapp.maintenance_attachments WHERE maintenance_id = $1 ORDER BY created_at DESC',
+                [maintenanceId]
+            );
+            res.json(attachments);
+        } catch (error) {
+            console.error('[MAGAPP] Error fetching attachments:', error.message);
+            res.status(500).json({ message: 'Erreur lors de la récupération des pièces jointes' });
         }
     }
 };

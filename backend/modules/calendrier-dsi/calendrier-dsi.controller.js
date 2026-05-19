@@ -281,6 +281,41 @@ async function getEventsForDate(date) {
     }
   }
 
+  // Add app store legacy maintenance events
+  try {
+    const maintLegacy = await pool.query(`
+      SELECT name FROM magapp.apps
+      WHERE maintenance_start IS NOT NULL
+        AND maintenance_start::date <= $1::date
+        AND (maintenance_end IS NULL OR maintenance_end::date >= $1::date)
+    `, [date]);
+    for (const m of maintLegacy.rows) {
+      events.push({
+        id: nextGenId(), date, categorie: 'maintenance', periode: '', titre: m.name,
+        description: 'Maintenance programmée', agent_username: null, agent_nom: null,
+        agent_email: null, couleur: CATEGORY_COLORS.maintenance || '#FF9800',
+        created_by: 'auto', created_at: null, generated: true
+      });
+    }
+  } catch (e) {}
+
+  // Add dedicated maintenance table events
+  try {
+    const maintTable = await pool.query(`
+      SELECT m.name, a.name as app_name FROM magapp.maintenances m
+      JOIN magapp.apps a ON m.app_id = a.id
+      WHERE m.start_date::date <= $1::date AND m.end_date::date >= $1::date
+    `, [date]);
+    for (const m of maintTable.rows) {
+      events.push({
+        id: nextGenId(), date, categorie: 'maintenance', periode: '', titre: `[${m.app_name}] ${m.name}`,
+        description: `Maintenance ${m.app_name}`, agent_username: null, agent_nom: null,
+        agent_email: null, couleur: CATEGORY_COLORS.maintenance || '#FF9800',
+        created_by: 'auto', created_at: null, generated: true
+      });
+    }
+  } catch (e) {}
+
   // Final dedup pass: remove any remaining duplicates by displayed content (titre+date+cat+periode)
   const finalKeys = new Set();
   return events.filter(e => {
@@ -300,7 +335,7 @@ module.exports = {
       if (!debut || !fin) {
         return res.status(400).json({ message: 'Paramètres debut et fin requis' });
       }
-      const [dbResult, agentsResult, appsResult] = await Promise.all([
+      const [dbResult, agentsResult, appsResult, maintTableResult] = await Promise.all([
         pool.query(
           `SELECT id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at FROM hub_calendrier.evenements WHERE date >= $1 AND date <= $2 ORDER BY date, categorie`,
           [debut, fin]
@@ -320,6 +355,14 @@ module.exports = {
             AND maintenance_start::date <= $2
             AND (maintenance_end IS NULL OR maintenance_end::date >= $1)
           ORDER BY name
+        `, [debut, fin]),
+        pool.query(`
+          SELECT m.name, a.name as app_name, m.start_date::date::text as maintenance_start, m.end_date::date::text as maintenance_end
+          FROM magapp.maintenances m
+          JOIN magapp.apps a ON m.app_id = a.id
+          WHERE m.start_date::date <= $2::date
+            AND m.end_date::date >= $1::date
+          ORDER BY m.name
         `, [debut, fin])
       ]);
 
@@ -480,7 +523,7 @@ module.exports = {
         console.error('[Calendrier DSI] demabs query error:', err.message);
       }
 
-      // Maintenance events from app store (one per day in range)
+      // Maintenance events from app store legacy fields (one per day in range)
       for (const app of appsResult.rows) {
         const start = app.maintenance_start > debut ? app.maintenance_start : debut;
         const end = app.maintenance_end && app.maintenance_end < fin ? app.maintenance_end : fin;
@@ -500,6 +543,31 @@ module.exports = {
             created_by: 'auto',
             created_at: null,
             generated: true
+          });
+        }
+      }
+
+      // Maintenance events from dedicated maintenance table
+      for (const m of maintTableResult.rows) {
+        const start = m.maintenance_start > debut ? m.maintenance_start : debut;
+        const end = m.maintenance_end && m.maintenance_end < fin ? m.maintenance_end : fin;
+        const maintDates = getDatesInRange(start, end);
+        for (const date of maintDates) {
+          events.push({
+            id: nextGenId(),
+            date,
+            categorie: 'maintenance',
+            periode: '',
+            titre: `[${m.app_name}] ${m.name}`,
+            description: `Maintenance ${m.app_name}`,
+            agent_username: null,
+            agent_nom: null,
+            agent_email: null,
+            couleur: CATEGORY_COLORS.maintenance || '#FF9800',
+            created_by: 'auto',
+            created_at: null,
+            generated: true,
+            source: 'maintenance-table'
           });
         }
       }

@@ -2172,6 +2172,45 @@ app.post('/api/admin/magapp/docs/upload', authenticateMagappControl, magappDocsU
     }
 });
 
+// Route : Upload de fichiers pour maintenances MagApp
+const maintenanceUploadDir = path.join(__dirname, 'uploads', 'maintenances');
+if (!fs.existsSync(maintenanceUploadDir)) {
+    fs.mkdirSync(maintenanceUploadDir, { recursive: true });
+}
+
+const maintenanceStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, maintenanceUploadDir),
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + '-' + file.originalname);
+    }
+});
+const maintenanceUpload = multer({ storage: maintenanceStorage });
+
+app.post('/api/admin/magapp/maintenances/upload', authenticateMagappControl, maintenanceUpload.array('files', 10), async (req, res) => {
+    try {
+        const { maintenance_id } = req.body;
+        const files = req.files;
+
+        if (!maintenance_id || !files || files.length === 0) {
+            return res.status(400).json({ message: 'Données invalides' });
+        }
+
+        for (const file of files) {
+            await pool.query(
+                `INSERT INTO magapp.maintenance_attachments (maintenance_id, filename, original_name, file_path, file_size)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [maintenance_id, file.filename, file.originalname, file.path, file.size]
+            );
+        }
+
+        res.json({ success: true, count: files.length });
+    } catch (error) {
+        console.error('[Maintenance Upload] Erreur:', error.message);
+        res.status(500).json({ message: `Erreur upload: ${error.message}` });
+    }
+});
+
 
 
 
@@ -3906,6 +3945,13 @@ app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), asyn
         console.error('Upload Error:', error);
         res.status(500).json({ message: 'Error uploading attachment', error: error.message });
     }
+});
+
+// MagApp icon upload
+app.post('/api/magapp/upload-icon', authenticateMagappControl, upload.single('icon'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'Aucun fichier' });
+    console.log(`[MAGAPP] Icon uploaded: ${req.file.filename}`);
+    res.json({ url: '/img/' + req.file.filename });
 });
 
 app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => {

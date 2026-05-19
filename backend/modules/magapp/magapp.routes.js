@@ -8,7 +8,10 @@ const { getSqlite } = require('../../shared/database');
 const magappBaseRouter = express.Router();
 
 magappBaseRouter.get('/categories', MagAppController.getCategories);
-magappBaseRouter.get('/apps', MagAppController.getApps);
+magappBaseRouter.post('/categories', authenticateMagappControl, MagAppController.createCategory);
+magappBaseRouter.put('/categories/:id', authenticateMagappControl, MagAppController.updateCategory);
+magappBaseRouter.delete('/categories/:id', authenticateMagappControl, MagAppController.deleteCategory);
+magappBaseRouter.get('/apps', tryAuthenticateJWT, MagAppController.getApps);
 magappBaseRouter.post('/apps', authenticateMagappControl, MagAppController.createApp);
 magappBaseRouter.put('/apps/:id', authenticateMagappControl, MagAppController.updateApp);
 magappBaseRouter.delete('/apps/:id', authenticateMagappControl, MagAppController.deleteApp);
@@ -53,6 +56,12 @@ magappAdminRouter.post('/docs', authenticateMagappControl, MagAppController.crea
 magappAdminRouter.put('/docs/:id', authenticateMagappControl, MagAppController.updateDoc);
 magappAdminRouter.delete('/docs/:id', authenticateMagappControl, MagAppController.deleteDoc);
 magappAdminRouter.get('/docs/stats', authenticateMagappControl, MagAppController.getDocStats);
+magappAdminRouter.get('/maintenances', authenticateMagappControl, MagAppController.getMaintenances);
+magappAdminRouter.get('/maintenances/app/:appId', authenticateMagappControl, MagAppController.getAppMaintenances);
+magappAdminRouter.post('/maintenances', authenticateMagappControl, MagAppController.createMaintenance);
+magappAdminRouter.put('/maintenances/:id', authenticateMagappControl, MagAppController.updateMaintenance);
+magappAdminRouter.delete('/maintenances/:id', authenticateMagappControl, MagAppController.deleteMaintenance);
+magappAdminRouter.get('/maintenances/:maintenanceId/attachments', authenticateMagappControl, MagAppController.getMaintenanceAttachments);
 
 // Exporting both or a main router that handles both
 const mainRouter = express.Router();

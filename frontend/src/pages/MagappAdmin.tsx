@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -35,6 +35,35 @@ interface AppItem {
   project_manager_username?: string;
   project_manager_name?: string;
   contract_count?: number;
+  future_maintenance_count?: number;
+  ongoing_maintenance_count?: number;
+  dsi_only?: number;
+}
+
+interface Maintenance {
+  id: number;
+  app_id: number;
+  app_name: string;
+  app_icon: string;
+  name: string;
+  description: string;
+  severity: 'mineure' | 'majeure';
+  has_interruption: boolean;
+  start_date: string;
+  end_date: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface MaintenanceAttachment {
+  id: number;
+  maintenance_id: number;
+  filename: string;
+  original_name: string;
+  file_path: string;
+  file_size: number;
+  created_at: string;
 }
 
 interface AppUser {
@@ -112,7 +141,7 @@ const MagappAdmin: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [stats, setStats] = useState<ClickStats[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [activeTab, setActiveTab] = useState<'apps' | 'categories' | 'versions' | 'subscriptions' | 'stats' | 'postgres' | 'settings' | 'ideas' | 'library'>('apps');
+  const [activeTab, setActiveTab] = useState<'apps' | 'categories' | 'versions' | 'subscriptions' | 'maintenances' | 'stats' | 'postgres' | 'settings' | 'ideas' | 'library'>('apps');
   const [showAllStats, setShowAllStats] = useState(false);
   const [editingApp, setEditingApp] = useState<AppItem | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -128,7 +157,8 @@ const MagappAdmin: React.FC = () => {
     is_maintenance: 0,
     app_type: 'web',
     present_magapp: '1',
-    present_onboard: '0'
+    present_onboard: '0',
+    dsi_only: 0
   });
 
   const [docs, setDocs] = useState<AppDoc[]>([]);
@@ -166,6 +196,7 @@ const MagappAdmin: React.FC = () => {
   const [appToDelete, setAppToDelete] = useState<AppItem | null>(null);
   const [filterPublished, setFilterPublished] = useState<'all' | 'oui' | 'non'>('all');
   const [filterContracts, setFilterContracts] = useState<'all' | 'with' | 'without'>('all');
+  const [filterDsi, setFilterDsi] = useState<'all' | 'dsi' | 'other'>('all');
 
   // User tracking states
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
@@ -182,6 +213,17 @@ const MagappAdmin: React.FC = () => {
   const [isSearchingAD, setIsSearchingAD] = useState(false);
   const [modalTab, setModalTab] = useState<'general' | 'users'>('general');
 
+  // Maintenance states
+  const [maintenances, setMaintenances] = useState<Maintenance[]>([]);
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [editingMaintenance, setEditingMaintenance] = useState<Maintenance | null>(null);
+  const [newMaintenance, setNewMaintenance] = useState<{app_id: number, name: string, description: string, severity: 'mineure' | 'majeure', has_interruption: boolean, start_date: string, end_date: string}>({
+    app_id: 0, name: '', description: '', severity: 'mineure', has_interruption: false, start_date: '', end_date: ''
+  });
+  const [maintenanceFiles, setMaintenanceFiles] = useState<File[]>([]);
+  const [maintenanceAttachments, setMaintenanceAttachments] = useState<Record<number, MaintenanceAttachment[]>>({});
+  const [isUploadingMaintenance, setIsUploadingMaintenance] = useState(false);
+  const [maintenanceFilterApp, setMaintenanceFilterApp] = useState<number | 'all'>('all');
 
   const token = localStorage.getItem('token');
 
@@ -408,8 +450,126 @@ const MagappAdmin: React.FC = () => {
     } catch (e) { console.error(e); }
   };
 
+  // Maintenance CRUD
+  const fetchMaintenances = async () => {
+    try {
+      const response = await fetch('/api/admin/magapp/maintenances', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) setMaintenances(await response.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const fetchMaintenanceAttachmentsForAll = async (maintenancesList?: Maintenance[]) => {
+    try {
+      const list = maintenancesList || maintenances;
+      if (list.length === 0) return;
+      const attachmentPromises = list.map((m: Maintenance) =>
+        fetch(`/api/admin/magapp/maintenances/${m.id}/attachments`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.ok ? r.json() : [])
+      );
+      const allAttachments = await Promise.all(attachmentPromises);
+      const attachmentMap: Record<number, MaintenanceAttachment[]> = {};
+      list.forEach((m: Maintenance, i: number) => {
+        attachmentMap[m.id] = allAttachments[i] || [];
+      });
+      setMaintenanceAttachments(attachmentMap);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleSaveMaintenance = async () => {
+    if (!newMaintenance.name || !newMaintenance.start_date || !newMaintenance.end_date) {
+      alert('Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+    try {
+      const url = editingMaintenance ? `/api/admin/magapp/maintenances/${editingMaintenance.id}` : '/api/admin/magapp/maintenances';
+      const method = editingMaintenance ? 'PUT' : 'POST';
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(newMaintenance)
+      });
+      if (response.ok) {
+        if (!editingMaintenance) {
+          const created = await response.json();
+          // Upload files if any
+          if (maintenanceFiles.length > 0) {
+            await uploadMaintenanceFiles(created.id);
+          }
+        }
+        setShowMaintenanceModal(false);
+        setEditingMaintenance(null);
+        setNewMaintenance({ app_id: 0, name: '', description: '', severity: 'mineure', has_interruption: false, start_date: '', end_date: '' });
+        setMaintenanceFiles([]);
+        fetchMaintenances();
+        fetchMaintenanceAttachmentsForAll();
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const uploadMaintenanceFiles = async (maintenanceId: number): Promise<void> => {
+    if (maintenanceFiles.length === 0) return;
+    setIsUploadingMaintenance(true);
+    try {
+      const formData = new FormData();
+      formData.append('maintenance_id', String(maintenanceId));
+      maintenanceFiles.forEach(f => formData.append('files', f));
+      await fetch('/api/admin/magapp/maintenances/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+    } catch (e) { console.error(e); }
+    setIsUploadingMaintenance(false);
+  };
+
+  const handleDeleteMaintenance = async (id: number) => {
+    if (!window.confirm('Supprimer cette maintenance ?')) return;
+    try {
+      await fetch(`/api/admin/magapp/maintenances/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      fetchMaintenances();
+      fetchMaintenanceAttachmentsForAll();
+    } catch (e) { console.error(e); }
+  };
+
+  const toLocalDatetime = (iso: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const openMaintenanceModal = (appId: number, maintenance?: Maintenance) => {
+    if (maintenance) {
+      setEditingMaintenance(maintenance);
+      setNewMaintenance({
+        app_id: maintenance.app_id,
+        name: maintenance.name,
+        description: maintenance.description,
+        severity: maintenance.severity,
+        has_interruption: maintenance.has_interruption,
+        start_date: toLocalDatetime(maintenance.start_date),
+        end_date: toLocalDatetime(maintenance.end_date)
+      });
+    } else {
+      setEditingMaintenance(null);
+      setNewMaintenance({ app_id: appId, name: '', description: '', severity: 'mineure', has_interruption: false, start_date: '', end_date: '' });
+      setMaintenanceFiles([]);
+    }
+    setShowMaintenanceModal(true);
+  };
+
   useEffect(() => { fetchData(); fetchApps(); fetchVersions(); fetchSubscriptions(); fetchIdeas(); }, []);
-  useEffect(() => { if (activeTab === 'subscriptions') fetchSubscriptions(); if (activeTab === 'versions') fetchVersions(); if (activeTab === 'ideas') fetchIdeas(); }, [activeTab]);
+  useEffect(() => {
+    if (activeTab === 'subscriptions') fetchSubscriptions();
+    if (activeTab === 'versions') fetchVersions();
+    if (activeTab === 'ideas') fetchIdeas();
+    if (activeTab === 'maintenances') {
+      fetch('/api/admin/magapp/maintenances', { headers: { 'Authorization': `Bearer ${token}` } }).then(async (res) => {
+        if (res.ok) { const data = await res.json(); setMaintenances(data); fetchMaintenanceAttachmentsForAll(data); }
+      });
+    }
+  }, [activeTab]);
 
   // Set default category for "New App" when categories change
   useEffect(() => {
@@ -451,7 +611,8 @@ const MagappAdmin: React.FC = () => {
             email_createur: '',
             lien_mercator: '',
             mercator_id: null,
-            mercator_name: ''
+            mercator_name: '',
+            dsi_only: 0
           });
         }
       } else {
@@ -674,7 +835,8 @@ const MagappAdmin: React.FC = () => {
       filterContracts === 'all' ||
       (filterContracts === 'with' && (app.contract_count || 0) > 0) ||
       (filterContracts === 'without' && (app.contract_count || 0) === 0);
-    return publishedMatch && contractMatch;
+    const dsiMatch = filterDsi === 'all' || (filterDsi === 'dsi' && app.dsi_only) || (filterDsi === 'other' && !app.dsi_only);
+    return publishedMatch && contractMatch && dsiMatch;
   });
 
   return (
@@ -694,6 +856,7 @@ const MagappAdmin: React.FC = () => {
               { id: 'categories', icon: <Tag size={18} />, label: 'Catégories' },
               { id: 'versions', icon: <Code size={18} />, label: 'Versions' },
               { id: 'subscriptions', icon: <Bell size={18} />, label: 'Abonnés' },
+              { id: 'maintenances', icon: <Wrench size={18} />, label: 'Maintenances' },
               { id: 'ideas', icon: <Lightbulb size={18} />, label: 'Idées' },
               { id: 'stats', icon: <BarChart2 size={18} />, label: 'Stats' },
               { id: 'library', icon: <GraduationCap size={18} />, label: 'Bibliothèque' },
@@ -762,6 +925,27 @@ const MagappAdmin: React.FC = () => {
                         Sans contrat
                       </button>
                     </div>
+
+                    <div className="filter-group-v2" style={{ marginLeft: '10px' }}>
+                      <button
+                        className={`filter-btn-v2 ${filterDsi === 'all' ? 'active' : ''}`}
+                        onClick={() => setFilterDsi('all')}
+                      >
+                        Toutes
+                      </button>
+                      <button
+                        className={`filter-btn-v2 ${filterDsi === 'dsi' ? 'active' : ''}`}
+                        onClick={() => setFilterDsi('dsi')}
+                      >
+                        DSI
+                      </button>
+                      <button
+                        className={`filter-btn-v2 ${filterDsi === 'other' ? 'active' : ''}`}
+                        onClick={() => setFilterDsi('other')}
+                      >
+                        Autre
+                      </button>
+                    </div>
                   </div>
                   <button className="primary-btn-v2" onClick={() => { setEditingApp(null); setShowAppModal(true); }}>
                     <Plus size={18} /> Nouvelle Application
@@ -794,6 +978,11 @@ const MagappAdmin: React.FC = () => {
                                 📋 {app.contract_count}
                               </span>
                             )}
+                            {app.dsi_only ? (
+                              <span title="Application réservée à la DSI" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#1e293b', color: 'white', fontSize: '0.72rem', fontWeight: 700 }}>
+                                DSI
+                              </span>
+                            ) : null}
                             <span
                               title="Cliquer pour ajouter un document"
                               onClick={e => {
@@ -818,6 +1007,24 @@ const MagappAdmin: React.FC = () => {
                           <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>{app.url}</p>
                         </div>
                         <div className="app-actions-v2">
+                          <button
+                            onClick={() => openMaintenanceModal(app.id)}
+                            title={
+                              app.ongoing_maintenance_count && app.ongoing_maintenance_count > 0 ? `${app.ongoing_maintenance_count} maintenance(s) en cours` :
+                              app.future_maintenance_count && app.future_maintenance_count > 0 ? `${app.future_maintenance_count} maintenance(s) future(s)` :
+                              "Programmer une maintenance"
+                            }
+                            style={
+                              app.ongoing_maintenance_count && app.ongoing_maintenance_count > 0 ? { background: '#fef2f2', color: '#dc2626' } :
+                              app.future_maintenance_count && app.future_maintenance_count > 0 ? { background: '#fef3c7', color: '#d97706' } :
+                              undefined
+                            }
+                            className={
+                              app.ongoing_maintenance_count && app.ongoing_maintenance_count > 0 ? 'has-ongoing-maint' :
+                              app.future_maintenance_count && app.future_maintenance_count > 0 ? 'has-future-maint' :
+                              ''
+                            }
+                          ><Wrench size={16} /></button>
                           <button onClick={() => { setEditingApp(app); setShowAppModal(true); }}><Edit2 size={16} /></button>
                           <button onClick={() => handleDeleteApp(app)} className="delete"><Trash2 size={16} /></button>
                         </div>
@@ -1021,6 +1228,12 @@ const MagappAdmin: React.FC = () => {
                             <label>Ordre</label>
                             <input type="number" value={editingApp ? editingApp.display_order : newApp.display_order} onChange={e => editingApp ? setEditingApp({...editingApp, display_order: parseInt(e.target.value)}) : setNewApp({...newApp, display_order: parseInt(e.target.value)})} />
                           </div>
+                          <div className="form-group-v2 full-width">
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                              <input type="checkbox" checked={editingApp ? !!editingApp.dsi_only : !!newApp.dsi_only} onChange={e => editingApp ? setEditingApp({...editingApp, dsi_only: e.target.checked ? 1 : 0}) : setNewApp({...newApp, dsi_only: e.target.checked ? 1 : 0})} style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#4f46e5' }} />
+                              <span style={{ fontWeight: 600, color: '#334155' }}>Application réservée à la DSI (invisible dans le MagApp public)</span>
+                            </label>
+                          </div>
                         </div>
                       ) : (
                         <div className="users-management">
@@ -1170,6 +1383,233 @@ const MagappAdmin: React.FC = () => {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'maintenances' && (
+            <div className="workspace-grid" style={{ gridTemplateColumns: '1fr' }}>
+              <section className="workspace-section">
+                <div className="section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <h2>Journal des Maintenances ({maintenances.length})</h2>
+                    <div className="header-icon-v2"><Wrench size={20} /></div>
+                  </div>
+                </div>
+                
+                {maintenances.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                    <Wrench size={48} style={{ opacity: 0.3, marginBottom: '16px' }} />
+                    <p style={{ fontSize: '1.1rem', fontWeight: 600 }}>Aucune maintenance programmée</p>
+                    <p style={{ fontSize: '0.9rem' }}>Cliquez sur l'icône clé à molette dans une carte d'application pour programmer une maintenance.</p>
+                  </div>
+                ) : (
+                  <div>
+                    {/* Filtre par application */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                      <label style={{ fontWeight: 600, fontSize: '0.85rem', color: '#475569' }}>Filtrer par application :</label>
+                      <select
+                        value={maintenanceFilterApp}
+                        onChange={e => setMaintenanceFilterApp(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
+                        style={{ padding: '8px 14px', border: '2px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem', background: '#fafbfc', maxWidth: '300px' }}
+                      >
+                        <option value="all">Toutes les applications</option>
+                        {apps.map(a => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Timeline / Card list */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      {maintenances
+                        .filter(m => maintenanceFilterApp === 'all' || m.app_id === maintenanceFilterApp)
+                        .map(m => {
+                          const now = new Date();
+                          const isOngoing = new Date(m.start_date) <= now && new Date(m.end_date) >= now;
+                          return (
+                          <div key={m.id} style={{
+                            background: 'white', borderRadius: '16px', border: isOngoing ? '2px solid #dc2626' : '1px solid #e2e8f0',
+                            padding: '20px 24px', display: 'flex', gap: '20px', alignItems: 'flex-start',
+                            transition: 'all 0.2s', boxShadow: isOngoing ? '0 0 0 3px rgba(220,38,38,0.1)' : '0 2px 8px rgba(0,0,0,0.04)'
+                          }}>
+                            {/* App icon */}
+                            <img
+                              src={m.app_icon}
+                              alt=""
+                              style={{ width: '48px', height: '48px', borderRadius: '12px', objectFit: 'contain', background: '#f8fafc', padding: '6px', border: '1px solid #f1f5f9', flexShrink: 0 }}
+                              onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }}
+                            />
+
+                            {/* Content */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#4f46e5', background: '#eef2ff', padding: '2px 10px', borderRadius: '6px' }}>{m.app_name}</span>
+                                <span style={{
+                                  fontSize: '0.72rem', fontWeight: 700, padding: '3px 10px', borderRadius: '20px',
+                                  background: m.severity === 'majeure' ? '#fef2f2' : '#f0fdf4',
+                                  color: m.severity === 'majeure' ? '#dc2626' : '#16a34a'
+                                }}>
+                                  {m.severity === 'majeure' ? 'Majeure' : 'Mineure'}
+                                </span>
+                                {m.has_interruption ? (
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 10px', borderRadius: '20px', background: '#fef2f2', color: '#dc2626' }}>
+                                    Avec interruption
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 10px', borderRadius: '20px', background: '#f0fdf4', color: '#16a34a' }}>
+                                    Sans interruption
+                                  </span>
+                                )}
+                              </div>
+                              <h4 style={{ margin: '4px 0 2px', fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{m.name}</h4>
+                              {m.description && (
+                                <p style={{ margin: '4px 0', fontSize: '0.85rem', color: '#64748b', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{m.description}</p>
+                              )}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <Calendar size={14} />
+                                  {new Date(m.start_date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  {' → '}
+                                  {new Date(m.end_date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                {m.created_by && <span>par {m.created_by}</span>}
+                              </div>
+
+                              {/* Attachments */}
+                              {maintenanceAttachments[m.id] && maintenanceAttachments[m.id].length > 0 && (
+                                <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                  {maintenanceAttachments[m.id].map((att: MaintenanceAttachment) => (
+                                    <a
+                                      key={att.id}
+                                      href={`/api/uploads/maintenances/${att.filename}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                        padding: '6px 12px', background: '#f8fafc', border: '1px solid #e2e8f0',
+                                        borderRadius: '8px', fontSize: '0.78rem', color: '#4f46e5',
+                                        textDecoration: 'none', fontWeight: 600
+                                      }}
+                                    >
+                                      <Paperclip size={14} />
+                                      {att.original_name}
+                                      <Download size={12} style={{ opacity: 0.5 }} />
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions */}
+                            <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                              <button
+                                onClick={() => openMaintenanceModal(m.app_id, m)}
+                                style={{ width: '34px', height: '34px', border: 'none', background: '#f8fafc', color: '#64748b', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                                title="Modifier"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteMaintenance(m.id)}
+                                style={{ width: '34px', height: '34px', border: 'none', background: '#f8fafc', color: '#ef4444', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                                title="Supprimer"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        )})}
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {/* Maintenance Modal */}
+          {showMaintenanceModal && (
+            <div className="modal-overlay-v2">
+              <div className="modal-content-v2 animate-fade-in" style={{ maxWidth: '700px' }}>
+                <div className="modal-header-v2">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div className="header-icon-v2"><Wrench size={18} /></div>
+                    <h3>{editingMaintenance ? 'Modifier la maintenance' : 'Programmer une maintenance'}</h3>
+                  </div>
+                  <button className="close-modal-btn" onClick={() => setShowMaintenanceModal(false)}><X size={20} /></button>
+                </div>
+
+                <div className="modal-body-v2">
+                  <div className="form-grid-v2">
+                    <div className="form-group-v2">
+                      <label>Application</label>
+                      <select
+                        value={newMaintenance.app_id}
+                        onChange={e => setNewMaintenance({...newMaintenance, app_id: parseInt(e.target.value)})}
+                      >
+                        {apps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group-v2">
+                      <label>Nom de la maintenance *</label>
+                      <input type="text" value={newMaintenance.name} onChange={e => setNewMaintenance({...newMaintenance, name: e.target.value})} placeholder="Ex: Mise à jour sécurité" />
+                    </div>
+                    <div className="form-group-v2">
+                      <label>Gravité</label>
+                      <select value={newMaintenance.severity} onChange={e => setNewMaintenance({...newMaintenance, severity: e.target.value as 'mineure' | 'majeure'})}>
+                        <option value="mineure">Mineure</option>
+                        <option value="majeure">Majeure</option>
+                      </select>
+                    </div>
+                    <div className="form-group-v2">
+                      <label>Interruption de service</label>
+                      <select value={newMaintenance.has_interruption ? 'oui' : 'non'} onChange={e => setNewMaintenance({...newMaintenance, has_interruption: e.target.value === 'oui'})}>
+                        <option value="non">Sans interruption</option>
+                        <option value="oui">Avec interruption</option>
+                      </select>
+                    </div>
+                    <div className="form-group-v2">
+                      <label>Début *</label>
+                      <input type="datetime-local" value={newMaintenance.start_date} onChange={e => setNewMaintenance({...newMaintenance, start_date: e.target.value})} />
+                    </div>
+                    <div className="form-group-v2">
+                      <label>Fin *</label>
+                      <input type="datetime-local" value={newMaintenance.end_date} onChange={e => setNewMaintenance({...newMaintenance, end_date: e.target.value})} />
+                    </div>
+                    <div className="form-group-v2 full-width">
+                      <label>Description</label>
+                      <textarea rows={4} value={newMaintenance.description} onChange={e => setNewMaintenance({...newMaintenance, description: e.target.value})} placeholder="Décrivez la maintenance..."></textarea>
+                    </div>
+                    <div className="form-group-v2 full-width">
+                      <label>Pièces jointes (comptes rendus, etc.)</label>
+                      <input
+                        type="file"
+                        multiple
+                        onChange={e => {
+                          const files = e.target.files;
+                          if (files) setMaintenanceFiles(Array.from(files));
+                        }}
+                        style={{ padding: '10px', border: '2px dashed #e2e8f0', borderRadius: '12px', background: '#fafbfc', cursor: 'pointer' }}
+                      />
+                      {maintenanceFiles.length > 0 && (
+                        <div style={{ marginTop: '8px' }}>
+                          {maintenanceFiles.map((f, i) => (
+                            <div key={i} style={{ fontSize: '0.8rem', color: '#64748b', padding: '4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <Paperclip size={12} /> {f.name}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="modal-footer-v2" style={{ display: 'flex', gap: '12px' }}>
+                  <button className="filter-btn-v2" style={{ flex: 1 }} onClick={() => setShowMaintenanceModal(false)}>Annuler</button>
+                  <button className="primary-btn-v2" style={{ flex: 1 }} onClick={handleSaveMaintenance} disabled={isUploadingMaintenance}>
+                    {isUploadingMaintenance ? <><div className="spinner-v2" style={{ width: '16px', height: '16px', border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Upload...</> : <><Save size={18} /> {editingMaintenance ? 'Mettre à jour' : 'Programmer'}</>}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1914,6 +2354,7 @@ const MagappAdmin: React.FC = () => {
 
         .admin-tabs-v2 {
           display: flex;
+          flex-wrap: wrap;
           background: rgba(255, 255, 255, 0.5);
           backdrop-filter: blur(8px);
           padding: 6px;
@@ -1925,14 +2366,14 @@ const MagappAdmin: React.FC = () => {
         .tab-btn-v2 {
           display: flex;
           align-items: center;
-          gap: 8px;
-          padding: 12px 20px;
+          gap: 6px;
+          padding: 8px 14px;
           border: none;
           background: none;
           border-radius: 14px;
           color: #64748b;
           font-weight: 800;
-          font-size: 0.9rem;
+          font-size: 0.85rem;
           cursor: pointer;
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
@@ -2627,6 +3068,11 @@ const MagappAdmin: React.FC = () => {
           font-weight: 600;
           color: #334155;
           font-size: 0.95rem;
+        }
+
+        .app-actions-v2 button.maintenance-btn:hover {
+          background: #f59e0b;
+          box-shadow: 0 4px 8px rgba(245, 158, 11, 0.2);
         }
 
         @media (max-width: 1024px) {
