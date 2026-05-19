@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Send, Plus, Trash2, Edit3, Search, Mail, Clock, CheckCircle, XCircle, Play, ChevronDown, ChevronUp, UserPlus, X } from 'lucide-react';
+import { Plus, Trash2, Edit3, Search, Mail, Clock, CheckCircle, XCircle, Play, ChevronDown, X } from 'lucide-react';
 
 interface Recipient {
     id: number;
