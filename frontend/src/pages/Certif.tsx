@@ -445,7 +445,7 @@ const Certif: React.FC = () => {
     <div className="certif-page">
       <Header />
 
-      <main className="container">
+      <main className="certif-container">
         <header className="page-header">
           <div>
             <h1>Gestion des Certificats</h1>
@@ -885,16 +885,13 @@ const Certif: React.FC = () => {
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         .certif-page {
-          width: 100vw;
           min-height: 100vh;
           background: #f8fafc;
-          margin-left: calc(-50vw + 50%);
         }
-        .container {
-          width: 100vw;
+        .certif-container {
+          width: 100%;
           margin: 0;
-          margin-left: calc(-50vw + 50%);
-          padding: 30px 0;
+          padding: 30px 16px;
         }
         .page-header {
           width: 100%;
