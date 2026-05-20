@@ -93,9 +93,9 @@ const Certif: React.FC = () => {
   };
 
   const formatSortDate = (value: string | null) => {
-    if (!value) return 0;
+    if (!value) return -Infinity;
     const d = new Date(value);
-    return isNaN(d.getTime()) ? 0 : d.getTime();
+    return isNaN(d.getTime()) ? -Infinity : d.getTime();
   };
 
   const sortCertificates = (certs: Certificate[]) => {
@@ -411,10 +411,26 @@ const Certif: React.FC = () => {
     }
   };
 
-  const formatDate = (isoStr: string | null) => {
-    if (!isoStr) return '-';
-    if (!isoStr.includes('-')) return isoStr;
-    return isoStr.split('-').reverse().join('/');
+  const formatDate = (dateValue: string | Date | null) => {
+    if (!dateValue) return '-';
+
+    // Handle Date objects from PostgreSQL
+    if (dateValue instanceof Date) {
+      const year = dateValue.getFullYear();
+      const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+      const day = String(dateValue.getDate()).padStart(2, '0');
+      return `${day}/${month}/${year}`;
+    }
+
+    // Handle ISO strings (YYYY-MM-DD or full ISO with timestamp)
+    if (typeof dateValue === 'string') {
+      if (!dateValue.includes('-')) return dateValue;
+      // Extract only the date part (YYYY-MM-DD) from full ISO strings
+      const dateOnly = dateValue.split('T')[0];
+      return dateOnly.split('-').reverse().join('/');
+    }
+
+    return '-';
   };
 
   const isExpired = (expiryStr: string | null) => {
@@ -873,7 +889,7 @@ const Certif: React.FC = () => {
           background: #f8fafc;
         }
         .container {
-          width: 90%;
+          width: 98%;
           margin: 0 auto;
           padding: 40px 0;
         }

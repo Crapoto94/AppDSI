@@ -17,6 +17,7 @@ function convertSqliteToPostgres(sql) {
                     .replace(/magapp_settings/gi, 'magapp.settings')
                     .replace(/(?<!hub_contrats\.)\bcontrats\b(?!\s*\.)/gi, 'hub_contrats.contrats')
                     .replace(/(?<!hub_contrats\.)\bcontrat_documents\b/gi, 'hub_contrats.contrat_documents')
+                    .replace(/(?<!hub\.)\bcertificates\b/gi, 'hub.certificates')
                     .replace(/(?<!hub\.)\busers\b/gi, 'hub.users')
                     .replace(/(?<!hub_rencontres\.)\brencontres_budgetaires\b/gi, 'hub_rencontres.rencontres_budgetaires')
                     .replace(/(?<!hub_rencontres\.)\brencontres_participants\b/gi, 'hub_rencontres.rencontres_participants')
@@ -205,6 +206,26 @@ async function setupPgDb() {
         last_activity VARCHAR(100),
         is_approved INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.certificates (
+        id SERIAL PRIMARY KEY,
+        order_number VARCHAR(255),
+        request_date DATE,
+        beneficiary_name TEXT,
+        beneficiary_email VARCHAR(255),
+        product_code VARCHAR(255),
+        product_label TEXT,
+        file_path TEXT,
+        expiry_date DATE,
+        sedit_number VARCHAR(255) DEFAULT '',
+        is_provisional INTEGER DEFAULT 0,
+        observations TEXT DEFAULT '',
+        renewal_status VARCHAR(50),
+        renewal_comment TEXT DEFAULT '',
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 

@@ -1,34 +1,118 @@
-const { getSqlite } = require('../../shared/database');
+const { pgDb } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
 const pdf = require('pdf-parse');
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
 
-// Helper for date normalization from the source
-const normalizeDateString = (dateString) => {
-    if (!dateString) return null;
-    const d = new Date(dateString);
-    if (!isNaN(d.getTime())) {
-        return d.toISOString().split('T')[0];
-    }
-    const frMatch = dateString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (frMatch) {
-        const year = frMatch[3];
-        const month = frMatch[2].padStart(2, '0');
-        const day = frMatch[1].padStart(2, '0');
+// Helper for date normalization to ISO format (for database storage)
+const normalizeDateString = (dateValue) => {
+    if (!dateValue && dateValue !== 0) return null;
+
+    // If it's already a Date object, convert directly to ISO
+    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+        const year = dateValue.getFullYear();
+        const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+        const day = String(dateValue.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
     }
+
+    // Convert to string
+    const str = String(dateValue).trim();
+
+    // Check if already in ISO format (YYYY-MM-DD)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        return str;
+    }
+
+    // Check French date format (DD/MM/YYYY or D/M/YYYY or DD/M/YYYY, etc)
+    let match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (match) {
+        const day = match[1].padStart(2, '0');
+        const month = match[2].padStart(2, '0');
+        const year = match[3];
+        return `${year}-${month}-${day}`;
+    }
+
+    // Check format with dashes (DD-MM-YYYY)
+    match = str.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (match) {
+        const day = match[1].padStart(2, '0');
+        const month = match[2].padStart(2, '0');
+        const year = match[3];
+        return `${year}-${month}-${day}`;
+    }
+
+    // Extract from mixed format like "17T23:00:00.000Z/03/2025"
+    match = str.match(/(\d{1,2})T[\d:\.Z]+\/(\d{1,2})\/(\d{2,4})/);
+    if (match) {
+        const day = match[1].padStart(2, '0');
+        const month = match[2].padStart(2, '0');
+        let year = match[3];
+        if (year.length === 2) year = '20' + year;
+        return `${year}-${month}-${day}`;
+    }
+
+    // Check Excel serial number (4-5 digits only, no decimals)
+    if (/^\d{4,5}$/.test(str)) {
+        const num = parseInt(str, 10);
+        if (num > 0 && num < 60000) { // reasonable Excel serial number range
+            const excelEpoch = new Date(1900, 0, 1);
+            const date = new Date(excelEpoch.getTime() + (num - 1) * 24 * 60 * 60 * 1000);
+            const year = date.getFullYear();
+            if (year >= 1900 && year <= 2100) {
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            }
+        }
+    }
+
+    // Try to parse as standard date (handles various formats like "Mar 17 2025", "2025-03-17T00:00:00", etc)
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+        const year = d.getFullYear();
+        if (year >= 1900 && year <= 2100) {
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+    }
+
     return null;
 };
 
+// Helper to format ISO date to French format (JJ/MM/YYYY)
+const formatDateFrench = (dateValue) => {
+    if (!dateValue) return '';
+
+    // If it's a Date object, convert to ISO string first
+    if (dateValue instanceof Date) {
+        const year = dateValue.getFullYear();
+        const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+        const day = String(dateValue.getDate()).padStart(2, '0');
+        return `${day}/${month}/${year}`;
+    }
+
+    // If it's a string
+    if (typeof dateValue === 'string') {
+        // Match ISO format with or without time: YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss.sssZ
+        const match = dateValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+            return `${match[3]}/${match[2]}/${match[1]}`;
+        }
+    }
+
+    return '';
+};
+
 const upsertCertificate = async (data) => {
-    const db = getSqlite();
+    const db = pgDb;
     if (!data.order_number || data.order_number.trim() === '' || data.order_number === 'Inconnu') {
         data.order_number = 'FO';
     }
 
-    const existing = await db.get('SELECT id, file_path, is_provisional, sedit_number, expiry_date, observations FROM certificates WHERE order_number = ?', [data.order_number]);
+    const existing = await db.get('SELECT id, file_path, is_provisional, sedit_number, expiry_date, observations FROM hub.certificates WHERE order_number = ?', [data.order_number]);
 
     let result;
     if (existing && data.order_number !== 'Inconnu') {
@@ -38,14 +122,8 @@ const upsertCertificate = async (data) => {
         const finalObservations = existing.observations && existing.observations.trim().length > 0 ? existing.observations : data.observations;
 
         await db.run(
-            `UPDATE certificates SET
-                request_date = ?, beneficiary_name = ?, beneficiary_email = ?,
-                product_code = ?, product_label = ?, file_path = ?,
-                expiry_date = ?, sedit_number = ?, is_provisional = ?, observations = ?
-             WHERE id = ?`,
-            [data.request_date, data.beneficiary_name, data.beneficiary_email,
-             data.product_code, data.product_label, data.file_path,
-             finalExpiry, finalSedit, finalProvisional, finalObservations, existing.id]
+            `UPDATE hub.certificates SET request_date = ?, beneficiary_name = ?, beneficiary_email = ?, product_code = ?, product_label = ?, file_path = ?, expiry_date = ?, sedit_number = ?, is_provisional = ?, observations = ? WHERE id = ?`,
+            [data.request_date, data.beneficiary_name, data.beneficiary_email, data.product_code, data.product_label, data.file_path, finalExpiry, finalSedit, finalProvisional, finalObservations, existing.id]
         );
 
         if (existing.file_path && existing.file_path !== data.file_path) {
@@ -57,13 +135,11 @@ const upsertCertificate = async (data) => {
         result = { lastID: existing.id };
     } else {
         result = await db.run(
-            `INSERT INTO certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [data.order_number, data.request_date, data.beneficiary_name, data.beneficiary_email,
-             data.product_code, data.product_label, data.file_path, data.expiry_date, data.sedit_number, data.is_provisional, data.observations || '']
+            `INSERT INTO hub.certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [data.order_number, data.request_date, data.beneficiary_name, data.beneficiary_email, data.product_code, data.product_label, data.file_path, data.expiry_date, data.sedit_number, data.is_provisional, data.observations || '']
         );
     }
-    return await db.get('SELECT * FROM certificates WHERE id = ?', [result.lastID]);
+    return await db.get('SELECT * FROM hub.certificates WHERE id = ?', [result.lastID]);
 };
 
 const parseCertificateFile = async (file) => {
@@ -190,8 +266,10 @@ const parseCertificateFile = async (file) => {
 module.exports = {
     getCertificates: async (req, res) => {
         try {
-            const db = getSqlite();
-            const certs = await db.all('SELECT * FROM certificates ORDER BY request_date DESC, uploaded_at DESC');
+            const db = pgDb;
+            const certs = await db.all('SELECT * FROM hub.certificates ORDER BY request_date DESC NULLS LAST, uploaded_at DESC');
+            // Don't format dates here - keep them as ISO for frontend sorting
+            // Frontend will format them for display
             res.json(certs);
         } catch (error) {
             res.status(500).json({ message: 'Error fetching certificates', error: error.message });
@@ -200,47 +278,31 @@ module.exports = {
 
     createCertificate: async (req, res) => {
         try {
-            const db = getSqlite();
-            const {
-                order_number = '',
-                request_date = new Date().toISOString().split('T')[0],
-                beneficiary_name = '',
-                beneficiary_email = '',
-                product_code = '',
-                product_label = '',
-                expiry_date = null,
-                sedit_number = '',
-                is_provisional = 1,
-                observations = ''
-            } = req.body;
-
+            const db = pgDb;
+            const { order_number = '', request_date = new Date().toISOString().split('T')[0], beneficiary_name = '', beneficiary_email = '', product_code = '', product_label = '', expiry_date = null, sedit_number = '', is_provisional = 1, observations = '' } = req.body;
             const finalProvisional = expiry_date ? 0 : (is_provisional ?? 1);
-
             const result = await db.run(
-                `INSERT INTO certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO hub.certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, '', expiry_date, sedit_number, finalProvisional, observations]
             );
-
-            const newCertificate = await db.get('SELECT * FROM certificates WHERE id = ?', [result.lastID]);
-            res.status(201).json(newCertificate);
+            const newCertificate = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [result.lastID]);
+            const formatted = { ...newCertificate, request_date: formatDateFrench(newCertificate.request_date), expiry_date: formatDateFrench(newCertificate.expiry_date) };
+            res.status(201).json(formatted);
         } catch (error) {
-            res.status(500).json({ message: 'Erreur lors de l’ajout du certificat', error: error.message });
+            res.status(500).json({ message: 'Erreur lors de l\'ajout du certificat', error: error.message });
         }
     },
 
     deleteCertificate: async (req, res) => {
         try {
-            const db = getSqlite();
-            const cert = await db.get('SELECT * FROM certificates WHERE id = ?', [req.params.id]);
+            const db = pgDb;
+            const cert = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
             if (!cert) return res.status(404).json({ message: 'Certificat non trouvé' });
-
             if (cert.file_path) {
                 const fullPath = path.join(__dirname, '../../../', cert.file_path);
                 if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
             }
-
-            await db.run('DELETE FROM certificates WHERE id = ?', [req.params.id]);
+            await db.run('DELETE FROM hub.certificates WHERE id = ?', [req.params.id]);
             logMouchard(`Certificat supprimé: ID ${req.params.id} (${cert.order_number})`);
             res.json({ message: 'Certificat supprimé avec succès' });
         } catch (error) {
@@ -251,19 +313,18 @@ module.exports = {
     attachFile: async (req, res) => {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
         try {
-            const db = getSqlite();
-            const cert = await db.get('SELECT * FROM certificates WHERE id = ?', [req.params.id]);
+            const db = pgDb;
+            const cert = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
             if (!cert) return res.status(404).json({ message: 'Certificat non trouvé' });
-
             if (cert.file_path) {
                 const oldPath = path.join(__dirname, '../../../', cert.file_path);
                 if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
             }
-
             const newFilePath = `file_certif/${req.file.filename}`;
-            await db.run('UPDATE certificates SET file_path = ? WHERE id = ?', [newFilePath, req.params.id]);
-            const updated = await db.get('SELECT * FROM certificates WHERE id = ?', [req.params.id]);
-            res.json(updated);
+            await db.run('UPDATE hub.certificates SET file_path = ? WHERE id = ?', [newFilePath, req.params.id]);
+            const updated = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
+            const formatted = { ...updated, request_date: formatDateFrench(updated.request_date), expiry_date: formatDateFrench(updated.expiry_date) };
+            res.json(formatted);
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de l\'attachement du fichier', error: error.message });
         }
@@ -272,13 +333,11 @@ module.exports = {
     updateRenewal: async (req, res) => {
         const { renewal_status, renewal_comment } = req.body;
         try {
-            const db = getSqlite();
-            await db.run(
-                'UPDATE certificates SET renewal_status = ?, renewal_comment = ? WHERE id = ?',
-                [renewal_status, renewal_comment || '', req.params.id]
-            );
-            const updated = await db.get('SELECT * FROM certificates WHERE id = ?', [req.params.id]);
-            res.json({ message: 'Statut renouvellement mis à jour', certificate: updated });
+            const db = pgDb;
+            await db.run('UPDATE hub.certificates SET renewal_status = ?, renewal_comment = ? WHERE id = ?', [renewal_status, renewal_comment || '', req.params.id]);
+            const updated = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
+            const formatted = { ...updated, request_date: formatDateFrench(updated.request_date), expiry_date: formatDateFrench(updated.expiry_date) };
+            res.json({ message: 'Statut renouvellement mis à jour', certificate: formatted });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de la mise à jour', error: error.message });
         }
@@ -287,8 +346,8 @@ module.exports = {
     updateExpiry: async (req, res) => {
         const { expiry_date } = req.body;
         try {
-            const db = getSqlite();
-            await db.run('UPDATE certificates SET expiry_date = ?, is_provisional = 0 WHERE id = ?', [expiry_date, req.params.id]);
+            const db = pgDb;
+            await db.run('UPDATE hub.certificates SET expiry_date = ?, is_provisional = 0 WHERE id = ?', [expiry_date, req.params.id]);
             res.json({ message: 'Date de validité mise à jour' });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de la mise à jour', error: error.message });
@@ -297,31 +356,27 @@ module.exports = {
 
     updateCertificate: async (req, res) => {
         try {
-            const db = getSqlite();
+            const db = pgDb;
             const allowedFields = ['order_number', 'request_date', 'beneficiary_name', 'beneficiary_email', 'product_code', 'product_label', 'expiry_date', 'sedit_number', 'is_provisional', 'observations', 'renewal_status', 'renewal_comment'];
             const updates = [];
             const values = [];
-
             allowedFields.forEach((field) => {
                 if (req.body[field] !== undefined) {
                     updates.push(`${field} = ?`);
                     values.push(req.body[field]);
                 }
             });
-
             if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ modifiable fourni' });
-
             if (req.body.expiry_date !== undefined && req.body.expiry_date !== null && !('is_provisional' in req.body)) {
                 updates.push('is_provisional = ?');
                 values.push(0);
             }
-
             values.push(req.params.id);
-            const query = `UPDATE certificates SET ${updates.join(', ')} WHERE id = ?`;
+            const query = `UPDATE hub.certificates SET ${updates.join(', ')} WHERE id = ?`;
             await db.run(query, values);
-
-            const updated = await db.get('SELECT * FROM certificates WHERE id = ?', [req.params.id]);
-            res.json({ message: 'Certificat mis à jour', certificate: updated });
+            const updated = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
+            const formatted = { ...updated, request_date: formatDateFrench(updated.request_date), expiry_date: formatDateFrench(updated.expiry_date) };
+            res.json({ message: 'Certificat mis à jour', certificate: formatted });
         } catch (error) {
             res.status(500).json({ message: 'Erreur mise à jour certificat', error: error.message });
         }
@@ -332,7 +387,8 @@ module.exports = {
         try {
             const data = await parseCertificateFile(req.file);
             const saved = await upsertCertificate(data);
-            res.json(saved);
+            const formatted = { ...saved, request_date: formatDateFrench(saved.request_date), expiry_date: formatDateFrench(saved.expiry_date) };
+            res.json(formatted);
         } catch (error) {
             logMouchard(`ERREUR upload PDF: ${error.message}`);
             res.status(500).json({ message: 'Error processing certificate PDF', error: error.message });
@@ -342,13 +398,13 @@ module.exports = {
     uploadMultiple: async (req, res) => {
         const files = req.files;
         if (!files || !Array.isArray(files) || files.length === 0) return res.status(400).json({ message: 'Pas de fichiers fournis.' });
-
         const results = [];
         for (const file of files) {
             try {
                 const data = await parseCertificateFile(file);
                 const saved = await upsertCertificate(data);
-                results.push({ file: file.originalname, status: 'ok', certificate: saved });
+                const formatted = { ...saved, request_date: formatDateFrench(saved.request_date), expiry_date: formatDateFrench(saved.expiry_date) };
+                results.push({ file: file.originalname, status: 'ok', certificate: formatted });
             } catch (error) {
                 results.push({ file: file.originalname, status: 'error', message: error.message });
             }
@@ -358,12 +414,10 @@ module.exports = {
 
     uploadExcel: async (req, res) => {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier XLSX fourni.' });
-
         try {
             const workbook = xlsx.readFile(req.file.path);
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             const rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
-
             const results = [];
             for (const [index, row] of rows.entries()) {
                 const orderNumber = (row.order_number || row['N° Commande'] || row.Commande || row['Order Number'] || '').toString().trim();
@@ -371,11 +425,11 @@ module.exports = {
                     results.push({ row: index + 2, status: 'skipped', message: 'N° commande manquant' });
                     continue;
                 }
-
                 const now = new Date();
-                const requestDate = normalizeDateString((row.request_date || row['Date Demande'] || row['Request Date'] || now.toISOString().split('T')[0]).toString()) || now.toISOString().split('T')[0];
-                const expiryDate = normalizeDateString((row.expiry_date || row['Fin Validité'] || row['Expiry Date'] || '').toString());
-
+                const rawRequestDate = row.request_date || row['Date Demande'] || row['Request Date'] || now.toISOString().split('T')[0];
+                const requestDate = normalizeDateString(rawRequestDate) || now.toISOString().split('T')[0];
+                const rawExpiryDate = row.expiry_date || row['Fin Validité'] || row['Expiry Date'] || '';
+                const expiryDate = normalizeDateString(rawExpiryDate);
                 const data = {
                     order_number: orderNumber,
                     request_date: requestDate,
@@ -389,19 +443,17 @@ module.exports = {
                     file_path: '',
                     observations: (row.observations || row['Observations'] || '').toString().trim()
                 };
-
                 try {
                     const saved = await upsertCertificate(data);
-                    results.push({ row: index + 2, status: 'ok', certificate: saved });
+                    const formatted = { ...saved, request_date: formatDateFrench(saved.request_date), expiry_date: formatDateFrench(saved.expiry_date) };
+                    results.push({ row: index + 2, status: 'ok', certificate: formatted });
                 } catch (error) {
                     results.push({ row: index + 2, status: 'error', message: error.message });
                 }
             }
-
             try {
                 if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
             } catch (e) {}
-
             res.json({ results });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors du traitement du fichier Excel', error: error.message });
