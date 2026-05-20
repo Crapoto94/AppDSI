@@ -196,6 +196,11 @@ async function getEventsForDate(date) {
     return eventDate === date || eventDate === prevDay;
   });
 
+  console.log(`[getEventsForDate] Date: ${date}, prevDay: ${prevDay}`);
+  console.log(`[getEventsForDate] After filter: ${events.length} events`);
+  const ttEvents = events.filter(e => e.categorie === 'teletravail');
+  console.log(`[getEventsForDate] TT events after filter:`, ttEvents.map(e => `${e.agent_username}(${e.date.split('T')[0]})`));
+
   // Get all agents with their TT days and absences
   const agentsResult = await pool.query(`
     SELECT a.username, TRIM(a.nom) as nom, a.email,
