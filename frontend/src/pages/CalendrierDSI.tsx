@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield } from 'lucide-react';
 
-const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'reunion', 'hotline'] as const;
+const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'reunion', 'hotline', 'maintenance'] as const;
 type Categorie = typeof CATEGORIES[number];
 
 const CATEGORY_COLORS: Record<Categorie, string> = {
@@ -12,7 +12,8 @@ const CATEGORY_COLORS: Record<Categorie, string> = {
   teletravail: '#003366',
   deploiement: '#4CAF50',
   reunion: '#9C27B0',
-  hotline: '#22c55e'
+  hotline: '#22c55e',
+  maintenance: '#FF9800'
 };
 
 const CATEGORY_LABELS: Record<Categorie, string> = {
@@ -20,7 +21,8 @@ const CATEGORY_LABELS: Record<Categorie, string> = {
   teletravail: 'Télétravailleurs',
   deploiement: 'Déploiements',
   reunion: 'Réunions importantes',
-  hotline: 'Hotline'
+  hotline: 'Hotline',
+  maintenance: 'Maintenance'
 };
 
 interface Evenement {
