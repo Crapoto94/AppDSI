@@ -892,7 +892,7 @@ const Certif: React.FC = () => {
         .container {
           width: 100%;
           margin: 0;
-          padding: 30px 12px;
+          padding: 30px 0;
         }
         .page-header {
           display: flex;
