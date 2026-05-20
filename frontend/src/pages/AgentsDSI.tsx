@@ -454,12 +454,13 @@ export default function AgentsDSI() {
 
         /* Modal */
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(2px); }
-        .modal-content { background: #fff; border-radius: 14px; padding: 28px; width: 460px; max-width: 90vw; max-height: 85vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.15); }
+        .modal-content { background: #fff; border-radius: 14px; width: 460px; max-width: 90vw; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,0.15); }
+        .modal-body { padding: 28px; overflow-y: auto; flex: 1; }
         .modal-content h2 { margin: 0 0 18px; font-size: 1.15rem; color: #1a1a2e; font-weight: 700; }
         .modal-content label { display: block; font-size: 0.82rem; font-weight: 600; color: #555; margin-bottom: 5px; margin-top: 14px; }
         .modal-content input, .modal-content select { width: 100%; padding: 9px 12px; border: 1.5px solid #ddd; border-radius: 8px; font-size: 0.9rem; box-sizing: border-box; transition: border-color 0.12s; }
         .modal-content input:focus, .modal-content select:focus { border-color: #1a1a2e; outline: none; }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 0 28px 28px 28px; border-top: 1px solid #e8e8e8; flex-shrink: 0; }
         .modal-actions button { padding: 9px 22px; border-radius: 8px; cursor: pointer; font-size: 0.88rem; border: none; font-weight: 600; transition: all 0.12s; }
         .modal-actions .btn-cancel { background: #f0f0f0; color: #555; }
         .modal-actions .btn-cancel:hover { background: #e0e0e0; }
@@ -642,33 +643,35 @@ export default function AgentsDSI() {
       {showAddModal && (
         <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2>Ajouter un agent DSI</h2>
-            <label>Recherche dans l'annuaire AD</label>
-            <div className="ad-search-wrapper">
-              <input
-                placeholder="Tapez au moins 2 caractères…"
-                value={adQuery}
-                onChange={e => { searchAD(e.target.value); setError(null); }}
-              />
-              {searchingAD && <div style={{ fontSize: '0.8rem', color: '#888', marginTop: 4 }}>Recherche…</div>}
-              {adResults.length > 0 && (
-                <div className="ad-results">
-                  {adResults.map(u => (
-                    <div key={u.username} className="ad-result-item" onMouseDown={(e) => { e.preventDefault(); setSelectedADUser(u); setAdQuery(''); }} style={{ cursor: 'pointer' }}>
-                      <div className="ad-name">{u.displayName}</div>
-                      <div className="ad-detail">{u.email || u.username}</div>
-                    </div>
-                  ))}
+            <div className="modal-body">
+              <h2>Ajouter un agent DSI</h2>
+              <label>Recherche dans l'annuaire AD</label>
+              <div className="ad-search-wrapper">
+                <input
+                  placeholder="Tapez au moins 2 caractères…"
+                  value={adQuery}
+                  onChange={e => { searchAD(e.target.value); setError(null); }}
+                />
+                {searchingAD && <div style={{ fontSize: '0.8rem', color: '#888', marginTop: 4 }}>Recherche…</div>}
+                {adResults.length > 0 && (
+                  <div className="ad-results">
+                    {adResults.map(u => (
+                      <div key={u.username} className="ad-result-item" onMouseDown={(e) => { e.preventDefault(); setSelectedADUser(u); setAdQuery(''); }} style={{ cursor: 'pointer' }}>
+                        <div className="ad-name">{u.displayName}</div>
+                        <div className="ad-detail">{u.email || u.username}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {selectedADUser && (
+                <div className="ad-selected">
+                  <span>{selectedADUser.displayName}</span>
+                  <span className="remove" onClick={() => setSelectedADUser(null)}>✕</span>
                 </div>
               )}
+              {error && !error.includes('import') && <p style={{ color: '#E30613', fontSize: '0.85rem', marginTop: 8 }}>{error}</p>}
             </div>
-            {selectedADUser && (
-              <div className="ad-selected">
-                <span>{selectedADUser.displayName}</span>
-                <span className="remove" onClick={() => setSelectedADUser(null)}>✕</span>
-              </div>
-            )}
-            {error && !error.includes('import') && <p style={{ color: '#E30613', fontSize: '0.85rem', marginTop: 8 }}>{error}</p>}
             <div className="modal-actions">
               <button className="btn-cancel" onClick={() => setShowAddModal(false)}>Annuler</button>
               <button className="btn-save" onClick={addAgent} disabled={!selectedADUser}>Ajouter</button>
@@ -681,13 +684,14 @@ export default function AgentsDSI() {
       {showMatriculeModal && (
         <div className="modal-overlay" onClick={() => setShowMatriculeModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2>🔗 Lier le matricule RH</h2>
-            <p style={{ fontSize: '0.82rem', color: '#888', margin: '0 0 14px' }}>
-              Recherchez l'agent dans la table Oracle RH pour lier son matricule. Les absences seront ensuite affichées dans le calendrier.
-            </p>
+            <div className="modal-body">
+              <h2>🔗 Lier le matricule RH</h2>
+              <p style={{ fontSize: '0.82rem', color: '#888', margin: '0 0 14px' }}>
+                Recherchez l'agent dans la table Oracle RH pour lier son matricule. Les absences seront ensuite affichées dans le calendrier.
+              </p>
 
-            {/* Mode switcher */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              {/* Mode switcher */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
               <button
                 style={{
                   flex: 1, padding: '8px 12px', borderRadius: 8, fontSize: '0.82rem', fontWeight: 600,
@@ -770,8 +774,8 @@ export default function AgentsDSI() {
                   Trouvez le matricule dans votre espace RH ou demandez-le à l'agent.
                 </p>
               </>
-            )}
-
+              )}
+            </div>
             <div className="modal-actions">
               <button className="btn-cancel" onClick={() => setShowMatriculeModal(false)}>Annuler</button>
               <button className="btn-save" onClick={linkMatricule} disabled={useManualMatricule ? !manualMatricule.trim() : !selectedMatricule || linking}>
@@ -786,9 +790,10 @@ export default function AgentsDSI() {
       {hlAgent !== null && (
         <div className="modal-overlay" onClick={() => setHlAgent(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
-            <h2>Hotline — {hlAgent}</h2>
-            <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: 16 }}>Définissez les jours de hotline par défaut (semaine paire/impaire/les deux, matin/après-midi/journée).</p>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <div className="modal-body">
+              <h2>Hotline — {hlAgent}</h2>
+              <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: 16 }}>Définissez les jours de hotline par défaut (semaine paire/impaire/les deux, matin/après-midi/journée).</p>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
                   <th style={{ padding: '8px 12px', textAlign: 'left' }}>Jour</th>
@@ -822,12 +827,13 @@ export default function AgentsDSI() {
                 ))}
               </tbody>
             </table>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-              {HL_JOURS.map((jour, idx) => (
-                <button key={idx} onClick={() => setHlRules([...hlRules, { jour_semaine: idx + 1, semaine_type: 'les2', periode: 'journee' }])} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #22c55e', background: 'white', color: '#22c55e', cursor: 'pointer', fontSize: '0.8rem' }}>+ {jour}</button>
-              ))}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                {HL_JOURS.map((jour, idx) => (
+                  <button key={idx} onClick={() => setHlRules([...hlRules, { jour_semaine: idx + 1, semaine_type: 'les2', periode: 'journee' }])} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #22c55e', background: 'white', color: '#22c55e', cursor: 'pointer', fontSize: '0.8rem' }}>+ {jour}</button>
+                ))}
+              </div>
             </div>
-            <div className="modal-actions" style={{ marginTop: 20 }}>
+            <div className="modal-actions">
               <button className="btn-cancel" onClick={() => setHlAgent(null)}>Annuler</button>
               <button className="btn-save" style={{ background: '#22c55e' }} disabled={hlSaving} onClick={async () => {
                 setHlSaving(true);
