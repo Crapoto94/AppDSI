@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield } from 'lucide-react';
 
-const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion'] as const;
+const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion', 'hotline'] as const;
 type Categorie = typeof CATEGORIES[number];
 
 const CATEGORY_COLORS: Record<Categorie, string> = {
@@ -12,7 +12,8 @@ const CATEGORY_COLORS: Record<Categorie, string> = {
   teletravail: '#003366',
   deploiement: '#4CAF50',
   maintenance: '#FF9800',
-  reunion: '#9C27B0'
+  reunion: '#9C27B0',
+  hotline: '#22c55e'
 };
 
 const CATEGORY_LABELS: Record<Categorie, string> = {
@@ -20,7 +21,8 @@ const CATEGORY_LABELS: Record<Categorie, string> = {
   teletravail: 'Télétravailleurs',
   deploiement: 'Déploiements',
   maintenance: 'Maintenances',
-  reunion: 'Réunions importantes'
+  reunion: 'Réunions importantes',
+  hotline: 'Hotline'
 };
 
 interface Evenement {
@@ -37,6 +39,7 @@ interface Evenement {
   created_by: string;
   created_at: string;
   source?: string;
+  generated?: boolean;
   pending?: boolean;
 }
 
@@ -139,6 +142,7 @@ export default function CalendrierDSI() {
   const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<{ username: string; nom: string; service: string; email: string }[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [readonly, setReadonly] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Evenement | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -170,6 +174,7 @@ export default function CalendrierDSI() {
   const [o365SearchEmail, setO365SearchEmail] = useState('');
 
   const [selectedService, setSelectedService] = useState<string | null>(null);
+  const [hotlineCounts, setHotlineCounts] = useState<Record<string, { total: number; available: number }>>({});
 
   const [showManagerModal, setShowManagerModal] = useState(false);
   const [managerList, setManagerList] = useState<any[]>([]);
@@ -177,7 +182,19 @@ export default function CalendrierDSI() {
   const [managerSearch, setManagerSearch] = useState('');
   const [managerSearchResults, setManagerSearchResults] = useState<any[]>([]);
   const [managerSearching, setManagerSearching] = useState(false);
-  const isManager = (user?.est_manager || user?.role === 'admin') ?? false;
+  const [isManager, setIsManager] = useState(false);
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          const data = await res.json();
+          setIsManager(data.est_manager || data.role === 'admin');
+        }
+      } catch {}
+    })();
+  }, [token]);
 
   const [showPrevModal, setShowPrevModal] = useState(false);
   const [prevAgent, setPrevAgent] = useState<{ username: string; nom: string; email: string } | null>(null);
@@ -189,6 +206,27 @@ export default function CalendrierDSI() {
   const [prevPeriodeDebut, setPrevPeriodeDebut] = useState('');
   const [prevPeriodeFin, setPrevPeriodeFin] = useState('');
   const [prevSaving, setPrevSaving] = useState(false);
+
+
+  // Vacances
+  const [showVacancesModal, setShowVacancesModal] = useState(false);
+  const [vacances, setVacances] = useState<{ id: number; date_debut: string; date_fin: string; label: string; type: string }[]>([]);
+  const [vDateDebut, setVDateDebut] = useState('');
+  const [vDateFin, setVDateFin] = useState('');
+  const [vLabel, setVLabel] = useState('');
+  const [vType, setVType] = useState('ferie');
+
+  const fetchVacances = useCallback(async () => {
+    try {
+      const res = await fetch('/api/calendrier-dsi/vacances', { headers });
+      if (res.ok) setVacances(await res.json());
+    } catch {}
+  }, [token]);
+
+  useEffect(() => { if (token) fetchVacances(); }, [token, fetchVacances]);
+
+  const isFerie = (dateStr: string) => vacances.some(v => v.type === 'ferie' && dateStr >= v.date_debut && dateStr <= v.date_fin);
+  const getVacance = (dateStr: string) => vacances.find(v => v.type === 'vacances' && dateStr >= v.date_debut && dateStr <= v.date_fin);
 
   const fetchManagerList = async () => {
     setManagerLoading(true);
@@ -225,6 +263,7 @@ export default function CalendrierDSI() {
   }, [managerSearch, token]);
 
   const openPrevModal = (agent: { username: string; nom: string; email: string }, date: string, periode: string) => {
+    setReadonly(false);
     setEditingEvent(null);
     setPrevAgent(agent);
     setPrevDate(date);
@@ -241,9 +280,11 @@ export default function CalendrierDSI() {
     if (!prevAgent || !prevType) return;
     setPrevSaving(true);
     try {
-      if (editingEvent && editingEvent.id > 0) {
+      if (editingEvent && editingEvent.id > 0 && prevType !== 'hotline') {
         try {
-          await fetch(`/api/calendrier-dsi/evenements/${editingEvent.id}?deleteSeries=true`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+          const titre = encodeURIComponent(editingEvent.titre || '');
+          const username = encodeURIComponent(editingEvent.agent_username || '');
+          await fetch(`/api/calendrier-dsi/evenements/${editingEvent.id}?deleteSeries=true&titre=${titre}&agent_username=${username}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
         } catch (e) { console.error('[Prev] Error deleting old series:', e); }
       }
       const colors: Record<string, string> = { 'absence_justifier': CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' };
@@ -269,58 +310,182 @@ export default function CalendrierDSI() {
         });
       };
 
-      const sameDay = prevDateFin === prevDateDebut || !prevDateFin;
-      if (sameDay) {
-        const pd = prevPeriodeDebut || '';
-        const pf = prevPeriodeFin || pd;
-        if (pd === 'matin') {
-          await createEvent(prevDateDebut, 'matin');
-          if (pf === 'apres-midi' || pf === '') await createEvent(prevDateDebut, pf === 'apres-midi' ? 'apres-midi' : '');
-        } else if (pd === 'apres-midi') {
-          await createEvent(prevDateDebut, 'apres-midi');
+      const toggleHL = async (date: string, currentlyOn: boolean, periode: string) => {
+        await fetch('/api/calendrier-dsi/hotline/override', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ agent_username: prevAgent!.username, date, active: currentlyOn ? false : true, periode })
+        });
+      };
+
+      if (prevType === 'hotline') {
+        const sameDay = prevDateFin === prevDateDebut || !prevDateFin;
+        if (sameDay) {
+          const pd = prevPeriodeDebut || '';
+          const pf = prevPeriodeFin || pd;
+          if (pd === 'matin') {
+            const currentlyOn = events.some(e => {
+              const eDate = e.date.split('T')[0];
+              return eDate === prevDateDebut && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && e.periode === 'matin';
+            });
+            await toggleHL(prevDateDebut, currentlyOn, 'matin');
+            if (pf === 'apres-midi' || pf === '') {
+              const currentlyOnPm = events.some(e => {
+                const eDate = e.date.split('T')[0];
+                return eDate === prevDateDebut && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && (pf === 'apres-midi' ? e.periode === 'apres-midi' : e.periode === '');
+              });
+              await toggleHL(prevDateDebut, currentlyOnPm, pf === 'apres-midi' ? 'apres-midi' : '');
+            }
+          } else if (pd === 'apres-midi') {
+            const currentlyOn = events.some(e => {
+              const eDate = e.date.split('T')[0];
+              return eDate === prevDateDebut && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && e.periode === 'apres-midi';
+            });
+            await toggleHL(prevDateDebut, currentlyOn, 'apres-midi');
+          } else {
+            const currentlyOn = events.some(e => {
+              const eDate = e.date.split('T')[0];
+              return eDate === prevDateDebut && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && (e.periode || '') === '';
+            });
+            await toggleHL(prevDateDebut, currentlyOn, '');
+          }
         } else {
-          await createEvent(prevDateDebut, '');
+          const start = new Date(prevDateDebut);
+          const end = new Date(prevDateFin);
+          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            if (d.getDay() === 0 || d.getDay() === 6) continue;
+            const ds = formatDate(d);
+            const isStart = ds === prevDateDebut;
+            const isEnd = ds === prevDateFin;
+            if (isStart) {
+              const pd = prevPeriodeDebut || '';
+              if (pd === 'matin') {
+                const currentlyOn = events.some(e => {
+                  const eDate = e.date.split('T')[0];
+                  return eDate === ds && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && e.periode === 'matin';
+                });
+                await toggleHL(ds, currentlyOn, 'matin');
+                const pfEnd = prevPeriodeFin || 'apres-midi';
+                if (prevDateFin === prevDateDebut) {
+                  if (pfEnd === 'apres-midi' || pfEnd === '') {
+                    const currentlyOnPm = events.some(e => {
+                      const eDate = e.date.split('T')[0];
+                      return eDate === ds && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && (pfEnd === 'apres-midi' ? e.periode === 'apres-midi' : e.periode === '');
+                    });
+                    await toggleHL(ds, currentlyOnPm, pfEnd === 'apres-midi' ? 'apres-midi' : '');
+                  }
+                } else {
+                  const currentlyOnPm = events.some(e => {
+                    const eDate = e.date.split('T')[0];
+                    return eDate === ds && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && e.periode === 'apres-midi';
+                  });
+                  await toggleHL(ds, currentlyOnPm, 'apres-midi');
+                }
+              } else if (pd === 'apres-midi') {
+                const currentlyOn = events.some(e => {
+                  const eDate = e.date.split('T')[0];
+                  return eDate === ds && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && e.periode === 'apres-midi';
+                });
+                await toggleHL(ds, currentlyOn, 'apres-midi');
+              } else {
+                const currentlyOn = events.some(e => {
+                  const eDate = e.date.split('T')[0];
+                  return eDate === ds && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && (e.periode || '') === '';
+                });
+                await toggleHL(ds, currentlyOn, '');
+              }
+            } else if (isEnd) {
+              const pf = prevPeriodeFin || '';
+              if (pf === 'matin') {
+                const currentlyOn = events.some(e => {
+                  const eDate = e.date.split('T')[0];
+                  return eDate === ds && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && e.periode === 'matin';
+                });
+                await toggleHL(ds, currentlyOn, 'matin');
+              } else if (pf === 'apres-midi') {
+                const currentlyOn = events.some(e => {
+                  const eDate = e.date.split('T')[0];
+                  return eDate === ds && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && e.periode === 'apres-midi';
+                });
+                await toggleHL(ds, currentlyOn, 'apres-midi');
+              } else {
+                const currentlyOn = events.some(e => {
+                  const eDate = e.date.split('T')[0];
+                  return eDate === ds && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && (e.periode || '') === '';
+                });
+                await toggleHL(ds, currentlyOn, '');
+              }
+            } else {
+              const currentlyOn = events.some(e => {
+                const eDate = e.date.split('T')[0];
+                return eDate === ds && e.agent_username === prevAgent!.username && e.categorie === 'hotline' && (e.periode || '') === '';
+              });
+              await toggleHL(ds, currentlyOn, '');
+            }
+          }
         }
       } else {
-        const start = new Date(prevDateDebut);
-        const end = new Date(prevDateFin);
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          if (d.getDay() === 0 || d.getDay() === 6) continue;
-          const ds = formatDate(d);
-          const isStart = ds === prevDateDebut;
-          const isEnd = ds === prevDateFin;
-          if (isStart) {
-            const pd = prevPeriodeDebut || '';
-            if (pd === 'matin') {
-              await createEvent(ds, 'matin');
-              const pfEnd = prevPeriodeFin || 'apres-midi';
-              if (prevDateFin === prevDateDebut) {
-                if (pfEnd === 'apres-midi' || pfEnd === '') await createEvent(ds, 'apres-midi');
-              } else {
-                await createEvent(ds, 'apres-midi');
-              }
-            } else if (pd === 'apres-midi') {
-              await createEvent(ds, 'apres-midi');
-            } else {
-              await createEvent(ds, '');
-            }
-          } else if (isEnd) {
-            const pf = prevPeriodeFin || '';
-            if (pf === 'matin') {
-              await createEvent(ds, 'matin');
-            } else if (pf === 'apres-midi') {
-              await createEvent(ds, 'apres-midi');
-            } else {
-              await createEvent(ds, '');
-            }
+        const sameDay = prevDateFin === prevDateDebut || !prevDateFin;
+        if (sameDay) {
+          const pd = prevPeriodeDebut || '';
+          const pf = prevPeriodeFin || pd;
+          if (pd === 'matin') {
+            await createEvent(prevDateDebut, 'matin');
+            if (pf === 'apres-midi' || pf === '') await createEvent(prevDateDebut, pf === 'apres-midi' ? 'apres-midi' : '');
+          } else if (pd === 'apres-midi') {
+            await createEvent(prevDateDebut, 'apres-midi');
           } else {
-            await createEvent(ds, '');
+            await createEvent(prevDateDebut, '');
+          }
+        } else {
+          const start = new Date(prevDateDebut);
+          const end = new Date(prevDateFin);
+          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            if (d.getDay() === 0 || d.getDay() === 6) continue;
+            const ds = formatDate(d);
+            const isStart = ds === prevDateDebut;
+            const isEnd = ds === prevDateFin;
+            if (isStart) {
+              const pd = prevPeriodeDebut || '';
+              if (pd === 'matin') {
+                await createEvent(ds, 'matin');
+                const pfEnd = prevPeriodeFin || 'apres-midi';
+                if (prevDateFin === prevDateDebut) {
+                  if (pfEnd === 'apres-midi' || pfEnd === '') await createEvent(ds, 'apres-midi');
+                } else {
+                  await createEvent(ds, 'apres-midi');
+                }
+              } else if (pd === 'apres-midi') {
+                await createEvent(ds, 'apres-midi');
+              } else {
+                await createEvent(ds, '');
+              }
+            } else if (isEnd) {
+              const pf = prevPeriodeFin || '';
+              if (pf === 'matin') {
+                await createEvent(ds, 'matin');
+              } else if (pf === 'apres-midi') {
+                await createEvent(ds, 'apres-midi');
+              } else {
+                await createEvent(ds, '');
+              }
+            } else {
+              await createEvent(ds, '');
+            }
           }
         }
       }
       setShowPrevModal(false);
-      const { start, end: endR } = getWeekRange(currentDate);
-      fetchEvents(formatDate(start), formatDate(endR));
+      if (view === 'week' || view === 'week7') {
+        const { start } = getWeekRange(currentDate);
+        const end = new Date(start);
+        end.setDate(end.getDate() + (view === 'week7' ? 6 : 4));
+        fetchEvents(formatDate(start), formatDate(end));
+      } else {
+        const y = currentDate.getFullYear();
+        const m = currentDate.getMonth();
+        fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0)));
+      }
     } catch (e) { console.error('Erreur prévisionnel:', e); }
     finally { setPrevSaving(false); }
   };
@@ -384,6 +549,35 @@ export default function CalendrierDSI() {
     } catch (e) { console.error(e); }
   };
 
+  const fetchHotlineCounts = useCallback(async (debut: string, fin: string) => {
+    try {
+      const [y1, m1, d1] = debut.split('-').map(Number);
+      const [y2, m2, d2] = fin.split('-').map(Number);
+      const startDate = new Date(y1, m1 - 1, d1);
+      const endDate = new Date(y2, m2 - 1, d2);
+
+      const counts: Record<string, { total: number; available: number }> = {};
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = formatDate(d);
+        for (const periode of ['matin', 'apres-midi']) {
+          const key = `${dateStr}|${periode}`;
+          try {
+            const res = await fetch(`/api/calendrier-dsi/hotline/count/${dateStr}/${periode}`, { headers });
+            if (res.ok) {
+              const data = await res.json();
+              counts[key] = { total: data.total, available: data.available };
+            }
+          } catch (e) {
+            // Silent fail for individual counts
+          }
+        }
+      }
+      setHotlineCounts(counts);
+    } catch (e: any) {
+      console.error('Erreur chargement hotline counts', e);
+    }
+  }, [token]);
+
   const fetchEvents = useCallback(async (debut: string, fin: string) => {
     console.log('[Calendrier] fetchEvents:', debut, fin);
     setLoading(true);
@@ -403,6 +597,8 @@ export default function CalendrierDSI() {
         setAgents(Array.isArray(agentsData) ? agentsData.map((a: any) => ({ username: a.username, nom: a.nom, service: a.service || '', email: a.email || '' })) : []);
       }
       setEvents(Array.isArray(eventsData) ? eventsData : []);
+      // Fetch hotline counts
+      fetchHotlineCounts(debut, fin);
     } catch (e: any) {
       console.error('Erreur chargement événements', e);
       setError(e.message || 'Erreur de chargement');
@@ -410,32 +606,34 @@ export default function CalendrierDSI() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, fetchHotlineCounts]);
 
   useEffect(() => {
     if (!token) return;
-    if (view === 'week') {
-      const { start, end } = getWeekRange(currentDate);
+    if (view === 'week' || view === 'week7') {
+      const { start } = getWeekRange(currentDate);
+      const end = new Date(start);
+      end.setDate(end.getDate() + (view === 'week7' ? 6 : 4));
       fetchEvents(formatDate(start), formatDate(end));
     } else {
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth();
       const first = formatDate(new Date(year, month, 1));
-      const last = formatDate(new Date(year, month + 1, 0));
+      const last = formatDate(new Date(year, month + 2, 0));
       fetchEvents(first, last);
     }
   }, [currentDate, view, fetchEvents, token]);
 
   const navPrev = () => {
     const d = new Date(currentDate);
-    if (view === 'week') d.setDate(d.getDate() - 7);
+    if (view === 'week' || view === 'week7') d.setDate(d.getDate() - 7);
     else d.setMonth(d.getMonth() - 1);
     setCurrentDate(d);
   };
 
   const navNext = () => {
     const d = new Date(currentDate);
-    if (view === 'week') d.setDate(d.getDate() + 7);
+    if (view === 'week' || view === 'week7') d.setDate(d.getDate() + 7);
     else d.setMonth(d.getMonth() + 1);
     setCurrentDate(d);
   };
@@ -503,13 +701,15 @@ export default function CalendrierDSI() {
       }
       setShowAgentSelect(false);
       // Refresh events
-      if (view === 'week') {
-        const { start, end } = getWeekRange(currentDate);
+      if (view === 'week' || view === 'week7') {
+        const { start } = getWeekRange(currentDate);
+        const end = new Date(start);
+        end.setDate(end.getDate() + (view === 'week7' ? 6 : 4));
         await fetchEvents(formatDate(start), formatDate(end));
       } else {
         const y = currentDate.getFullYear();
         const m = currentDate.getMonth();
-        await fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 1, 0)));
+        await fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0)));
       }
     } catch (e: any) {
       setError(e.message || 'Erreur lors de la sélection');
@@ -541,6 +741,7 @@ export default function CalendrierDSI() {
   };
 
   const openCreateModal = (date?: string) => {
+    setReadonly(false);
     setEditingEvent(null);
     setFormDate(date || formatDate(currentDate));
     setFormCategorie('absence');
@@ -554,7 +755,12 @@ export default function CalendrierDSI() {
   };
 
   const openEditModal = (evt: Evenement) => {
-    if (selectedService && isManager && (evt.categorie === 'absence' || evt.categorie === 'teletravail') && evt.id > 0) {
+    const readOnly = (evt.generated && evt.categorie !== 'hotline') || evt.source === 'maintenance-table' || evt.source === 'o365' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
+    setReadonly(!!readOnly);
+    const isOwnEvent = evt.agent_username?.toLowerCase() === user?.username?.toLowerCase();
+    const isPublicCategory = evt.categorie === 'deploiement' || evt.categorie === 'maintenance' || evt.categorie === 'reunion';
+    if (!isManager && !isOwnEvent && !isPublicCategory) return;
+    if (selectedService && isManager && (evt.categorie === 'absence' || evt.categorie === 'teletravail' || evt.categorie === 'hotline') && (evt.id > 0 || evt.categorie === 'hotline')) {
       setPrevAgent({ username: evt.agent_username || '', nom: evt.agent_nom || '', email: evt.agent_email || '' });
       setPrevDate(evt.date);
       setPrevPeriode(evt.periode || '');
@@ -629,13 +835,15 @@ export default function CalendrierDSI() {
       }
       console.log('[Calendrier] Save OK');
       setShowModal(false);
-      if (view === 'week') {
-        const { start, end } = getWeekRange(currentDate);
+      if (view === 'week' || view === 'week7') {
+        const { start } = getWeekRange(currentDate);
+        const end = new Date(start);
+        end.setDate(end.getDate() + (view === 'week7' ? 6 : 4));
         await fetchEvents(formatDate(start), formatDate(end));
       } else {
         const y = currentDate.getFullYear();
         const m = currentDate.getMonth();
-        await fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 1, 0)));
+        await fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0)));
       }
     } catch (e: any) {
       console.error('[Calendrier] Erreur sauvegarde', e);
@@ -645,18 +853,21 @@ export default function CalendrierDSI() {
     }
   };
 
-  const handleDelete = async (id: number, series?: boolean) => {
+  const handleDelete = async (id: number, series?: boolean, extra?: { titre?: string; agent_username?: string }) => {
     try {
-      const url = series ? `/api/calendrier-dsi/evenements/${id}?deleteSeries=true` : `/api/calendrier-dsi/evenements/${id}`;
+      let url = series ? `/api/calendrier-dsi/evenements/${id}?deleteSeries=true` : `/api/calendrier-dsi/evenements/${id}`;
+      if (series && extra?.titre) url += `&titre=${encodeURIComponent(extra.titre)}&agent_username=${encodeURIComponent(extra.agent_username || '')}`;
       await fetch(url, { method: 'DELETE', headers });
       setConfirmDelete(null);
-      if (view === 'week') {
-        const { start, end } = getWeekRange(currentDate);
+      if (view === 'week' || view === 'week7') {
+        const { start } = getWeekRange(currentDate);
+        const end = new Date(start);
+        end.setDate(end.getDate() + (view === 'week7' ? 6 : 4));
         fetchEvents(formatDate(start), formatDate(end));
       } else {
         const y = currentDate.getFullYear();
         const m = currentDate.getMonth();
-        fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 1, 0)));
+        fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0)));
       }
     } catch (e) {
       console.error('Erreur suppression', e);
@@ -704,9 +915,10 @@ export default function CalendrierDSI() {
   };
 
   const weekDays: Date[] = [];
-  if (view === 'week') {
+  if (view === 'week' || view === 'week7') {
     const { start } = getWeekRange(currentDate);
-    for (let i = 0; i < 5; i++) {
+    const dayCount = view === 'week7' ? 7 : 5;
+    for (let i = 0; i < dayCount; i++) {
       const d = new Date(start);
       d.setDate(d.getDate() + i);
       weekDays.push(d);
@@ -717,9 +929,11 @@ export default function CalendrierDSI() {
 
   const monthDays = view === 'month' ? padMonth(getMonthDays(currentDate.getFullYear(), currentDate.getMonth())) : [];
 
-  const weekLabel = view === 'week'
+  const weekLabel = view === 'week' || view === 'week7'
     ? (() => {
-        const { start, end } = getWeekRange(currentDate);
+        const { start } = getWeekRange(currentDate);
+        const end = new Date(start);
+        end.setDate(end.getDate() + (view === 'week7' ? 6 : 4));
         return `Semaine du ${start.getDate()} au ${end.getDate()} ${end.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}`;
       })()
     : currentDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
@@ -738,8 +952,8 @@ export default function CalendrierDSI() {
         .cal-header {
           background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
           border-bottom: 1px solid #e2e8f0;
-          padding: 32px 40px;
-          margin-bottom: 32px;
+          padding: 20px 40px;
+          margin-bottom: 24px;
         }
         .cal-header-content {
           max-width: 1600px;
@@ -748,11 +962,11 @@ export default function CalendrierDSI() {
           align-items: center;
           justify-content: space-between;
           flex-wrap: wrap;
-          gap: 24px;
+          gap: 12px;
         }
         .cal-header h1 {
           margin: 0;
-          font-size: 2rem;
+          font-size: 1.5rem;
           font-weight: 700;
           color: #0f172a;
           display: flex;
@@ -762,7 +976,7 @@ export default function CalendrierDSI() {
         .cal-nav {
           display: flex;
           align-items: center;
-          gap: 16px;
+          gap: 8px;
           flex-wrap: wrap;
         }
 
@@ -776,11 +990,11 @@ export default function CalendrierDSI() {
           padding: 4px;
         }
         .view-toggle button {
-          padding: 8px 20px;
+          padding: 6px 12px;
           border: none;
           background: transparent;
           cursor: pointer;
-          font-size: 0.9rem;
+          font-size: 0.8rem;
           font-weight: 600;
           color: #64748b;
           transition: all 0.2s;
@@ -799,12 +1013,12 @@ export default function CalendrierDSI() {
           background: #ffffff;
           border: 1px solid #e2e8f0;
           border-radius: 8px;
-          padding: 8px 14px;
+          padding: 6px 10px;
           cursor: pointer;
           display: flex;
           align-items: center;
           gap: 6px;
-          font-size: 0.9rem;
+          font-size: 0.8rem;
           font-weight: 500;
           color: #475569;
           transition: all 0.2s;
@@ -815,9 +1029,9 @@ export default function CalendrierDSI() {
         }
         .cal-nav .label {
           font-weight: 700;
-          min-width: 280px;
+          min-width: 180px;
           text-align: center;
-          font-size: 1.1rem;
+          font-size: 1rem;
           color: #0f172a;
         }
         .btn-add {
@@ -825,12 +1039,12 @@ export default function CalendrierDSI() {
           color: #fff;
           border: none;
           border-radius: 8px;
-          padding: 10px 20px;
+          padding: 6px 14px;
           cursor: pointer;
           display: flex;
           align-items: center;
-          gap: 8px;
-          font-size: 0.95rem;
+          gap: 6px;
+          font-size: 0.8rem;
           font-weight: 600;
           transition: all 0.2s;
           box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
@@ -1089,11 +1303,7 @@ export default function CalendrierDSI() {
           outline: 1.5px solid #000;
           outline-offset: -1px;
         }
-        .rh-legend { display: flex; align-items: center; gap: 16px; padding: 6px 0 0 4px; font-size: 0.78rem; color: #666; margin-bottom: 8px; }
-        .rh-legend-item { display: flex; align-items: center; gap: 6px; }
-        .rh-legend-dot { width: 10px; height: 10px; border-radius: 50%; background: #E30613; }
-        .rh-legend-dot-rh { width: 14px; height: 14px; border-radius: 50%; background: #E30613; outline: 2px solid #000; outline-offset: -1px; }
-        .rh-legend-dot-rh-pending { width: 14px; height: 14px; border-radius: 50%; background: #E30613; outline: 2px dashed #000; outline-offset: -1px; }
+
 
         /* Month Grid */
         .month-grid {
@@ -1390,7 +1600,6 @@ export default function CalendrierDSI() {
         }
 
         @media (max-width: 900px) {
-          .week-grid { grid-template-columns: 100px repeat(5, 1fr); }
           .week-grid .cell { min-height: 70px; padding: 6px; }
           .cal-header { padding: 24px 20px; }
           .calendrier-main { padding: 0 20px; }
@@ -1404,30 +1613,26 @@ export default function CalendrierDSI() {
           <div className="cal-nav">
             <div className="view-toggle">
               <button className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>📅 Semaine</button>
+              <button className={view === 'week7' ? 'active' : ''} onClick={() => setView('week7')}>📅 Semaine 7</button>
               <button className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>📆 Mois</button>
             </div>
             <button onClick={navPrev}><ChevronLeft size={18} /></button>
             <span className="label">{weekLabel}</span>
             <button onClick={navNext}><ChevronRight size={18} /></button>
             <button onClick={navToday}>Aujourd'hui</button>
-            <button className="btn-add" onClick={() => openCreateModal()}><Plus size={16} /> Ajouter</button>
+            <button className="btn-add" onClick={() => openCreateModal()}><Plus size={14} /> Ajouter</button>
             {isManager && (<>
-              <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => { setSelectedRecipients([]); setSendDate(formatDate(new Date(Date.now() + 86400000))); setShowSendModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={16} /> Envoyer</button>
-              <button style={{ background: '#0078d4', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0, 120, 212, 0.2)' }} onClick={() => { setShowO365Modal(true); fetchO365Calendars(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 120, 212, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 120, 212, 0.2)')}><Cloud size={16} /> O365</button>
-              <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={16} /> Agents</a>
-              <button style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.2)' }} onClick={() => { setShowManagerModal(true); fetchManagerList(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(245, 158, 11, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(245, 158, 11, 0.2)')}><Shield size={16} /> Manager</button>
+              <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => { setSelectedRecipients([]); setSendDate(formatDate(new Date(Date.now() + 86400000))); setShowSendModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={14} /> Envoyer</button>
+              <button style={{ background: '#0078d4', color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0, 120, 212, 0.2)' }} onClick={() => { setShowO365Modal(true); fetchO365Calendars(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 120, 212, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 120, 212, 0.2)')}><Cloud size={14} /> O365</button>
+              <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={14} /> Agents</a>
+              <button style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.2)' }} onClick={() => { setShowManagerModal(true); fetchManagerList(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(245, 158, 11, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(245, 158, 11, 0.2)')}><Shield size={14} /> Manager</button>
+              <button style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(239, 68, 68, 0.2)' }} onClick={() => { setShowVacancesModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(239, 68, 68, 0.2)')}><span style={{ fontSize: '0.9rem' }}>🎉</span> Vacances</button>
             </>)}
           </div>
         </div>
       </div>
 
       <div className="calendrier-main">
-        {/* RH Legend */}
-        <div className="rh-legend">
-          <div className="rh-legend-item"><div className="rh-legend-dot"></div> Absence saisie</div>
-          <div className="rh-legend-item"><div className="rh-legend-dot-rh"></div> Absence RH validée</div>
-          <div className="rh-legend-item"><div className="rh-legend-dot-rh-pending"></div> Absence RH en attente</div>
-        </div>
         {/* Error */}
         {error && (
           <div style={{ background: '#fee2e2', border: '1.5px solid #dc2626', borderRadius: '10px', padding: '14px 16px', marginBottom: '24px', color: '#991b1b', fontSize: '0.95rem', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1459,15 +1664,22 @@ export default function CalendrierDSI() {
       })()}
 
       {/* Week View - Category mode */}
-      {view === 'week' && !selectedService && (
-        <div className="week-grid">
+      {(view === 'week' || view === 'week7') && !selectedService && (
+        <div className="week-grid" style={{ gridTemplateColumns: `140px repeat(${weekDays.length}, 1fr)` }}>
           <div className="header-cell">Catégorie</div>
-          {weekDays.map(d => (
-            <div key={formatDate(d)} className={`header-cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`}>
+          {weekDays.map(d => {
+            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+            const ds = formatDate(d);
+            const feria = isFerie(ds);
+            const vac = getVacance(ds);
+            return (
+            <div key={ds} className={`header-cell${ds === formatDate(new Date()) ? ' today' : ''}`} style={{ ...(isWeekend || feria ? { background: '#e2e8f0', color: '#94a3b8' } : {}), ...(feria ? { borderTop: '3px solid #ef4444' } : {}), ...(vac ? { borderBottom: '2px solid #eab308' } : {}) }}>
               {d.toLocaleDateString('fr-FR', { weekday: 'short' }).charAt(0).toUpperCase() + d.toLocaleDateString('fr-FR', { weekday: 'short' }).slice(1)}
               <div className="day-date">{d.getDate()}</div>
+              {vac && <div style={{ fontSize: '0.5rem', color: '#eab308', fontWeight: 600, lineHeight: 1.1, marginTop: 1 }}>{vac.label}</div>}
             </div>
-          ))}
+            );
+          })}
           {CATEGORIES.map(cat => {
             const serviceMap = new Map(agents.map(a => [a.username, a.service]));
             return (
@@ -1513,7 +1725,7 @@ const renderPastille = (evt: Evenement) => {
                   );
                 };
                 return (
-                  <div key={ds} className={`cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`} onClick={() => { if (cat === 'teletravail' || cat === 'absence') { openAgentSelect(ds, cat); } else { openCreateModal(ds); } }}>
+                  <div key={ds} className={`cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`} style={d.getDay() === 0 || d.getDay() === 6 ? { background: '#f1f5f9' } : {}} onClick={() => { if (d.getDay() !== 0 && d.getDay() !== 6 && (cat === 'teletravail' || cat === 'absence')) { openAgentSelect(ds, cat); } else if (d.getDay() !== 0 && d.getDay() !== 6) { openCreateModal(ds); } }}>
                     {!hasAny ? (
                       <div className="empty-cell">+</div>
                     ) : (
@@ -1545,7 +1757,7 @@ const renderPastille = (evt: Evenement) => {
       )}
 
       {/* Week View - Service/Agent mode */}
-      {view === 'week' && selectedService && (() => {
+      {(view === 'week' || view === 'week7') && selectedService && (() => {
         const svcAgents = agents.filter(a => a.service === selectedService).sort((a, b) => a.nom.localeCompare(b.nom));
         const ABSENCE_TYPE_COLORS: Record<string, string> = {
 absence: '#64748b',
@@ -1585,30 +1797,55 @@ absence: '#64748b',
           {weekDays.map(d => {
             const ds = formatDate(d);
             const isToday = ds === formatDate(new Date());
+            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+            const feria = isFerie(ds);
+            const vac = getVacance(ds);
             return (
-              <div key={ds} className={`header-cell${isToday ? ' today' : ''}`}>
+              <div key={ds} className={`header-cell${isToday ? ' today' : ''}`} style={{ ...(isWeekend || feria ? { background: '#e2e8f0', color: '#94a3b8' } : {}), ...(feria ? { borderTop: '3px solid #ef4444' } : {}), ...(vac ? { borderBottom: '2px solid #eab308' } : {}) }}>
                 {d.toLocaleDateString('fr-FR', { weekday: 'short' }).charAt(0).toUpperCase() + d.toLocaleDateString('fr-FR', { weekday: 'short' }).slice(1)}
                 <div className="day-date">{d.getDate()}</div>
+                {vac ? <div style={{ fontSize: '0.55rem', color: '#eab308', fontWeight: 600, lineHeight: 1.1 }}>{vac.label}</div> : (
                 <div style={{ display: 'flex', justifyContent: 'center', gap: 2, fontSize: '0.65rem', color: isToday ? '#7c3aed' : '#94a3b8' }}>
-                  <span>M</span><span style={{ opacity: 0.3 }}>|</span><span>A</span>
-                </div>
+                  {(() => {
+                    const mCount = hotlineCounts[`${ds}|matin`];
+                    const aCount = hotlineCounts[`${ds}|apres-midi`];
+                    const getHlStyle = (count: { total: number; available: number } | undefined) => {
+                      if (!count) return { background: 'transparent', color: 'inherit', fontWeight: 'inherit' };
+                      if (count.available === 0) return { background: '#ef4444', color: '#fff', fontWeight: 600 };
+                      if (count.available === 1) return { background: '#f97316', color: '#fff', fontWeight: 600 };
+                      return { background: 'transparent', color: 'inherit', fontWeight: 'inherit' };
+                    };
+                    return (
+                      <>
+                        <span style={{ ...getHlStyle(mCount), padding: mCount ? '0 2px' : 0, borderRadius: 2 }}>
+                          {mCount ? mCount.available : 'M'}
+                        </span>
+                        <span style={{ opacity: 0.3 }}>|</span>
+                        <span style={{ ...getHlStyle(aCount), padding: aCount ? '0 2px' : 0, borderRadius: 2 }}>
+                          {aCount ? aCount.available : 'A'}
+                        </span>
+                      </>
+                    );
+                  })()}
+                </div>)}
               </div>
             );
           })}
           {svcAgents.map(agent => {
             const agentEvts = (dateStr: string) => events.filter(e => {
               const eDate = e.date.split('T')[0];
-              return eDate === dateStr && (e.agent_username === agent.username || (e.agent_email && e.agent_email.toLowerCase() === (agent.email || '').toLowerCase())) && (e.categorie === 'absence' || e.categorie === 'teletravail' || e.source === 'o365' || e.categorie === 'deploiement' || e.categorie === 'maintenance' || e.categorie === 'reunion');
+              return eDate === dateStr && (e.agent_username === agent.username || (e.agent_email && e.agent_email.toLowerCase() === (agent.email || '').toLowerCase())) && (e.categorie === 'absence' || e.categorie === 'teletravail' || e.source === 'o365' || e.categorie === 'deploiement' || e.categorie === 'maintenance' || e.categorie === 'reunion' || e.categorie === 'hotline');
             });
             return (
               <React.Fragment key={agent.username}>
-                <div className="cat-cell" style={{ background: '#f8fafc', padding: '4px 8px', minHeight: 'auto' }}>
-                  <div className="cat-label" style={{ fontWeight: 600, fontSize: '0.75rem', color: '#0f172a', lineHeight: 1.2 }}>
+                <div className="cat-cell" style={{ background: agent.username?.toLowerCase() === user?.username?.toLowerCase() ? '#dbeafe' : '#f8fafc', padding: '4px 8px', minHeight: 'auto' }}>
+                  <div className="cat-label" style={{ fontWeight: 600, fontSize: '0.75rem', color: agent.username?.toLowerCase() === user?.username?.toLowerCase() ? '#1e40af' : '#0f172a', lineHeight: 1.2 }}>
                     {agent.nom}
                   </div>
                 </div>
                 {weekDays.map(d => {
                   const ds = formatDate(d);
+                  const feria = isFerie(ds);
                   const allEvts = agentEvts(ds);
                   const amEvts = allEvts.filter(e => e.periode === 'matin');
                   const pmEvts = allEvts.filter(e => e.periode === 'apres-midi');
@@ -1616,10 +1853,14 @@ absence: '#64748b',
                   const amAbs = amEvts.filter(e => isAbsenceType(e)).sort((a, b) => isSedit(b) ? 1 : isSedit(a) ? -1 : 0)[0];
                   const pmAbs = pmEvts.filter(e => isAbsenceType(e)).sort((a, b) => isSedit(b) ? 1 : isSedit(a) ? -1 : 0)[0];
                   const fullAbs = fullEvts.filter(e => isAbsenceType(e)).sort((a, b) => isSedit(b) ? 1 : isSedit(a) ? -1 : 0)[0];
-                  const amOther = amEvts.filter(e => !isAbsenceType(e));
-                  const pmOther = pmEvts.filter(e => !isAbsenceType(e));
+                  const amOther = amEvts.filter(e => !isAbsenceType(e) && e.categorie !== 'hotline');
+                  const pmOther = pmEvts.filter(e => !isAbsenceType(e) && e.categorie !== 'hotline');
+                  const amHl = amEvts.filter(e => e.categorie === 'hotline')[0];
+                  const pmHl = pmEvts.filter(e => e.categorie === 'hotline')[0];
+                  const fullHl = fullEvts.filter(e => e.categorie === 'hotline')[0];
                   const isToday = ds === formatDate(new Date());
                   const isRh = (e: Evenement) => e.source === 'demabs' || e.created_by === 'auto-rh' || e.created_by === 'auto-rh-pending';
+                  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                   const renderSmallPill = (evt: Evenement) => {
                     const seditStyle = isSedit(evt) ? { border: '2px solid #000', outline: '1px solid #000' } : {};
                     return <div key={evt.id} className="pastille" style={{ background: isSedit(evt) ? (evt.pending || evt.created_by === 'auto-rh-pending' ? ABSENCE_TYPE_COLORS.sedit_pending : ABSENCE_TYPE_COLORS.sedit) : ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1', fontSize: '0.65rem', padding: '1px 4px', ...seditStyle }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>{getAbsenceLabel(evt)}</div>;
@@ -1634,29 +1875,39 @@ absence: '#64748b',
                       : { background: color, color: '#fff' };
                     return (
                       <div key={evt.id} style={{ width: '100%', height: '100%', ...bgStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer', borderRadius: 2, border: seditBorder }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
-                        {label}
+                        {isTT ? <span style={{ background: 'rgba(255,255,255,0.85)', padding: '0 4px', borderRadius: 2, color }}>{label}</span> : label}
                       </div>
                     );
                   };
                   return (
                     <div key={ds} className={`cell${isToday ? ' today' : ''}`} style={{ minHeight: 44, padding: 0, display: 'flex', flexDirection: 'row', position: 'relative' }}>
-                      <div style={{ flex: 1, padding: '2px 3px', borderRight: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: amAbs ? `${getAbsenceColor(amAbs)}22` : (fullAbs ? `${getAbsenceColor(fullAbs)}22` : 'transparent') }}>
-                        {amAbs ? renderFilledHalf(amAbs) : fullAbs ? null : (amOther.length > 0 ? amOther.map(renderSmallPill) : (isManager ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'matin'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
+                      {isWeekend || feria ? (
+                        <div style={{ flex: 2, background: '#f1f5f9', minHeight: 44 }} />
+                      ) : (
+                      <><div style={{ flex: 1, padding: '2px 3px', borderRight: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: amAbs ? `${getAbsenceColor(amAbs)}22` : (fullAbs ? `${getAbsenceColor(fullAbs)}22` : ((amHl || fullHl) ? '#22c55e22' : 'transparent')) }}>
+                        {amAbs ? renderFilledHalf(amAbs) : fullAbs ? null : (amOther.length > 0 ? amOther.map(renderSmallPill) : ((isManager || agent.username?.toLowerCase() === user?.username?.toLowerCase()) ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'matin'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
+                        {amHl && <div className="pastille" style={{ background: '#22c55e', color: '#fff', fontSize: '0.6rem', padding: '1px 3px', borderRadius: 2, lineHeight: 1.2, zIndex: 2, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); if (confirm('Supprimer la hotline du matin pour ' + agent.nom + ' le ' + ds + ' ?')) { fetch('/api/calendrier-dsi/hotline/override', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ agent_username: agent.username, date: ds, active: false, periode: 'matin' }) }).then(() => { if (view === 'week' || view === 'week7') { const { start } = getWeekRange(currentDate); const end = new Date(start); end.setDate(end.getDate() + (view === 'week7' ? 6 : 4)); fetchEvents(formatDate(start), formatDate(end)); } else { const y = currentDate.getFullYear(); const m = currentDate.getMonth(); fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0))); } }); } }}>HL</div>}
                       </div>
-                      <div style={{ flex: 1, padding: '2px 3px', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: pmAbs ? `${getAbsenceColor(pmAbs)}22` : (fullAbs ? `${getAbsenceColor(fullAbs)}22` : 'transparent') }}>
-                        {pmAbs ? renderFilledHalf(pmAbs) : (pmOther.length > 0 ? pmOther.map(renderSmallPill) : (isManager ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'apres-midi'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
-                      </div>
+                      <div style={{ flex: 1, padding: '2px 3px', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: pmAbs ? `${getAbsenceColor(pmAbs)}22` : (fullAbs ? `${getAbsenceColor(fullAbs)}22` : ((pmHl || fullHl) ? '#22c55e22' : 'transparent')) }}>
+                        {pmAbs ? renderFilledHalf(pmAbs) : (pmOther.length > 0 ? pmOther.map(renderSmallPill) : ((isManager || agent.username?.toLowerCase() === user?.username?.toLowerCase()) ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'apres-midi'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
+                        {pmHl && <div className="pastille" style={{ background: '#22c55e', color: '#fff', fontSize: '0.6rem', padding: '1px 3px', borderRadius: 2, lineHeight: 1.2, zIndex: 2, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); if (confirm('Supprimer la hotline de l\'après-midi pour ' + agent.nom + ' le ' + ds + ' ?')) { fetch('/api/calendrier-dsi/hotline/override', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ agent_username: agent.username, date: ds, active: false, periode: 'apres-midi' }) }).then(() => { if (view === 'week' || view === 'week7') { const { start } = getWeekRange(currentDate); const end = new Date(start); end.setDate(end.getDate() + (view === 'week7' ? 6 : 4)); fetchEvents(formatDate(start), formatDate(end)); } else { const y = currentDate.getFullYear(); const m = currentDate.getMonth(); fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0))); } }); } }}>HL</div>}
+                      </div></>
+                      )}
                       {fullAbs && !amAbs && !pmAbs && (
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex' }}>
                           <div style={{ flex: 1, fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRight: isRh(fullAbs) ? '2px solid #000' : 'none', color: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? getAbsenceColor(fullAbs) : '#fff', textShadow: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? 'none' : '0 1px 2px rgba(0,0,0,0.3)', background: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? `#ffffff repeating-linear-gradient(45deg, transparent, transparent 4px, ${getAbsenceColor(fullAbs)} 4px, ${getAbsenceColor(fullAbs)} 6px)` : getAbsenceColor(fullAbs) }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
-                            {getAbsenceLabel(fullAbs)}
+                            {fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? <span style={{ background: 'rgba(255,255,255,0.85)', padding: '0 4px', borderRadius: 2, color: getAbsenceColor(fullAbs) }}>{getAbsenceLabel(fullAbs)}</span> : getAbsenceLabel(fullAbs)}
                           </div>
                           <div style={{ flex: 1, fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderLeft: isRh(fullAbs) ? '2px solid #000' : 'none', color: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? getAbsenceColor(fullAbs) : '#fff', textShadow: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? 'none' : '0 1px 2px rgba(0,0,0,0.3)', background: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? `#ffffff repeating-linear-gradient(45deg, transparent, transparent 4px, ${getAbsenceColor(fullAbs)} 4px, ${getAbsenceColor(fullAbs)} 6px)` : getAbsenceColor(fullAbs) }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
-                            {getAbsenceLabel(fullAbs)}
+                            {fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? <span style={{ background: 'rgba(255,255,255,0.85)', padding: '0 4px', borderRadius: 2, color: getAbsenceColor(fullAbs) }}>{getAbsenceLabel(fullAbs)}</span> : getAbsenceLabel(fullAbs)}
                           </div>
                         </div>
                       )}
-                      {isManager && allEvts.length === 0 && (
+                      {fullHl && !amHl && !pmHl && (() => {
+                        const fs = { background: '#22c55e', color: '#fff', fontSize: '0.55rem', padding: '1px 6px', borderRadius: 2, lineHeight: 1.2, zIndex: 2, position: 'absolute', bottom: 1, left: 1, right: 1, textAlign: 'center' as const, cursor: 'pointer' };
+                        return <><div style={{ ...fs, left: 1, right: '50%', marginRight: 0.5 }} onClick={(e) => { e.stopPropagation(); if (confirm('Supprimer la hotline du matin pour ' + agent.nom + ' le ' + ds + ' ?')) { fetch('/api/calendrier-dsi/hotline/override', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ agent_username: agent.username, date: ds, active: false, periode: '' }) }).then(() => { if (view === 'week' || view === 'week7') { const { start } = getWeekRange(currentDate); const end = new Date(start); end.setDate(end.getDate() + (view === 'week7' ? 6 : 4)); fetchEvents(formatDate(start), formatDate(end)); } else { const y = currentDate.getFullYear(); const m = currentDate.getMonth(); fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0))); } }); } }}>HL</div><div style={{ ...fs, left: '50%', right: 1, marginLeft: 0.5 }} onClick={(e) => { e.stopPropagation(); if (confirm('Supprimer la hotline de l\'après-midi pour ' + agent.nom + ' le ' + ds + ' ?')) { fetch('/api/calendrier-dsi/hotline/override', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ agent_username: agent.username, date: ds, active: false, periode: '' }) }).then(() => { if (view === 'week' || view === 'week7') { const { start } = getWeekRange(currentDate); const end = new Date(start); end.setDate(end.getDate() + (view === 'week7' ? 6 : 4)); fetchEvents(formatDate(start), formatDate(end)); } else { const y = currentDate.getFullYear(); const m = currentDate.getMonth(); fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0))); } }); } }}>HL</div></>;
+                      })()}
+                      {(isManager || agent.username?.toLowerCase() === user?.username?.toLowerCase()) && allEvts.length === 0 && (
                         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 20, height: 20, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', color: '#cbd5e1', cursor: 'pointer', zIndex: 10, background: 'transparent', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, ''); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div>
                       )}
                     </div>
@@ -1669,8 +1920,8 @@ absence: '#64748b',
         );
       })()}
 
-      {/* Month View */}
-      {view === 'month' && (
+      {/* Month View - classic grid */}
+      {view === 'month' && !selectedService && (
         <div className="month-grid">
           {DAY_LABELS.map(d => <div key={d} className="day-header">{d}</div>)}
           {monthDays.map((d, idx) => {
@@ -1731,19 +1982,141 @@ const renderDot = (evt: Evenement) => {
           })}
         </div>
       )}
+
+      {/* Month View - by service (agents) */}
+      {view === 'month' && selectedService && (() => {
+        const svcAgents = agents.filter(a => a.service === selectedService).sort((a, b) => a.nom.localeCompare(b.nom));
+        const isSedit = (evt: Evenement) => evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
+        const isTT = (evt: Evenement) => evt.categorie === 'teletravail' && !isSedit(evt);
+        const cellColor = (evt: Evenement) => {
+          if (isSedit(evt)) return evt.pending || evt.created_by === 'auto-rh-pending' ? '#a78bfa' : '#7c3aed';
+          if (evt.categorie === 'teletravail') return '#003366';
+          const t = (evt.titre || '').toLowerCase();
+          if (t.includes('asa')) return '#8b5cf6';
+          if (t.includes('congé prévisionnel') || t.includes('conge_previsionnel')) return '#f59e0b';
+          if (t.includes('absence à justifier') || t.includes('absence_justifier')) return '#E30613';
+          return '#64748b';
+        };
+        const cellBg = (evt: Evenement) => {
+          const c = cellColor(evt);
+          return isTT(evt) ? `#ffffff repeating-linear-gradient(45deg, transparent, transparent 4px, ${c} 4px, ${c} 6px)` : c;
+        };
+        const firstEvt = (list: Evenement[]) => list.sort((a, b) => (isSedit(b) ? 1 : 0) - (isSedit(a) ? 1 : 0))[0];
+        const renderMonth = (year: number, month: number) => {
+          const mDays = getMonthDays(year, month);
+          const maxDays = 31;
+          return (
+            <div className="week-grid" style={{ gridTemplateColumns: `100px repeat(${mDays.length}, 1fr)`, marginBottom: 8, fontSize: '0.7rem' }}>
+              <div className="header-cell" style={{ fontWeight: 700, background: getServiceColor(selectedService), color: '#fff', fontSize: '0.75rem' }}>
+                {new Date(year, month).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+              </div>
+              {mDays.map(d => {
+                const ds = formatDate(d);
+                const isToday = ds === formatDate(new Date());
+                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                const feria = isFerie(ds);
+                const vac = getVacance(ds);
+                return (
+                  <div key={ds} className={`header-cell${isToday ? ' today' : ''}`} style={{ padding: '2px 1px', fontSize: '0.6rem', ...(isWeekend || feria ? { background: '#e2e8f0', color: '#94a3b8' } : {}), ...(feria ? { borderTop: '3px solid #ef4444' } : {}), ...(vac ? { borderBottom: '2px solid #eab308' } : {}) }}>
+                    {d.getDate()}
+                    {vac && <div style={{ fontSize: '0.5rem', color: '#eab308', fontWeight: 600, lineHeight: 1.1 }}>{vac.label}</div>}
+                  </div>
+                );
+              })}
+              {svcAgents.map(agent => {
+                const agentEvts = (dateStr: string) => events.filter(e => {
+                  const eDate = e.date.split('T')[0];
+                  return eDate === dateStr && (e.agent_username === agent.username || (e.agent_email && e.agent_email.toLowerCase() === (agent.email || '').toLowerCase()));
+                });
+                return (
+                  <React.Fragment key={agent.username}>
+                    <div className="cat-cell" style={{ background: '#f8fafc', padding: '1px 4px', minHeight: 'auto', fontSize: '0.6rem', fontWeight: 600, color: '#0f172a', lineHeight: 1.2, display: 'flex', alignItems: 'center' }}>
+                      {agent.nom.split(' ').slice(0, 2).map((w, i) => i === 0 ? w.charAt(0) + '.' : w).join(' ')}
+                    </div>
+                    {mDays.map(d => {
+                      const ds = formatDate(d);
+                      const feria = isFerie(ds);
+                      const allEvts = agentEvts(ds);
+                      const amAbs = firstEvt(allEvts.filter(e => e.periode === 'matin' && (e.categorie === 'absence' || e.categorie === 'teletravail')));
+                      const pmAbs = firstEvt(allEvts.filter(e => e.periode === 'apres-midi' && (e.categorie === 'absence' || e.categorie === 'teletravail')));
+                      const fullAbs = firstEvt(allEvts.filter(e => (e.periode === '' || !e.periode) && (e.categorie === 'absence' || e.categorie === 'teletravail')));
+                      const amHl = allEvts.filter(e => e.periode === 'matin' && e.categorie === 'hotline')[0];
+                      const pmHl = allEvts.filter(e => e.periode === 'apres-midi' && e.categorie === 'hotline')[0];
+                      const fullHl = allEvts.filter(e => (e.periode === '' || !e.periode) && e.categorie === 'hotline')[0];
+                      const isToday = ds === formatDate(new Date());
+                      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                      const amHL = amHl || fullHl;
+                      const pmHL = pmHl || fullHl;
+                      const amDispEvt = amAbs || (!amAbs ? fullAbs : null);
+                      const pmDispEvt = pmAbs || (!pmAbs ? fullAbs : null);
+                      let amBg = 'transparent';
+                      if (amDispEvt) {
+                        if (amHL && isTT(amDispEvt)) {
+                          amBg = `#22c55e repeating-linear-gradient(45deg, transparent, transparent 4px, ${cellColor(amDispEvt)} 4px, ${cellColor(amDispEvt)} 6px)`;
+                        } else {
+                          amBg = cellBg(amDispEvt);
+                        }
+                      } else if (amHL) {
+                        amBg = '#22c55e';
+                      }
+                      let pmBg = 'transparent';
+                      if (pmDispEvt) {
+                        if (pmHL && isTT(pmDispEvt)) {
+                          pmBg = `#22c55e repeating-linear-gradient(45deg, transparent, transparent 4px, ${cellColor(pmDispEvt)} 4px, ${cellColor(pmDispEvt)} 6px)`;
+                        } else {
+                          pmBg = cellBg(pmDispEvt);
+                        }
+                      } else if (pmHL) {
+                        pmBg = '#22c55e';
+                      }
+                      return (
+                        <div key={ds} className={`cell${isToday ? ' today' : ''}`} style={{ minHeight: 20, padding: 0, display: 'flex', flexDirection: 'row', position: 'relative' }}>
+                          {isWeekend || feria ? (
+                            <div style={{ flex: 2, background: '#f1f5f9', minHeight: 20 }} />
+                          ) : (
+                          <><div style={{ flex: 1, minHeight: 20, background: amBg, borderRight: amBg !== pmBg ? '1px dashed #e2e8f0' : 'none' }} />
+                          <div style={{ flex: 1, minHeight: 20, background: pmBg }} /></>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          );
+        };
+        const y = currentDate.getFullYear();
+        const m = currentDate.getMonth();
+        return (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <button onClick={() => { const d = new Date(currentDate); d.setMonth(d.getMonth() - 1); setCurrentDate(d); }} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: '0.9rem' }}>&#9664;</button>
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#0f172a' }}>
+                {new Date(y, m).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                {` & `}
+                {new Date(y, m + 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+              </span>
+              <button onClick={() => { const d = new Date(currentDate); d.setMonth(d.getMonth() + 1); setCurrentDate(d); }} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: '0.9rem' }}>&#9654;</button>
+            </div>
+            {renderMonth(y, m)}
+            {renderMonth(y, m + 1)}
+          </div>
+        );
+      })()}
       </div>
 
       {/* Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2>{editingEvent ? 'Modifier' : 'Ajouter'} un événement</h2>
+            <h2>{readonly ? 'Détail' : editingEvent ? 'Modifier' : 'Ajouter'} un événement</h2>
 
             <label>Date</label>
-            <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} />
+            <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} disabled={readonly} />
 
             <label>Catégorie</label>
-            <select value={formCategorie} onChange={e => { const cat = e.target.value as Categorie; setFormCategorie(cat); if (cat !== 'absence' && cat !== 'teletravail') { setSelectedAgent(null); setAdQuery(''); } }}>
+            <select value={formCategorie} onChange={e => { const cat = e.target.value as Categorie; setFormCategorie(cat); if (cat !== 'absence' && cat !== 'teletravail') { setSelectedAgent(null); setAdQuery(''); } }} disabled={readonly}>
               {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
             </select>
 
@@ -1751,7 +2124,7 @@ const renderDot = (evt: Evenement) => {
             <div className="ad-search-wrapper">
               <input
                 type="text" placeholder="Rechercher un agent (min 2 caractères)..."
-                value={adQuery} onChange={e => searchAD(e.target.value)}
+                value={adQuery} onChange={e => searchAD(e.target.value)} disabled={readonly}
               />
               {adResults.length > 0 && (
                 <div className="ad-results">
@@ -1774,26 +2147,28 @@ const renderDot = (evt: Evenement) => {
             )}
 
             <label>Titre</label>
-            <input type="text" value={formTitre} onChange={e => setFormTitre(e.target.value)} placeholder={formCategorie === 'absence' || formCategorie === 'teletravail' ? 'Nom de l\'agent' : 'Titre de l\'événement'} />
+            <input type="text" value={formTitre} onChange={e => setFormTitre(e.target.value)} placeholder={formCategorie === 'absence' || formCategorie === 'teletravail' ? 'Nom de l\'agent' : 'Titre de l\'événement'} disabled={readonly} />
 
             <label>Description</label>
-            <textarea value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Optionnel" />
+            <textarea value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Optionnel" disabled={readonly} />
 
             <label>Période</label>
-            <select value={formPeriode} onChange={e => setFormPeriode(e.target.value)}>
+            <select value={formPeriode} onChange={e => setFormPeriode(e.target.value)} disabled={readonly}>
               <option value="">Journée entière</option>
               <option value="matin">Matin</option>
               <option value="apres-midi">Après-midi</option>
             </select>
 
             <div className="modal-actions">
-              {editingEvent && (
+              {editingEvent && !readonly && (
                 <button className="btn-delete" onClick={() => { setShowModal(false); setConfirmDelete(editingEvent.id); }}>Supprimer</button>
               )}
-              <button className="btn-cancel" onClick={() => setShowModal(false)}>Annuler</button>
-              <button className="btn-save" onClick={handleSave} disabled={!formDate || !formTitre || saving}>
-                {saving ? 'Enregistrement...' : editingEvent ? 'Enregistrer' : 'Ajouter'}
-              </button>
+              <button className="btn-cancel" onClick={() => setShowModal(false)}>{readonly ? 'Fermer' : 'Annuler'}</button>
+              {!readonly && (
+                <button className="btn-save" onClick={handleSave} disabled={!formDate || !formTitre || saving}>
+                  {saving ? 'Enregistrement...' : editingEvent ? 'Enregistrer' : 'Ajouter'}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -2055,6 +2430,7 @@ const renderDot = (evt: Evenement) => {
                 { key: 'teletravail', label: 'Télétravail', color: CATEGORY_COLORS.teletravail },
                 { key: 'conge_previsionnel', label: 'Congé prévisionnel', color: '#f59e0b' },
                 { key: 'asa', label: 'ASA', color: '#8b5cf6' },
+                ...(isManager ? [{ key: 'hotline', label: 'Hotline', color: '#22c55e' }] : []),
               ].map(opt => (
                 <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', margin: '4px 0', borderRadius: 8, cursor: 'pointer', background: prevType === opt.key ? '#f0f9ff' : 'white', border: prevType === opt.key ? `2px solid ${opt.color}` : '1px solid #e2e8f0', transition: 'all 0.15s' }}>
                   <input type="radio" name="prevType" value={opt.key} checked={prevType === opt.key} onChange={() => setPrevType(opt.key)} style={{ accentColor: opt.color }} />
@@ -2086,7 +2462,7 @@ const renderDot = (evt: Evenement) => {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               {editingEvent && <button onClick={() => { setShowPrevModal(false); setConfirmDelete(editingEvent!.id); }} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #fee2e2', background: '#fef2f2', color: '#dc2626', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}>🗑 Supprimer</button>}
               <button onClick={() => setShowPrevModal(false)} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', color: '#475569', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}>Annuler</button>
-              <button onClick={handlePrevSave} disabled={!prevType || prevSaving} style={{ padding: '10px 24px', borderRadius: 8, background: prevType ? ({ absence_justifier: CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' }[prevType] || '#6366f1') : '#cbd5e1', color: 'white', border: 'none', fontWeight: 600, cursor: prevType ? 'pointer' : 'not-allowed', fontSize: '0.9rem', transition: 'all 0.2s' }}>
+              <button onClick={handlePrevSave} disabled={!prevType || prevSaving} style={{ padding: '10px 24px', borderRadius: 8, background: prevType ? ({ absence_justifier: CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6', hotline: '#22c55e' }[prevType] || '#6366f1') : '#cbd5e1', color: 'white', border: 'none', fontWeight: 600, cursor: prevType ? 'pointer' : 'not-allowed', fontSize: '0.9rem', transition: 'all 0.2s' }}>
                 {prevSaving ? '⏳ Enregistrement...' : '✓ Valider'}
               </button>
             </div>
@@ -2106,7 +2482,7 @@ const renderDot = (evt: Evenement) => {
             <div className="actions">
               <button className="btn-no" onClick={() => setConfirmDelete(null)}>Annuler</button>
               <button className="btn-yes" onClick={() => handleDelete(confirmDelete)}>Supprimer</button>
-              {isSeries && <button className="btn-yes" style={{ background: '#e17055' }} onClick={() => handleDelete(confirmDelete, true)}>Supprimer la série</button>}
+              {isSeries && <button className="btn-yes" style={{ background: '#e17055' }} onClick={() => handleDelete(confirmDelete, true, { titre: evt.titre, agent_username: evt.agent_username || undefined })}>Supprimer la série</button>}
             </div>
           </div>
         </div>
@@ -2156,6 +2532,45 @@ const renderDot = (evt: Evenement) => {
                 <button onClick={() => toggleManager(m.username, false)} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #fecdd3', background: '#fff1f2', color: '#e11d48', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Retirer</button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Vacances Modal */}
+      {showVacancesModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowVacancesModal(false)}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 28, width: '90%', maxWidth: 480, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}><span style={{ fontSize: '1.4rem' }}>🎉</span> Vacances et jours fériés</h2>
+              <button onClick={() => setShowVacancesModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <input type="date" value={vDateDebut} onChange={e => setVDateDebut(e.target.value)} style={{ flex: 1, minWidth: 120, padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.85rem' }} />
+              <input type="date" value={vDateFin} onChange={e => setVDateFin(e.target.value)} style={{ flex: 1, minWidth: 120, padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.85rem' }} />
+              <input type="text" value={vLabel} onChange={e => setVLabel(e.target.value)} placeholder="Label" style={{ flex: 2, minWidth: 140, padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.85rem' }} />
+              <select value={vType} onChange={e => setVType(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.85rem', background: '#fff' }}>
+                <option value="ferie">Férié</option>
+                <option value="vacances">Vacances</option>
+              </select>
+              <button style={{ padding: '8px 16px', borderRadius: 8, background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }} onClick={async () => {
+                if (!vDateDebut || !vLabel) return;
+                await fetch('/api/calendrier-dsi/vacances', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ date_debut: vDateDebut, date_fin: vDateFin || vDateDebut, label: vLabel, type: vType }) });
+                setVDateDebut(''); setVDateFin(''); setVLabel(''); setVType('ferie');
+                fetchVacances();
+              }}>Ajouter</button>
+            </div>
+            <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+              {vacances.length === 0 ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: 20 }}>Aucune période enregistrée.</p> : vacances.map(v => (
+                <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#f8fafc', borderRadius: 8, marginBottom: 4, border: '1px solid #e2e8f0', fontSize: '0.85rem' }}>
+                  <div>
+                    <span style={{ fontWeight: 600 }}>{v.label}</span>
+                    <span style={{ color: '#64748b', marginLeft: 8 }}>{v.date_debut}{v.date_fin !== v.date_debut ? ` → ${v.date_fin}` : ''}</span>
+                    <span style={{ marginLeft: 8, padding: '1px 6px', borderRadius: 4, fontSize: '0.7rem', background: v.type === 'ferie' ? '#fef2f2' : '#eff6ff', color: v.type === 'ferie' ? '#dc2626' : '#2563eb' }}>{v.type === 'ferie' ? 'Férié' : 'Vacances'}</span>
+                  </div>
+                  <button style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '0.85rem' }} onClick={async () => { await fetch(`/api/calendrier-dsi/vacances/${v.id}`, { method: 'DELETE', headers }); fetchVacances(); }}>✕</button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

@@ -137,14 +137,28 @@ export default function AgentsDSI() {
   const [syncingDemabs, setSyncingDemabs] = useState(false);
   const [demabsInfo, setDemabsInfo] = useState<DemabsSyncInfo | null>(null);
 
+  // Hotline modal
+  const [hlAgent, setHlAgent] = useState<string | null>(null);
+  const [hlRules, setHlRules] = useState<{ jour_semaine: number; semaine_type: string; periode: string }[]>([]);
+  const [hlSaving, setHlSaving] = useState(false);
+  const [hlAgents, setHlAgents] = useState<Set<string>>(new Set());
+  const HL_JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
+
   const fetchAgents = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/calendrier-dsi/agents', { headers });
-      if (!res.ok) throw new Error(`Erreur HTTP ${res.status}`);
-      const data = await res.json();
+      const [agentsRes, hlRes] = await Promise.all([
+        fetch('/api/calendrier-dsi/agents', { headers }),
+        fetch('/api/calendrier-dsi/hotline/agents', { headers })
+      ]);
+      if (!agentsRes.ok) throw new Error(`Erreur HTTP ${agentsRes.status}`);
+      const data = await agentsRes.json();
       setAgents(Array.isArray(data) ? data : []);
+      if (hlRes.ok) {
+        const hlData = await hlRes.json();
+        setHlAgents(new Set(Array.isArray(hlData) ? hlData : []));
+      }
     } catch (e: any) {
       setError(e.message || 'Erreur de chargement');
       setAgents([]);
@@ -610,6 +624,7 @@ export default function AgentsDSI() {
                               </button>
                             )}
                           </div>
+                            <button className="btn-icon" onClick={async () => { setHlAgent(agent.username); setHlSaving(false); try { const r = await fetch(`/api/calendrier-dsi/hotline/defaults/${agent.username}`, { headers }); if (r.ok) setHlRules(await r.json()); else setHlRules([]); } catch { setHlRules([]); } }} title="Configurer la hotline" style={{ background: hlAgents.has(agent.username) ? '#22c55e' : 'white', color: hlAgents.has(agent.username) ? 'white' : '#22c55e', borderColor: '#22c55e', fontSize: '10px' }}>HL</button>
                           <span style={{ width: 1, height: 28, background: '#e8e8e8', margin: '0 4px' }} />
                           <button className="btn-icon" onClick={() => deleteAgent(agent.username)} title="Supprimer l'agent"><Trash2 size={14} /></button>
                         </div>
@@ -762,6 +777,67 @@ export default function AgentsDSI() {
               <button className="btn-save" onClick={linkMatricule} disabled={useManualMatricule ? !manualMatricule.trim() : !selectedMatricule || linking}>
                 {linking ? 'Liaison…' : 'Lier le matricule'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hotline modal */}
+      {hlAgent !== null && (
+        <div className="modal-overlay" onClick={() => setHlAgent(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
+            <h2>Hotline — {hlAgent}</h2>
+            <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: 16 }}>Définissez les jours de hotline par défaut (semaine paire/impaire/les deux, matin/après-midi/journée).</p>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left' }}>Jour</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'center' }}>Semaine</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'center' }}>Période</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'center' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {hlRules.map((rule, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '8px 12px' }}>{HL_JOURS[rule.jour_semaine - 1]}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                      <select value={rule.semaine_type} onChange={e => { const r = [...hlRules]; r[i] = { ...r[i], semaine_type: e.target.value }; setHlRules(r); }} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                        <option value="les2">Les 2</option>
+                        <option value="paire">Paire</option>
+                        <option value="impaire">Impaire</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                      <select value={rule.periode} onChange={e => { const r = [...hlRules]; r[i] = { ...r[i], periode: e.target.value }; setHlRules(r); }} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                        <option value="journee">Journée</option>
+                        <option value="matin">Matin</option>
+                        <option value="apres-midi">Après-midi</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                      <button onClick={() => setHlRules(hlRules.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+              {HL_JOURS.map((jour, idx) => (
+                <button key={idx} onClick={() => setHlRules([...hlRules, { jour_semaine: idx + 1, semaine_type: 'les2', periode: 'journee' }])} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #22c55e', background: 'white', color: '#22c55e', cursor: 'pointer', fontSize: '0.8rem' }}>+ {jour}</button>
+              ))}
+            </div>
+            <div className="modal-actions" style={{ marginTop: 20 }}>
+              <button className="btn-cancel" onClick={() => setHlAgent(null)}>Annuler</button>
+              <button className="btn-save" style={{ background: '#22c55e' }} disabled={hlSaving} onClick={async () => {
+                setHlSaving(true);
+                try {
+                  await fetch(`/api/calendrier-dsi/hotline/defaults/${hlAgent}`, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ rules: hlRules }) });
+                  setHlAgents(prev => { const n = new Set(prev); if (hlRules.length > 0) n.add(hlAgent!); else n.delete(hlAgent!); return n; });
+                  setHlAgent(null);
+                } catch (e) { alert('Erreur sauvegarde hotline'); }
+                setHlSaving(false);
+              }}>{hlSaving ? '⏳' : '✓ Enregistrer'}</button>
             </div>
           </div>
         </div>

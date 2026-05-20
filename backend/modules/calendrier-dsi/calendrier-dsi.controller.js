@@ -262,11 +262,8 @@ async function getEventsForDate(date) {
     }
   }
 
-  // Add demabs (RH absence) events
-  const finDate = new Date(date + 'T00:00:00');
-  finDate.setDate(finDate.getDate() + 1);
-  const finStr = formatDateStr(finDate);
-  const demabsEvts = await getDemabsEventsForRange(date, finStr);
+  // Add demabs (RH absence) events - only for this specific date
+  const demabsEvts = await getDemabsEventsForRange(date, date);
   for (const de of demabsEvts) {
     const dedupeKey = `${de.agent_username}|${de.date}|absence|${de.periode || ''}`;
     if (!manualKeys.has(dedupeKey)) {
@@ -316,6 +313,14 @@ async function getEventsForDate(date) {
     }
   } catch (e) {}
 
+  // Add hotline events
+  try {
+    const hlEvts = await getHotlineEventsForDate(date);
+    for (const hl of hlEvts) {
+      events.push(hl);
+    }
+  } catch (e) {}
+
   // Final dedup pass: remove any remaining duplicates by displayed content (titre+date+cat+periode)
   const finalKeys = new Set();
   return events.filter(e => {
@@ -324,6 +329,103 @@ async function getEventsForDate(date) {
     finalKeys.add(k);
     return true;
   });
+}
+
+function getWeekNumber(d) {
+  const temp = new Date(d.valueOf());
+  const dayNum = (d.getDay() + 6) % 7;
+  temp.setDate(temp.getDate() - dayNum + 3);
+  const firstThursday = temp.valueOf();
+  temp.setMonth(0, 1);
+  if (temp.getDay() !== 4) {
+    temp.setMonth(0, 1 + ((4 - temp.getDay()) + 7) % 7);
+  }
+  return 1 + Math.ceil((firstThursday - temp.valueOf()) / 604800000);
+}
+
+async function getHotlineEventsForDate(date) {
+  const events = [];
+  try {
+    const [year, month, day] = date.split('-').map(Number);
+    const dateObj = new Date(year, month - 1, day);
+    const dayOfWeek = dateObj.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) return events;
+    const weekNum = getWeekNumber(dateObj);
+    const isEven = weekNum % 2 === 0;
+
+    // Load all overrides for this date (including override-only)
+    const allOverrides = await pool.query(
+      `SELECT o.agent_username, a.nom, a.email, o.active, o.periode FROM hub_calendrier.hotline_overrides o
+       LEFT JOIN hub_calendrier.agents_dsi a ON a.username = o.agent_username
+       WHERE o.date = $1`,
+      [date]
+    );
+    const overrideMap = {};
+    for (const ov of allOverrides.rows) {
+      const key = `${ov.agent_username}|${ov.periode || ''}`;
+      overrideMap[key] = ov;
+    }
+
+    const defaults = await pool.query(
+      `SELECT d.agent_username, a.nom, a.email, d.jour_semaine, d.semaine_type, d.periode
+       FROM hub_calendrier.agents_hotline_defaults d
+       JOIN hub_calendrier.agents_dsi a ON a.username = d.agent_username
+       WHERE d.jour_semaine = $1 AND (d.semaine_type = 'les2' OR (d.semaine_type = 'paire' AND $2) OR (d.semaine_type = 'impaire' AND NOT $2))`,
+      [dayOfWeek, isEven]
+    );
+
+    // Generate from defaults (skip if override active=false)
+    for (const row of defaults.rows) {
+      const periode = row.periode === 'journee' ? '' : row.periode;
+      const key = `${row.agent_username}|${periode}`;
+      const ov = overrideMap[key];
+      if (ov !== undefined && !ov.active) continue;
+      events.push({
+        id: nextGenId(),
+        date,
+        categorie: 'hotline',
+        periode: periode,
+        titre: 'HL',
+        description: 'Hotline',
+        agent_username: row.agent_username,
+        agent_nom: row.nom,
+        agent_email: row.email || '',
+        couleur: '#22c55e',
+        created_by: 'auto-hotline',
+        created_at: null,
+        generated: true
+      });
+    }
+
+    // Override-only hotline (active=true, no matching default)
+    for (const ov of allOverrides.rows) {
+      if (!ov.active) continue;
+      let matchedDefault = false;
+      for (const row of defaults.rows) {
+        const periode = row.periode === 'journee' ? '' : row.periode;
+        if (row.agent_username === ov.agent_username && periode === (ov.periode || '')) { matchedDefault = true; break; }
+      }
+      if (matchedDefault) continue;
+      events.push({
+        id: nextGenId(),
+        date,
+        categorie: 'hotline',
+        periode: ov.periode || '',
+        titre: 'HL',
+        description: 'Hotline',
+        agent_username: ov.agent_username,
+        agent_nom: ov.nom,
+        agent_email: ov.email || '',
+        couleur: '#22c55e',
+        created_by: 'auto-hotline',
+        created_at: null,
+        generated: true
+      });
+    }
+  } catch (e) {
+    console.error('[Calendrier DSI] getHotlineEventsForDate error:', e.message);
+  }
+  return events;
 }
 
 module.exports = {
@@ -583,6 +685,118 @@ module.exports = {
         console.error('[Calendrier DSI] O365 events error (non-blocking):', e.message);
       }
 
+      // Hotline events
+      try {
+        const hlDefaults = await pool.query(
+          `SELECT d.agent_username, a.nom, a.email, d.jour_semaine, d.semaine_type, d.periode
+           FROM hub_calendrier.agents_hotline_defaults d
+           JOIN hub_calendrier.agents_dsi a ON a.username = d.agent_username`
+        );
+
+        const allHlUsernames = [...new Set(hlDefaults.rows.map(r => r.agent_username))];
+        // Also include any override-only agents (no defaults but have overrides)
+        const hlOverrides = await pool.query(
+          `SELECT o.agent_username, a.nom, a.email, o.date::text as date, o.active, o.periode FROM hub_calendrier.hotline_overrides o
+           LEFT JOIN hub_calendrier.agents_dsi a ON a.username = o.agent_username
+           WHERE o.date >= $1 AND o.date <= $2`,
+          [debut, fin]
+        );
+        for (const ov of hlOverrides.rows) {
+          if (!allHlUsernames.includes(ov.agent_username)) allHlUsernames.push(ov.agent_username);
+        }
+
+        const overrideMap = {};
+        for (const ov of hlOverrides.rows) {
+          if (!overrideMap[ov.agent_username]) overrideMap[ov.agent_username] = {};
+          if (!overrideMap[ov.agent_username][ov.date]) overrideMap[ov.agent_username][ov.date] = {};
+          overrideMap[ov.agent_username][ov.date][ov.periode || ''] = ov;
+        }
+
+        const hlDates = getDatesInRange(debut, fin);
+        for (const hlDate of hlDates) {
+          const [y, m, d] = hlDate.split('-').map(Number);
+          const dateObj = new Date(y, m - 1, d);
+          const dayOfWeek = dateObj.getDay();
+          if (dayOfWeek === 0 || dayOfWeek === 6) continue;
+          const weekNum = getWeekNumber(dateObj);
+          const isEven = weekNum % 2 === 0;
+
+          // Generate events from default rules (checking overrides for disable)
+          for (const row of hlDefaults.rows) {
+            if (row.jour_semaine !== dayOfWeek) continue;
+            if (row.semaine_type !== 'les2' && (row.semaine_type === 'paire') !== isEven) continue;
+
+            const dayOv = overrideMap[row.agent_username]?.[hlDate];
+            const defaultPeriode = row.periode === 'journee' ? '' : row.periode;
+            const perOv = dayOv?.[defaultPeriode];
+
+            // Skip if this default is explicitly disabled (suppressed)
+            if (perOv !== undefined && !perOv.active) continue;
+
+            const key = `${row.agent_username}|${hlDate}|hotline|${row.periode === 'journee' ? '' : row.periode}`;
+            if (!manualKeys.has(key)) {
+              events.push({
+                id: nextGenId(),
+                date: hlDate,
+                categorie: 'hotline',
+                periode: row.periode === 'journee' ? '' : row.periode,
+                titre: 'HL',
+                description: 'Hotline',
+                agent_username: row.agent_username,
+                agent_nom: row.nom,
+                agent_email: row.email || '',
+                couleur: '#22c55e',
+                created_by: 'auto-hotline',
+                created_at: null,
+                generated: true
+              });
+            }
+          }
+
+          // Override-only hotline (active=true on a date where no default rule applies)
+          for (const ovRow of hlOverrides.rows) {
+            if (ovRow.date !== hlDate || !ovRow.active) continue;
+            const ovPeriode = ovRow.periode || '';
+            // Check if this override already matched a default (event already generated above)
+            let matchedDefault = false;
+            for (const row of hlDefaults.rows) {
+              if (row.agent_username !== ovRow.agent_username) continue;
+              if (row.jour_semaine !== dayOfWeek) continue;
+              if (row.semaine_type !== 'les2' && (row.semaine_type === 'paire') !== isEven) continue;
+              if (ovPeriode !== '' && row.periode !== 'journee' && row.periode !== ovPeriode) continue;
+              const dayOv = overrideMap[row.agent_username]?.[hlDate];
+              if (dayOv?.[''] !== undefined && !dayOv[''].active) continue;
+              const perOv = dayOv?.[row.periode === 'journee' ? '' : row.periode];
+              if (perOv !== undefined && !perOv.active) continue;
+              matchedDefault = true;
+              break;
+            }
+            if (matchedDefault) continue;
+
+            const key = `${ovRow.agent_username}|${hlDate}|hotline|${ovPeriode}`;
+            if (!manualKeys.has(key)) {
+              events.push({
+                id: nextGenId(),
+                date: hlDate,
+                categorie: 'hotline',
+                periode: ovPeriode,
+                titre: 'HL',
+                description: 'Hotline',
+                agent_username: ovRow.agent_username,
+                agent_nom: ovRow.nom,
+                agent_email: ovRow.email || '',
+                couleur: '#22c55e',
+                created_by: 'auto-hotline',
+                created_at: null,
+                generated: true
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[Calendrier DSI] hotline events error:', e.message);
+      }
+
       events.sort((a, b) => a.date.localeCompare(b.date) || a.categorie.localeCompare(b.categorie));
 
       res.json(events);
@@ -651,19 +865,103 @@ module.exports = {
       const { id } = req.params;
       const { deleteSeries } = req.query;
       if (deleteSeries === 'true') {
-        const evt = await pool.query('SELECT agent_username, titre, categorie, agent_email FROM hub_calendrier.evenements WHERE id = $1', [id]);
+        const evt = await pool.query('SELECT agent_username, titre, categorie, periode, date, agent_email FROM hub_calendrier.evenements WHERE id = $1', [id]);
         if (evt.rowCount === 0) return res.status(404).json({ message: 'Événement non trouvé' });
-        const { agent_username, titre, categorie, agent_email } = evt.rows[0];
+        const { agent_username, titre, categorie, periode, date, agent_email } = evt.rows[0];
+
+        // Find all events of this type (same agent, title, category) - NO periode filter
+        const allEventsQuery = agent_username
+          ? 'SELECT id, date, periode FROM hub_calendrier.evenements WHERE agent_username = $1 AND titre = $2 AND categorie = $3 ORDER BY date, periode'
+          : 'SELECT id, date, periode FROM hub_calendrier.evenements WHERE agent_email = $1 AND titre = $2 AND categorie = $3 ORDER BY date, periode';
+        const allEventsParams = agent_username ? [agent_username, titre, categorie] : [agent_email, titre, categorie];
+        const allEvents = await pool.query(allEventsQuery, allEventsParams);
+
+        // Period order: empty string ('') = full day, 'matin' = morning, 'apres-midi' = afternoon
+        const periodOrder = { 'matin': 1, '': 2, 'apres-midi': 3 };
+
+        // Find the series: continuous chain of events (matin -> apres-midi -> next day matin -> etc)
+        let seriesIds = new Set();
+        const targetDateStr = new Date(date).toISOString().split('T')[0];
+
+        // Find the target event in the list
+        let targetIdx = -1;
+        for (let i = 0; i < allEvents.rows.length; i++) {
+          const eventDateStr = new Date(allEvents.rows[i].date).toISOString().split('T')[0];
+          if (eventDateStr === targetDateStr && (allEvents.rows[i].periode || '') === (periode || '')) {
+            targetIdx = i;
+            break;
+          }
+        }
+
+        if (targetIdx >= 0) {
+          // Go backwards to find series start
+          let j = targetIdx;
+          while (j > 0) {
+            const currDateStr = new Date(allEvents.rows[j].date).toISOString().split('T')[0];
+            const prevDateStr = new Date(allEvents.rows[j-1].date).toISOString().split('T')[0];
+            const currPeriod = allEvents.rows[j].periode || '';
+            const prevPeriod = allEvents.rows[j-1].periode || '';
+
+            const currDate = new Date(currDateStr);
+            const prevDate = new Date(prevDateStr);
+            const daysDiff = Math.floor((currDate - prevDate) / (1000 * 60 * 60 * 24));
+
+            // Check if this is a valid continuation backwards
+            // Valid backwards: same day + period before current, OR previous day last period + current day first period
+            let isValidContinuation = false;
+            if (daysDiff === 0) {
+              // Same day: periode must be after in reverse order (apres-midi before matin, etc)
+              isValidContinuation = (periodOrder[prevPeriod] > periodOrder[currPeriod]);
+            } else if (daysDiff === 1) {
+              // Previous day: should end with latest period, current day starts with earliest
+              isValidContinuation = (periodOrder[prevPeriod] === 3 && periodOrder[currPeriod] === 1) ||
+                                   (periodOrder[prevPeriod] === 2); // full day connects to next day
+            }
+            if (!isValidContinuation) break;
+            j--;
+          }
+
+          // Go forwards to find series end
+          let seriesStart = j;
+          j = targetIdx;
+          while (j < allEvents.rows.length - 1) {
+            const currDateStr = new Date(allEvents.rows[j].date).toISOString().split('T')[0];
+            const nextDateStr = new Date(allEvents.rows[j+1].date).toISOString().split('T')[0];
+            const currPeriod = allEvents.rows[j].periode || '';
+            const nextPeriod = allEvents.rows[j+1].periode || '';
+
+            const currDate = new Date(currDateStr);
+            const nextDate = new Date(nextDateStr);
+            const daysDiff = Math.floor((nextDate - currDate) / (1000 * 60 * 60 * 24));
+
+            // Check if this is a valid continuation forwards
+            let isValidContinuation = false;
+            if (daysDiff === 0) {
+              // Same day: current period must be before next (matin before apres-midi, etc)
+              isValidContinuation = (periodOrder[currPeriod] < periodOrder[nextPeriod]);
+            } else if (daysDiff === 1) {
+              // Next day: current should be latest period, next starts with earliest
+              isValidContinuation = (periodOrder[currPeriod] === 3 && periodOrder[nextPeriod] === 1) ||
+                                   (periodOrder[currPeriod] === 2); // full day
+            }
+            if (!isValidContinuation) break;
+            j++;
+          }
+
+          // Collect all IDs in the series
+          for (let k = seriesStart; k <= j; k++) {
+            seriesIds.add(allEvents.rows[k].id);
+          }
+        }
+
+        // Delete only events in this series
         let result;
-        if (agent_username) {
+        if (seriesIds.size > 0) {
+          const idList = Array.from(seriesIds);
+          const placeholders = idList.map((_, i) => `$${i + 1}`).join(',');
           result = await pool.query(
-            'DELETE FROM hub_calendrier.evenements WHERE agent_username = $1 AND titre = $2',
-            [agent_username, titre]
-          );
-        } else if (agent_email) {
-          result = await pool.query(
-            'DELETE FROM hub_calendrier.evenements WHERE agent_email = $1 AND titre = $2',
-            [agent_email, titre]
+            `DELETE FROM hub_calendrier.evenements WHERE id IN (${placeholders})`,
+            idList
           );
         } else {
           result = await pool.query('DELETE FROM hub_calendrier.evenements WHERE id = $1', [id]);
@@ -680,6 +978,274 @@ module.exports = {
     }
   },
 
+  listHotlineAgents: async (req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT DISTINCT agent_username FROM hub_calendrier.agents_hotline_defaults`
+      );
+      res.json(result.rows.map(r => r.agent_username));
+    } catch (error) {
+      console.error('[Calendrier DSI] listHotlineAgents error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
+  getHotlineCount: async (req, res) => {
+    try {
+      const { date, periode } = req.params;
+      const periodeVal = periode === 'full' ? '' : periode;
+
+      // Get hotlines for this date/period using same logic as getHotlineEventsForDate
+      const [year, month, day] = date.split('-').map(Number);
+      const dateObj = new Date(year, month - 1, day);
+      const dayOfWeek = dateObj.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) return res.json({ total: 0, available: 0 });
+
+      const weekNum = getWeekNumber(dateObj);
+      const isEven = weekNum % 2 === 0;
+
+      // Get hotline defaults and overrides
+      const defaults = await pool.query(
+        `SELECT d.agent_username, a.nom, d.periode
+         FROM hub_calendrier.agents_hotline_defaults d
+         JOIN hub_calendrier.agents_dsi a ON a.username = d.agent_username
+         WHERE d.jour_semaine = $1 AND (d.semaine_type = 'les2' OR (d.semaine_type = 'paire' AND $2) OR (d.semaine_type = 'impaire' AND NOT $2))`,
+        [dayOfWeek, isEven]
+      );
+
+      const allOverrides = await pool.query(
+        `SELECT o.agent_username, a.nom, o.active, o.periode FROM hub_calendrier.hotline_overrides o
+         LEFT JOIN hub_calendrier.agents_dsi a ON a.username = o.agent_username
+         WHERE o.date = $1`,
+        [date]
+      );
+
+      const overrideMap = {};
+      for (const ov of allOverrides.rows) {
+        const key = `${ov.agent_username}|${ov.periode || ''}`;
+        overrideMap[key] = ov;
+      }
+
+      // Collect hotlines for this period (using Set to avoid duplicates)
+      const hotlineAgentsSet = new Set();
+      for (const row of defaults.rows) {
+        const defaultPeriode = row.periode === 'journee' ? '' : row.periode;
+        // A 'journee' (empty string) hotline applies to both 'matin' and 'apres-midi'
+        if (defaultPeriode !== '' && defaultPeriode !== periodeVal) continue;
+
+        // Check if override disables this
+        const key = `${row.agent_username}|${defaultPeriode}`;
+        const ov = overrideMap[key];
+        if (ov !== undefined && !ov.active) continue; // Skipped by override
+        hotlineAgentsSet.add(row.agent_username);
+      }
+
+      // Add override-only hotlines
+      for (const ov of allOverrides.rows) {
+        if (!ov.active) continue;
+        const ovPeriode = ov.periode || '';
+        // A 'journee' (empty string) override applies to both 'matin' and 'apres-midi'
+        if (ovPeriode !== '' && ovPeriode !== periodeVal) continue;
+
+        let matchedDefault = false;
+        for (const row of defaults.rows) {
+          const defaultPeriode = row.periode === 'journee' ? '' : row.periode;
+          if (row.agent_username === ov.agent_username && defaultPeriode === ovPeriode) {
+            matchedDefault = true;
+            break;
+          }
+        }
+        if (!matchedDefault) hotlineAgentsSet.add(ov.agent_username);
+      }
+
+      // Get absences from evenements (manual + auto-rh marked)
+      const absences = await pool.query(
+        `SELECT DISTINCT agent_username FROM hub_calendrier.evenements
+         WHERE date = $1
+         AND (categorie IN ('absence', 'absence_justifier', 'teletravail', 'conge_previsionnel', 'asa')
+              OR created_by IN ('auto-rh', 'auto-rh-pending'))
+         AND (periode = $2 OR periode = '')`,
+        [date, periodeVal]
+      );
+
+      const absentSet = new Set(absences.rows.map(r => r.agent_username));
+
+      // ALSO get absences from demabs (oracle.rh_tps_demabs)
+      // Note: Dates in rh_tps_demabs are stored as JS Date toString, need parsing
+      try {
+        const demabsAbsences = await pool.query(`
+          SELECT a.username, d."TPS_DMDA_DT_DEBUT", d."TPS_DMDA_DT_FIN",
+                 d."TPS_DMDA_TYPJOUR_DEB", d."TPS_DMDA_TYPJOUR_FIN"
+          FROM hub_calendrier.agents_dsi a
+          JOIN oracle.rh_tps_demabs d ON TRIM(a.matricule) = TRIM(d."RH_AGENT_MATRICULE")
+          WHERE a.matricule IS NOT NULL AND a.matricule != ''
+            AND d."TPS_DMDA_DT_DEBUT" IS NOT NULL
+            AND (d."TPS_DMDA_SUPPR" IS NULL OR TRIM(d."TPS_DMDA_SUPPR") = '0')
+        `);
+
+        // Parse dates and check if they cover the requested date/period
+        const parseJsDate = (d) => {
+          if (!d) return null;
+          if (d instanceof Date) {
+            return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          }
+          if (typeof d === 'string') {
+            const m = d.match(/(\w{3}) (\w{3}) (\d{1,2}) (\d{4})/);
+            if (m) { return new Date(d).toISOString().split('T')[0]; }
+            return d.split('T')[0];
+          }
+          return null;
+        };
+
+        for (const row of demabsAbsences.rows) {
+          const startDate = parseJsDate(row.TPS_DMDA_DT_DEBUT);
+          const endDate = parseJsDate(row.TPS_DMDA_DT_FIN) || startDate;
+          if (!startDate) continue;
+          if (endDate < date || startDate > date) continue; // Not in date range
+
+          // Check periode: if it covers the requested period, add to absent set
+          const typDeb = (row.TPS_DMDA_TYPJOUR_DEB || '').trim().toLowerCase();
+          const typFin = (row.TPS_DMDA_TYPJOUR_FIN || '').trim().toLowerCase();
+          const covers = typDeb.includes('matin') && typFin.includes('apres') ? '' :
+                         typFin.includes('apres') || typDeb.includes('apres') ? 'apres-midi' : 'matin';
+
+          // Add if full day (periode '') or specific period matches
+          if (covers === '' || covers === periodeVal) {
+            absentSet.add(row.username);
+          }
+        }
+      } catch (demabsErr) {
+        console.warn('[Calendrier DSI] demabs query warning:', demabsErr.message);
+      }
+
+      const hotlineAgents = Array.from(hotlineAgentsSet);
+      const available = hotlineAgents.filter(a => !absentSet.has(a));
+
+      console.log(`[Calendrier DSI] getHotlineCount ${date} ${periodeVal}: hotlines=${JSON.stringify(Array.from(hotlineAgentsSet))}, absents=${JSON.stringify(Array.from(absentSet))}, available=${available.length}`);
+
+      res.json({
+        total: hotlineAgents.length,
+        available: available.length,
+        absent: hotlineAgents.length - available.length
+      });
+    } catch (error) {
+      console.error('[Calendrier DSI] getHotlineCount error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
+  getHotlineDefaults: async (req, res) => {
+    try {
+      const { agent_username } = req.params;
+      const result = await pool.query(
+        `SELECT id, jour_semaine, semaine_type, periode FROM hub_calendrier.agents_hotline_defaults WHERE agent_username = $1 ORDER BY jour_semaine, periode`,
+        [agent_username]
+      );
+      res.json(result.rows);
+    } catch (error) {
+      console.error('[Calendrier DSI] getHotlineDefaults error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
+  saveHotlineDefaults: async (req, res) => {
+    try {
+      const { agent_username } = req.params;
+      const { rules } = req.body;
+      await pool.query('DELETE FROM hub_calendrier.agents_hotline_defaults WHERE agent_username = $1', [agent_username]);
+      for (const r of rules) {
+        await pool.query(
+          `INSERT INTO hub_calendrier.agents_hotline_defaults (agent_username, jour_semaine, semaine_type, periode) VALUES ($1, $2, $3, $4)`,
+          [agent_username, r.jour_semaine, r.semaine_type || 'les2', r.periode || 'journee']
+        );
+      }
+      res.json({ message: 'Règles hotline enregistrées' });
+    } catch (error) {
+      console.error('[Calendrier DSI] saveHotlineDefaults error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
+  toggleHotlineOverride: async (req, res) => {
+    try {
+      const { agent_username, date, active, periode } = req.body;
+      const activeBool = active !== false;
+      const periodeVal = periode || '';
+      const existing = await pool.query(
+        `SELECT id FROM hub_calendrier.hotline_overrides WHERE agent_username = $1 AND date = $2 AND periode = $3`,
+        [agent_username, date, periodeVal]
+      );
+      if (existing.rowCount > 0) {
+        await pool.query(
+          `UPDATE hub_calendrier.hotline_overrides SET active = $1 WHERE id = $2`,
+          [activeBool, existing.rows[0].id]
+        );
+        res.json({ message: 'Override mis à jour', active: activeBool, periode: periodeVal });
+      } else {
+        await pool.query(
+          `INSERT INTO hub_calendrier.hotline_overrides (agent_username, date, active, periode) VALUES ($1, $2, $3, $4)`,
+          [agent_username, date, activeBool, periodeVal]
+        );
+        res.json({ message: 'Override ajouté', active: activeBool, periode: periodeVal });
+      }
+    } catch (error) {
+      console.error('[Calendrier DSI] toggleHotlineOverride error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
+  getHotlineOverrides: async (req, res) => {
+    try {
+      const { agent_username } = req.params;
+      const result = await pool.query(
+        `SELECT id, date::text as date, active, periode FROM hub_calendrier.hotline_overrides WHERE agent_username = $1 ORDER BY date, periode`,
+        [agent_username]
+      );
+      res.json(result.rows);
+    } catch (error) {
+      console.error('[Calendrier DSI] getHotlineOverrides error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
+  getVacances: async (req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT id, date_debut::text as date_debut, date_fin::text as date_fin, label, type, created_by, created_at FROM hub_calendrier.vacances ORDER BY date_debut`
+      );
+      res.json(result.rows);
+    } catch (error) {
+      console.error('[Calendrier DSI] getVacances error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
+  addVacance: async (req, res) => {
+    try {
+      const { date_debut, date_fin, label, type } = req.body;
+      if (!date_debut || !label) return res.status(400).json({ message: 'Date début et label requis' });
+      const result = await pool.query(
+        `INSERT INTO hub_calendrier.vacances (date_debut, date_fin, label, type) VALUES ($1, $2, $3, $4) RETURNING id, date_debut::text as date_debut, date_fin::text as date_fin, label, type`,
+        [date_debut, date_fin || date_debut, label, type || 'ferie']
+      );
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error('[Calendrier DSI] addVacance error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
+  deleteVacance: async (req, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query(`DELETE FROM hub_calendrier.vacances WHERE id = $1`, [id]);
+      res.json({ message: 'Supprimé' });
+    } catch (error) {
+      console.error('[Calendrier DSI] deleteVacance error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
   sendDailyCalendar: async (req, res) => {
     try {
       const { recipients, date } = req.body;
@@ -692,6 +1258,47 @@ module.exports = {
 
       const events = await getEventsForDate(date);
       const formattedDate = new Date(date).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+      // Get hotlines for this date
+      const [year, month, day] = date.split('-').map(Number);
+      const dateObj = new Date(year, month - 1, day);
+      const dayOfWeek = dateObj.getDay();
+      const weekNum = getWeekNumber(dateObj);
+      const isEven = weekNum % 2 === 0;
+
+      const hotlineDefaults = await pool.query(
+        `SELECT d.agent_username, a.nom, d.periode FROM hub_calendrier.agents_hotline_defaults d
+         JOIN hub_calendrier.agents_dsi a ON a.username = d.agent_username
+         WHERE d.jour_semaine = $1 AND (d.semaine_type = 'les2' OR (d.semaine_type = 'paire' AND $2) OR (d.semaine_type = 'impaire' AND NOT $2))
+         ORDER BY a.nom`,
+        [dayOfWeek, isEven]
+      );
+
+      const hotlineOverrides = await pool.query(
+        `SELECT agent_username, active, periode FROM hub_calendrier.hotline_overrides
+         WHERE date = $1 AND active = false
+         ORDER BY agent_username`,
+        [date]
+      );
+
+      const overrideMap = {};
+      for (const ov of hotlineOverrides.rows) {
+        const key = `${ov.agent_username}|${ov.periode || ''}`;
+        overrideMap[key] = ov;
+      }
+
+      const hotlineEvents = [];
+      for (const h of hotlineDefaults.rows) {
+        const periode = h.periode === 'journee' ? '' : h.periode;
+        const key = `${h.agent_username}|${periode}`;
+        if (!overrideMap[key]) {
+          hotlineEvents.push({
+            agent_nom: h.nom,
+            periode: periode,
+            agent_username: h.agent_username
+          });
+        }
+      }
 
       // Group events by category, splitting absence into manual and RH
       const byCategory = {};
@@ -744,6 +1351,16 @@ module.exports = {
             <div class="container">
               <h1>📅 Calendrier du ${formattedDate}</h1>
       `;
+
+      // Hotline section
+      if (hotlineEvents.length > 0) {
+        html += '<div class="category-section"><div class="category-header" style="background-color: #22c55e">☎️ Agents Hotline (' + hotlineEvents.length + ')</div>';
+        for (const h of hotlineEvents) {
+          const periodLabel = h.periode ? ` - ${h.periode === 'matin' ? 'Matin' : 'Après-midi'}` : ' - Journée entière';
+          html += '<div class="category-item"><div class="item-name">Hotline' + periodLabel + '</div><div class="item-period">👤 ' + h.agent_nom + '</div></div>';
+        }
+        html += '</div>';
+      }
 
       if (events.length === 0) {
         html += '<div class="empty-day">✅ Aucun événement prévu pour cette journée</div>';

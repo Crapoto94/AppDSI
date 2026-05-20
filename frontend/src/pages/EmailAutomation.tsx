@@ -281,8 +281,10 @@ const EmailAutomation: React.FC = () => {
                                     <option value="every:15">Toutes les 15 min</option>
                                     <option value="every:30">Toutes les 30 min</option>
                                     <option value="every:60">Toutes les heures</option>
-                                    <option value="daily:08:00">Tous les jours à 08:00</option>
+                                    <option value="daily:05:00">Tous les jours à 05:00</option>
+                                    <option value="daily:06:00">Tous les jours à 06:00</option>
                                     <option value="daily:07:00">Tous les jours à 07:00</option>
+                                    <option value="daily:08:00">Tous les jours à 08:00</option>
                                     <option value="daily:09:00">Tous les jours à 09:00</option>
                                     <option value="daily:12:00">Tous les jours à 12:00</option>
                                     <option value="daily:17:00">Tous les jours à 17:00</option>

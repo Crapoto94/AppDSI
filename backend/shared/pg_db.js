@@ -1677,6 +1677,86 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE hub_calendrier.o365_calendars ADD COLUMN IF NOT EXISTS default_categorie TEXT DEFAULT 'reunion'`);
     } catch (e) {}
 
+    // Hotline tables
+    try {
+      await client.query(`CREATE TABLE IF NOT EXISTS hub_calendrier.agents_hotline_defaults (
+        id SERIAL PRIMARY KEY,
+        agent_username VARCHAR(255) NOT NULL REFERENCES hub_calendrier.agents_dsi(username) ON DELETE CASCADE,
+        jour_semaine INTEGER NOT NULL CHECK (jour_semaine >= 1 AND jour_semaine <= 5),
+        semaine_type VARCHAR(10) NOT NULL DEFAULT 'les2' CHECK (semaine_type IN ('paire','impaire','les2')),
+        periode VARCHAR(10) NOT NULL DEFAULT 'journee' CHECK (periode IN ('matin','apres-midi','journee'))
+      )`);
+    } catch (e) {}
+    try {
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_hotline_defaults_unique ON hub_calendrier.agents_hotline_defaults (agent_username, jour_semaine, semaine_type, periode)`);
+    } catch (e) {}
+    try {
+      await client.query(`CREATE TABLE IF NOT EXISTS hub_calendrier.hotline_overrides (
+        id SERIAL PRIMARY KEY,
+        agent_username VARCHAR(255) NOT NULL REFERENCES hub_calendrier.agents_dsi(username) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT true
+      )`);
+    } catch (e) {}
+    try {
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_hotline_overrides_unique ON hub_calendrier.hotline_overrides (agent_username, date)`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE hub_calendrier.hotline_overrides ADD COLUMN IF NOT EXISTS periode VARCHAR(20) NOT NULL DEFAULT ''`);
+    } catch (e) {}
+    try {
+      // Drop old index without periode
+      try {
+        await client.query(`DROP INDEX IF EXISTS hub_calendrier.idx_hotline_overrides_unique CASCADE`);
+      } catch (e) {
+        // Index may not exist, that's ok
+      }
+
+      // Clean up duplicate hotline_overrides (keep latest id for each agent/date/periode combo)
+      try {
+        await client.query(`
+          DELETE FROM hub_calendrier.hotline_overrides h1
+          WHERE id NOT IN (
+            SELECT MAX(id) FROM hub_calendrier.hotline_overrides h2
+            WHERE h2.agent_username = h1.agent_username
+            AND h2.date = h1.date
+            AND h2.periode = h1.periode
+            GROUP BY h2.agent_username, h2.date, h2.periode
+          )
+        `);
+      } catch (e) {
+        // Table might not have duplicates, that's ok
+      }
+
+      // Create unique index on (agent_username, date, periode)
+      try {
+        await client.query(`CREATE UNIQUE INDEX idx_hotline_overrides_unique ON hub_calendrier.hotline_overrides (agent_username, date, periode)`);
+        console.log('[PG DB] Created idx_hotline_overrides_unique with periode');
+      } catch (e) {
+        if (!e.message?.includes('already exists')) {
+          console.log('[PG DB] Index note:', e.message);
+        }
+      }
+    } catch (e) {
+      console.log('[PG DB] Error managing hotline index:', e.message);
+    }
+
+    // Vacances et jours fériés
+    try {
+      await client.query(`CREATE TABLE IF NOT EXISTS hub_calendrier.vacances (
+        id SERIAL PRIMARY KEY,
+        date_debut DATE NOT NULL,
+        date_fin DATE NOT NULL,
+        label VARCHAR(255) NOT NULL,
+        type VARCHAR(20) NOT NULL DEFAULT 'ferie' CHECK (type IN ('ferie', 'vacances')),
+        created_by VARCHAR(255) DEFAULT 'admin',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`);
+    } catch (e) {}
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_vacances_dates ON hub_calendrier.vacances (date_debut, date_fin)`);
+    } catch (e) {}
+
     // Set default fiscal_year_column for known rubriques
     try {
       await client.query(`UPDATE finance.field_mapping_rubriques SET fiscal_year_column = 'COMMANDE_CMD_DATECOMMANDE' WHERE name = 'Commandes' AND (fiscal_year_column IS NULL OR fiscal_year_column = '')`);

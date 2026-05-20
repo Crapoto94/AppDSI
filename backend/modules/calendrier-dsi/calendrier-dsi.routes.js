@@ -22,4 +22,15 @@ router.post('/agents/:username/absences', authenticateJWT, agentsController.addA
 router.delete('/agents/absences/:id', authenticateJWT, agentsController.deleteAbsence);
 router.delete('/agents/:username', authenticateJWT, agentsController.deleteAgent);
 
+router.get('/hotline/agents', authenticateJWT, controller.listHotlineAgents);
+router.get('/hotline/defaults/:agent_username', authenticateJWT, controller.getHotlineDefaults);
+router.put('/hotline/defaults/:agent_username', authenticateJWT, controller.saveHotlineDefaults);
+router.post('/hotline/override', authenticateJWT, controller.toggleHotlineOverride);
+router.get('/hotline/overrides/:agent_username', authenticateJWT, controller.getHotlineOverrides);
+router.get('/hotline/count/:date/:periode', authenticateJWT, controller.getHotlineCount);
+
+router.get('/vacances', authenticateJWT, controller.getVacances);
+router.post('/vacances', authenticateJWT, controller.addVacance);
+router.delete('/vacances/:id', authenticateJWT, controller.deleteVacance);
+
 module.exports = router;

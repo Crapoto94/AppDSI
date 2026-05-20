@@ -480,7 +480,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
                 user.est_pmo = !!pmoCheck;
             } catch { user.est_pmo = false; }
             try {
-                const managerTile = await db.get("SELECT ut.tile_id FROM user_tiles ut JOIN tile_links tl ON ut.tile_id = tl.tile_id WHERE ut.user_id = ? AND tl.url = '/calendrier-dsi' UNION SELECT t.id FROM tiles t JOIN tile_links tl ON t.id = tl.tile_id WHERE tl.url = '/calendrier-dsi' AND t.title = 'Manager Calendrier'", [user.id]);
+                const managerTile = await db.get("SELECT 1 FROM user_tiles ut JOIN tiles t ON ut.tile_id = t.id WHERE ut.user_id = ? AND t.title = 'Manager Calendrier'", [user.id]);
                 user.est_manager = !!(managerTile || (user.role === 'admin'));
             } catch { user.est_manager = user.role === 'admin'; }
         } else if (source === 'postgres') {
