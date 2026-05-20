@@ -186,6 +186,8 @@ export default function CalendrierDSI() {
   const [prevType, setPrevType] = useState('');
   const [prevDateDebut, setPrevDateDebut] = useState('');
   const [prevDateFin, setPrevDateFin] = useState('');
+  const [prevPeriodeDebut, setPrevPeriodeDebut] = useState('');
+  const [prevPeriodeFin, setPrevPeriodeFin] = useState('');
   const [prevSaving, setPrevSaving] = useState(false);
 
   const fetchManagerList = async () => {
@@ -229,6 +231,8 @@ export default function CalendrierDSI() {
     setPrevType('');
     setPrevDateDebut(date);
     setPrevDateFin(date);
+    setPrevPeriodeDebut(periode);
+    setPrevPeriodeFin(periode);
     setShowPrevModal(true);
   };
 
@@ -236,53 +240,76 @@ export default function CalendrierDSI() {
     if (!prevAgent || !prevType) return;
     setPrevSaving(true);
     try {
-      const periodes: string[] = [];
-      if (prevPeriode === '' || prevPeriode === 'matin') periodes.push('matin');
-      if (prevPeriode === '' || prevPeriode === 'apres-midi') periodes.push('apres-midi');
-      if (periodes.length === 0) periodes.push('');
       const colors: Record<string, string> = { 'absence_justifier': CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' };
       const labels: Record<string, string> = { absence_justifier: 'Absence à justifier', teletravail: 'Télétravail', conge_previsionnel: 'Congé prévisionnel', asa: 'ASA' };
-      for (const periode of periodes) {
+      const catMap: Record<string, string> = { absence_justifier: 'absence', conge_previsionnel: 'absence', asa: 'absence', teletravail: 'teletravail' };
+      const periodeLabel = (p: string) => p === 'matin' ? ' Matin' : p === 'apres-midi' ? ' Après-midi' : '';
+
+      const createEvent = async (date: string, periode: string) => {
         await fetch('/api/calendrier-dsi/evenements', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
-            date: prevDateDebut,
-            categorie: prevType === 'conge_previsionnel' || prevType === 'asa' ? 'absence' : prevType === 'absence_justifier' ? 'absence' : prevType,
-            periode: periode === 'matin' ? 'matin' : periode === 'apres-midi' ? 'apres-midi' : '',
+            date,
+            categorie: catMap[prevType] || prevType,
+            periode: periode,
             titre: labels[prevType] || prevType,
-            description: `${labels[prevType] || prevType}${prevDateFin && prevDateFin !== prevDateDebut ? ` (du ${prevDateDebut} au ${prevDateFin})` : ''}`,
-            agent_username: prevAgent.username,
-            agent_nom: prevAgent.nom,
-            agent_email: prevAgent.email,
-            couleur: colors[prevType] || '#6366f1',
-            source: 'previsionnel'
+            description: `${labels[prevType] || prevType}${prevDateFin && prevDateFin !== prevDateDebut ? ` (du ${prevDateDebut}${periodeLabel(prevPeriodeDebut)} au ${prevDateFin}${periodeLabel(prevPeriodeFin)})` : periodeLabel(periode)}`,
+            agent_username: prevAgent!.username,
+            agent_nom: prevAgent!.nom,
+            agent_email: prevAgent!.email,
+            couleur: colors[prevType] || '#6366f1'
           })
         });
-      }
-      if (prevDateFin && prevDateFin !== prevDateDebut) {
+      };
+
+      const sameDay = prevDateFin === prevDateDebut || !prevDateFin;
+      if (sameDay) {
+        const pd = prevPeriodeDebut || '';
+        const pf = prevPeriodeFin || pd;
+        if (pd === 'matin') {
+          await createEvent(prevDateDebut, 'matin');
+          if (pf === 'apres-midi' || pf === '') await createEvent(prevDateDebut, pf === 'apres-midi' ? 'apres-midi' : '');
+        } else if (pd === 'apres-midi') {
+          await createEvent(prevDateDebut, 'apres-midi');
+        } else {
+          await createEvent(prevDateDebut, '');
+        }
+      } else {
         const start = new Date(prevDateDebut);
         const end = new Date(prevDateFin);
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
           if (d.getDay() === 0 || d.getDay() === 6) continue;
           const ds = formatDate(d);
-          if (ds === prevDateDebut) continue;
-          await fetch('/api/calendrier-dsi/evenements', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              date: ds,
-              categorie: prevType === 'conge_previsionnel' || prevType === 'asa' || prevType === 'absence_justifier' ? 'absence' : prevType,
-              periode: '',
-              titre: labels[prevType] || prevType,
-              description: `${labels[prevType] || prevType} (du ${prevDateDebut} au ${prevDateFin})`,
-              agent_username: prevAgent.username,
-              agent_nom: prevAgent.nom,
-              agent_email: prevAgent.email,
-              couleur: colors[prevType] || '#6366f1',
-              source: 'previsionnel'
-            })
-          });
+          const isStart = ds === prevDateDebut;
+          const isEnd = ds === prevDateFin;
+          if (isStart) {
+            const pd = prevPeriodeDebut || '';
+            if (pd === 'matin') {
+              await createEvent(ds, 'matin');
+              const pfEnd = prevPeriodeFin || 'apres-midi';
+              if (prevDateFin === prevDateDebut) {
+                if (pfEnd === 'apres-midi' || pfEnd === '') await createEvent(ds, 'apres-midi');
+              } else {
+                await createEvent(ds, 'apres-midi');
+              }
+            } else if (pd === 'apres-midi') {
+              await createEvent(ds, 'apres-midi');
+            } else {
+              await createEvent(ds, '');
+            }
+          } else if (isEnd) {
+            const pf = prevPeriodeFin || '';
+            if (pf === 'matin') {
+              await createEvent(ds, 'matin');
+            } else if (pf === 'apres-midi') {
+              await createEvent(ds, 'apres-midi');
+            } else {
+              await createEvent(ds, '');
+            }
+          } else {
+            await createEvent(ds, '');
+          }
         }
       }
       setShowPrevModal(false);
@@ -1491,16 +1518,34 @@ const renderPastille = (evt: Evenement) => {
       {/* Week View - Service/Agent mode */}
       {view === 'week' && selectedService && (() => {
         const svcAgents = agents.filter(a => a.service === selectedService).sort((a, b) => a.nom.localeCompare(b.nom));
-        const renderAgentCell = (evt: Evenement) => {
-          const isRh = evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
-          const label = evt.categorie === 'absence' ? 'Absent' : evt.categorie === 'teletravail' ? 'TT' : evt.titre;
-          const bgColor = CATEGORY_COLORS[evt.categorie] || '#6366f1';
-          return (
-            <div key={evt.id} className="pastille" style={{ background: bgColor, fontSize: '0.7rem', padding: '2px 6px', ...(isRh ? { border: '2px solid #000', outline: '1px solid #000' } : {}) }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
-              {label}
-            </div>
-          );
+        const ABSENCE_TYPE_COLORS: Record<string, string> = {
+          absence: '#E30613',
+          absence_justifier: '#E30613',
+          teletravail: '#003366',
+          conge_previsionnel: '#f59e0b',
+          asa: '#8b5cf6',
+          deploiement: '#4CAF50',
+          maintenance: '#FF9800',
+          reunion: '#9C27B0',
         };
+        const getAbsenceLabel = (evt: Evenement) => {
+          const titre = (evt.titre || '').toLowerCase();
+          if (titre.includes('asa')) return 'ASA';
+          if (titre.includes('congé prévisionnel') || titre.includes('conge_previsionnel')) return 'Congé prév.';
+          if (titre.includes('absence à justifier') || titre.includes('absence_justifier')) return 'Abs. à just.';
+          if (evt.categorie === 'absence') return 'Absent';
+          if (evt.categorie === 'teletravail') return 'TT';
+          return evt.titre;
+        };
+        const getAbsenceColor = (evt: Evenement) => {
+          const titre = (evt.titre || '').toLowerCase();
+          if (titre.includes('asa')) return ABSENCE_TYPE_COLORS.asa;
+          if (titre.includes('congé prévisionnel') || titre.includes('conge_previsionnel')) return ABSENCE_TYPE_COLORS.conge_previsionnel;
+          if (titre.includes('absence à justifier') || titre.includes('absence_justifier')) return ABSENCE_TYPE_COLORS.absence_justifier;
+          if (evt.created_by === 'previsionnel' && evt.categorie === 'absence') ABSENCE_TYPE_COLORS.conge_previsionnel;
+          return ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1';
+        };
+        const isAbsenceType = (evt: Evenement) => evt.categorie === 'absence' || evt.categorie === 'teletravail';
         return (
         <div className="week-grid" style={{ gridTemplateColumns: `140px repeat(${weekDays.length}, 1fr)` }}>
           <div className="header-cell" style={{ fontWeight: 700, background: getServiceColor(selectedService), color: '#fff' }}>{selectedService}</div>
@@ -1537,23 +1582,47 @@ const renderPastille = (evt: Evenement) => {
                   const amEvts = allEvts.filter(e => e.periode === 'matin');
                   const pmEvts = allEvts.filter(e => e.periode === 'apres-midi');
                   const fullEvts = allEvts.filter(e => e.periode === '' || !e.periode);
+                  const amAbs = amEvts.find(e => isAbsenceType(e));
+                  const pmAbs = pmEvts.find(e => isAbsenceType(e));
+                  const fullAbs = fullEvts.find(e => isAbsenceType(e));
+                  const amOther = amEvts.filter(e => !isAbsenceType(e));
+                  const pmOther = pmEvts.filter(e => !isAbsenceType(e));
                   const isToday = ds === formatDate(new Date());
+                  const isRh = (e: Evenement) => e.source === 'demabs' || e.created_by === 'auto-rh' || e.created_by === 'auto-rh-pending';
+                  const renderSmallPill = (evt: Evenement) => {
+                    const rhBorder = isRh(evt) ? { border: '2px solid #000', outline: '1px solid #000' } : {};
+                    return <div key={evt.id} className="pastille" style={{ background: ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1', fontSize: '0.65rem', padding: '1px 4px', ...rhBorder }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>{evt.categorie === 'teletravail' ? 'TT' : evt.titre}</div>;
+                  };
+                  const renderFilledHalf = (evt: Evenement) => {
+                    const color = getAbsenceColor(evt);
+                    const label = getAbsenceLabel(evt);
+                    const rhBorder = isRh(evt) ? '2px solid #000' : 'none';
+                    return (
+                      <div key={evt.id} style={{ width: '100%', height: '100%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer', borderRadius: 2, border: rhBorder, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                        {label}
+                      </div>
+                    );
+                  };
                   return (
                     <div key={ds} className={`cell${isToday ? ' today' : ''}`} style={{ minHeight: 44, padding: 0, display: 'flex', flexDirection: 'row', position: 'relative' }}>
-                      <div style={{ flex: 1, padding: '3px 4px', borderRight: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: 1, position: 'relative', minHeight: 20 }}>
-                        {amEvts.length > 0 ? amEvts.map(renderAgentCell) : fullEvts.length > 0 ? null : (isManager ? <div style={{ position: 'absolute', top: 2, right: 4, fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'matin'); }}>+</div> : null)}
-                        {fullEvts.length > 0 && amEvts.length === 0 && <div style={{ position: 'absolute', top: 2, right: 4, fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'matin'); }}>+</div>}
+                      <div style={{ flex: 1, padding: '2px 3px', borderRight: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: amAbs ? `${getAbsenceColor(amAbs)}22` : (fullAbs ? `${getAbsenceColor(fullAbs)}22` : 'transparent') }}>
+                        {amAbs ? renderFilledHalf(amAbs) : fullAbs ? null : (amOther.length > 0 ? amOther.map(renderSmallPill) : (isManager ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'matin'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
                       </div>
-                      <div style={{ flex: 1, padding: '3px 4px', display: 'flex', flexDirection: 'column', gap: 1, position: 'relative', minHeight: 20 }}>
-                        {pmEvts.length > 0 ? pmEvts.map(renderAgentCell) : (isManager ? <div style={{ position: 'absolute', top: 2, right: 4, fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'apres-midi'); }}>+</div> : null)}
+                      <div style={{ flex: 1, padding: '2px 3px', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: pmAbs ? `${getAbsenceColor(pmAbs)}22` : (fullAbs ? `${getAbsenceColor(fullAbs)}22` : 'transparent') }}>
+                        {pmAbs ? renderFilledHalf(pmAbs) : (pmOther.length > 0 ? pmOther.map(renderSmallPill) : (isManager ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'apres-midi'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
                       </div>
-                      {fullEvts.length > 0 && (
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-                          {fullEvts.map(renderAgentCell)}
+                      {fullAbs && !amAbs && !pmAbs && (
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', display: 'flex' }}>
+                          <div style={{ flex: 1, background: getAbsenceColor(fullAbs), color: '#fff', fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', textShadow: '0 1px 2px rgba(0,0,0,0.3)', borderRight: isRh(fullAbs) ? '2px solid #000' : 'none' }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
+                            {getAbsenceLabel(fullAbs)}
+                          </div>
+                          <div style={{ flex: 1, background: getAbsenceColor(fullAbs), color: '#fff', fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', textShadow: '0 1px 2px rgba(0,0,0,0.3)', borderLeft: isRh(fullAbs) ? '2px solid #000' : 'none' }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
+                            {getAbsenceLabel(fullAbs)}
+                          </div>
                         </div>
                       )}
-                      {isManager && fullEvts.length === 0 && amEvts.length === 0 && pmEvts.length === 0 && (
-                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', fontSize: '0.75rem', color: '#cbd5e1', cursor: 'pointer', zIndex: 10 }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, ''); }}>+</div>
+                      {isManager && allEvts.length === 0 && (
+                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: 20, height: 20, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', color: '#cbd5e1', cursor: 'pointer', zIndex: 10, background: 'transparent', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, ''); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div>
                       )}
                     </div>
                   );
@@ -1963,10 +2032,20 @@ const renderDot = (evt: Evenement) => {
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: 4, color: '#475569' }}>Date début</label>
                 <input type="date" value={prevDateDebut} onChange={e => setPrevDateDebut(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }} />
+                <select value={prevPeriodeDebut} onChange={e => setPrevPeriodeDebut(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.8rem', marginTop: 4, background: '#fff' }}>
+                  <option value="">Journée</option>
+                  <option value="matin">Matin</option>
+                  <option value="apres-midi">Après-midi</option>
+                </select>
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: 4, color: '#475569' }}>Date fin</label>
                 <input type="date" value={prevDateFin} onChange={e => setPrevDateFin(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }} />
+                <select value={prevPeriodeFin} onChange={e => setPrevPeriodeFin(e.target.value)} style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.8rem', marginTop: 4, background: '#fff' }}>
+                  <option value="">Journée</option>
+                  <option value="matin">Matin</option>
+                  <option value="apres-midi">Après-midi</option>
+                </select>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
