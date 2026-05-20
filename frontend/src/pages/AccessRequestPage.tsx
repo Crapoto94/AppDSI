@@ -49,14 +49,19 @@ const AccessRequestPage: React.FC = () => {
             alert('Veuillez sélectionner au moins une brique.');
             return;
         }
+        if (!username) {
+            alert('Identifiant utilisateur requis. Veuillez vous connecter ou spécifier votre identifiant.');
+            return;
+        }
         try {
             await axios.post('/api/access-requests', {
                 username,
                 requested_tiles: selected
             });
             setSubmitted(true);
-        } catch (err) {
-            alert('Erreur lors de la soumission.');
+        } catch (err: any) {
+            const message = err.response?.data?.message || 'Erreur lors de la soumission.';
+            alert(message);
         }
     };
 
