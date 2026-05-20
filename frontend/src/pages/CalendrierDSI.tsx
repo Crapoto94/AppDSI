@@ -2069,14 +2069,7 @@ const renderDot = (evt: Evenement) => {
                         pmBg = '#22c55e';
                       }
                       return (
-                        <div key={ds} className={`cell${isToday ? ' today' : ''}`} style={{ minHeight: 20, padding: 0, display: 'flex', flexDirection: 'row', position: 'relative' }}>
-                          {isWeekend || feria ? (
-                            <div style={{ flex: 2, background: '#f1f5f9', minHeight: 20 }} />
-                          ) : (
-                          <><div style={{ flex: 1, minHeight: 20, background: amBg }} />
-                          <div style={{ flex: 1, minHeight: 20, background: pmBg }} /></>
-                          )}
-                        </div>
+                        <div key={ds} className={`cell${isToday ? ' today' : ''}`} style={{ minHeight: 20, padding: 0, position: 'relative', background: isWeekend || feria ? '#f1f5f9' : `linear-gradient(to right, ${amBg} 50%, ${pmBg} 50%)` }} />
                       );
                     })}
                   </React.Fragment>
