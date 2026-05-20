@@ -190,16 +190,8 @@ async function getEventsForDate(date) {
   const prevDate = new Date(year, month - 1, day - 1);
   const prevDay = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
 
-  // Filter events to only include those for the requested date or previous day (for timezone-offset events)
-  const events = result.rows.filter(row => {
-    const eventDate = row.date.split('T')[0];
-    return eventDate === date || eventDate === prevDay;
-  });
-
-  console.log(`[getEventsForDate] Date: ${date}, prevDay: ${prevDay}`);
-  console.log(`[getEventsForDate] After filter: ${events.length} events`);
-  const ttEvents = events.filter(e => e.categorie === 'teletravail');
-  console.log(`[getEventsForDate] TT events after filter:`, ttEvents.map(e => `${e.agent_username}(${e.date.split('T')[0]})`));
+  // Keep all events from query - dedup will handle timezone-offset duplicates
+  const events = result.rows;
 
   // Get all agents with their TT days and absences
   const agentsResult = await pool.query(`
@@ -320,12 +312,17 @@ async function getEventsForDate(date) {
     }
   } catch (e) {}
 
-  // Final dedup pass: remove any remaining duplicates by displayed content
-  // Normalize all dates to the requested date for proper deduplication
+  // Final dedup pass: remove timezone-offset duplicates
+  // Sort by date DESC so events from requested date come first, then dedup
+  const sorted = events.slice().sort((a, b) => {
+    const dateA = a.date.split('T')[0];
+    const dateB = b.date.split('T')[0];
+    return dateB.localeCompare(dateA); // DESC - later dates first
+  });
+
   const finalKeys = new Set();
-  return events.filter(e => {
-    const displayDate = date; // Use the requested date, not the event's actual date
-    const k = `${e.titre || ''}|${displayDate}|${e.categorie}|${e.periode || ''}`;
+  return sorted.filter(e => {
+    const k = `${e.agent_username || ''}|${e.titre || ''}|${e.categorie}|${e.periode || ''}`;
     if (finalKeys.has(k)) return false;
     finalKeys.add(k);
     return true;
