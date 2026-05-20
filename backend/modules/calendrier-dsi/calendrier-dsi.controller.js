@@ -618,13 +618,20 @@ module.exports = {
       const { id } = req.params;
       const { date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, updateSeries } = req.body;
       if (updateSeries) {
-        const existing = await pool.query('SELECT agent_username, titre, categorie FROM hub_calendrier.evenements WHERE id = $1', [id]);
+        const existing = await pool.query('SELECT agent_username, titre, categorie, agent_email FROM hub_calendrier.evenements WHERE id = $1', [id]);
         if (existing.rowCount === 0) return res.status(404).json({ message: 'Événement non trouvé' });
         const old = existing.rows[0];
-        await pool.query(
-          `UPDATE hub_calendrier.evenements SET categorie = $1, periode = $2, titre = $3, description = $4, agent_username = $5, agent_nom = $6, agent_email = $7, couleur = $8 WHERE agent_username = $9 AND titre = $10 AND categorie = $11`,
-          [categorie, periode || '', titre, description || '', agent_username || null, agent_nom || null, agent_email || null, couleur || '', old.agent_username || null, old.titre, old.categorie]
-        );
+        if (old.agent_username) {
+          await pool.query(
+            `UPDATE hub_calendrier.evenements SET categorie = $1, periode = $2, titre = $3, description = $4, agent_username = $5, agent_nom = $6, agent_email = $7, couleur = $8 WHERE agent_username = $9 AND titre = $10`,
+            [categorie, periode || '', titre, description || '', agent_username || null, agent_nom || null, agent_email || null, couleur || '', old.agent_username, old.titre]
+          );
+        } else {
+          await pool.query(
+            `UPDATE hub_calendrier.evenements SET categorie = $1, periode = $2, titre = $3, description = $4, agent_username = $5, agent_nom = $6, agent_email = $7, couleur = $8 WHERE id = $9`,
+            [categorie, periode || '', titre, description || '', agent_username || null, agent_nom || null, agent_email || null, couleur || '', id]
+          );
+        }
       } else {
         const result = await pool.query(
           `UPDATE hub_calendrier.evenements SET date = $1, categorie = $2, periode = $3, titre = $4, description = $5, agent_username = $6, agent_nom = $7, agent_email = $8, couleur = $9 WHERE id = $10 RETURNING id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at`,
@@ -644,13 +651,23 @@ module.exports = {
       const { id } = req.params;
       const { deleteSeries } = req.query;
       if (deleteSeries === 'true') {
-        const evt = await pool.query('SELECT agent_username, titre, categorie FROM hub_calendrier.evenements WHERE id = $1', [id]);
+        const evt = await pool.query('SELECT agent_username, titre, categorie, agent_email FROM hub_calendrier.evenements WHERE id = $1', [id]);
         if (evt.rowCount === 0) return res.status(404).json({ message: 'Événement non trouvé' });
-        const { agent_username, titre, categorie } = evt.rows[0];
-        const result = await pool.query(
-          'DELETE FROM hub_calendrier.evenements WHERE agent_username = $1 AND titre = $2 AND categorie = $3',
-          [agent_username || null, titre, categorie]
-        );
+        const { agent_username, titre, categorie, agent_email } = evt.rows[0];
+        let result;
+        if (agent_username) {
+          result = await pool.query(
+            'DELETE FROM hub_calendrier.evenements WHERE agent_username = $1 AND titre = $2',
+            [agent_username, titre]
+          );
+        } else if (agent_email) {
+          result = await pool.query(
+            'DELETE FROM hub_calendrier.evenements WHERE agent_email = $1 AND titre = $2',
+            [agent_email, titre]
+          );
+        } else {
+          result = await pool.query('DELETE FROM hub_calendrier.evenements WHERE id = $1', [id]);
+        }
         res.json({ message: `Série supprimée (${result.rowCount} événements)` });
       } else {
         const result = await pool.query('DELETE FROM hub_calendrier.evenements WHERE id = $1', [id]);
