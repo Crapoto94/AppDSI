@@ -179,6 +179,15 @@ export default function CalendrierDSI() {
   const [managerSearching, setManagerSearching] = useState(false);
   const isManager = (user?.est_manager || user?.role === 'admin') ?? false;
 
+  const [showPrevModal, setShowPrevModal] = useState(false);
+  const [prevAgent, setPrevAgent] = useState<{ username: string; nom: string; email: string } | null>(null);
+  const [prevDate, setPrevDate] = useState('');
+  const [prevPeriode, setPrevPeriode] = useState('');
+  const [prevType, setPrevType] = useState('');
+  const [prevDateDebut, setPrevDateDebut] = useState('');
+  const [prevDateFin, setPrevDateFin] = useState('');
+  const [prevSaving, setPrevSaving] = useState(false);
+
   const fetchManagerList = async () => {
     setManagerLoading(true);
     try {
@@ -212,6 +221,76 @@ export default function CalendrierDSI() {
     }, 400);
     return () => clearTimeout(timer);
   }, [managerSearch, token]);
+
+  const openPrevModal = (agent: { username: string; nom: string; email: string }, date: string, periode: string) => {
+    setPrevAgent(agent);
+    setPrevDate(date);
+    setPrevPeriode(periode);
+    setPrevType('');
+    setPrevDateDebut(date);
+    setPrevDateFin(date);
+    setShowPrevModal(true);
+  };
+
+  const handlePrevSave = async () => {
+    if (!prevAgent || !prevType) return;
+    setPrevSaving(true);
+    try {
+      const periodes: string[] = [];
+      if (prevPeriode === '' || prevPeriode === 'matin') periodes.push('matin');
+      if (prevPeriode === '' || prevPeriode === 'apres-midi') periodes.push('apres-midi');
+      if (periodes.length === 0) periodes.push('');
+      const colors: Record<string, string> = { 'absence_justifier': CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' };
+      const labels: Record<string, string> = { absence_justifier: 'Absence à justifier', teletravail: 'Télétravail', conge_previsionnel: 'Congé prévisionnel', asa: 'ASA' };
+      for (const periode of periodes) {
+        await fetch('/api/calendrier-dsi/evenements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            date: prevDateDebut,
+            categorie: prevType === 'conge_previsionnel' || prevType === 'asa' ? 'absence' : prevType === 'absence_justifier' ? 'absence' : prevType,
+            periode: periode === 'matin' ? 'matin' : periode === 'apres-midi' ? 'apres-midi' : '',
+            titre: labels[prevType] || prevType,
+            description: `${labels[prevType] || prevType}${prevDateFin && prevDateFin !== prevDateDebut ? ` (du ${prevDateDebut} au ${prevDateFin})` : ''}`,
+            agent_username: prevAgent.username,
+            agent_nom: prevAgent.nom,
+            agent_email: prevAgent.email,
+            couleur: colors[prevType] || '#6366f1',
+            source: 'previsionnel'
+          })
+        });
+      }
+      if (prevDateFin && prevDateFin !== prevDateDebut) {
+        const start = new Date(prevDateDebut);
+        const end = new Date(prevDateFin);
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          if (d.getDay() === 0 || d.getDay() === 6) continue;
+          const ds = formatDate(d);
+          if (ds === prevDateDebut) continue;
+          await fetch('/api/calendrier-dsi/evenements', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              date: ds,
+              categorie: prevType === 'conge_previsionnel' || prevType === 'asa' || prevType === 'absence_justifier' ? 'absence' : prevType,
+              periode: '',
+              titre: labels[prevType] || prevType,
+              description: `${labels[prevType] || prevType} (du ${prevDateDebut} au ${prevDateFin})`,
+              agent_username: prevAgent.username,
+              agent_nom: prevAgent.nom,
+              agent_email: prevAgent.email,
+              couleur: colors[prevType] || '#6366f1',
+              source: 'previsionnel'
+            })
+          });
+        }
+      }
+      setShowPrevModal(false);
+      const { start, end: endR } = getWeekRange(currentDate);
+      fetchEvents(formatDate(start), formatDate(endR));
+    } catch (e) { console.error('Erreur prévisionnel:', e); }
+    finally { setPrevSaving(false); }
+  };
 
   const fetchO365Calendars = async () => {
     setO365Loading(true);
@@ -1412,67 +1491,69 @@ const renderPastille = (evt: Evenement) => {
       {/* Week View - Service/Agent mode */}
       {view === 'week' && selectedService && (() => {
         const svcAgents = agents.filter(a => a.service === selectedService).sort((a, b) => a.nom.localeCompare(b.nom));
-        return (
-        <div className="week-grid" style={{ gridTemplateColumns: `180px repeat(${weekDays.length}, 1fr)` }}>
-          <div className="header-cell" style={{ fontWeight: 700, background: getServiceColor(selectedService), color: '#fff' }}>{selectedService}</div>
-          {weekDays.map(d => (
-            <div key={formatDate(d)} className={`header-cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`}>
-              {d.toLocaleDateString('fr-FR', { weekday: 'short' }).charAt(0).toUpperCase() + d.toLocaleDateString('fr-FR', { weekday: 'short' }).slice(1)}
-              <div className="day-date">{d.getDate()}</div>
+        const renderAgentCell = (evt: Evenement) => {
+          const isRh = evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
+          const label = evt.categorie === 'absence' ? 'Absent' : evt.categorie === 'teletravail' ? 'TT' : evt.titre;
+          const bgColor = CATEGORY_COLORS[evt.categorie] || '#6366f1';
+          return (
+            <div key={evt.id} className="pastille" style={{ background: bgColor, fontSize: '0.7rem', padding: '2px 6px', ...(isRh ? { border: '2px solid #000', outline: '1px solid #000' } : {}) }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+              {label}
             </div>
-          ))}
+          );
+        };
+        return (
+        <div className="week-grid" style={{ gridTemplateColumns: `140px repeat(${weekDays.length}, 1fr)` }}>
+          <div className="header-cell" style={{ fontWeight: 700, background: getServiceColor(selectedService), color: '#fff' }}>{selectedService}</div>
+          {weekDays.map(d => {
+            const ds = formatDate(d);
+            const isToday = ds === formatDate(new Date());
+            return (
+              <div key={ds} className={`header-cell${isToday ? ' today' : ''}`}>
+                {d.toLocaleDateString('fr-FR', { weekday: 'short' }).charAt(0).toUpperCase() + d.toLocaleDateString('fr-FR', { weekday: 'short' }).slice(1)}
+                <div className="day-date">{d.getDate()}</div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 2, fontSize: '0.65rem', color: isToday ? '#7c3aed' : '#94a3b8' }}>
+                  <span>M</span><span style={{ opacity: 0.3 }}>|</span><span>A</span>
+                </div>
+              </div>
+            );
+          })}
           {svcAgents.map(agent => {
-            const agentEvts = (dateStr: string, periodes: string[]) => events.filter(e => {
+            const agentEvts = (dateStr: string) => events.filter(e => {
               const eDate = e.date.split('T')[0];
               const isAgent = e.agent_username === agent.username || e.agent_email === agent.email;
-              const isCat = e.categorie === 'absence' || e.categorie === 'teletravail';
-              const isO365Match = e.source === 'o365' && (e.agent_email === agent.email || e.titre.includes(agent.nom));
-              return eDate === dateStr && (isCat || isO365Match) && isAgent && periodes.includes(e.periode || '');
+              const isRelevant = e.categorie === 'absence' || e.categorie === 'teletravail' || e.source === 'o365' || e.categorie === 'deploiement' || e.categorie === 'maintenance' || e.categorie === 'reunion';
+              return eDate === dateStr && isAgent && isRelevant;
             });
             return (
               <React.Fragment key={agent.username}>
-                <div className="cat-cell" style={{ background: '#f8fafc' }}>
-                  <div className="cat-label" style={{ fontWeight: 600, fontSize: '0.8rem', color: '#0f172a' }}>
+                <div className="cat-cell" style={{ background: '#f8fafc', padding: '4px 8px', minHeight: 'auto' }}>
+                  <div className="cat-label" style={{ fontWeight: 600, fontSize: '0.75rem', color: '#0f172a', lineHeight: 1.2 }}>
                     {agent.nom}
                   </div>
                 </div>
                 {weekDays.map(d => {
                   const ds = formatDate(d);
-                  const amEvts = agentEvts(ds, ['matin']);
-                  const pmEvts = agentEvts(ds, ['apres-midi']);
-                  const fullEvts = agentEvts(ds, ['']);
-                  const hasAny = amEvts.length > 0 || pmEvts.length > 0 || fullEvts.length > 0;
+                  const allEvts = agentEvts(ds);
+                  const amEvts = allEvts.filter(e => e.periode === 'matin');
+                  const pmEvts = allEvts.filter(e => e.periode === 'apres-midi');
+                  const fullEvts = allEvts.filter(e => e.periode === '' || !e.periode);
+                  const isToday = ds === formatDate(new Date());
                   return (
-                    <div key={ds} className={`cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`}>
-                      {!hasAny ? (
-                        <div className="empty-cell" style={{ color: '#e2e8f0' }}>—</div>
-                      ) : (
-                        <>
-                          {amEvts.length > 0 && (
-                            <div className="cell-period">
-                              <span className="period-label">M</span>
-                              <div className="cell-refs">{amEvts.map(e => {
-                                const label = e.categorie === 'absence' ? 'Absent' : e.categorie === 'teletravail' ? 'TT' : e.titre;
-                                return <div key={e.id} className="pastille" style={{ background: CATEGORY_COLORS[e.categorie] || '#6366f1', fontSize: '0.75rem' }} onClick={(ev) => { ev.stopPropagation(); openEditModal(e); }}>{label}</div>;
-                              })}</div>
-                            </div>
-                          )}
-                          {pmEvts.length > 0 && (
-                            <div className="cell-period">
-                              <span className="period-label">A</span>
-                              <div className="cell-refs">{pmEvts.map(e => {
-                                const label = e.categorie === 'absence' ? 'Absent' : e.categorie === 'teletravail' ? 'TT' : e.titre;
-                                return <div key={e.id} className="pastille" style={{ background: CATEGORY_COLORS[e.categorie] || '#6366f1', fontSize: '0.75rem' }} onClick={(ev) => { ev.stopPropagation(); openEditModal(e); }}>{label}</div>;
-                              })}</div>
-                            </div>
-                          )}
-                          {fullEvts.length > 0 && (
-                            <div className="cell-refs cell-refs-full">{fullEvts.map(e => {
-                              const label = e.categorie === 'absence' ? 'Absent' : e.categorie === 'teletravail' ? 'TT' : e.titre;
-                              return <div key={e.id} className="pastille" style={{ background: CATEGORY_COLORS[e.categorie] || '#6366f1', fontSize: '0.75rem' }} onClick={(ev) => { ev.stopPropagation(); openEditModal(e); }}>{label}</div>;
-                            })}</div>
-                          )}
-                        </>
+                    <div key={ds} className={`cell${isToday ? ' today' : ''}`} style={{ minHeight: 44, padding: 0, display: 'flex', flexDirection: 'row', position: 'relative' }}>
+                      <div style={{ flex: 1, padding: '3px 4px', borderRight: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: 1, position: 'relative', minHeight: 20 }}>
+                        {amEvts.length > 0 ? amEvts.map(renderAgentCell) : fullEvts.length > 0 ? null : (isManager ? <div style={{ position: 'absolute', top: 2, right: 4, fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'matin'); }}>+</div> : null)}
+                        {fullEvts.length > 0 && amEvts.length === 0 && <div style={{ position: 'absolute', top: 2, right: 4, fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'matin'); }}>+</div>}
+                      </div>
+                      <div style={{ flex: 1, padding: '3px 4px', display: 'flex', flexDirection: 'column', gap: 1, position: 'relative', minHeight: 20 }}>
+                        {pmEvts.length > 0 ? pmEvts.map(renderAgentCell) : (isManager ? <div style={{ position: 'absolute', top: 2, right: 4, fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'apres-midi'); }}>+</div> : null)}
+                      </div>
+                      {fullEvts.length > 0 && (
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                          {fullEvts.map(renderAgentCell)}
+                        </div>
+                      )}
+                      {isManager && fullEvts.length === 0 && amEvts.length === 0 && pmEvts.length === 0 && (
+                        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', fontSize: '0.75rem', color: '#cbd5e1', cursor: 'pointer', zIndex: 10 }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, ''); }}>+</div>
                       )}
                     </div>
                   );
@@ -1848,6 +1929,52 @@ const renderDot = (evt: Evenement) => {
                 <button onClick={() => deleteO365Calendar(cal.id)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #fecdd3', background: '#fff1f2', color: '#e11d48', cursor: 'pointer', fontSize: '0.8rem' }}>✕</button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Prévisionnel Modal */}
+      {showPrevModal && prevAgent && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowPrevModal(false)}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 28, width: '90%', maxWidth: 420, maxHeight: '90vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#0f172a' }}>Prévisionnel — {prevAgent.nom}</h2>
+              <button onClick={() => setShowPrevModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
+            <div style={{ background: '#f8fafc', borderRadius: 10, padding: 12, marginBottom: 16, fontSize: '0.85rem', color: '#475569' }}>
+              {prevDate}{prevPeriode === 'matin' ? ' Matin' : prevPeriode === 'apres-midi' ? ' Après-midi' : ' Journée complète'}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontWeight: 600, fontSize: '0.9rem', marginBottom: 8, color: '#0f172a' }}>Type</label>
+              {[
+                { key: 'absence_justifier', label: 'Absence à justifier', color: CATEGORY_COLORS.absence },
+                { key: 'teletravail', label: 'Télétravail', color: CATEGORY_COLORS.teletravail },
+                { key: 'conge_previsionnel', label: 'Congé prévisionnel', color: '#f59e0b' },
+                { key: 'asa', label: 'ASA', color: '#8b5cf6' },
+              ].map(opt => (
+                <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', margin: '4px 0', borderRadius: 8, cursor: 'pointer', background: prevType === opt.key ? '#f0f9ff' : 'white', border: prevType === opt.key ? `2px solid ${opt.color}` : '1px solid #e2e8f0', transition: 'all 0.15s' }}>
+                  <input type="radio" name="prevType" value={opt.key} checked={prevType === opt.key} onChange={() => setPrevType(opt.key)} style={{ accentColor: opt.color }} />
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: opt.color, flexShrink: 0 }} />
+                  <span style={{ fontWeight: prevType === opt.key ? 600 : 400, color: prevType === opt.key ? '#0f172a' : '#475569' }}>{opt.label}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: 4, color: '#475569' }}>Date début</label>
+                <input type="date" value={prevDateDebut} onChange={e => setPrevDateDebut(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: 4, color: '#475569' }}>Date fin</label>
+                <input type="date" value={prevDateFin} onChange={e => setPrevDateFin(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem' }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowPrevModal(false)} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', color: '#475569', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}>Annuler</button>
+              <button onClick={handlePrevSave} disabled={!prevType || prevSaving} style={{ padding: '10px 24px', borderRadius: 8, background: prevType ? ({ absence_justifier: CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' }[prevType] || '#6366f1') : '#cbd5e1', color: 'white', border: 'none', fontWeight: 600, cursor: prevType ? 'pointer' : 'not-allowed', fontSize: '0.9rem', transition: 'all 0.2s' }}>
+                {prevSaving ? '⏳ Enregistrement...' : '✓ Valider'}
+              </button>
+            </div>
           </div>
         </div>
       )}

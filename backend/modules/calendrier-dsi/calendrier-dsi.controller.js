@@ -598,7 +598,7 @@ module.exports = {
       if (!date || !categorie || !titre) {
         return res.status(400).json({ message: 'Champs requis : date, categorie, titre' });
       }
-      const validCategories = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion'];
+      const validCategories = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion', 'absence_justifier', 'conge_previsionnel', 'asa'];
       if (!validCategories.includes(categorie)) {
         return res.status(400).json({ message: 'Catégorie invalide' });
       }
