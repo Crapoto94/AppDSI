@@ -3710,8 +3710,16 @@ app.post('/api/access-requests', async (req, res) => {
     const { username, requested_tiles } = req.body;
     if (!username) return res.status(400).json({ message: 'Username requis' });
     try {
-        const user = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
-        if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
+        let user = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+
+        // Créer l'utilisateur s'il n'existe pas
+        if (!user) {
+            await db.run(
+                'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
+                [username, 'user', 0]
+            );
+            user = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+        }
 
         await db.run(
             'INSERT INTO access_requests (user_id, requested_tiles, status) VALUES (?, ?, ?)',
