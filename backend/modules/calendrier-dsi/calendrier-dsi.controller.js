@@ -322,7 +322,10 @@ async function getEventsForDate(date) {
 
   const finalKeys = new Set();
   return sorted.filter(e => {
-    const k = `${e.agent_username || ''}|${e.titre || ''}|${e.categorie}|${e.periode || ''}`;
+    // For teletravail events, deduplicate by agent only (ignore periode) to eliminate timezone-offset duplicates
+    const k = e.categorie === 'teletravail'
+      ? `${e.agent_username || ''}|${e.categorie}`
+      : `${e.agent_username || ''}|${e.titre || ''}|${e.categorie}|${e.periode || ''}`;
     if (finalKeys.has(k)) return false;
     finalKeys.add(k);
     return true;
