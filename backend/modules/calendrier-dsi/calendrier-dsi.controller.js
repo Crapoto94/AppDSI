@@ -178,9 +178,9 @@ async function getDemabsEventsForRange(debut, fin) {
 }
 
 async function getEventsForDate(date) {
-  // Get manual events for this date
+  // Get manual events for this date (handle timezone offset - dates can be stored as UTC-2h from display date)
   const result = await pool.query(
-    `SELECT id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at FROM hub_calendrier.evenements WHERE date::date = $1 ORDER BY categorie, periode`,
+    `SELECT id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at FROM hub_calendrier.evenements WHERE date::date = $1 OR date::date = ($1::date - interval '1 day') ORDER BY categorie, periode`,
     [date]
   );
   const events = [...result.rows];
