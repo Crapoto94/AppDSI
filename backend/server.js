@@ -247,13 +247,20 @@ folders.forEach(f => {
     const dir = path.join(__dirname, f);
     if (!fs.existsSync(dir)) {
         try {
-            fs.mkdirSync(dir, { recursive: true });
+            fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
             console.log(`Created directory: ${dir}`);
         } catch (err) {
             console.error(`Error creating directory ${dir}:`, err.message);
         }
+    } else {
+        // Ensure proper permissions on existing directories
+        try {
+            fs.chmodSync(dir, 0o755);
+        } catch (err) {
+            console.warn(`Could not chmod ${dir}:`, err.message);
+        }
     }
-    
+
     // Diagnostic de permission pour Docker
     if (f === 'magapp_img') {
         const testFile = path.join(dir, '.write_test');
@@ -263,7 +270,11 @@ folders.forEach(f => {
             fs.unlinkSync(testFile);
         } catch (err) {
             console.error(`[DIAGNOSTIC] Write test FAILED in ${dir}:`, err.message);
-            fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] CRITICAL: Permission denied in ${dir}\n`);
+            try {
+                fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] CRITICAL: Permission denied in ${dir}\n`);
+            } catch (e) {
+                // Logs folder might not be writable either
+            }
         }
     }
 });
@@ -3992,10 +4003,24 @@ app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), asyn
     }
 });
 
-// MagApp icon upload
-app.post('/api/magapp/upload-icon', authenticateMagappControl, upload.single('icon'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ message: 'Aucun fichier' });
-    console.log(`[MAGAPP] Icon uploaded: ${req.file.filename}`);
+// MagApp icon upload with error handling
+app.post('/api/magapp/upload-icon', authenticateMagappControl, (req, res, next) => {
+    upload.single('icon')(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            console.error('[MAGAPP] Multer error:', err);
+            return res.status(400).json({ message: `Upload error: ${err.message}` });
+        } else if (err) {
+            console.error('[MAGAPP] Upload error:', err);
+            return res.status(500).json({ message: `Upload error: ${err.message}` });
+        }
+        next();
+    });
+}, async (req, res) => {
+    if (!req.file) {
+        console.log('[MAGAPP] No file provided in request');
+        return res.status(400).json({ message: 'Aucun fichier' });
+    }
+    console.log(`[MAGAPP] Icon uploaded: ${req.file.filename} to ${req.file.destination}`);
     res.json({ url: '/img/' + req.file.filename });
 });
 
