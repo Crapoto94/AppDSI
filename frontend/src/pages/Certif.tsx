@@ -885,13 +885,15 @@ const Certif: React.FC = () => {
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         .certif-page {
-          width: 100%;
+          width: 100vw;
           min-height: 100vh;
           background: #f8fafc;
+          margin-left: calc(-50vw + 50%);
         }
         .container {
-          width: 100%;
+          width: 100vw;
           margin: 0;
+          margin-left: calc(-50vw + 50%);
           padding: 30px 0;
         }
         .page-header {
