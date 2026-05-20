@@ -756,7 +756,7 @@ export default function CalendrierDSI() {
     const readOnly = (evt.generated && evt.categorie !== 'hotline') || evt.source === 'maintenance-table' || evt.source === 'o365' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
     setReadonly(!!readOnly);
     const isOwnEvent = evt.agent_username?.toLowerCase() === user?.username?.toLowerCase();
-    const isPublicCategory = evt.categorie === 'deploiement' || evt.categorie === 'maintenance' || evt.categorie === 'reunion';
+    const isPublicCategory = evt.categorie === 'deploiement' || evt.categorie === 'reunion';
     if (!isManager && !isOwnEvent && !isPublicCategory) return;
     if (selectedService && isManager && (evt.categorie === 'absence' || evt.categorie === 'teletravail' || evt.categorie === 'hotline') && (evt.id > 0 || evt.categorie === 'hotline')) {
       setPrevAgent({ username: evt.agent_username || '', nom: evt.agent_nom || '', email: evt.agent_email || '' });
@@ -1832,7 +1832,7 @@ absence: '#64748b',
           {svcAgents.map(agent => {
             const agentEvts = (dateStr: string) => events.filter(e => {
               const eDate = e.date.split('T')[0];
-              return eDate === dateStr && (e.agent_username === agent.username || (e.agent_email && e.agent_email.toLowerCase() === (agent.email || '').toLowerCase())) && (e.categorie === 'absence' || e.categorie === 'teletravail' || e.source === 'o365' || e.categorie === 'deploiement' || e.categorie === 'maintenance' || e.categorie === 'reunion' || e.categorie === 'hotline');
+              return eDate === dateStr && (e.agent_username === agent.username || (e.agent_email && e.agent_email.toLowerCase() === (agent.email || '').toLowerCase())) && (e.categorie === 'absence' || e.categorie === 'teletravail' || e.source === 'o365' || e.categorie === 'deploiement' || e.categorie === 'reunion' || e.categorie === 'hotline');
             });
             return (
               <React.Fragment key={agent.username}>

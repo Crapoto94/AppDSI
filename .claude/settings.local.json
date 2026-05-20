@@ -121,7 +121,17 @@
       "Bash(echo \"Backend started in background, PID: $!\")",
       "Bash(curl -X PUT http://localhost:3001/api/contrats/208 -H 'Content-Type: application/json' -H 'Authorization: Bearer test_token' -d '{ *)",
       "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
-      "Bash(xargs grep -l \"email\\\\|mail\\\\|send\")"
+      "Bash(xargs grep -l \"email\\\\|mail\\\\|send\")",
+      "PowerShell(Get-Process node | Where-Object {$_.ProcessName -eq \"node\"} | Stop-Process -Force)",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force 2>$null)",
+      "PowerShell($env:PGPASSWORD = 'ivrypassword'; psql -h 10.103.130.106 -U postgres -d ivry_admin -c \"SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'hotline_overrides';\" 2>&1)",
+      "Bash(Get-Process -Name \"node\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object ProcessName, Id, StartTime)",
+      "Bash(node debug-cadinot.js)",
+      "Bash(cp debug-sedit.js backend/)",
+      "Bash(node debug-sedit.js)",
+      "Bash(node check-oracle-rh.js)"
     ]
   }
 }
