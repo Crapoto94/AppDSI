@@ -2073,7 +2073,7 @@ const renderDot = (evt: Evenement) => {
                           {isWeekend || feria ? (
                             <div style={{ flex: 2, background: '#f1f5f9', minHeight: 20 }} />
                           ) : (
-                          <><div style={{ flex: 1, minHeight: 20, background: amBg, borderRight: amBg !== pmBg ? '1px dashed #e2e8f0' : 'none' }} />
+                          <><div style={{ flex: 1, minHeight: 20, background: amBg }} />
                           <div style={{ flex: 1, minHeight: 20, background: pmBg }} /></>
                           )}
                         </div>
