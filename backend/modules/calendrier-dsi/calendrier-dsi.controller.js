@@ -1287,6 +1287,7 @@ module.exports = {
       const byCategory = {};
       const rhAbsences = [];
       const manualAbsences = [];
+      console.log(`[sendDailyCalendar] Total events for ${date}:`, events.length, events.filter(e => e.categorie === 'teletravail').map(e => e.agent_username));
       const CATEGORY_LABELS = {
         absence: 'Absents',
         teletravail: 'Télétravailleurs',
