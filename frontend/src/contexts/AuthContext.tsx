@@ -10,6 +10,7 @@ interface User {
     service_complement?: string;
     authorized_urls?: string[];
     est_pmo?: boolean;
+    est_manager?: boolean;
 }
 
 interface AuthContextType {

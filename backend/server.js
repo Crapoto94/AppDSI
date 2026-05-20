@@ -479,12 +479,17 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
                 const pmoCheck = await db.get('SELECT 1 FROM user_tiles WHERE user_id = ? AND tile_id = 24', [user.id]);
                 user.est_pmo = !!pmoCheck;
             } catch { user.est_pmo = false; }
+            try {
+                const managerTile = await db.get("SELECT ut.tile_id FROM user_tiles ut JOIN tile_links tl ON ut.tile_id = tl.tile_id WHERE ut.user_id = ? AND tl.url = '/calendrier-dsi' UNION SELECT t.id FROM tiles t JOIN tile_links tl ON t.id = tl.tile_id WHERE tl.url = '/calendrier-dsi' AND t.title = 'Manager Calendrier'", [user.id]);
+                user.est_manager = !!(managerTile || (user.role === 'admin'));
+            } catch { user.est_manager = user.role === 'admin'; }
         } else if (source === 'postgres') {
             // PMO check via PostgreSQL table if it exists
             try {
                 const pmoCheck = await pgDb.get('SELECT 1 FROM projet_favoris WHERE username = $1 LIMIT 1', [user.username]);
                 user.est_pmo = false; // Default for PG users
             } catch { user.est_pmo = false; }
+            user.est_manager = user.role === 'admin';
         }
 
         res.json({ ...user, auth_source: source });
@@ -3549,6 +3554,38 @@ app.post('/api/admin/pmo/toggle', authenticateAdmin, async (req, res) => {
         res.json({ message: 'Statut PMO mis à jour avec succès' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la mise à jour du statut PMO', error: error.message });
+    }
+});
+
+// Manager Management API
+app.get('/api/admin/manager/list', authenticateAdmin, async (req, res) => {
+    try {
+        const managerTile = await db.get("SELECT id FROM tiles WHERE title = 'Manager Calendrier'");
+        if (!managerTile) return res.json([]);
+        const managers = await db.all('SELECT u.id, u.username FROM users u JOIN user_tiles ut ON u.id = ut.user_id WHERE ut.tile_id = ?', [managerTile.id]);
+        res.json(managers);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des managers', error: error.message });
+    }
+});
+
+app.post('/api/admin/manager/toggle', authenticateAdmin, async (req, res) => {
+    try {
+        const { username, is_manager } = req.body;
+        const user = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+        if (!user) {
+            return res.status(404).json({ message: 'Utilisateur non trouvé' });
+        }
+        const managerTile = await db.get("SELECT id FROM tiles WHERE title = 'Manager Calendrier'");
+        if (!managerTile) return res.status(500).json({ message: 'Tile Manager introuvable' });
+        if (is_manager) {
+            await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [user.id, managerTile.id]);
+        } else {
+            await db.run('DELETE FROM user_tiles WHERE user_id = ? AND tile_id = ?', [user.id, managerTile.id]);
+        }
+        res.json({ message: 'Statut Manager mis à jour avec succès' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la mise à jour du statut Manager', error: error.message });
     }
 });
 

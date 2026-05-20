@@ -757,6 +757,24 @@ async function setupDb() {
     } catch (e) {}
 
     try {
+        const existingManagerTile = await db.get("SELECT id FROM tiles WHERE title = 'Manager Calendrier'");
+        if (!existingManagerTile) {
+            const maxOrder = await db.get("SELECT MAX(sort_order) as max FROM tiles");
+            const result = await db.run(
+                "INSERT INTO tiles (title, icon, description, status, sort_order, is_public) VALUES (?, ?, ?, ?, ?, ?)",
+                ['Manager Calendrier', 'Shield', 'Gestionnaires du calendrier DSI', 'active', (maxOrder?.max || 999) + 1, 0]
+            );
+            const tileId = result.lastID;
+            const existingLink = await db.get("SELECT id FROM tile_links WHERE tile_id = ? AND label = 'Ouvrir'", [tileId]);
+            if (!existingLink) {
+                try {
+                    await db.run("INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)", [tileId, 'Ouvrir', '/calendrier-dsi', 1]);
+                } catch (e2) {}
+            }
+        }
+    } catch (e) {}
+
+    try {
         const result = await db.all("PRAGMA table_info(tiles)");
         const hasIsPublicColumn = result.some(col => col.name === 'is_public');
         if (!hasIsPublicColumn) {

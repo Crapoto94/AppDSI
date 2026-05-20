@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
-import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield } from 'lucide-react';
 
 const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion'] as const;
 type Categorie = typeof CATEGORIES[number];
@@ -129,7 +129,7 @@ function getServiceColor(service: string): string {
 }
 
 export default function CalendrierDSI() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   const [view, setView] = useState<'week' | 'month'>('week');
@@ -170,6 +170,48 @@ export default function CalendrierDSI() {
   const [o365SearchEmail, setO365SearchEmail] = useState('');
 
   const [selectedService, setSelectedService] = useState<string | null>(null);
+
+  const [showManagerModal, setShowManagerModal] = useState(false);
+  const [managerList, setManagerList] = useState<any[]>([]);
+  const [managerLoading, setManagerLoading] = useState(false);
+  const [managerSearch, setManagerSearch] = useState('');
+  const [managerSearchResults, setManagerSearchResults] = useState<any[]>([]);
+  const [managerSearching, setManagerSearching] = useState(false);
+  const isManager = (user?.est_manager || user?.role === 'admin') ?? false;
+
+  const fetchManagerList = async () => {
+    setManagerLoading(true);
+    try {
+      const res = await fetch('/api/admin/manager/list', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      setManagerList(Array.isArray(data) ? data : []);
+    } catch (e) { console.error('[Manager] Error fetching list:', e); }
+    finally { setManagerLoading(false); }
+  };
+
+  const toggleManager = async (username: string, isManagerFlag: boolean) => {
+    try {
+      await fetch('/api/admin/manager/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ username, is_manager: isManagerFlag })
+      });
+      await fetchManagerList();
+    } catch (e) { console.error('[Manager] Error toggling:', e); }
+  };
+
+  useEffect(() => {
+    if (managerSearch.trim().length < 2) { setManagerSearchResults([]); return; }
+    const timer = setTimeout(async () => {
+      setManagerSearching(true);
+      try {
+        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(managerSearch.trim())}`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = await res.json();
+        setManagerSearchResults(Array.isArray(data) ? data : []);
+      } catch { setManagerSearchResults([]); } finally { setManagerSearching(false); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [managerSearch, token]);
 
   const fetchO365Calendars = async () => {
     setO365Loading(true);
@@ -1234,9 +1276,12 @@ export default function CalendrierDSI() {
             <button onClick={navNext}><ChevronRight size={18} /></button>
             <button onClick={navToday}>Aujourd'hui</button>
             <button className="btn-add" onClick={() => openCreateModal()}><Plus size={16} /> Ajouter</button>
-            <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => { setSelectedRecipients([]); setSendDate(formatDate(new Date())); setShowSendModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={16} /> Envoyer</button>
-            <button style={{ background: '#0078d4', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0, 120, 212, 0.2)' }} onClick={() => { setShowO365Modal(true); fetchO365Calendars(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 120, 212, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 120, 212, 0.2)')}><Cloud size={16} /> O365</button>
-            <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={16} /> Agents DSI</a>
+            {isManager && (<>
+              <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => { setSelectedRecipients([]); setSendDate(formatDate(new Date())); setShowSendModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={16} /> Envoyer</button>
+              <button style={{ background: '#0078d4', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0, 120, 212, 0.2)' }} onClick={() => { setShowO365Modal(true); fetchO365Calendars(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 120, 212, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 120, 212, 0.2)')}><Cloud size={16} /> O365</button>
+              <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={16} /> Agents</a>
+              <button style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.2)' }} onClick={() => { setShowManagerModal(true); fetchManagerList(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(245, 158, 11, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(245, 158, 11, 0.2)')}><Shield size={16} /> Manager</button>
+            </>)}
           </div>
         </div>
       </div>
@@ -1817,6 +1862,53 @@ const renderDot = (evt: Evenement) => {
               <button className="btn-no" onClick={() => setConfirmDelete(null)}>Annuler</button>
               <button className="btn-yes" onClick={() => handleDelete(confirmDelete)}>Supprimer</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manager Modal */}
+      {showManagerModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowManagerModal(false)}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 30, width: '90%', maxWidth: 500, maxHeight: '85vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800, color: '#0f172a' }}><Shield size={20} style={{ marginRight: 8, verticalAlign: 'middle' }} />Gestion des Managers</h2>
+                <p style={{ color: '#64748b', marginTop: 4, fontSize: '0.9rem' }}>Managers du calendrier DSI — peuvent envoyer, configurer O365 et gérer les agents.</p>
+              </div>
+              <button onClick={() => setShowManagerModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: 16, position: 'relative' }}>
+              <input value={managerSearch} onChange={e => setManagerSearch(e.target.value)} placeholder="Rechercher un utilisateur AD..." style={{ width: '100%', padding: '10px 14px', borderRadius: 10, border: '1px solid #e2e8f0', fontSize: '0.95rem', boxSizing: 'border-box' }} />
+              {managerSearching && <span style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}>...</span>}
+              {managerSearchResults.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 10, marginTop: 4, maxHeight: 200, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10 }}>
+                  {managerSearchResults.map((u: any) => (
+                    <div key={u.username} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #f1f5f9' }}>
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#0f172a' }}>{u.displayName || u.username}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{u.username}{u.email ? ` · ${u.email}` : ''}{u.service ? ` · ${u.service}` : ''}</div>
+                      </div>
+                      <button onClick={() => { toggleManager(u.username, true); setManagerSearch(''); setManagerSearchResults([]); }} style={{ padding: '6px 14px', borderRadius: 8, background: '#f59e0b', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>+ Manager</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <h4 style={{ margin: '20px 0 10px', color: '#0f172a' }}>Managers actuels ({managerList.length})</h4>
+            {managerLoading ? (
+              <p style={{ color: '#94a3b8', textAlign: 'center', padding: 20 }}>Chargement...</p>
+            ) : managerList.length === 0 ? (
+              <p style={{ color: '#94a3b8', textAlign: 'center', padding: 20 }}>Aucun manager désigné.</p>
+            ) : managerList.map((m: any) => (
+              <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#f8fafc', borderRadius: 10, marginBottom: 6, border: '1px solid #e2e8f0' }}>
+                <div>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{m.username}</div>
+                </div>
+                <button onClick={() => toggleManager(m.username, false)} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #fecdd3', background: '#fff1f2', color: '#e11d48', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Retirer</button>
+              </div>
+            ))}
           </div>
         </div>
       )}
