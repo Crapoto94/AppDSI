@@ -315,10 +315,12 @@ async function getEventsForDate(date) {
     }
   } catch (e) {}
 
-  // Final dedup pass: remove any remaining duplicates by displayed content (titre+date+cat+periode)
+  // Final dedup pass: remove any remaining duplicates by displayed content
+  // Normalize all dates to the requested date for proper deduplication
   const finalKeys = new Set();
   return events.filter(e => {
-    const k = `${e.titre || ''}|${e.date}|${e.categorie}|${e.periode || ''}`;
+    const displayDate = date; // Use the requested date, not the event's actual date
+    const k = `${e.titre || ''}|${displayDate}|${e.categorie}|${e.periode || ''}`;
     if (finalKeys.has(k)) return false;
     finalKeys.add(k);
     return true;
