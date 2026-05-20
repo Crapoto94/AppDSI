@@ -169,6 +169,8 @@ export default function CalendrierDSI() {
   const [o365Searching, setO365Searching] = useState(false);
   const [o365SearchEmail, setO365SearchEmail] = useState('');
 
+  const [selectedService, setSelectedService] = useState<string | null>(null);
+
   const fetchO365Calendars = async () => {
     setO365Loading(true);
     try {
@@ -1261,8 +1263,13 @@ export default function CalendrierDSI() {
         return (
           <div className="legend">
             <span className="legend-title">Services :</span>
+            {selectedService && (
+              <span className="legend-item" style={{ cursor: 'pointer', opacity: 0.7 }} onClick={() => setSelectedService(null)}>
+                <span className="legend-dot" style={{ background: '#999' }} />← Toutes les catégories
+              </span>
+            )}
             {services.map(s => (
-              <span key={s} className="legend-item">
+              <span key={s} className="legend-item" style={{ cursor: 'pointer', fontWeight: selectedService === s ? 800 : 400, opacity: selectedService && selectedService !== s ? 0.4 : 1 }} onClick={() => setSelectedService(selectedService === s ? null : s)}>
                 <span className="legend-dot" style={{ background: getServiceColor(s) }} />
                 {s}
               </span>
@@ -1271,8 +1278,8 @@ export default function CalendrierDSI() {
         );
       })()}
 
-      {/* Week View */}
-      {view === 'week' && (
+      {/* Week View - Category mode */}
+      {view === 'week' && !selectedService && (
         <div className="week-grid">
           <div className="header-cell">Catégorie</div>
           {weekDays.map(d => (
@@ -1356,6 +1363,81 @@ const renderPastille = (evt: Evenement) => {
           })}
         </div>
       )}
+
+      {/* Week View - Service/Agent mode */}
+      {view === 'week' && selectedService && (() => {
+        const svcAgents = agents.filter(a => a.service === selectedService).sort((a, b) => a.nom.localeCompare(b.nom));
+        return (
+        <div className="week-grid" style={{ gridTemplateColumns: `180px repeat(${weekDays.length}, 1fr)` }}>
+          <div className="header-cell" style={{ fontWeight: 700, background: getServiceColor(selectedService), color: '#fff' }}>{selectedService}</div>
+          {weekDays.map(d => (
+            <div key={formatDate(d)} className={`header-cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`}>
+              {d.toLocaleDateString('fr-FR', { weekday: 'short' }).charAt(0).toUpperCase() + d.toLocaleDateString('fr-FR', { weekday: 'short' }).slice(1)}
+              <div className="day-date">{d.getDate()}</div>
+            </div>
+          ))}
+          {svcAgents.map(agent => {
+            const agentEvts = (dateStr: string, periodes: string[]) => events.filter(e => {
+              const eDate = e.date.split('T')[0];
+              const isAgent = e.agent_username === agent.username || e.agent_email === agent.email;
+              const isCat = e.categorie === 'absence' || e.categorie === 'teletravail';
+              const isO365Match = e.source === 'o365' && (e.agent_email === agent.email || e.titre.includes(agent.nom));
+              return eDate === dateStr && (isCat || isO365Match) && isAgent && periodes.includes(e.periode || '');
+            });
+            return (
+              <React.Fragment key={agent.username}>
+                <div className="cat-cell" style={{ background: '#f8fafc' }}>
+                  <div className="cat-label" style={{ fontWeight: 600, fontSize: '0.8rem', color: '#0f172a' }}>
+                    {agent.nom}
+                  </div>
+                </div>
+                {weekDays.map(d => {
+                  const ds = formatDate(d);
+                  const amEvts = agentEvts(ds, ['matin']);
+                  const pmEvts = agentEvts(ds, ['apres-midi']);
+                  const fullEvts = agentEvts(ds, ['']);
+                  const hasAny = amEvts.length > 0 || pmEvts.length > 0 || fullEvts.length > 0;
+                  return (
+                    <div key={ds} className={`cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`}>
+                      {!hasAny ? (
+                        <div className="empty-cell" style={{ color: '#e2e8f0' }}>—</div>
+                      ) : (
+                        <>
+                          {amEvts.length > 0 && (
+                            <div className="cell-period">
+                              <span className="period-label">M</span>
+                              <div className="cell-refs">{amEvts.map(e => {
+                                const label = e.categorie === 'absence' ? 'Absent' : e.categorie === 'teletravail' ? 'TT' : e.titre;
+                                return <div key={e.id} className="pastille" style={{ background: CATEGORY_COLORS[e.categorie] || '#6366f1', fontSize: '0.75rem' }} onClick={(ev) => { ev.stopPropagation(); openEditModal(e); }}>{label}</div>;
+                              })}</div>
+                            </div>
+                          )}
+                          {pmEvts.length > 0 && (
+                            <div className="cell-period">
+                              <span className="period-label">A</span>
+                              <div className="cell-refs">{pmEvts.map(e => {
+                                const label = e.categorie === 'absence' ? 'Absent' : e.categorie === 'teletravail' ? 'TT' : e.titre;
+                                return <div key={e.id} className="pastille" style={{ background: CATEGORY_COLORS[e.categorie] || '#6366f1', fontSize: '0.75rem' }} onClick={(ev) => { ev.stopPropagation(); openEditModal(e); }}>{label}</div>;
+                              })}</div>
+                            </div>
+                          )}
+                          {fullEvts.length > 0 && (
+                            <div className="cell-refs cell-refs-full">{fullEvts.map(e => {
+                              const label = e.categorie === 'absence' ? 'Absent' : e.categorie === 'teletravail' ? 'TT' : e.titre;
+                              return <div key={e.id} className="pastille" style={{ background: CATEGORY_COLORS[e.categorie] || '#6366f1', fontSize: '0.75rem' }} onClick={(ev) => { ev.stopPropagation(); openEditModal(e); }}>{label}</div>;
+                            })}</div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
+        </div>
+        );
+      })()}
 
       {/* Month View */}
       {view === 'month' && (
