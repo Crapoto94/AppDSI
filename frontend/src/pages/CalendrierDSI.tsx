@@ -157,7 +157,7 @@ export default function CalendrierDSI() {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
   const [showSendModal, setShowSendModal] = useState(false);
-  const [sendDate, setSendDate] = useState(formatDate(new Date()));
+  const [sendDate, setSendDate] = useState(formatDate(new Date(Date.now() + 86400000)));
   const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [sendingCalendar, setSendingCalendar] = useState(false);
 
@@ -558,7 +558,15 @@ export default function CalendrierDSI() {
       setPrevAgent({ username: evt.agent_username || '', nom: evt.agent_nom || '', email: evt.agent_email || '' });
       setPrevDate(evt.date);
       setPrevPeriode(evt.periode || '');
-      setPrevType(evt.categorie);
+      const titreLC = (evt.titre || '').toLowerCase();
+      let mappedType: string = evt.categorie;
+      if (evt.categorie === 'absence') {
+        if (titreLC.includes('absence_justifier')) mappedType = 'absence_justifier';
+        else if (titreLC.includes('conge_previsionnel')) mappedType = 'conge_previsionnel';
+        else if (titreLC.includes('asa')) mappedType = 'asa';
+        else mappedType = 'absence_justifier';
+      }
+      setPrevType(mappedType);
       setPrevDateDebut(evt.date);
       setPrevDateFin(evt.date);
       setPrevPeriodeDebut(evt.periode === 'matin' ? 'matin' : evt.periode === 'apres-midi' ? 'apres-midi' : '');
@@ -1404,7 +1412,7 @@ export default function CalendrierDSI() {
             <button onClick={navToday}>Aujourd'hui</button>
             <button className="btn-add" onClick={() => openCreateModal()}><Plus size={16} /> Ajouter</button>
             {isManager && (<>
-              <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => { setSelectedRecipients([]); setSendDate(formatDate(new Date())); setShowSendModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={16} /> Envoyer</button>
+              <button style={{ background: '#6c5ce7', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(108, 92, 231, 0.2)' }} onClick={() => { setSelectedRecipients([]); setSendDate(formatDate(new Date(Date.now() + 86400000))); setShowSendModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(108, 92, 231, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(108, 92, 231, 0.2)')}><Mail size={16} /> Envoyer</button>
               <button style={{ background: '#0078d4', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0, 120, 212, 0.2)' }} onClick={() => { setShowO365Modal(true); fetchO365Calendars(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 120, 212, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 120, 212, 0.2)')}><Cloud size={16} /> O365</button>
               <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={16} /> Agents</a>
               <button style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 18px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.2)' }} onClick={() => { setShowManagerModal(true); fetchManagerList(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(245, 158, 11, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(245, 158, 11, 0.2)')}><Shield size={16} /> Manager</button>
@@ -1543,6 +1551,7 @@ const renderPastille = (evt: Evenement) => {
 absence: '#64748b',
           absence_justifier: '#E30613',
           sedit: '#7c3aed',
+          sedit_pending: '#a78bfa',
           teletravail: '#003366',
           conge_previsionnel: '#f59e0b',
           asa: '#8b5cf6',
@@ -1562,7 +1571,7 @@ absence: '#64748b',
           return evt.titre;
         };
         const getAbsenceColor = (evt: Evenement) => {
-          if (isSedit(evt)) return '#64748b';
+          if (isSedit(evt)) return evt.pending || evt.created_by === 'auto-rh-pending' ? ABSENCE_TYPE_COLORS.sedit_pending : ABSENCE_TYPE_COLORS.sedit;
           const titre = (evt.titre || '').toLowerCase();
           if (titre.includes('asa')) return ABSENCE_TYPE_COLORS.asa;
           if (titre.includes('congé prévisionnel') || titre.includes('conge_previsionnel')) return ABSENCE_TYPE_COLORS.conge_previsionnel;
@@ -1613,14 +1622,18 @@ absence: '#64748b',
                   const isRh = (e: Evenement) => e.source === 'demabs' || e.created_by === 'auto-rh' || e.created_by === 'auto-rh-pending';
                   const renderSmallPill = (evt: Evenement) => {
                     const seditStyle = isSedit(evt) ? { border: '2px solid #000', outline: '1px solid #000' } : {};
-                    return <div key={evt.id} className="pastille" style={{ background: isSedit(evt) ? ABSENCE_TYPE_COLORS.sedit : ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1', fontSize: '0.65rem', padding: '1px 4px', ...seditStyle }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>{getAbsenceLabel(evt)}</div>;
+                    return <div key={evt.id} className="pastille" style={{ background: isSedit(evt) ? (evt.pending || evt.created_by === 'auto-rh-pending' ? ABSENCE_TYPE_COLORS.sedit_pending : ABSENCE_TYPE_COLORS.sedit) : ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1', fontSize: '0.65rem', padding: '1px 4px', ...seditStyle }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>{getAbsenceLabel(evt)}</div>;
                   };
                   const renderFilledHalf = (evt: Evenement) => {
                     const color = getAbsenceColor(evt);
                     const label = getAbsenceLabel(evt);
                     const seditBorder = isSedit(evt) ? '2px solid #000' : 'none';
+                    const isTT = evt.categorie === 'teletravail' && !isSedit(evt);
+                    const bgStyle = isTT
+                      ? { background: `#ffffff repeating-linear-gradient(45deg, transparent, transparent 4px, ${color} 4px, ${color} 6px)`, color }
+                      : { background: color, color: '#fff' };
                     return (
-                      <div key={evt.id} style={{ width: '100%', height: '100%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer', borderRadius: 2, border: seditBorder, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                      <div key={evt.id} style={{ width: '100%', height: '100%', ...bgStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer', borderRadius: 2, border: seditBorder }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
                         {label}
                       </div>
                     );
@@ -1635,10 +1648,10 @@ absence: '#64748b',
                       </div>
                       {fullAbs && !amAbs && !pmAbs && (
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex' }}>
-                          <div style={{ flex: 1, background: getAbsenceColor(fullAbs), color: '#fff', fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', textShadow: '0 1px 2px rgba(0,0,0,0.3)', borderRight: isRh(fullAbs) ? '2px solid #000' : 'none' }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
+                          <div style={{ flex: 1, fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRight: isRh(fullAbs) ? '2px solid #000' : 'none', color: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? getAbsenceColor(fullAbs) : '#fff', textShadow: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? 'none' : '0 1px 2px rgba(0,0,0,0.3)', background: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? `#ffffff repeating-linear-gradient(45deg, transparent, transparent 4px, ${getAbsenceColor(fullAbs)} 4px, ${getAbsenceColor(fullAbs)} 6px)` : getAbsenceColor(fullAbs) }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
                             {getAbsenceLabel(fullAbs)}
                           </div>
-                          <div style={{ flex: 1, background: getAbsenceColor(fullAbs), color: '#fff', fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', textShadow: '0 1px 2px rgba(0,0,0,0.3)', borderLeft: isRh(fullAbs) ? '2px solid #000' : 'none' }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
+                          <div style={{ flex: 1, fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderLeft: isRh(fullAbs) ? '2px solid #000' : 'none', color: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? getAbsenceColor(fullAbs) : '#fff', textShadow: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? 'none' : '0 1px 2px rgba(0,0,0,0.3)', background: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? `#ffffff repeating-linear-gradient(45deg, transparent, transparent 4px, ${getAbsenceColor(fullAbs)} 4px, ${getAbsenceColor(fullAbs)} 6px)` : getAbsenceColor(fullAbs) }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
                             {getAbsenceLabel(fullAbs)}
                           </div>
                         </div>
@@ -2071,6 +2084,7 @@ const renderDot = (evt: Evenement) => {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              {editingEvent && <button onClick={() => { setShowPrevModal(false); setConfirmDelete(editingEvent!.id); }} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #fee2e2', background: '#fef2f2', color: '#dc2626', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}>🗑 Supprimer</button>}
               <button onClick={() => setShowPrevModal(false)} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', color: '#475569', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}>Annuler</button>
               <button onClick={handlePrevSave} disabled={!prevType || prevSaving} style={{ padding: '10px 24px', borderRadius: 8, background: prevType ? ({ absence_justifier: CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' }[prevType] || '#6366f1') : '#cbd5e1', color: 'white', border: 'none', fontWeight: 600, cursor: prevType ? 'pointer' : 'not-allowed', fontSize: '0.9rem', transition: 'all 0.2s' }}>
                 {prevSaving ? '⏳ Enregistrement...' : '✓ Valider'}
