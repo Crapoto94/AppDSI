@@ -82,7 +82,9 @@ function computePeriodes(typjourDeb, typjourFin, hrDeb, hrFin) {
 const CATEGORY_COLORS = {
   absence: '#E30613',
   teletravail: '#003366',
-  maintenance: '#FF9800'
+  deploiement: '#4CAF50',
+  reunion: '#9C27B0',
+  hotline: '#22c55e'
 };
 
 let genIdCounter = -1;
@@ -227,11 +229,10 @@ async function getEventsForDate(date) {
           agent_nom: agent.nom,
           agent_email: agent.email || '',
           couleur: CATEGORY_COLORS.teletravail,
-            created_by: 'auto',
-            created_at: null,
-            generated: true,
-            source: 'app-maintenance'
-          });
+          created_by: 'auto',
+          created_at: null,
+          generated: true
+        });
       }
     }
   }
@@ -277,24 +278,6 @@ async function getEventsForDate(date) {
       manualKeys.add(dedupeKey);
     }
   }
-
-  // Add app store legacy maintenance events
-  try {
-    const maintLegacy = await pool.query(`
-      SELECT name FROM magapp.apps
-      WHERE maintenance_start IS NOT NULL
-        AND maintenance_start::date <= $1::date
-        AND (maintenance_end IS NULL OR maintenance_end::date >= $1::date)
-    `, [date]);
-    for (const m of maintLegacy.rows) {
-      events.push({
-        id: nextGenId(), date, categorie: 'maintenance', periode: '', titre: m.name,
-        description: 'Maintenance programmée', agent_username: null, agent_nom: null,
-        agent_email: null, couleur: CATEGORY_COLORS.maintenance || '#FF9800',
-        created_by: 'auto', created_at: null, generated: true
-      });
-    }
-  } catch (e) {}
 
   // Add dedicated maintenance table events
   try {
