@@ -74,11 +74,13 @@ module.exports = {
   },
 
   createAgent: async (req, res) => {
+    console.log('[Agents DSI] createAgent request:', { body: req.body, user: req.user?.username });
     const client = await pool.connect();
     try {
       const { username, nom, email, service, tt_fixed_days } = req.body;
       if (!username || !nom) {
         client.release();
+        console.error('[Agents DSI] Missing required fields: username or nom');
         return res.status(400).json({ message: 'Champs requis : username, nom' });
       }
       await client.query('BEGIN');
