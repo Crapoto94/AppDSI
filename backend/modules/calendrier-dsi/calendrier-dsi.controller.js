@@ -321,7 +321,7 @@ async function getEventsForDate(date) {
   });
 
   const finalKeys = new Set();
-  return sorted.filter(e => {
+  const deduped = sorted.filter(e => {
     // For teletravail events, deduplicate by agent only (ignore periode) to eliminate timezone-offset duplicates
     const k = e.categorie === 'teletravail'
       ? `${e.agent_username || ''}|${e.categorie}`
@@ -329,6 +329,25 @@ async function getEventsForDate(date) {
     if (finalKeys.has(k)) return false;
     finalKeys.add(k);
     return true;
+  });
+
+  // Filter to keep only events from the requested date (or that have a version on the requested date)
+  const requestedDateEvents = new Set();
+  deduped.forEach(e => {
+    const eventDate = e.date.split('T')[0];
+    if (eventDate === date) {
+      requestedDateEvents.add(`${e.agent_username || ''}|${e.categorie}`);
+    }
+  });
+
+  return deduped.filter(e => {
+    const eventDate = e.date.split('T')[0];
+    // Keep if event is from requested date, OR if it's a teletravail and has a version on requested date
+    if (eventDate === date) return true;
+    if (e.categorie === 'teletravail' && requestedDateEvents.has(`${e.agent_username || ''}|${e.categorie}`)) {
+      return false; // Skip the timezone-offset version since we have the requested date version
+    }
+    return false; // Skip events from previous day that don't have a requested date version
   });
 }
 
