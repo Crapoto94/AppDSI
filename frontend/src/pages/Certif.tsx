@@ -895,6 +895,7 @@ const Certif: React.FC = () => {
           padding: 30px 0;
         }
         .page-header {
+          width: 100%;
           display: flex;
           justify-content: space-between;
           align-items: center;
@@ -903,6 +904,7 @@ const Certif: React.FC = () => {
           padding: 24px;
           border-radius: 12px;
           box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          box-sizing: border-box;
         }
         .page-header h1 {
           font-size: 28px;
@@ -1259,10 +1261,12 @@ const Certif: React.FC = () => {
           margin-bottom: 20px;
         }
         .table-container {
+          width: 100%;
           background: white;
           border-radius: 12px;
           box-shadow: 0 1px 3px rgba(0,0,0,0.1);
           overflow: hidden;
+          box-sizing: border-box;
         }
         .table-scroll {
           overflow-x: auto;
