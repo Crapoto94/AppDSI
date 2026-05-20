@@ -183,8 +183,18 @@ async function getEventsForDate(date) {
     `SELECT id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at FROM hub_calendrier.evenements WHERE date::date = $1 OR date::date = ($1::date - interval '1 day') ORDER BY categorie, periode`,
     [date]
   );
-  const events = [...result.rows];
   genIdCounter = -1;
+
+  // Parse date string and calculate previous day for timezone-offset filtering
+  const [year, month, day] = date.split('-').map(Number);
+  const prevDate = new Date(year, month - 1, day - 1);
+  const prevDay = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
+
+  // Filter events to only include those for the requested date or previous day (for timezone-offset events)
+  const events = result.rows.filter(row => {
+    const eventDate = row.date.split('T')[0];
+    return eventDate === date || eventDate === prevDay;
+  });
 
   // Get all agents with their TT days and absences
   const agentsResult = await pool.query(`
@@ -200,16 +210,17 @@ async function getEventsForDate(date) {
   const manualKeys = new Set();
   for (const row of result.rows) {
     if (row.agent_username) {
-      manualKeys.add(`${row.agent_username}|${date}|${row.categorie}|${row.periode || ''}`);
+      // Use the actual event date, not the query parameter date
+      const eventDate = row.date.split('T')[0];
+      manualKeys.add(`${row.agent_username}|${eventDate}|${row.categorie}|${row.periode || ''}`);
       if (row.periode === '') {
-        manualKeys.add(`${row.agent_username}|${date}|${row.categorie}|matin`);
-        manualKeys.add(`${row.agent_username}|${date}|${row.categorie}|apres-midi`);
+        manualKeys.add(`${row.agent_username}|${eventDate}|${row.categorie}|matin`);
+        manualKeys.add(`${row.agent_username}|${eventDate}|${row.categorie}|apres-midi`);
       }
     }
   }
 
-  // Parse date string and create date in local timezone
-  const [year, month, day] = date.split('-').map(Number);
+  // Create date object and calculate day of week
   const dateObj = new Date(year, month - 1, day);
   const dayOfWeek = dateObj.getDay(); // Use same convention as getDatesForDayOfWeek (0=Sun, 1=Mon, etc)
 
