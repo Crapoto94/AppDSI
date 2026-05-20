@@ -98,9 +98,13 @@ module.exports = {
       }
       await client.query('COMMIT');
       const agent = await pool.query(`
-        SELECT a.*,
-          COALESCE((SELECT json_agg(t.jour_semaine ORDER BY t.jour_semaine) FROM hub_calendrier.agents_tt_days t WHERE t.agent_username = a.username), '[]') as tt_fixed_days
-        FROM hub_calendrier.agents_dsi a WHERE a.username = $1
+        SELECT a.username, a.nom, a.email, a.service, a.matricule, a.created_by, a.created_at,
+          COALESCE((SELECT json_agg(t.jour_semaine ORDER BY t.jour_semaine) FROM hub_calendrier.agents_tt_days t WHERE t.agent_username = a.username), '[]') as tt_fixed_days,
+          COALESCE(json_agg(json_build_object('id', ap.id, 'jour_semaine', ap.jour_semaine, 'periode', ap.periode)) FILTER (WHERE ap.id IS NOT NULL), '[]') as absences
+        FROM hub_calendrier.agents_dsi a
+        LEFT JOIN hub_calendrier.absences_permanentes ap ON a.username = ap.agent_username
+        WHERE a.username = $1
+        GROUP BY a.username
       `, [username]);
       res.json(agent.rows[0]);
     } catch (error) {
@@ -151,9 +155,13 @@ module.exports = {
       }
       await client.query('COMMIT');
       const agent = await pool.query(`
-        SELECT a.*,
-          COALESCE((SELECT json_agg(t.jour_semaine ORDER BY t.jour_semaine) FROM hub_calendrier.agents_tt_days t WHERE t.agent_username = a.username), '[]') as tt_fixed_days
-        FROM hub_calendrier.agents_dsi a WHERE a.username = $1
+        SELECT a.username, a.nom, a.email, a.service, a.matricule, a.created_by, a.created_at,
+          COALESCE((SELECT json_agg(t.jour_semaine ORDER BY t.jour_semaine) FROM hub_calendrier.agents_tt_days t WHERE t.agent_username = a.username), '[]') as tt_fixed_days,
+          COALESCE(json_agg(json_build_object('id', ap.id, 'jour_semaine', ap.jour_semaine, 'periode', ap.periode)) FILTER (WHERE ap.id IS NOT NULL), '[]') as absences
+        FROM hub_calendrier.agents_dsi a
+        LEFT JOIN hub_calendrier.absences_permanentes ap ON a.username = ap.agent_username
+        WHERE a.username = $1
+        GROUP BY a.username
       `, [username]);
       res.json(agent.rows[0]);
     } catch (error) {
