@@ -885,6 +885,7 @@ const Certif: React.FC = () => {
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         .certif-page {
+          width: 100%;
           min-height: 100vh;
           background: #f8fafc;
         }
