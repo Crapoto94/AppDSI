@@ -225,6 +225,7 @@ export default function CalendrierDSI() {
   }, [managerSearch, token]);
 
   const openPrevModal = (agent: { username: string; nom: string; email: string }, date: string, periode: string) => {
+    setEditingEvent(null);
     setPrevAgent(agent);
     setPrevDate(date);
     setPrevPeriode(periode);
@@ -240,6 +241,11 @@ export default function CalendrierDSI() {
     if (!prevAgent || !prevType) return;
     setPrevSaving(true);
     try {
+      if (editingEvent && editingEvent.id > 0) {
+        try {
+          await fetch(`/api/calendrier-dsi/evenements/${editingEvent.id}?deleteSeries=true`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+        } catch (e) { console.error('[Prev] Error deleting old series:', e); }
+      }
       const colors: Record<string, string> = { 'absence_justifier': CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' };
       const labels: Record<string, string> = { absence_justifier: 'Absence à justifier', teletravail: 'Télétravail', conge_previsionnel: 'Congé prévisionnel', asa: 'ASA' };
       const catMap: Record<string, string> = { absence_justifier: 'absence', conge_previsionnel: 'absence', asa: 'absence', teletravail: 'teletravail' };
@@ -548,6 +554,19 @@ export default function CalendrierDSI() {
   };
 
   const openEditModal = (evt: Evenement) => {
+    if (selectedService && isManager && (evt.categorie === 'absence' || evt.categorie === 'teletravail') && evt.id > 0) {
+      setPrevAgent({ username: evt.agent_username || '', nom: evt.agent_nom || '', email: evt.agent_email || '' });
+      setPrevDate(evt.date);
+      setPrevPeriode(evt.periode || '');
+      setPrevType(evt.categorie);
+      setPrevDateDebut(evt.date);
+      setPrevDateFin(evt.date);
+      setPrevPeriodeDebut(evt.periode === 'matin' ? 'matin' : evt.periode === 'apres-midi' ? 'apres-midi' : '');
+      setPrevPeriodeFin(evt.periode === 'matin' ? 'matin' : evt.periode === 'apres-midi' ? 'apres-midi' : '');
+      setEditingEvent(evt);
+      setShowPrevModal(true);
+      return;
+    }
     setEditingEvent(evt);
     setFormDate(evt.date);
     setFormCategorie(evt.categorie);
@@ -1521,7 +1540,7 @@ const renderPastille = (evt: Evenement) => {
       {view === 'week' && selectedService && (() => {
         const svcAgents = agents.filter(a => a.service === selectedService).sort((a, b) => a.nom.localeCompare(b.nom));
         const ABSENCE_TYPE_COLORS: Record<string, string> = {
-          absence: '#E30613',
+absence: '#64748b',
           absence_justifier: '#E30613',
           sedit: '#7c3aed',
           teletravail: '#003366',
@@ -1543,7 +1562,7 @@ const renderPastille = (evt: Evenement) => {
           return evt.titre;
         };
         const getAbsenceColor = (evt: Evenement) => {
-          if (isSedit(evt)) return ABSENCE_TYPE_COLORS.sedit;
+          if (isSedit(evt)) return '#64748b';
           const titre = (evt.titre || '').toLowerCase();
           if (titre.includes('asa')) return ABSENCE_TYPE_COLORS.asa;
           if (titre.includes('congé prévisionnel') || titre.includes('conge_previsionnel')) return ABSENCE_TYPE_COLORS.conge_previsionnel;
