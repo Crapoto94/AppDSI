@@ -585,7 +585,8 @@ export default function CalendrierDSI() {
       agent_username: selectedAgent?.username || null,
       agent_nom: selectedAgent?.displayName || null,
       agent_email: selectedAgent?.email || null,
-      couleur: CATEGORY_COLORS[formCategorie]
+      couleur: CATEGORY_COLORS[formCategorie],
+      updateSeries: editingEvent?.agent_username ? true : undefined
     };
     console.log('[Calendrier] Saving event:', body);
     try {
@@ -617,9 +618,10 @@ export default function CalendrierDSI() {
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: number, series?: boolean) => {
     try {
-      await fetch(`/api/calendrier-dsi/evenements/${id}`, { method: 'DELETE', headers });
+      const url = series ? `/api/calendrier-dsi/evenements/${id}?deleteSeries=true` : `/api/calendrier-dsi/evenements/${id}`;
+      await fetch(url, { method: 'DELETE', headers });
       setConfirmDelete(null);
       if (view === 'week') {
         const { start, end } = getWeekRange(currentDate);
@@ -1521,6 +1523,7 @@ const renderPastille = (evt: Evenement) => {
         const ABSENCE_TYPE_COLORS: Record<string, string> = {
           absence: '#E30613',
           absence_justifier: '#E30613',
+          sedit: '#7c3aed',
           teletravail: '#003366',
           conge_previsionnel: '#f59e0b',
           asa: '#8b5cf6',
@@ -1528,7 +1531,9 @@ const renderPastille = (evt: Evenement) => {
           maintenance: '#FF9800',
           reunion: '#9C27B0',
         };
+        const isSedit = (evt: Evenement) => evt.source === 'demabs' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
         const getAbsenceLabel = (evt: Evenement) => {
+          if (isSedit(evt)) return evt.pending || evt.created_by === 'auto-rh-pending' ? 'Sedit (prov.)' : 'Sedit';
           const titre = (evt.titre || '').toLowerCase();
           if (titre.includes('asa')) return 'ASA';
           if (titre.includes('congé prévisionnel') || titre.includes('conge_previsionnel')) return 'Congé prév.';
@@ -1538,11 +1543,11 @@ const renderPastille = (evt: Evenement) => {
           return evt.titre;
         };
         const getAbsenceColor = (evt: Evenement) => {
+          if (isSedit(evt)) return ABSENCE_TYPE_COLORS.sedit;
           const titre = (evt.titre || '').toLowerCase();
           if (titre.includes('asa')) return ABSENCE_TYPE_COLORS.asa;
           if (titre.includes('congé prévisionnel') || titre.includes('conge_previsionnel')) return ABSENCE_TYPE_COLORS.conge_previsionnel;
           if (titre.includes('absence à justifier') || titre.includes('absence_justifier')) return ABSENCE_TYPE_COLORS.absence_justifier;
-          if (evt.created_by === 'previsionnel' && evt.categorie === 'absence') ABSENCE_TYPE_COLORS.conge_previsionnel;
           return ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1';
         };
         const isAbsenceType = (evt: Evenement) => evt.categorie === 'absence' || evt.categorie === 'teletravail';
@@ -1565,9 +1570,7 @@ const renderPastille = (evt: Evenement) => {
           {svcAgents.map(agent => {
             const agentEvts = (dateStr: string) => events.filter(e => {
               const eDate = e.date.split('T')[0];
-              const isAgent = e.agent_username === agent.username || e.agent_email === agent.email;
-              const isRelevant = e.categorie === 'absence' || e.categorie === 'teletravail' || e.source === 'o365' || e.categorie === 'deploiement' || e.categorie === 'maintenance' || e.categorie === 'reunion';
-              return eDate === dateStr && isAgent && isRelevant;
+              return eDate === dateStr && (e.agent_username === agent.username || (e.agent_email && e.agent_email.toLowerCase() === (agent.email || '').toLowerCase())) && (e.categorie === 'absence' || e.categorie === 'teletravail' || e.source === 'o365' || e.categorie === 'deploiement' || e.categorie === 'maintenance' || e.categorie === 'reunion');
             });
             return (
               <React.Fragment key={agent.username}>
@@ -1582,23 +1585,23 @@ const renderPastille = (evt: Evenement) => {
                   const amEvts = allEvts.filter(e => e.periode === 'matin');
                   const pmEvts = allEvts.filter(e => e.periode === 'apres-midi');
                   const fullEvts = allEvts.filter(e => e.periode === '' || !e.periode);
-                  const amAbs = amEvts.find(e => isAbsenceType(e));
-                  const pmAbs = pmEvts.find(e => isAbsenceType(e));
-                  const fullAbs = fullEvts.find(e => isAbsenceType(e));
+                  const amAbs = amEvts.filter(e => isAbsenceType(e)).sort((a, b) => isSedit(b) ? 1 : isSedit(a) ? -1 : 0)[0];
+                  const pmAbs = pmEvts.filter(e => isAbsenceType(e)).sort((a, b) => isSedit(b) ? 1 : isSedit(a) ? -1 : 0)[0];
+                  const fullAbs = fullEvts.filter(e => isAbsenceType(e)).sort((a, b) => isSedit(b) ? 1 : isSedit(a) ? -1 : 0)[0];
                   const amOther = amEvts.filter(e => !isAbsenceType(e));
                   const pmOther = pmEvts.filter(e => !isAbsenceType(e));
                   const isToday = ds === formatDate(new Date());
                   const isRh = (e: Evenement) => e.source === 'demabs' || e.created_by === 'auto-rh' || e.created_by === 'auto-rh-pending';
                   const renderSmallPill = (evt: Evenement) => {
-                    const rhBorder = isRh(evt) ? { border: '2px solid #000', outline: '1px solid #000' } : {};
-                    return <div key={evt.id} className="pastille" style={{ background: ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1', fontSize: '0.65rem', padding: '1px 4px', ...rhBorder }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>{evt.categorie === 'teletravail' ? 'TT' : evt.titre}</div>;
+                    const seditStyle = isSedit(evt) ? { border: '2px solid #000', outline: '1px solid #000' } : {};
+                    return <div key={evt.id} className="pastille" style={{ background: isSedit(evt) ? ABSENCE_TYPE_COLORS.sedit : ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1', fontSize: '0.65rem', padding: '1px 4px', ...seditStyle }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>{getAbsenceLabel(evt)}</div>;
                   };
                   const renderFilledHalf = (evt: Evenement) => {
                     const color = getAbsenceColor(evt);
                     const label = getAbsenceLabel(evt);
-                    const rhBorder = isRh(evt) ? '2px solid #000' : 'none';
+                    const seditBorder = isSedit(evt) ? '2px solid #000' : 'none';
                     return (
-                      <div key={evt.id} style={{ width: '100%', height: '100%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer', borderRadius: 2, border: rhBorder, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                      <div key={evt.id} style={{ width: '100%', height: '100%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer', borderRadius: 2, border: seditBorder, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
                         {label}
                       </div>
                     );
@@ -1612,7 +1615,7 @@ const renderPastille = (evt: Evenement) => {
                         {pmAbs ? renderFilledHalf(pmAbs) : (pmOther.length > 0 ? pmOther.map(renderSmallPill) : (isManager ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'apres-midi'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
                       </div>
                       {fullAbs && !amAbs && !pmAbs && (
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', display: 'flex' }}>
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex' }}>
                           <div style={{ flex: 1, background: getAbsenceColor(fullAbs), color: '#fff', fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', textShadow: '0 1px 2px rgba(0,0,0,0.3)', borderRight: isRh(fullAbs) ? '2px solid #000' : 'none' }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
                             {getAbsenceLabel(fullAbs)}
                           </div>
@@ -2059,7 +2062,10 @@ const renderDot = (evt: Evenement) => {
       )}
 
       {/* Confirm delete */}
-      {confirmDelete !== null && (
+      {confirmDelete !== null && (() => {
+        const evt = events.find(e => e.id === confirmDelete);
+        const isSeries = evt && evt.agent_username;
+        return (
         <div className="confirm-overlay" onClick={() => setConfirmDelete(null)}>
           <div className="confirm-box" onClick={e => e.stopPropagation()}>
             <h3>Confirmer la suppression</h3>
@@ -2067,10 +2073,12 @@ const renderDot = (evt: Evenement) => {
             <div className="actions">
               <button className="btn-no" onClick={() => setConfirmDelete(null)}>Annuler</button>
               <button className="btn-yes" onClick={() => handleDelete(confirmDelete)}>Supprimer</button>
+              {isSeries && <button className="btn-yes" style={{ background: '#e17055' }} onClick={() => handleDelete(confirmDelete, true)}>Supprimer la série</button>}
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Manager Modal */}
       {showManagerModal && (
