@@ -1287,7 +1287,10 @@ module.exports = {
       const byCategory = {};
       const rhAbsences = [];
       const manualAbsences = [];
-      console.log(`[sendDailyCalendar] Total events for ${date}:`, events.length, events.filter(e => e.categorie === 'teletravail').map(e => e.agent_username));
+      console.log(`[sendDailyCalendar] Total events for ${date}:`, events.length);
+      console.log(`[sendDailyCalendar] Teletravail events:`, events.filter(e => e.categorie === 'teletravail').map(e => e.agent_username));
+      console.log(`[sendDailyCalendar] All events by category:`, events.reduce((acc, e) => { acc[e.categorie] = (acc[e.categorie] || 0) + 1; return acc; }, {}));
+      console.log(`[sendDailyCalendar] All agents in events:`, events.map(e => `${e.agent_username}:${e.categorie}`));
       const CATEGORY_LABELS = {
         absence: 'Absents',
         teletravail: 'Télétravailleurs',
