@@ -1240,6 +1240,9 @@ module.exports = {
       }
 
       const events = await getEventsForDate(date);
+      const ttEvents = events.filter(e => e.categorie === 'teletravail');
+      console.log(`[sendDailyCalendar] Date: ${date}, Total TT events: ${ttEvents.length}`);
+      ttEvents.forEach(e => console.log(`  - ${e.agent_username}: ${e.agent_nom}`));
       const formattedDate = new Date(date).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
       // Get hotlines for this date
