@@ -654,7 +654,7 @@ export default function AgentsDSI() {
               {adResults.length > 0 && (
                 <div className="ad-results">
                   {adResults.map(u => (
-                    <button key={u.username} className="ad-result-item" onClick={() => setSelectedADUser(u)} type="button" style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                    <button key={u.username} className="ad-result-item" onClick={() => { setSelectedADUser(u); setAdQuery(''); }} type="button" style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 14px', fontSize: 'inherit', fontFamily: 'inherit' }}>
                       <div className="ad-name">{u.displayName}</div>
                       <div className="ad-detail">{u.email || u.username}</div>
                     </button>
