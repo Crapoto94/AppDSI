@@ -1,4 +1,5 @@
 const { pgDb } = require('../shared/pg_db');
+const { getSqlite } = require('../shared/database');
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
@@ -122,13 +123,29 @@ exports.updateBacklogItem = async (req, res) => {
       console.log(`[BACKLOG] Status change: ${currentItem.status} → ${status}, requester: ${requesterUsername}`);
 
       try {
-        // Get requester's email
-        const requesterUser = await pgDb.get(
+        // Get requester's email (try PostgreSQL first, then SQLite)
+        let requesterUser = await pgDb.get(
           'SELECT email FROM hub.users WHERE username = $1',
           [requesterUsername]
         );
 
-        console.log(`[BACKLOG] User lookup for ${requesterUsername}:`, requesterUser);
+        console.log(`[BACKLOG] PostgreSQL lookup for ${requesterUsername}:`, requesterUser);
+
+        // Fallback to SQLite if not found in PostgreSQL
+        if (!requesterUser || !requesterUser.email) {
+          const sqlite = getSqlite();
+          if (sqlite) {
+            try {
+              requesterUser = await sqlite.get(
+                'SELECT email FROM users WHERE username = ?',
+                [requesterUsername]
+              );
+              console.log(`[BACKLOG] SQLite fallback lookup for ${requesterUsername}:`, requesterUser);
+            } catch (sqliteErr) {
+              console.log(`[BACKLOG] SQLite lookup failed: ${sqliteErr.message}`);
+            }
+          }
+        }
 
         if (requesterUser && requesterUser.email) {
           const statusLabels = {
