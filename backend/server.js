@@ -491,8 +491,12 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
                 user.est_pmo = !!pmoCheck;
             } catch { user.est_pmo = false; }
             try {
-                const managerTile = await db.get("SELECT 1 FROM user_tiles ut JOIN tiles t ON ut.tile_id = t.id WHERE ut.user_id = ? AND t.title = 'Manager Calendrier'", [user.id]);
-                user.est_manager = !!(managerTile || (user.role === 'admin'));
+                try {
+                    const manager = await pgDb.get("SELECT 1 FROM hub.calendrier_managers WHERE user_id = $1", [user.id]);
+                    user.est_manager = !!(manager || (user.role === 'admin'));
+                } catch (e) {
+                    user.est_manager = user.role === 'admin';
+                }
             } catch { user.est_manager = user.role === 'admin'; }
         } else if (source === 'postgres') {
             // PMO check via PostgreSQL table if it exists
@@ -3612,14 +3616,17 @@ app.post('/api/admin/pmo/toggle', authenticateAdmin, async (req, res) => {
     }
 });
 
-// Manager Management API
+// Manager Management API (Calendrier DSI)
 app.get('/api/admin/manager/list', authenticateAdmin, async (req, res) => {
     try {
-        const managerTile = await db.get("SELECT id FROM tiles WHERE title = 'Manager Calendrier'");
-        if (!managerTile) return res.json([]);
-        const managers = await db.all('SELECT u.id, u.username FROM users u JOIN user_tiles ut ON u.id = ut.user_id WHERE ut.tile_id = ?', [managerTile.id]);
+        const managers = await pgDb.all(
+            `SELECT u.id, u.username FROM hub.users u
+             JOIN hub.calendrier_managers cm ON u.id = cm.user_id
+             ORDER BY u.username ASC`
+        );
         res.json(managers);
     } catch (error) {
+        console.error('[MANAGERS] Error fetching managers:', error);
         res.status(500).json({ message: 'Erreur lors de la récupération des managers', error: error.message });
     }
 });
@@ -3627,19 +3634,36 @@ app.get('/api/admin/manager/list', authenticateAdmin, async (req, res) => {
 app.post('/api/admin/manager/toggle', authenticateAdmin, async (req, res) => {
     try {
         const { username, is_manager } = req.body;
-        const user = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+
+        // Get user from PostgreSQL
+        const user = await pgDb.get(
+            'SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)',
+            [username]
+        );
+
         if (!user) {
             return res.status(404).json({ message: 'Utilisateur non trouvé' });
         }
-        const managerTile = await db.get("SELECT id FROM tiles WHERE title = 'Manager Calendrier'");
-        if (!managerTile) return res.status(500).json({ message: 'Tile Manager introuvable' });
+
         if (is_manager) {
-            await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [user.id, managerTile.id]);
+            // Add as manager
+            await pgDb.run(
+                `INSERT INTO hub.calendrier_managers (user_id)
+                 VALUES ($1)
+                 ON CONFLICT (user_id) DO NOTHING`,
+                [user.id]
+            );
         } else {
-            await db.run('DELETE FROM user_tiles WHERE user_id = ? AND tile_id = ?', [user.id, managerTile.id]);
+            // Remove as manager
+            await pgDb.run(
+                `DELETE FROM hub.calendrier_managers WHERE user_id = $1`,
+                [user.id]
+            );
         }
+
         res.json({ message: 'Statut Manager mis à jour avec succès' });
     } catch (error) {
+        console.error('[MANAGERS] Error toggling manager:', error);
         res.status(500).json({ message: 'Erreur lors de la mise à jour du statut Manager', error: error.message });
     }
 });

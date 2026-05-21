@@ -243,6 +243,15 @@ async function setupPgDb() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.calendrier_managers (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES hub.users(id) ON DELETE CASCADE
+      );
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS glpi.observers (
         id SERIAL PRIMARY KEY,
         ticket_id INTEGER NOT NULL,
