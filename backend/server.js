@@ -2594,10 +2594,34 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
             newVersion = parts.join('.');
         }
 
-        // 5. Create new release entry with backlog items
-        const changes = description
-            ? [description, ...completedBacklog.map(b => b.title)]
-            : completedBacklog.map(b => b.title);
+        // 5. Group backlog items by category and create release entry
+        const byCategory = {
+            'Bug': [],
+            'Amélioration': [],
+            'Nouvelle fonctionnalité': [],
+            'Graphisme': []
+        };
+
+        for (const item of completedBacklog) {
+            const cat = item.category || 'Autre';
+            if (byCategory[cat]) {
+                byCategory[cat].push(item.title);
+            } else {
+                if (!byCategory['Autre']) byCategory['Autre'] = [];
+                byCategory['Autre'].push(item.title);
+            }
+        }
+
+        // Build changes array with categories as headers
+        const changes = [];
+        if (description) changes.push(description);
+
+        for (const [category, items] of Object.entries(byCategory)) {
+            if (items.length > 0) {
+                changes.push(`### ${category}`);
+                items.forEach(title => changes.push(`• ${title}`));
+            }
+        }
 
         const newRelease = {
             version: newVersion,
@@ -2672,14 +2696,33 @@ app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) =>
 
         // Get completed backlog items since last version
         const completedBacklog = await pgDb.all(
-            "SELECT * FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY updated_at DESC",
+            "SELECT * FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY category, title",
             [lastVersionDate.toISOString()]
         );
+
+        // Group by category
+        const byCategory = {
+            'Bug': [],
+            'Amélioration': [],
+            'Nouvelle fonctionnalité': [],
+            'Graphisme': []
+        };
+
+        for (const item of completedBacklog) {
+            const cat = item.category || 'Autre';
+            if (byCategory[cat]) {
+                byCategory[cat].push(item);
+            } else {
+                if (!byCategory['Autre']) byCategory['Autre'] = [];
+                byCategory['Autre'].push(item);
+            }
+        }
 
         res.json({
             currentVersion: changelog.currentVersion,
             nextVersion: nextVersion,
             completedItems: completedBacklog,
+            groupedByCategory: byCategory,
             count: completedBacklog.length
         });
     } catch (error) {

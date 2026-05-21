@@ -868,30 +868,63 @@ const AdminBacklog: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Backlog Items List */}
-                    {versionData.completedItems.length > 0 && (
+                    {/* Backlog Items List - Grouped by Category */}
+                    {versionData.completedItems.length > 0 && versionData.groupedByCategory && (
                       <div style={{ marginBottom: '24px' }}>
                         <h3 style={{ fontSize: '0.95rem', fontWeight: '700', color: '#1e293b', marginBottom: '12px' }}>
                           ✅ Backlog complétés
                         </h3>
-                        <div style={{
-                          background: '#f0fdf4',
-                          border: '1px solid #bbf7d0',
-                          borderRadius: '8px',
-                          padding: '12px',
-                          maxHeight: '300px',
-                          overflow: 'auto'
-                        }}>
-                          {versionData.completedItems.map((item: any) => (
-                            <div key={item.id} style={{
-                              padding: '8px 0',
-                              borderBottom: '1px solid #dcfce7',
-                              color: '#166534',
-                              fontSize: '0.9rem'
-                            }}>
-                              • {item.title}
-                            </div>
-                          ))}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflow: 'auto' }}>
+                          {Object.entries(versionData.groupedByCategory).map(([category, items]: [string, any]) => {
+                            if (!items || items.length === 0) return null;
+
+                            const categoryColors: Record<string, { bg: string; text: string; border: string; icon: string }> = {
+                              'Bug': { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5', icon: '🐛' },
+                              'Amélioration': { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd', icon: '⬆️' },
+                              'Nouvelle fonctionnalité': { bg: '#e9d5ff', text: '#5b21b6', border: '#d8b4fe', icon: '✨' },
+                              'Graphisme': { bg: '#fed7aa', text: '#92400e', border: '#fdba74', icon: '🎨' },
+                              'Autre': { bg: '#f3f4f6', text: '#374151', border: '#d1d5db', icon: '📝' }
+                            };
+
+                            const colors = categoryColors[category] || categoryColors['Autre'];
+
+                            return (
+                              <div key={category}>
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  fontSize: '0.85rem',
+                                  fontWeight: '700',
+                                  color: colors.text,
+                                  marginBottom: '8px'
+                                }}>
+                                  <span>{colors.icon}</span>
+                                  <span>{category}</span>
+                                  <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>({items.length})</span>
+                                </div>
+                                <div style={{
+                                  background: colors.bg,
+                                  border: `1px solid ${colors.border}`,
+                                  borderRadius: '8px',
+                                  padding: '10px',
+                                  marginBottom: '8px'
+                                }}>
+                                  {items.map((item: any) => (
+                                    <div key={item.id} style={{
+                                      padding: '6px 0',
+                                      borderBottom: `1px solid ${colors.border}`,
+                                      color: colors.text,
+                                      fontSize: '0.9rem',
+                                      lineHeight: 1.4
+                                    }}>
+                                      • {item.title}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
