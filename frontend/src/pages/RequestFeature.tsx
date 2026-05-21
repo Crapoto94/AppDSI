@@ -1,20 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Send, CheckCircle, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 
+interface Tile {
+  id: number;
+  title: string;
+  icon: string;
+}
+
 const RequestFeature: React.FC = () => {
   const { user, token } = useAuth();
   const navigate = useNavigate();
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [tilesLoading, setTilesLoading] = useState(true);
   const [error, setError] = useState('');
+  const [tiles, setTiles] = useState<Tile[]>([]);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    category: 'Amélioration'
+    category: 'Amélioration',
+    tile_id: ''
   });
 
   const categories = [
@@ -23,6 +32,25 @@ const RequestFeature: React.FC = () => {
     { value: 'Nouvelle fonctionnalité', label: '🚀 Nouvelle fonctionnalité', color: '#7c3aed' },
     { value: 'Graphisme', label: '🎨 Graphisme', color: '#ea580c' }
   ];
+
+  useEffect(() => {
+    fetchTiles();
+  }, [token]);
+
+  const fetchTiles = async () => {
+    try {
+      const response = await axios.get('/api/tiles', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (Array.isArray(response.data)) {
+        setTiles(response.data.filter((t: Tile) => t.status === 'active' || t.status === 'soon'));
+      }
+    } catch (err) {
+      console.error('Error fetching tiles:', err);
+    } finally {
+      setTilesLoading(false);
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -137,6 +165,47 @@ const RequestFeature: React.FC = () => {
                     <span style={{ color: '#991b1b' }}>{error}</span>
                   </div>
                 )}
+
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.85rem',
+                    fontWeight: '700',
+                    color: '#0c4a6e',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Module / Tuile concerné
+                  </label>
+                  <select
+                    name='tile_id'
+                    value={formData.tile_id}
+                    onChange={handleInputChange}
+                    disabled={tilesLoading}
+                    style={{
+                      width: '100%',
+                      padding: '12px 14px',
+                      border: '2px solid #7dd3fc',
+                      borderRadius: '10px',
+                      fontSize: '1rem',
+                      boxSizing: 'border-box',
+                      outline: 'none',
+                      transition: 'border-color 0.2s',
+                      cursor: tilesLoading ? 'not-allowed' : 'pointer',
+                      opacity: tilesLoading ? 0.6 : 1
+                    }}
+                    onFocus={e => e.currentTarget.style.borderColor = '#0284c7'}
+                    onBlur={e => e.currentTarget.style.borderColor = '#7dd3fc'}
+                  >
+                    <option value=''>-- Sélectionner un module (optionnel) --</option>
+                    {tiles.map(tile => (
+                      <option key={tile.id} value={tile.id.toString()}>
+                        {tile.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 <div style={{ marginBottom: '24px' }}>
                   <label style={{

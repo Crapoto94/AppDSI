@@ -20,7 +20,7 @@ exports.getAllBacklogItems = async (req, res) => {
 // Create new backlog item
 exports.createBacklogItem = async (req, res) => {
   try {
-    const { title, description, category } = req.body;
+    const { title, description, category, tile_id } = req.body;
     const userId = req.user.id;
     const username = req.user.username;
 
@@ -34,11 +34,11 @@ exports.createBacklogItem = async (req, res) => {
     }
 
     const result = await pgDb.run(`
-      INSERT INTO hub.backlog (title, description, category, status, user_id, created_by, created_at, updated_at)
-      VALUES ($1, $2, $3, 'open', $4, $5, NOW(), NOW())
-    `, [title, description || '', category, userId, username]);
+      INSERT INTO hub.backlog (title, description, category, status, user_id, created_by, tile_id, created_at, updated_at)
+      VALUES ($1, $2, $3, 'open', $4, $5, $6, NOW(), NOW())
+    `, [title, description || '', category, userId, username, tile_id || null]);
 
-    res.json({ id: result.lastID, title, description, category, status: 'open' });
+    res.json({ id: result.lastID, title, description, category, status: 'open', tile_id });
   } catch (error) {
     console.error('Error creating backlog item:', error);
     res.status(500).json({ error: error.message });
