@@ -156,6 +156,7 @@ const Header: React.FC<HeaderProps> = () => {
       <div className="container header-content">
         <div className="logo-section">
           <Link to="/" className="logo">
+            <img src="/dsi_hub.gif" alt="DSI Hub" className="logo-icon" />
             <span className="logo-ivry">ivry</span>
             <span className="logo-sur-seine">sur-seine</span>
             <span className="logo-dsi"> - Hub DSI</span>
@@ -353,9 +354,15 @@ const Header: React.FC<HeaderProps> = () => {
         }
         .logo {
           display: flex;
-          align-items: baseline;
+          align-items: center;
           font-size: 24px;
           text-decoration: none;
+          gap: 8px;
+        }
+        .logo-icon {
+          width: 32px;
+          height: 32px;
+          object-fit: contain;
         }
         .logo-ivry {
           color: var(--primary-color);
