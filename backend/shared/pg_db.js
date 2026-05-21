@@ -1615,6 +1615,27 @@ async function setupPgDb() {
     `);
     await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_moves_copieur ON hub_copieurs.copieur_moves(copieur_id)');
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_copieurs.copieur_interventions (
+        id SERIAL PRIMARY KEY,
+        copieur_id INTEGER NOT NULL REFERENCES hub_copieurs.copieurs(id) ON DELETE CASCADE,
+        date_intervention DATE NOT NULL,
+        mainteneur TEXT DEFAULT '',
+        technicien TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_interventions_copieur ON hub_copieurs.copieur_interventions(copieur_id)');
+    try { await client.query(`ALTER TABLE hub_copieurs.copieur_interventions ADD COLUMN IF NOT EXISTS email_message_id TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieur_interventions ADD COLUMN IF NOT EXISTS email_subject TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieur_interventions ADD COLUMN IF NOT EXISTS email_received_at TIMESTAMP`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieur_interventions ADD COLUMN IF NOT EXISTS email_from TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieur_interventions ADD COLUMN IF NOT EXISTS email_demandeur TEXT`); } catch (e) {}
+    try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_copieur_interventions_msgid ON hub_copieurs.copieur_interventions(email_message_id)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieur_interventions ALTER COLUMN copieur_id DROP NOT NULL`); } catch (e) {}
+
     // Create hub_calendrier schema and table
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_calendrier;');
 
@@ -1930,6 +1951,38 @@ async function setupPgDb() {
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_doctrines_date ON hub.doctrines(doctrine_date DESC)
     `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.changelog_versions (
+        id SERIAL PRIMARY KEY,
+        version VARCHAR(20) NOT NULL,
+        release_date VARCHAR(20),
+        changes JSONB NOT NULL DEFAULT '[]',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Seed changelog from JSON file if table is empty
+    try {
+      const clCount = await client.query('SELECT COUNT(*) FROM hub.changelog_versions');
+      if (parseInt(clCount.rows[0].count) === 0) {
+        const clPath = require('path').join(__dirname, '..', 'data', 'changelog.json');
+        const fsSync = require('fs');
+        if (fsSync.existsSync(clPath)) {
+          const cl = JSON.parse(fsSync.readFileSync(clPath, 'utf8'));
+          const history = (cl.history || []).slice().reverse();
+          for (const v of history) {
+            await client.query(
+              'INSERT INTO hub.changelog_versions (version, release_date, changes) VALUES ($1, $2, $3)',
+              [v.version, v.date || null, JSON.stringify(v.changes || [])]
+            );
+          }
+          console.log(`[PG DB] Seeded ${history.length} changelog versions from JSON`);
+        }
+      }
+    } catch (e) {
+      console.log('[PG DB] Changelog seed skipped:', e.message);
+    }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

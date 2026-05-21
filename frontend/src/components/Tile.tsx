@@ -78,6 +78,7 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
               rel="noopener noreferrer"
               className={`tile-btn btn-secondary ${isLocked ? 'disabled' : ''}`}
               onClick={(e) => isLocked && e.preventDefault()}
+              draggable={false}
             >
               {link.label}
               {link.is_internal ? <ArrowRight size={14} /> : <ExternalLink size={14} />}
@@ -87,6 +88,7 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
           <Link
             to={`/request-access?preselect=${id}`}
             className="tile-btn btn-primary locked-btn"
+            draggable={false}
           >
             <Icons.UserCheck size={16} />
             Demander l'accès

@@ -39,6 +39,7 @@ const AdminLayout: React.FC = () => {
     { title: "Messages Système", icon: MessageSquare, path: "/admin/messages" },
     { title: "Modèles d'Emails", icon: Mail, path: "/admin/email-templates" },
     { title: "Serveur Mail", icon: Settings, path: "/admin/mail" },
+    { title: "Messagerie Copieurs", icon: Mail, path: "/admin/o365-mail" },
     { title: "Automatisation Emails", icon: Zap, path: "/admin/email-automation" },
     { title: "Configuration Hub", icon: LayoutGrid, path: "/admin/tiles" },
     { title: "Idées MAGAPP", icon: Lightbulb, path: "/admin/ideas" },

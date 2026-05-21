@@ -294,6 +294,18 @@ async function setupDb() {
 
         INSERT OR IGNORE INTO frizbi_settings (id, is_enabled) VALUES (1, 0);
 
+        CREATE TABLE IF NOT EXISTS o365_settings (
+            id INTEGER PRIMARY KEY,
+            is_enabled INTEGER DEFAULT 0,
+            tenant_id TEXT DEFAULT '',
+            client_id TEXT DEFAULT '',
+            client_secret TEXT DEFAULT '',
+            mailbox TEXT DEFAULT '',
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT OR IGNORE INTO o365_settings (id) VALUES (1);
+
         CREATE TABLE IF NOT EXISTS rh_sync_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sync_type TEXT,

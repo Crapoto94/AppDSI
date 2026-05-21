@@ -656,6 +656,36 @@ app.post('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
     }
 });
 
+// --- O365 Mail Settings (copieurs) ---
+app.get('/api/o365-mail-settings', authenticateAdmin, async (req, res) => {
+    try {
+        const settings = await db.get('SELECT * FROM o365_settings WHERE id = 1');
+        res.json(settings || { id: 1, is_enabled: 0, tenant_id: '', client_id: '', client_secret: '', mailbox: '' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lecture paramètres O365 mail' });
+    }
+});
+
+app.post('/api/o365-mail-settings', authenticateAdmin, async (req, res) => {
+    const { is_enabled, tenant_id, client_id, client_secret, mailbox } = req.body;
+    try {
+        if (!client_secret || client_secret === '••••••••') {
+            await db.run(
+                'UPDATE o365_settings SET is_enabled=?, tenant_id=?, client_id=?, mailbox=?, updated_at=CURRENT_TIMESTAMP WHERE id=1',
+                [is_enabled ? 1 : 0, tenant_id || '', client_id || '', mailbox || '']
+            );
+        } else {
+            await db.run(
+                'UPDATE o365_settings SET is_enabled=?, tenant_id=?, client_id=?, client_secret=?, mailbox=?, updated_at=CURRENT_TIMESTAMP WHERE id=1',
+                [is_enabled ? 1 : 0, tenant_id || '', client_id || '', client_secret, mailbox || '']
+            );
+        }
+        res.json({ message: 'Paramètres O365 mail enregistrés' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur enregistrement paramètres O365 mail' });
+    }
+});
+
 // --- Transcript Settings API ---
 app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
     try {
@@ -2440,10 +2470,13 @@ app.get('/mouchard', (req, res) => {
     }
 });
 
-app.get('/api/changelog', (req, res) => {
+app.get('/api/changelog', async (req, res) => {
     try {
-        const data = fs.readFileSync(path.join(__dirname, 'changelog.json'), 'utf8');
-        res.json(JSON.parse(data));
+        const rows = await pgDb.all('SELECT * FROM hub.changelog_versions ORDER BY id DESC');
+        res.json({
+            currentVersion: rows.length > 0 ? rows[0].version : '0.1.0',
+            history: rows.map(r => ({ version: r.version, date: r.release_date, changes: r.changes }))
+        });
     } catch (err) {
         res.status(500).json({ message: 'Error reading changelog' });
     }
@@ -2497,9 +2530,9 @@ app.delete('/api/todos/:id', authenticateJWT, async (req, res) => {
 // Release API
 app.post('/api/release', authenticateAdmin, async (req, res) => {
     try {
-        // 1. Charger le changelog actuel
-        const changelogPath = path.join(__dirname, 'changelog.json');
-        const changelog = JSON.parse(fs.readFileSync(changelogPath, 'utf8'));
+        // 1. Récupérer la version actuelle depuis PostgreSQL
+        const latestRow = await pgDb.get('SELECT version FROM hub.changelog_versions ORDER BY id DESC LIMIT 1');
+        const currentVersion = latestRow ? latestRow.version : '0.1.0';
 
         // 2. Récupérer les todos terminés (statut 'ok')
         const finishedTodos = await db.all("SELECT task FROM todos WHERE status = 'ok'");
@@ -2508,28 +2541,22 @@ app.post('/api/release', authenticateAdmin, async (req, res) => {
         }
 
         // 3. Incrémenter la version (on incrémente le dernier chiffre)
-        const parts = changelog.currentVersion.split('.');
+        const parts = currentVersion.split('.');
         parts[parts.length - 1] = parseInt(parts[parts.length - 1]) + 1;
         const newVersion = parts.join('.');
 
-        // 4. Créer la nouvelle entrée
-        const newRelease = {
-            version: newVersion,
-            date: new Date().toLocaleDateString('fr-FR'),
-            changes: finishedTodos.map(t => t.task)
-        };
+        // 4. Insérer la nouvelle version dans PostgreSQL
+        const releaseDate = new Date().toLocaleDateString('fr-FR');
+        const changes = finishedTodos.map(t => t.task);
+        await pgDb.run(
+            'INSERT INTO hub.changelog_versions (version, release_date, changes) VALUES ($1, $2, $3)',
+            [newVersion, releaseDate, JSON.stringify(changes)]
+        );
 
-        // 5. Mettre à jour l'objet changelog
-        changelog.currentVersion = newVersion;
-        changelog.history.unshift(newRelease);
-
-        // 6. Sauvegarder changelog.json
-        fs.writeFileSync(changelogPath, JSON.stringify(changelog, null, 4));
-
-        // 7. Supprimer les todos terminés
+        // 5. Supprimer les todos terminés
         await db.run("DELETE FROM todos WHERE status = 'ok'");
 
-        // 8. Git commit
+        // 6. Git commit
         exec(`git add . && git commit -m "Release v${newVersion}"`, (error, stdout, stderr) => {
             if (error) {
                 console.error(`Git Error: ${error.message}`);
@@ -2556,21 +2583,19 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
     try {
         const { version: customVersion, description } = req.body;
 
-        // 1. Load current changelog
-        const changelogPath = path.join(__dirname, 'changelog.json');
-        const changelog = JSON.parse(fs.readFileSync(changelogPath, 'utf8'));
+        // 1. Récupérer la version et la date de la dernière release depuis PostgreSQL
+        const latestRow = await pgDb.get('SELECT version, release_date FROM hub.changelog_versions ORDER BY id DESC LIMIT 1');
+        const currentVersion = latestRow ? latestRow.version : '0.1.0';
 
-        // 2. Get the date of the last version to find completed backlog items since then
+        // 2. Calculer la date de la dernière version pour filtrer les backlogs
         let lastVersionDate;
-        if (changelog.history.length > 0) {
-            const dateStr = changelog.history[0].date;
-            // Try to parse French format (DD/MM/YYYY)
+        if (latestRow && latestRow.release_date) {
+            const dateStr = latestRow.release_date;
             const frenchMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
             if (frenchMatch) {
                 const [_, day, month, year] = frenchMatch;
                 lastVersionDate = new Date(year, parseInt(month) - 1, day);
             } else {
-                // Try ISO format
                 lastVersionDate = new Date(dateStr);
                 if (isNaN(lastVersionDate.getTime())) {
                     lastVersionDate = new Date('2024-01-01');
@@ -2582,7 +2607,7 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
 
         // 3. Get completed backlog items updated since last version
         const completedBacklog = await pgDb.all(
-            "SELECT title FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY updated_at DESC",
+            "SELECT title, category FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY updated_at DESC",
             [lastVersionDate.toISOString()]
         );
 
@@ -2590,15 +2615,15 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
             return res.status(400).json({ message: "Aucun backlog complété depuis la dernière version." });
         }
 
-        // 4. Calculate version (use custom version if provided, otherwise increment)
+        // 4. Calculer la nouvelle version
         let newVersion = customVersion;
         if (!newVersion) {
-            const parts = changelog.currentVersion.split('.');
+            const parts = currentVersion.split('.');
             parts[parts.length - 1] = parseInt(parts[parts.length - 1]) + 1;
             newVersion = parts.join('.');
         }
 
-        // 5. Group backlog items by category and create release entry
+        // 5. Grouper par catégorie et construire le tableau de changements
         const byCategory = {
             'Bug': [],
             'Amélioration': [],
@@ -2616,7 +2641,6 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
             }
         }
 
-        // Build changes array with categories as headers
         const changes = [];
         if (description) changes.push(description);
 
@@ -2627,23 +2651,14 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
             }
         }
 
-        const newRelease = {
-            version: newVersion,
-            date: new Date().toLocaleDateString('fr-FR'),
-            changes: changes
-        };
+        // 6. Insérer dans PostgreSQL
+        const releaseDate = new Date().toLocaleDateString('fr-FR');
+        await pgDb.run(
+            'INSERT INTO hub.changelog_versions (version, release_date, changes) VALUES ($1, $2, $3)',
+            [newVersion, releaseDate, JSON.stringify(changes)]
+        );
 
-        // 6. Update changelog
-        changelog.currentVersion = newVersion;
-        changelog.history.unshift(newRelease);
-
-        // 7. Save changelog.json
-        fs.writeFileSync(changelogPath, JSON.stringify(changelog, null, 4));
-
-        // 8. Mark completed backlog as released (add a flag or keep as is)
-        // For now, we just keep them completed
-
-        // 9. Git commit
+        // 7. Git commit
         exec(`git add . && git commit -m "Release v${newVersion}"`, (error, stdout, stderr) => {
             if (error) {
                 console.error(`Git Error: ${error.message}`);
@@ -2670,25 +2685,24 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
 // Get backlog items for version release preview
 app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) => {
     try {
-        const changelogPath = path.join(__dirname, 'changelog.json');
-        const changelog = JSON.parse(fs.readFileSync(changelogPath, 'utf8'));
+        // Récupérer la version actuelle depuis PostgreSQL
+        const latestRow = await pgDb.get('SELECT version, release_date FROM hub.changelog_versions ORDER BY id DESC LIMIT 1');
+        const currentVersion = latestRow ? latestRow.version : '0.1.0';
 
-        // Calculate next version
-        const parts = changelog.currentVersion.split('.');
+        // Calculer la prochaine version
+        const parts = currentVersion.split('.');
         parts[parts.length - 1] = parseInt(parts[parts.length - 1]) + 1;
         const nextVersion = parts.join('.');
 
-        // Get the date of the last version (parse French date format or ISO format)
+        // Calculer la date de la dernière version
         let lastVersionDate;
-        if (changelog.history.length > 0) {
-            const dateStr = changelog.history[0].date;
-            // Try to parse French format (DD/MM/YYYY)
+        if (latestRow && latestRow.release_date) {
+            const dateStr = latestRow.release_date;
             const frenchMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
             if (frenchMatch) {
                 const [_, day, month, year] = frenchMatch;
                 lastVersionDate = new Date(year, parseInt(month) - 1, day);
             } else {
-                // Try ISO format
                 lastVersionDate = new Date(dateStr);
                 if (isNaN(lastVersionDate.getTime())) {
                     lastVersionDate = new Date('2024-01-01');
@@ -2723,8 +2737,8 @@ app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) =>
         }
 
         res.json({
-            currentVersion: changelog.currentVersion,
-            nextVersion: nextVersion,
+            currentVersion,
+            nextVersion,
             completedItems: completedBacklog,
             groupedByCategory: byCategory,
             count: completedBacklog.length

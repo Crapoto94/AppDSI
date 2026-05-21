@@ -28,6 +28,7 @@ import PortefeuilleProjets from './pages/PortefeuilleProjets';
 import RevueDeProjets from './pages/RevueDeProjets';
 import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
+import O365MailSettings from './pages/O365MailSettings';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
 import Contrats from './pages/Contrats';
 import Copieurs from './pages/Copieurs';
@@ -123,6 +124,7 @@ function App() {
           <Route path="finance" element={<AdminFinance />} />
           <Route path="email-automation" element={<EmailAutomation />} />
           <Route path="backlog" element={<AdminBacklog />} />
+          <Route path="o365-mail" element={<O365MailSettings />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />

@@ -29,6 +29,13 @@ backend/glpi_attachments/
 .env.local
 .env.*.local
 
+# Fichiers avec credentials Azure / O365 (NE PAS COMMITTER)
+backend/seed_o365.js
+
+# Changelog géré en base PostgreSQL (ne pas committer le fichier)
+backend/changelog.json
+backend/data/changelog.json
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

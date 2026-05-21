@@ -98,7 +98,27 @@ const Copieurs: React.FC = () => {
   const [moveForm, setMoveForm] = useState({ source: 'ville', direction: '', service: '', adresse: '', ip: '' });
   const [moves, setMoves] = useState<any[]>([]);
   const [showMoves, setShowMoves] = useState<Record<number, boolean>>({});
+  const [interventions, setInterventions] = useState<Record<number, any[]>>({});
+  const [showInterventions, setShowInterventions] = useState<Record<number, boolean>>({});
+  const [showIntervModal, setShowIntervModal] = useState(false);
+  const [intervTarget, setIntervTarget] = useState<Copieur | null>(null);
+  const [intervForm, setIntervForm] = useState({ date_intervention: '', mainteneur: '', technicien: '', description: '' });
   const [ivryBoundary, setIvryBoundary] = useState<any>(null);
+  const [interventionCounts, setInterventionCounts] = useState<Record<number, number>>({});
+  const [importingEmails, setImportingEmails] = useState(false);
+  const [showAllInterventions, setShowAllInterventions] = useState(false);
+  const [allInterventions, setAllInterventions] = useState<any[]>([]);
+  const [loadingAllInterventions, setLoadingAllInterventions] = useState(false);
+  const [allIntervSearch, setAllIntervSearch] = useState('');
+  const [allIntervSource, setAllIntervSource] = useState<'all' | 'email' | 'manuel'>('all');
+  const [showCopieurInterv, setShowCopieurInterv] = useState(false);
+  const [copieurIntervTarget, setCopieurIntervTarget] = useState<Copieur | null>(null);
+  const [copieurIntervList, setCopieurIntervList] = useState<any[]>([]);
+  const [loadingCopieurInterv, setLoadingCopieurInterv] = useState(false);
+  const [copieurIntervSearch, setCopieurIntervSearch] = useState('');
+  const [selectedInterv, setSelectedInterv] = useState<any | null>(null);
+  const [emailPreviewHtml, setEmailPreviewHtml] = useState<string | null>(null);
+  const [emailPreviewLoading, setEmailPreviewLoading] = useState(false);
 
   useEffect(() => {
     axios.get('/api/copieurs/boundary').then(r => setIvryBoundary(r.data)).catch(() => {});
@@ -110,6 +130,7 @@ const Copieurs: React.FC = () => {
     try {
       const res = await api.get(`/?filter=${filterMode}`);
       setCopieurs(res.data);
+      api.get('/intervention-counts').then(r => setInterventionCounts(r.data)).catch(() => {});
     } catch (e) {
       console.error('Erreur chargement copieurs', e);
     } finally {
@@ -135,13 +156,13 @@ const Copieurs: React.FC = () => {
 
   const sorted = useCallback((list: Copieur[]) => {
     const sortedList = [...list].sort((a, b) => {
-      const aVal = (a as any)[sortBy] ?? '';
-      const bVal = (b as any)[sortBy] ?? '';
+      const aVal = sortBy === 'interventions' ? (interventionCounts[a.id] ?? 0) : ((a as any)[sortBy] ?? '');
+      const bVal = sortBy === 'interventions' ? (interventionCounts[b.id] ?? 0) : ((b as any)[sortBy] ?? '');
       const cmp = String(aVal).localeCompare(String(bVal), 'fr', { numeric: true });
       return sortOrder === 'asc' ? cmp : -cmp;
     });
     return sortedList;
-  }, [sortBy, sortOrder]);
+  }, [sortBy, sortOrder, interventionCounts]);
 
   useEffect(() => {
     let result = copieurs;
@@ -253,6 +274,85 @@ const Copieurs: React.FC = () => {
       } catch { setAddressSuggestions([]); }
       finally { setAddressSearching(false); }
     }, 300);
+  };
+
+  const toggleInterventions = async (id: number) => {
+    if (showInterventions[id]) {
+      setShowInterventions(p => ({ ...p, [id]: false }));
+      return;
+    }
+    try {
+      const res = await api.get(`/${id}/interventions`);
+      setInterventions(p => ({ ...p, [id]: res.data }));
+      setShowInterventions(p => ({ ...p, [id]: true }));
+    } catch {}
+  };
+
+  const openIntervModal = (c: Copieur) => {
+    setIntervTarget(c);
+    setIntervForm({ date_intervention: new Date().toISOString().split('T')[0], mainteneur: '', technicien: '', description: '' });
+    setShowIntervModal(true);
+  };
+
+  const handleAddIntervention = async () => {
+    if (!intervTarget || !intervForm.date_intervention) return;
+    try {
+      await api.post(`/${intervTarget.id}/interventions`, intervForm);
+      setShowIntervModal(false);
+      setIntervTarget(null);
+      const res = await api.get(`/${intervTarget.id}/interventions`);
+      setInterventions(p => ({ ...p, [intervTarget.id]: res.data }));
+    } catch {
+      alert('Erreur lors de l\'ajout de l\'intervention');
+    }
+  };
+
+  const handleDeleteIntervention = async (copieurId: number, intervId: number) => {
+    if (!confirm('Supprimer cette intervention ?')) return;
+    try {
+      await api.delete(`/${copieurId}/interventions/${intervId}`);
+      const res = await api.get(`/${copieurId}/interventions`);
+      setInterventions(p => ({ ...p, [copieurId]: res.data }));
+    } catch {}
+  };
+
+  const handleImportEmails = async () => {
+    setImportingEmails(true);
+    setImportResult('');
+    try {
+      const res = await api.post('/import-emails');
+      setImportResult(`Emails importés: ${res.data.imported} nouveaux, ${res.data.skipped} déjà présents, ${res.data.matched} copieurs matchés, ${res.data.noMatch} sans correspondance`);
+      const countsRes = await api.get('/intervention-counts');
+      setInterventionCounts(countsRes.data);
+      const itvs = await api.get('/interventions/all');
+      setAllInterventions(itvs.data);
+    } catch (err: any) {
+      setImportResult('Erreur import emails: ' + (err.response?.data?.message || err.response?.data?.error || err.message));
+    } finally {
+      setImportingEmails(false);
+    }
+  };
+
+  const openCopieurInterventions = async (c: Copieur) => {
+    setCopieurIntervTarget(c);
+    setShowCopieurInterv(true);
+    setLoadingCopieurInterv(true);
+    setCopieurIntervSearch('');
+    try {
+      const res = await api.get(`/${c.id}/interventions`);
+      setCopieurIntervList(res.data);
+    } catch {}
+    finally { setLoadingCopieurInterv(false); }
+  };
+
+  const openAllInterventions = async () => {
+    setShowAllInterventions(true);
+    setLoadingAllInterventions(true);
+    try {
+      const res = await api.get('/interventions/all');
+      setAllInterventions(res.data);
+    } catch {}
+    finally { setLoadingAllInterventions(false); }
   };
 
   const handleGeocode = async () => {
@@ -378,6 +478,12 @@ const Copieurs: React.FC = () => {
               <Printer size={16} /> {importingPapercut ? 'Import...' : 'Import PaperCut'}
               <input type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={handleImportPapercut} disabled={importingPapercut} ref={papercutInputRef} />
             </label>
+            <button className="btn btn-outline" onClick={handleImportEmails} disabled={importingEmails}>
+              <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: importingEmails ? '#fbbf24' : '#16a34a' }} /> {importingEmails ? 'Import...' : 'Import emails'}
+            </button>
+            <button className="btn btn-outline" onClick={openAllInterventions}>
+              <History size={16} /> Toutes les interventions
+            </button>
             <button className="btn btn-outline" onClick={handleGeocode} disabled={geocoding}>
               <MapPin size={16} /> {geocoding ? 'Géocodage...' : 'Géocoder'}
             </button>
@@ -467,12 +573,13 @@ const Copieurs: React.FC = () => {
                   <th className="sortable" onClick={() => handleSort('couleur')}>Couleur {sortIcon('couleur')}</th>
                   <th className="sortable" onClick={() => handleSort('divers')}>Annotation {sortIcon('divers')}</th>
                   <th className="sortable" onClick={() => handleSort('archive')}>Statut {sortIcon('archive')}</th>
+                  <th className="sortable" style={{ width: 60 }} onClick={() => handleSort('interventions')}>Int. {sortIcon('interventions')}</th>
                   <th style={{ width: 120 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={13} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
+                  <tr><td colSpan={14} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
                 )}
                 {filtered.map(c => (
                   <React.Fragment key={c.id}>
@@ -493,6 +600,11 @@ const Copieurs: React.FC = () => {
                       <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.divers || ''}>{c.divers || '-'}</td>
                       <td>{c.archive ? <span className="badge badge-archived">Archivé</span> : <span className="badge badge-active">Actif</span>}</td>
                       <td>
+                        <span className="interv-count" onClick={e => { e.stopPropagation(); openCopieurInterventions(c); }} title="Voir les interventions">
+                          {interventionCounts[c.id] || 0}
+                        </span>
+                      </td>
+                      <td>
                         <div className="action-btns" onClick={e => e.stopPropagation()}>
                           <button className="btn-icon" title="Modifier" onClick={() => handleEdit(c)}><Edit3 size={15} /></button>
                           <button className="btn-icon" title={c.archive ? 'Désarchiver' : 'Archiver'} onClick={() => handleArchive(c.id)}><Archive size={15} /></button>
@@ -503,7 +615,7 @@ const Copieurs: React.FC = () => {
                     </tr>
                     {expandedId === c.id && (
                       <tr className="expanded-row">
-                        <td colSpan={13}>
+                        <td colSpan={14}>
                           <div className="expanded-details">
                             <div><strong>Secteur:</strong> {c.secteur || '-'}</div>
                             <div><strong>N° série:</strong> {c.numero_serie}</div>
@@ -546,6 +658,41 @@ const Copieurs: React.FC = () => {
                                   ))}
                                 </tbody>
                               </table>
+                            </div>
+                          )}
+                          <div style={{ marginTop: 8, padding: '0 32px 16px' }}>
+                            <button className="btn-icon" title="Interventions" onClick={() => toggleInterventions(c.id)}><History size={15} /></button>
+                            <span style={{ fontSize: 12, color: '#94a3b8', cursor: 'pointer' }} onClick={() => toggleInterventions(c.id)}>Interventions</span>
+                            <button className="btn-icon" title="Ajouter une intervention" onClick={() => openIntervModal(c)} style={{ marginLeft: 8 }}><Plus size={13} /></button>
+                          </div>
+                          {showInterventions[c.id] && (
+                            <div style={{ padding: '0 32px 16px', fontSize: 12, color: '#64748b' }}>
+                              {(interventions[c.id] || []).length === 0 ? (
+                                <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Aucune intervention</div>
+                              ) : (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                  <thead>
+                                    <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                      <th style={{ padding: '4px 8px', textAlign: 'left' }}>Date</th>
+                                      <th style={{ padding: '4px 8px', textAlign: 'left' }}>Mainteneur</th>
+                                      <th style={{ padding: '4px 8px', textAlign: 'left' }}>Technicien</th>
+                                      <th style={{ padding: '4px 8px', textAlign: 'left' }}>Description</th>
+                                      <th style={{ padding: '4px 8px', textAlign: 'left' }}></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(interventions[c.id] || []).map(iv => (
+                                      <tr key={iv.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '4px 8px' }}>{new Date(iv.date_intervention).toLocaleDateString('fr-FR')}</td>
+                                        <td style={{ padding: '4px 8px' }}>{iv.mainteneur || '-'}</td>
+                                        <td style={{ padding: '4px 8px' }}>{iv.technicien || '-'}</td>
+                                        <td style={{ padding: '4px 8px', maxWidth: 300, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{iv.description || '-'}</td>
+                                        <td style={{ padding: '4px 8px' }}><button className="btn-icon btn-icon-danger" title="Supprimer" onClick={() => handleDeleteIntervention(c.id, iv.id)}><Trash2 size={12} /></button></td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
                             </div>
                           )}
                         </td>
@@ -722,6 +869,383 @@ const Copieurs: React.FC = () => {
         </div>
       )}
 
+      {showIntervModal && intervTarget && (
+        <div className="modal-overlay" onClick={() => setShowIntervModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Nouvelle intervention</h2>
+              <button className="btn-icon" onClick={() => setShowIntervModal(false)}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginTop: 0, fontSize: 14, color: '#64748b' }}><strong>{intervTarget.numero_serie}</strong> — {intervTarget.direction} / {intervTarget.service}</p>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>Date *</label>
+                  <input type="date" value={intervForm.date_intervention} onChange={e => setIntervForm({ ...intervForm, date_intervention: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>Mainteneur</label>
+                  <input type="text" value={intervForm.mainteneur} onChange={e => setIntervForm({ ...intervForm, mainteneur: e.target.value })} placeholder="Ex: Canon, DSI..." />
+                </div>
+                <div className="form-group">
+                  <label>Technicien</label>
+                  <input type="text" value={intervForm.technicien} onChange={e => setIntervForm({ ...intervForm, technicien: e.target.value })} placeholder="Nom du technicien" />
+                </div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label>Description</label>
+                  <textarea value={intervForm.description} onChange={e => setIntervForm({ ...intervForm, description: e.target.value })} rows={4} placeholder="Détail de l'intervention..." />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline" onClick={() => setShowIntervModal(false)}>Annuler</button>
+              <button className="btn btn-primary" onClick={handleAddIntervention} disabled={!intervForm.date_intervention}>Ajouter</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAllInterventions && (() => {
+        const q = allIntervSearch.toLowerCase();
+        const filteredItvs = allInterventions.filter(iv => {
+          if (allIntervSource === 'email' && !iv.email_message_id) return false;
+          if (allIntervSource === 'manuel' && iv.email_message_id) return false;
+          if (!q) return true;
+          return (iv.numero_serie || '').toLowerCase().includes(q) ||
+            (iv.direction || '').toLowerCase().includes(q) ||
+            (iv.service || '').toLowerCase().includes(q) ||
+            (iv.email_demandeur || '').toLowerCase().includes(q) ||
+            (iv.technicien || '').toLowerCase().includes(q) ||
+            (iv.mainteneur || '').toLowerCase().includes(q) ||
+            (iv.description || '').toLowerCase().includes(q);
+        });
+        const nbCopieurs = new Set(allInterventions.filter(i => i.numero_serie).map(i => i.numero_serie)).size;
+        const nbTechs = new Set(allInterventions.filter(i => i.technicien).map(i => i.technicien)).size;
+        const nbEmails = allInterventions.filter(i => i.email_message_id).length;
+        return (
+          <div className="modal-overlay" onClick={() => { setShowAllInterventions(false); setAllIntervSearch(''); setAllIntervSource('all'); }}>
+            <div className="modal modal-interv" onClick={e => e.stopPropagation()}>
+              <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
+                <div>
+                  <h2 style={{ marginBottom: 2 }}>Interventions Koesio</h2>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Historique complet des interventions SAV importées</p>
+                </div>
+                <button className="btn-icon" onClick={() => { setShowAllInterventions(false); setAllIntervSearch(''); setAllIntervSource('all'); }}><X size={20} /></button>
+              </div>
+
+              <div className="interv-stats-bar">
+                <div className="interv-stat interv-stat-blue">
+                  <div className="interv-stat-value">{allInterventions.length}</div>
+                  <div className="interv-stat-label">interventions</div>
+                </div>
+                <div className="interv-stat interv-stat-purple">
+                  <div className="interv-stat-value">{nbCopieurs}</div>
+                  <div className="interv-stat-label">copieurs concernés</div>
+                </div>
+                <div className="interv-stat interv-stat-green">
+                  <div className="interv-stat-value">{nbTechs}</div>
+                  <div className="interv-stat-label">techniciens</div>
+                </div>
+                <div className="interv-stat interv-stat-cyan">
+                  <div className="interv-stat-value">{nbEmails}</div>
+                  <div className="interv-stat-label">via email</div>
+                </div>
+              </div>
+
+              <div style={{ padding: '12px 24px', display: 'flex', gap: 10, alignItems: 'center', borderBottom: '1px solid #e2e8f0' }}>
+                <div className="search-box" style={{ flex: 1 }}>
+                  <Search size={15} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                  <input type="text" placeholder="Copieur, direction, technicien, demandeur..." value={allIntervSearch} onChange={e => setAllIntervSearch(e.target.value)} autoFocus />
+                  {allIntervSearch && <button onClick={() => setAllIntervSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#94a3b8', display: 'flex' }}><X size={14} /></button>}
+                </div>
+                <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 4, borderRadius: 8, flexShrink: 0 }}>
+                  {(['all', 'email', 'manuel'] as const).map(s => (
+                    <button key={s} onClick={() => setAllIntervSource(s)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: allIntervSource === s ? '#fff' : 'transparent', color: allIntervSource === s ? '#0f172a' : '#64748b', boxShadow: allIntervSource === s ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>
+                      {s === 'all' ? 'Tout' : s === 'email' ? '✉ Email' : '✎ Manuel'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="modal-body" style={{ padding: 0, maxHeight: '52vh', overflow: 'auto' }}>
+                {loadingAllInterventions ? (
+                  <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>Chargement...
+                  </div>
+                ) : filteredItvs.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>Aucune intervention{q ? ' pour cette recherche' : ''}
+                  </div>
+                ) : (
+                  <table className="interv-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 90 }}>Date</th>
+                        <th style={{ width: 110 }}>N° Série</th>
+                        <th>Localisation</th>
+                        <th style={{ width: 140 }}>Demandeur</th>
+                        <th style={{ width: 150 }}>Technicien</th>
+                        <th>Détail intervention</th>
+                        <th style={{ width: 70 }}>Source</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredItvs.map(iv => {
+                        const isEmail = !!iv.email_message_id;
+                        const dateStr = iv.date_intervention ? new Date(iv.date_intervention).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
+                        const desc = (iv.description || '').replace(/\n+/g, ' ').trim();
+                        return (
+                          <tr key={iv.id} className="interv-row" style={{ cursor: 'pointer' }} onClick={() => setSelectedInterv(iv)}>
+                            <td className="interv-date">{dateStr}</td>
+                            <td>
+                              {iv.numero_serie
+                                ? <code className="interv-serial">{iv.numero_serie}</code>
+                                : <span style={{ color: '#cbd5e1', fontSize: 12 }}>non lié</span>}
+                            </td>
+                            <td>
+                              <div className="interv-location">
+                                {iv.direction && <span className="interv-direction">{iv.direction}</span>}
+                                {iv.service && <span className="interv-service">{iv.service}</span>}
+                                {!iv.direction && !iv.service && <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>}
+                              </div>
+                            </td>
+                            <td className="interv-person">{iv.email_demandeur || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                            <td className="interv-person">{iv.technicien || iv.mainteneur || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                            <td>
+                              <span className="interv-desc" title={desc}>{desc ? desc.substring(0, 90) + (desc.length > 90 ? '…' : '') : <span style={{ color: '#cbd5e1' }}>—</span>}</span>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              {isEmail
+                                ? <span className="interv-badge interv-badge-email" title={iv.email_subject || ''}>✉</span>
+                                : <span className="interv-badge interv-badge-manuel" title="Saisie manuelle">✎</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 'auto' }}>
+                  {q || allIntervSource !== 'all'
+                    ? <><strong style={{ color: '#334155' }}>{filteredItvs.length}</strong> résultat{filteredItvs.length > 1 ? 's' : ''} sur {allInterventions.length}</>
+                    : <><strong style={{ color: '#334155' }}>{allInterventions.length}</strong> intervention{allInterventions.length > 1 ? 's' : ''} au total</>}
+                </span>
+                <button className="btn btn-outline" onClick={() => { setShowAllInterventions(false); setAllIntervSearch(''); setAllIntervSource('all'); }}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {showCopieurInterv && copieurIntervTarget && (() => {
+        const q = copieurIntervSearch.toLowerCase();
+        const filteredList = copieurIntervList.filter(iv => {
+          if (!q) return true;
+          return (iv.email_demandeur || '').toLowerCase().includes(q) ||
+            (iv.technicien || '').toLowerCase().includes(q) ||
+            (iv.mainteneur || '').toLowerCase().includes(q) ||
+            (iv.description || '').toLowerCase().includes(q);
+        });
+        return (
+          <div className="modal-overlay" style={{ zIndex: 1100 }} onClick={() => { setShowCopieurInterv(false); setCopieurIntervSearch(''); }}>
+            <div className="modal modal-interv" onClick={e => e.stopPropagation()}>
+              <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
+                <div>
+                  <h2 style={{ marginBottom: 2 }}>Interventions — <code style={{ fontSize: 18, background: '#ede9fe', color: '#6d28d9', padding: '2px 8px', borderRadius: 6 }}>{copieurIntervTarget.numero_serie}</code></h2>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{copieurIntervTarget.direction}{copieurIntervTarget.service ? ` / ${copieurIntervTarget.service}` : ''}</p>
+                </div>
+                <button className="btn-icon" onClick={() => { setShowCopieurInterv(false); setCopieurIntervSearch(''); }}><X size={20} /></button>
+              </div>
+
+              <div className="interv-stats-bar">
+                <div className="interv-stat interv-stat-blue">
+                  <div className="interv-stat-value">{copieurIntervList.length}</div>
+                  <div className="interv-stat-label">interventions</div>
+                </div>
+                <div className="interv-stat interv-stat-green">
+                  <div className="interv-stat-value">{new Set(copieurIntervList.filter(i => i.technicien).map(i => i.technicien)).size}</div>
+                  <div className="interv-stat-label">techniciens</div>
+                </div>
+                <div className="interv-stat interv-stat-cyan">
+                  <div className="interv-stat-value">{copieurIntervList.filter(i => i.email_message_id).length}</div>
+                  <div className="interv-stat-label">via email</div>
+                </div>
+              </div>
+
+              {copieurIntervList.length > 5 && (
+                <div style={{ padding: '12px 24px', borderBottom: '1px solid #e2e8f0' }}>
+                  <div className="search-box">
+                    <Search size={15} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                    <input type="text" placeholder="Technicien, demandeur, description..." value={copieurIntervSearch} onChange={e => setCopieurIntervSearch(e.target.value)} autoFocus />
+                    {copieurIntervSearch && <button onClick={() => setCopieurIntervSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#94a3b8', display: 'flex' }}><X size={14} /></button>}
+                  </div>
+                </div>
+              )}
+
+              <div className="modal-body" style={{ padding: 0, maxHeight: '52vh', overflow: 'auto' }}>
+                {loadingCopieurInterv ? (
+                  <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>Chargement...
+                  </div>
+                ) : filteredList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>Aucune intervention{q ? ' pour cette recherche' : ''}
+                  </div>
+                ) : (
+                  <table className="interv-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 90 }}>Date</th>
+                        <th style={{ width: 140 }}>Demandeur</th>
+                        <th style={{ width: 160 }}>Technicien</th>
+                        <th>Détail intervention</th>
+                        <th style={{ width: 70 }}>Source</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredList.map(iv => {
+                        const isEmail = !!iv.email_message_id;
+                        const dateStr = iv.date_intervention ? new Date(iv.date_intervention).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
+                        const desc = (iv.description || '').replace(/\n+/g, ' ').trim();
+                        return (
+                          <tr key={iv.id} className="interv-row" style={{ cursor: 'pointer' }} onClick={() => setSelectedInterv({ ...iv, numero_serie: copieurIntervTarget.numero_serie, direction: copieurIntervTarget.direction, service: copieurIntervTarget.service })}>
+                            <td className="interv-date">{dateStr}</td>
+                            <td className="interv-person">{iv.email_demandeur || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                            <td className="interv-person">{iv.technicien || iv.mainteneur || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                            <td><span className="interv-desc" title={desc}>{desc ? desc.substring(0, 100) + (desc.length > 100 ? '…' : '') : <span style={{ color: '#cbd5e1' }}>—</span>}</span></td>
+                            <td style={{ textAlign: 'center' }}>
+                              {isEmail
+                                ? <span className="interv-badge interv-badge-email" title={iv.email_subject || ''}>✉</span>
+                                : <span className="interv-badge interv-badge-manuel" title="Saisie manuelle">✎</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div className="modal-footer">
+                <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 'auto' }}>
+                  {q ? <><strong style={{ color: '#334155' }}>{filteredList.length}</strong> résultat{filteredList.length > 1 ? 's' : ''} sur {copieurIntervList.length}</> : <><strong style={{ color: '#334155' }}>{copieurIntervList.length}</strong> intervention{copieurIntervList.length > 1 ? 's' : ''}</>}
+                </span>
+                <button className="btn btn-outline" onClick={() => { setShowCopieurInterv(false); setCopieurIntervSearch(''); }}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {selectedInterv && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }} onClick={() => { setSelectedInterv(null); setEmailPreviewHtml(null); }}>
+          <div className="modal modal-detail" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 style={{ marginBottom: 4 }}>Détail de l'intervention</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {selectedInterv.numero_serie && <code className="interv-serial" style={{ fontSize: 13 }}>{selectedInterv.numero_serie}</code>}
+                  {selectedInterv.date_intervention && <span style={{ fontSize: 13, color: '#64748b' }}>{new Date(selectedInterv.date_intervention).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}</span>}
+                  {selectedInterv.email_message_id ? <span className="interv-badge interv-badge-email" style={{ fontSize: 11 }}>✉ Email</span> : <span className="interv-badge interv-badge-manuel" style={{ fontSize: 11 }}>✎ Manuel</span>}
+                </div>
+              </div>
+              <button className="btn-icon" onClick={() => { setSelectedInterv(null); setEmailPreviewHtml(null); }}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-grid">
+                {selectedInterv.direction && (
+                  <div className="detail-field">
+                    <div className="detail-label">Direction / Localisation</div>
+                    <div className="detail-value">{selectedInterv.direction}{selectedInterv.service ? ` / ${selectedInterv.service}` : ''}</div>
+                  </div>
+                )}
+                {selectedInterv.email_demandeur && (
+                  <div className="detail-field">
+                    <div className="detail-label">Demandeur</div>
+                    <div className="detail-value">{selectedInterv.email_demandeur}</div>
+                  </div>
+                )}
+                {(selectedInterv.technicien || selectedInterv.mainteneur) && (
+                  <div className="detail-field">
+                    <div className="detail-label">Technicien / Mainteneur</div>
+                    <div className="detail-value">{selectedInterv.technicien || selectedInterv.mainteneur}</div>
+                  </div>
+                )}
+                {selectedInterv.email_from && (
+                  <div className="detail-field">
+                    <div className="detail-label">Expéditeur</div>
+                    <div className="detail-value" style={{ fontSize: 13, color: '#64748b' }}>{selectedInterv.email_from}</div>
+                  </div>
+                )}
+                {selectedInterv.email_received_at && (
+                  <div className="detail-field">
+                    <div className="detail-label">Reçu le</div>
+                    <div className="detail-value">{new Date(selectedInterv.email_received_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                  </div>
+                )}
+              </div>
+              {selectedInterv.email_subject && (
+                <div style={{ margin: '16px 0 0', padding: '10px 14px', background: '#f1f5f9', borderRadius: 8, fontSize: 13, color: '#334155' }}>
+                  <span style={{ fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Objet : </span>{selectedInterv.email_subject}
+                </div>
+              )}
+              {selectedInterv.email_message_id && (
+                <div style={{ marginTop: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Aperçu du mail</div>
+                    {!emailPreviewHtml && (
+                      <button className="btn btn-outline" style={{ fontSize: 12, padding: '5px 12px', color: '#2563eb', borderColor: '#bfdbfe' }}
+                        disabled={emailPreviewLoading}
+                        onClick={async () => {
+                          setEmailPreviewLoading(true);
+                          try {
+                            const res = await api.get(`/interventions/${selectedInterv.id}/email-link`);
+                            setEmailPreviewHtml(res.data.html);
+                          } catch (e: any) {
+                            alert('Impossible de charger le mail : ' + (e.response?.data?.message || e.message));
+                          } finally { setEmailPreviewLoading(false); }
+                        }}>
+                        {emailPreviewLoading ? '⏳ Chargement...' : '✉ Charger l\'aperçu'}
+                      </button>
+                    )}
+                    {emailPreviewHtml && (
+                      <button onClick={() => setEmailPreviewHtml(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#94a3b8' }}>Masquer</button>
+                    )}
+                  </div>
+                  {emailPreviewHtml && (
+                    <iframe
+                      srcDoc={emailPreviewHtml}
+                      sandbox="allow-same-origin"
+                      style={{ width: '100%', height: 480, border: '1px solid #e2e8f0', borderRadius: 10 }}
+                      title="Aperçu email"
+                    />
+                  )}
+                  {!emailPreviewHtml && !emailPreviewLoading && selectedInterv.description && (
+                    <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 18px', border: '1px solid #e2e8f0', maxHeight: 200, overflowY: 'auto' }}>
+                      <pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 12, color: '#64748b', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{selectedInterv.description}</pre>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!selectedInterv.email_message_id && selectedInterv.description && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Description</div>
+                  <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 18px', border: '1px solid #e2e8f0' }}>
+                    <pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 13, color: '#334155', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{selectedInterv.description}</pre>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline" onClick={() => { setSelectedInterv(null); setEmailPreviewHtml(null); }}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         .copieurs-page { min-height: 100vh; background: var(--bg-color); }
         .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
@@ -807,7 +1331,46 @@ const Copieurs: React.FC = () => {
         .form-group input, .form-group textarea, .form-group select { padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; outline: none; transition: border-color .15s; background: #fff; }
         .form-group input:focus, .form-group textarea:focus, .form-group select:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
         .alert-info { margin-bottom: 20px; }
+        .interv-count { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; background: #f1f5f9; color: #64748b; transition: all .15s; padding: 0 4px; }
+        .interv-count:hover { background: #2563eb; color: #fff; }
         .marker-group { background: none !important; border: none !important; }
+
+        .modal-interv { max-width: 1100px; width: 100%; }
+        .interv-stats-bar { display: flex; gap: 0; padding: 20px 24px 16px; border-bottom: 1px solid #e2e8f0; }
+        .interv-stat { flex: 1; text-align: center; padding: 12px 8px; border-radius: 12px; margin: 0 4px; }
+        .interv-stat-blue  { background: #eff6ff; }
+        .interv-stat-purple{ background: #f5f3ff; }
+        .interv-stat-green { background: #f0fdf4; }
+        .interv-stat-cyan  { background: #ecfeff; }
+        .interv-stat-value { font-size: 28px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
+        .interv-stat-blue  .interv-stat-value { color: #2563eb; }
+        .interv-stat-purple .interv-stat-value { color: #7c3aed; }
+        .interv-stat-green  .interv-stat-value { color: #16a34a; }
+        .interv-stat-cyan   .interv-stat-value { color: #0891b2; }
+        .interv-stat-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
+
+        .interv-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .interv-table thead tr { background: #f8fafc; position: sticky; top: 0; z-index: 2; }
+        .interv-table th { padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .05em; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+        .interv-row { border-bottom: 1px solid #f1f5f9; transition: background .1s; }
+        .interv-row:hover { background: #f8fafc; }
+        .interv-row td { padding: 10px 14px; vertical-align: middle; }
+        .interv-date { font-weight: 600; color: #334155; white-space: nowrap; font-size: 12px; }
+        .interv-serial { background: #ede9fe; color: #6d28d9; padding: 2px 7px; border-radius: 5px; font-size: 11.5px; font-weight: 700; letter-spacing: .03em; }
+        .interv-location { display: flex; flex-direction: column; gap: 2px; }
+        .interv-direction { font-weight: 600; color: #1e293b; font-size: 12.5px; }
+        .interv-service { font-size: 11px; color: #94a3b8; }
+        .interv-person { font-size: 12.5px; color: #475569; }
+        .interv-desc { font-size: 12px; color: #64748b; line-height: 1.4; }
+        .interv-badge { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 8px; font-size: 13px; }
+        .interv-badge-email  { background: #dbeafe; color: #2563eb; }
+        .interv-badge-manuel { background: #f1f5f9; color: #64748b; }
+
+        .modal-detail { max-width: 680px; width: 100%; }
+        .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .detail-field { background: #f8fafc; border-radius: 8px; padding: 10px 14px; border: 1px solid #f1f5f9; }
+        .detail-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+        .detail-value { font-size: 14px; color: #0f172a; font-weight: 500; }
       `}</style>
     </div>
   );

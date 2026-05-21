@@ -66,18 +66,24 @@ const Dashboard: React.FC = () => {
       return;
     }
 
-    const newOrder = [...tileOrder];
-    const draggedIndex = newOrder.indexOf(draggedTile);
-    const targetIndex = newOrder.indexOf(targetTileId);
+    // Rebuild from current display order (tileOrder may be empty or partial)
+    const displayed = tiles
+      .filter(t => t.status === 'active' || t.status === 'soon')
+      .sort((a, b) => {
+        const ia = tileOrder.indexOf(a.id);
+        const ib = tileOrder.indexOf(b.id);
+        return (ia === -1 ? tiles.length : ia) - (ib === -1 ? tiles.length : ib);
+      })
+      .map(t => t.id);
+
+    const draggedIndex = displayed.indexOf(draggedTile);
+    const targetIndex = displayed.indexOf(targetTileId);
 
     if (draggedIndex !== -1 && targetIndex !== -1) {
-      // Remove dragged item
-      const [removed] = newOrder.splice(draggedIndex, 1);
-      // Insert at target position
-      newOrder.splice(targetIndex, 0, removed);
-
-      setTileOrder(newOrder);
-      saveTileOrder(newOrder);
+      const [removed] = displayed.splice(draggedIndex, 1);
+      displayed.splice(targetIndex, 0, removed);
+      setTileOrder(displayed);
+      saveTileOrder(displayed);
     }
 
     setDraggedTile(null);
