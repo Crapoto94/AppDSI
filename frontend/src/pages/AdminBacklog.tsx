@@ -12,6 +12,7 @@ interface BacklogItem {
   created_by: string;
   created_at: string;
   updated_at: string;
+  tile_id?: number | null;
   attachments?: Array<{
     filename: string;
     path: string;
@@ -19,6 +20,12 @@ interface BacklogItem {
     mimetype: string;
     uploadedAt: string;
   }>;
+}
+
+interface Tile {
+  id: number;
+  title: string;
+  icon: string;
 }
 
 interface ADUser {
@@ -31,12 +38,15 @@ interface ADUser {
 const AdminBacklog: React.FC = () => {
   const { token } = useAuth();
   const [items, setItems] = useState<BacklogItem[]>([]);
+  const [tiles, setTiles] = useState<Tile[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
   const [editingBasicsId, setEditingBasicsId] = useState<number | null>(null);
   const [editingStatusId, setEditingStatusId] = useState<number | null>(null);
   const [editingStatus, setEditingStatus] = useState('');
+  const [editingTileId, setEditingTileId] = useState<number | null>(null);
+  const [editingComment, setEditingComment] = useState('');
   const [editingTitle, setEditingTitle] = useState('');
   const [editingCreatedBy, setEditingCreatedBy] = useState('');
   const [showUserSearch, setShowUserSearch] = useState(false);
@@ -61,6 +71,7 @@ const AdminBacklog: React.FC = () => {
 
   useEffect(() => {
     fetchBacklog();
+    fetchTiles();
   }, [token]);
 
   const fetchBacklog = async () => {
@@ -73,6 +84,17 @@ const AdminBacklog: React.FC = () => {
       console.error('Error fetching backlog:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchTiles = async () => {
+    try {
+      const response = await axios.get('/api/tiles', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTiles(response.data);
+    } catch (error) {
+      console.error('Error fetching tiles:', error);
     }
   };
 
@@ -98,11 +120,20 @@ const AdminBacklog: React.FC = () => {
 
   const handleStatusChange = async (id: number, newStatus: string) => {
     try {
-      await axios.put(`/api/backlog/${id}`, { status: newStatus }, {
+      const updateData: any = { status: newStatus };
+      if (editingComment) updateData.admin_comment = editingComment;
+      if (editingTileId) updateData.tile_id = editingTileId;
+
+      await axios.put(`/api/backlog/${id}`, updateData, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setItems(items.map(item => item.id === id ? { ...item, status: newStatus } : item));
+
+      setItems(items.map(item =>
+        item.id === id ? { ...item, status: newStatus, tile_id: editingTileId || item.tile_id } : item
+      ));
       setEditingStatusId(null);
+      setEditingComment('');
+      setEditingTileId(null);
     } catch (error) {
       console.error('Error updating status:', error);
     }
@@ -541,50 +572,94 @@ const AdminBacklog: React.FC = () => {
                       </div>
 
                       {editingStatusId === item.id ? (
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <select
-                            value={editingStatus}
-                            onChange={e => setEditingStatus(e.target.value)}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <select
+                              value={editingStatus}
+                              onChange={e => setEditingStatus(e.target.value)}
+                              style={{
+                                padding: '6px 10px',
+                                border: '2px solid #3b82f6',
+                                borderRadius: '6px',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                flex: 1
+                              }}
+                            >
+                              {statusOptions.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={editingTileId || ''}
+                              onChange={e => setEditingTileId(e.target.value ? parseInt(e.target.value) : null)}
+                              style={{
+                                padding: '6px 10px',
+                                border: '2px solid #3b82f6',
+                                borderRadius: '6px',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                flex: 1
+                              }}
+                            >
+                              <option value=''>Aucune tuile</option>
+                              {tiles.map(tile => (
+                                <option key={tile.id} value={tile.id}>{tile.icon} {tile.title}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <textarea
+                            value={editingComment}
+                            onChange={e => setEditingComment(e.target.value)}
+                            placeholder='Commentaire (optionnel) - sera envoyé au demandeur'
                             style={{
-                              padding: '6px 10px',
+                              padding: '8px 10px',
                               border: '2px solid #3b82f6',
                               borderRadius: '6px',
                               fontSize: '0.85rem',
-                              cursor: 'pointer'
+                              fontFamily: 'inherit',
+                              resize: 'vertical',
+                              minHeight: '60px',
+                              width: '100%',
+                              boxSizing: 'border-box'
                             }}
-                          >
-                            {statusOptions.map(opt => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={() => handleStatusChange(item.id, editingStatus)}
-                            style={{
-                              padding: '6px 12px',
-                              background: '#10b981',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              fontWeight: '600'
-                            }}
-                          >
-                            Confirmer
-                          </button>
-                          <button
-                            onClick={() => setEditingStatusId(null)}
-                            style={{
-                              padding: '6px 12px',
-                              background: '#ef4444',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              fontWeight: '600'
-                            }}
-                          >
-                            Annuler
-                          </button>
+                          />
+
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              onClick={() => handleStatusChange(item.id, editingStatus)}
+                              style={{
+                                padding: '6px 12px',
+                                background: '#10b981',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontWeight: '600'
+                              }}
+                            >
+                              Confirmer
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingStatusId(null);
+                                setEditingComment('');
+                                setEditingTileId(null);
+                              }}
+                              style={{
+                                padding: '6px 12px',
+                                background: '#ef4444',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontWeight: '600'
+                              }}
+                            >
+                              Annuler
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <button

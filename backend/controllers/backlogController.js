@@ -182,7 +182,7 @@ exports.createBacklogItem = async (req, res) => {
 exports.updateBacklogItem = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, category, status, created_by } = req.body;
+    const { title, description, category, status, created_by, admin_comment, tile_id } = req.body;
 
     const validStatuses = ['open', 'in_progress', 'accepted', 'rejected', 'completed'];
     if (status && !validStatuses.includes(status)) {
@@ -218,6 +218,14 @@ exports.updateBacklogItem = async (req, res) => {
     if (created_by) {
       updates.push(`created_by = $${paramCount++}`);
       params.push(created_by);
+    }
+    if (admin_comment !== undefined) {
+      updates.push(`admin_comment = $${paramCount++}`);
+      params.push(admin_comment || null);
+    }
+    if (tile_id !== undefined) {
+      updates.push(`tile_id = $${paramCount++}`);
+      params.push(tile_id || null);
     }
 
     if (updates.length === 0) {
@@ -295,13 +303,23 @@ exports.updateBacklogItem = async (req, res) => {
           const oldStatusLabel = statusLabels[currentItem.status] || currentItem.status;
           const newStatusLabel = statusLabels[status] || status;
 
-          const emailContent = `
+          let emailContent = `
             <h2>Mise à jour de votre demande</h2>
             <p>Votre demande <strong>"${currentItem.title}"</strong> a été mise à jour.</p>
             <p><strong>Statut précédent :</strong> ${oldStatusLabel}</p>
             <p><strong>Nouveau statut :</strong> ${newStatusLabel}</p>
-            <p>Vous pouvez consulter les détails dans le portail DSI Hub.</p>
           `;
+
+          if (admin_comment) {
+            emailContent += `
+              <div style="background-color: #f0f4f8; padding: 12px; border-left: 4px solid #3b82f6; margin: 16px 0; border-radius: 4px;">
+                <p style="margin: 0 0 8px 0; font-weight: bold; color: #1e40af;">Commentaire administrateur :</p>
+                <p style="margin: 0; color: #334155; white-space: pre-wrap; word-break: break-word;">${admin_comment}</p>
+              </div>
+            `;
+          }
+
+          emailContent += `<p>Vous pouvez consulter les détails dans le portail DSI Hub.</p>`;
 
           console.log(`[BACKLOG] Sending email to ${requesterEmail}`);
           await sendMailFn(requesterEmail, `[DSI Hub] Mise à jour : ${currentItem.title}`, emailContent);
