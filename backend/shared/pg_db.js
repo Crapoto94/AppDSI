@@ -230,6 +230,19 @@ async function setupPgDb() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.user_tile_order (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        tile_id INTEGER NOT NULL,
+        position INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, tile_id),
+        FOREIGN KEY (user_id) REFERENCES hub.users(id) ON DELETE CASCADE
+      );
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS glpi.observers (
         id SERIAL PRIMARY KEY,
         ticket_id INTEGER NOT NULL,

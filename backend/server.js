@@ -3457,7 +3457,51 @@ app.delete('/api/links/:id', authenticateAdmin, async (req, res) => {
     res.json({ message: 'Link deleted' });
 });
 
+// User Tile Order Management
+app.get('/api/user-tile-order', authenticateJWT, async (req, res) => {
+    try {
+        const orders = await pgDb.all(
+            `SELECT tile_id, position FROM hub.user_tile_order
+             WHERE user_id = $1
+             ORDER BY position ASC`,
+            [req.user.id]
+        );
+        res.json(orders);
+    } catch (error) {
+        console.error('[USER TILE ORDER] Error fetching user tile order:', error);
+        res.status(500).json({ message: 'Erreur lors de la récupération de l\'ordre des tuiles', error: error.message });
+    }
+});
 
+app.post('/api/user-tile-order', authenticateJWT, async (req, res) => {
+    try {
+        const { tileOrder } = req.body;
+
+        if (!Array.isArray(tileOrder)) {
+            return res.status(400).json({ message: 'tileOrder doit être un tableau' });
+        }
+
+        // Clear existing order
+        await pgDb.run(
+            `DELETE FROM hub.user_tile_order WHERE user_id = $1`,
+            [req.user.id]
+        );
+
+        // Insert new order
+        for (let i = 0; i < tileOrder.length; i++) {
+            await pgDb.run(
+                `INSERT INTO hub.user_tile_order (user_id, tile_id, position)
+                 VALUES ($1, $2, $3)`,
+                [req.user.id, tileOrder[i], i]
+            );
+        }
+
+        res.json({ message: 'Ordre des tuiles sauvegardé' });
+    } catch (error) {
+        console.error('[USER TILE ORDER] Error saving user tile order:', error);
+        res.status(500).json({ message: 'Erreur lors de la sauvegarde de l\'ordre des tuiles', error: error.message });
+    }
+});
 
 
 // Import Budget Lines from Excel

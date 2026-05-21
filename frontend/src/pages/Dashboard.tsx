@@ -20,12 +20,69 @@ interface TileData {
 
 const Dashboard: React.FC = () => {
   const [tiles, setTiles] = useState<TileData[]>([]);
+  const [tileOrder, setTileOrder] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [restrictedMessage, setRestrictedMessage] = useState('');
+  const [draggedTile, setDraggedTile] = useState<number | null>(null);
+  const [dragOverTile, setDragOverTile] = useState<number | null>(null);
   const { user, logout, token, refreshUser } = useAuth();
   const navigate = useNavigate();
 
   const isApproved = user?.is_approved === 1 || user?.role === 'admin' || user?.username?.toLowerCase() === 'admin';
+
+  const saveTileOrder = async (order: number[]) => {
+    try {
+      await fetch('/api/user-tile-order', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ tileOrder: order })
+      });
+      console.log('Tile order saved:', order);
+    } catch (error) {
+      console.error('Error saving tile order:', error);
+    }
+  };
+
+  const handleDragStart = (tileId: number) => {
+    setDraggedTile(tileId);
+  };
+
+  const handleDragOver = (tileId: number, e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverTile(tileId);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverTile(null);
+  };
+
+  const handleDrop = (targetTileId: number) => {
+    if (draggedTile === null || draggedTile === targetTileId) {
+      setDraggedTile(null);
+      setDragOverTile(null);
+      return;
+    }
+
+    const newOrder = [...tileOrder];
+    const draggedIndex = newOrder.indexOf(draggedTile);
+    const targetIndex = newOrder.indexOf(targetTileId);
+
+    if (draggedIndex !== -1 && targetIndex !== -1) {
+      // Remove dragged item
+      const [removed] = newOrder.splice(draggedIndex, 1);
+      // Insert at target position
+      newOrder.splice(targetIndex, 0, removed);
+
+      setTileOrder(newOrder);
+      saveTileOrder(newOrder);
+    }
+
+    setDraggedTile(null);
+    setDragOverTile(null);
+  };
 
   useEffect(() => {
     // Rafraîchir les infos utilisateur au chargement pour vérifier si l'approbation a été donnée
@@ -44,6 +101,25 @@ const Dashboard: React.FC = () => {
         if (Array.isArray(data)) {
           console.log('Received tiles:', data);
           setTiles(data);
+
+          // Fetch user tile order
+          try {
+            const orderResponse = await fetch('/api/user-tile-order', {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            const orderData = await orderResponse.json();
+            if (Array.isArray(orderData)) {
+              const order = orderData.map((o: any) => o.tile_id);
+              setTileOrder(order);
+              console.log('Loaded tile order:', order);
+            }
+          } catch (err) {
+            console.log('No saved tile order found, using default');
+            // Use default order from tiles
+            setTileOrder(data.map((t: TileData) => t.id));
+          }
         }
       } catch (error) {
         console.error('Error fetching tiles:', error);
@@ -81,21 +157,40 @@ const Dashboard: React.FC = () => {
           <div className="loading">Chargement des services...</div>
         ) : (
           <div className="tiles-grid">
-{tiles
+            {tiles
               .filter(t => t.status === 'active' || t.status === 'soon')
+              .sort((a, b) => {
+                const indexA = tileOrder.indexOf(a.id);
+                const indexB = tileOrder.indexOf(b.id);
+                return (indexA === -1 ? tiles.length : indexA) - (indexB === -1 ? tiles.length : indexB);
+              })
               .map((tile) => (
-                <Tile
+                <div
                   key={tile.id}
-                  id={tile.id}
-                  title={tile.title}
-                  icon={tile.icon}
-                  description={tile.description}
-                  links={tile.links}
-                  status={tile.status}
-                  is_authorized={tile.is_authorized}
-                  is_public={tile.is_public === 1}
-                  isAdmin={user?.role === 'admin'}
-                />
+                  draggable
+                  onDragStart={() => handleDragStart(tile.id)}
+                  onDragOver={(e) => handleDragOver(tile.id, e)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={() => handleDrop(tile.id)}
+                  style={{
+                    opacity: draggedTile === tile.id ? 0.5 : 1,
+                    backgroundColor: dragOverTile === tile.id ? 'rgba(37, 99, 235, 0.05)' : 'transparent',
+                    borderRadius: '8px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <Tile
+                    id={tile.id}
+                    title={tile.title}
+                    icon={tile.icon}
+                    description={tile.description}
+                    links={tile.links}
+                    status={tile.status}
+                    is_authorized={tile.is_authorized}
+                    is_public={tile.is_public === 1}
+                    isAdmin={user?.role === 'admin'}
+                  />
+                </div>
               ))}
           </div>
         )}
@@ -172,6 +267,15 @@ const Dashboard: React.FC = () => {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
           gap: 30px;
+        }
+        .tiles-grid > div {
+          cursor: move;
+        }
+        .tiles-grid > div[draggable="true"] {
+          cursor: grab;
+        }
+        .tiles-grid > div[draggable="true"]:active {
+          cursor: grabbing;
         }
         .loading {
           text-align: center;
