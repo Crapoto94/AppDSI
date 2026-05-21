@@ -1,4 +1,4 @@
-const pgDb = require('../shared/pg_db');
+const { pgDb } = require('../shared/pg_db');
 
 // Get all backlog items
 exports.getAllBacklogItems = async (req, res) => {
