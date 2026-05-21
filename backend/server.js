@@ -2577,9 +2577,9 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
         }
 
         // 3. Get completed backlog items updated since last version
-        const completedBacklog = await db.all(
-            "SELECT title FROM backlog WHERE status = 'completed' AND datetime(updated_at) >= datetime(?) ORDER BY updated_at DESC",
-            [lastVersionDate.toISOString().split('T')[0]]
+        const completedBacklog = await pgDb.all(
+            "SELECT title FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY updated_at DESC",
+            [lastVersionDate.toISOString()]
         );
 
         if (completedBacklog.length === 0) {
@@ -2671,9 +2671,9 @@ app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) =>
         }
 
         // Get completed backlog items since last version
-        const completedBacklog = await db.all(
-            "SELECT * FROM backlog WHERE status = 'completed' AND datetime(updated_at) >= datetime(?) ORDER BY updated_at DESC",
-            [lastVersionDate.toISOString().split('T')[0]]
+        const completedBacklog = await pgDb.all(
+            "SELECT * FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY updated_at DESC",
+            [lastVersionDate.toISOString()]
         );
 
         res.json({
