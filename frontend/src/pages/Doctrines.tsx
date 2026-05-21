@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Search } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
@@ -22,12 +22,22 @@ const Doctrines: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [formData, setFormData] = useState({
     title: '',
     content: '',
     category: '',
     doctrine_date: new Date().toISOString().split('T')[0]
+  });
+
+  const filteredDoctrines = doctrines.filter(doc => {
+    const query = searchQuery.toLowerCase();
+    return (
+      doc.title.toLowerCase().includes(query) ||
+      doc.content.toLowerCase().includes(query) ||
+      doc.category.toLowerCase().includes(query)
+    );
   });
 
   useEffect(() => {
@@ -149,8 +159,55 @@ const Doctrines: React.FC = () => {
             </button>
           </div>
 
+          <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '10px 16px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              backgroundColor: 'white'
+            }}>
+              <Search size={18} color="#94a3b8" />
+              <input
+                type="text"
+                placeholder="Rechercher par titre, catégorie ou contenu..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  flex: 1,
+                  border: 'none',
+                  outline: 'none',
+                  fontSize: '1rem',
+                  fontFamily: 'inherit'
+                }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#94a3b8',
+                    padding: '4px'
+                  }}
+                >
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+            {searchQuery && (
+              <span style={{ color: '#64748b', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
+                {filteredDoctrines.length} résultat{filteredDoctrines.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
           <div style={{ display: 'grid', gap: '16px' }}>
-            {doctrines.length === 0 ? (
+            {filteredDoctrines.length === 0 ? (
               <div style={{
                 background: 'white',
                 borderRadius: '12px',
@@ -159,10 +216,10 @@ const Doctrines: React.FC = () => {
                 color: '#94a3b8',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
               }}>
-                Aucune doctrine pour le moment
+                {searchQuery ? 'Aucune doctrine ne correspond à votre recherche' : 'Aucune doctrine pour le moment'}
               </div>
             ) : (
-              doctrines.map(doc => (
+              filteredDoctrines.map(doc => (
                 <div
                   key={doc.id}
                   style={{
