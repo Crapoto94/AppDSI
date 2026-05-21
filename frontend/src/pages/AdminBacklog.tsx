@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Check, X, Clock, AlertCircle, Trash2, Edit2, Filter } from 'lucide-react';
+import { Check, X, Clock, AlertCircle, Trash2, Edit2, Filter, User } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -14,14 +14,28 @@ interface BacklogItem {
   updated_at: string;
 }
 
+interface ADUser {
+  username: string;
+  displayName: string;
+  email: string;
+  service?: string;
+}
+
 const AdminBacklog: React.FC = () => {
   const { token } = useAuth();
   const [items, setItems] = useState<BacklogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingBasicsId, setEditingBasicsId] = useState<number | null>(null);
+  const [editingStatusId, setEditingStatusId] = useState<number | null>(null);
   const [editingStatus, setEditingStatus] = useState('');
+  const [editingTitle, setEditingTitle] = useState('');
+  const [editingCreatedBy, setEditingCreatedBy] = useState('');
+  const [showUserSearch, setShowUserSearch] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ADUser[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
 
   const categoryColors: Record<string, { bg: string; text: string; border: string }> = {
     'Bug': { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
@@ -55,15 +69,60 @@ const AdminBacklog: React.FC = () => {
     }
   };
 
+  const searchADUsers = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchingUsers(true);
+    try {
+      const response = await axios.get('/api/ad/search', {
+        params: { q: query },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSearchResults(response.data || []);
+    } catch (error) {
+      console.error('Error searching AD users:', error);
+      setSearchResults([]);
+    } finally {
+      setSearchingUsers(false);
+    }
+  };
+
   const handleStatusChange = async (id: number, newStatus: string) => {
     try {
       await axios.put(`/api/backlog/${id}`, { status: newStatus }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setItems(items.map(item => item.id === id ? { ...item, status: newStatus } : item));
-      setEditingId(null);
+      setEditingStatusId(null);
     } catch (error) {
       console.error('Error updating status:', error);
+    }
+  };
+
+  const handleEditItem = (item: BacklogItem) => {
+    setEditingBasicsId(item.id);
+    setEditingTitle(item.title);
+    setEditingCreatedBy(item.created_by);
+    setShowUserSearch(false);
+    setUserSearchQuery('');
+    setSearchResults([]);
+  };
+
+  const handleSaveEdit = async (id: number) => {
+    try {
+      await axios.put(`/api/backlog/${id}`, {
+        title: editingTitle,
+        created_by: editingCreatedBy
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setItems(items.map(item => item.id === id ? { ...item, title: editingTitle, created_by: editingCreatedBy } : item));
+      setEditingBasicsId(null);
+      setShowUserSearch(false);
+    } catch (error) {
+      console.error('Error updating item:', error);
     }
   };
 
@@ -193,56 +252,209 @@ const AdminBacklog: React.FC = () => {
                       borderLeft: `4px solid ${statusInfo?.color || '#94a3b8'}`
                     }}
                   >
-                    <div style={{ marginBottom: '12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                        <h3 style={{
-                          fontSize: '1.1rem',
-                          fontWeight: '700',
-                          color: '#1e293b',
-                          margin: 0,
-                          flex: 1
-                        }}>
-                          {item.title}
-                        </h3>
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          style={{
-                            background: 'white',
-                            border: '1px solid #fca5a5',
+                    {editingBasicsId === item.id ? (
+                      <div style={{ marginBottom: '16px', paddingBottom: '16px', borderBottom: '1px solid #e2e8f0' }}>
+                        <div style={{ marginBottom: '12px' }}>
+                          <label style={{ fontSize: '0.8rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '6px' }}>
+                            Titre
+                          </label>
+                          <input
+                            type='text'
+                            value={editingTitle}
+                            onChange={e => setEditingTitle(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '10px 12px',
+                              border: '2px solid #3b82f6',
+                              borderRadius: '6px',
+                              fontSize: '0.95rem',
+                              boxSizing: 'border-box',
+                              outline: 'none'
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ marginBottom: '12px' }}>
+                          <label style={{ fontSize: '0.8rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '6px' }}>
+                            Demandeur
+                          </label>
+                          <div style={{ position: 'relative' }}>
+                            <input
+                              type='text'
+                              value={showUserSearch ? userSearchQuery : editingCreatedBy}
+                              onChange={e => {
+                                if (showUserSearch) {
+                                  setUserSearchQuery(e.target.value);
+                                  searchADUsers(e.target.value);
+                                } else {
+                                  setEditingCreatedBy(e.target.value);
+                                }
+                              }}
+                              onFocus={() => setShowUserSearch(true)}
+                              placeholder='Chercher dans l\'AD...'
+                              style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                border: '2px solid #3b82f6',
+                                borderRadius: '6px',
+                                fontSize: '0.95rem',
+                                boxSizing: 'border-box',
+                                outline: 'none'
+                              }}
+                            />
+                            {showUserSearch && searchResults.length > 0 && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                right: 0,
+                                background: 'white',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '6px',
+                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                zIndex: 10,
+                                marginTop: '4px',
+                                maxHeight: '200px',
+                                overflowY: 'auto'
+                              }}>
+                                {searchResults.map((user, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={() => {
+                                      setEditingCreatedBy(user.displayName || user.username);
+                                      setShowUserSearch(false);
+                                      setUserSearchQuery('');
+                                      setSearchResults([]);
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '10px 12px',
+                                      border: 'none',
+                                      background: 'white',
+                                      textAlign: 'left',
+                                      cursor: 'pointer',
+                                      fontSize: '0.9rem',
+                                      color: '#1e293b',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px'
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                                    onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                                  >
+                                    <User size={14} color='#3b82f6' />
+                                    <div>
+                                      <div style={{ fontWeight: '600' }}>{user.displayName || user.username}</div>
+                                      {user.email && <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{user.email}</div>}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            onClick={() => handleSaveEdit(item.id)}
+                            style={{
+                              padding: '8px 16px',
+                              background: '#10b981',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontWeight: '600',
+                              fontSize: '0.9rem'
+                            }}
+                          >
+                            Enregistrer
+                          </button>
+                          <button
+                            onClick={() => setEditingBasicsId(null)}
+                            style={{
+                              padding: '8px 16px',
+                              background: '#ef4444',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontWeight: '600',
+                              fontSize: '0.9rem'
+                            }}
+                          >
+                            Annuler
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ marginBottom: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                          <h3 style={{
+                            fontSize: '1.1rem',
+                            fontWeight: '700',
+                            color: '#1e293b',
+                            margin: 0,
+                            flex: 1
+                          }}>
+                            {item.title}
+                          </h3>
+                          <button
+                            onClick={() => handleEditItem(item)}
+                            style={{
+                              background: '#f1f5f9',
+                              border: '1px solid #cbd5e1',
+                              borderRadius: '6px',
+                              padding: '6px 10px',
+                              cursor: 'pointer',
+                              color: '#0c4a6e',
+                              fontSize: '0.9rem',
+                              marginRight: '8px'
+                            }}
+                            title='Éditer le titre et le demandeur'
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(item.id)}
+                            style={{
+                              background: 'white',
+                              border: '1px solid #fca5a5',
+                              borderRadius: '6px',
+                              padding: '6px 10px',
+                              cursor: 'pointer',
+                              color: '#dc2626',
+                              fontSize: '0.9rem'
+                            }}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            background: catColor?.bg,
+                            color: catColor?.text,
+                            padding: '4px 10px',
                             borderRadius: '6px',
-                            padding: '6px 10px',
-                            cursor: 'pointer',
-                            color: '#dc2626',
-                            fontSize: '0.9rem'
-                          }}
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                            fontSize: '0.8rem',
+                            fontWeight: '600',
+                            border: `1px solid ${catColor?.border}`
+                          }}>
+                            {item.category}
+                          </span>
+
+                          <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                            par {item.created_by}
+                          </span>
+
+                          <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+                            {new Date(item.created_at).toLocaleDateString('fr-FR')}
+                          </span>
+                        </div>
                       </div>
-
-                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                        <span style={{
-                          display: 'inline-block',
-                          background: catColor?.bg,
-                          color: catColor?.text,
-                          padding: '4px 10px',
-                          borderRadius: '6px',
-                          fontSize: '0.8rem',
-                          fontWeight: '600',
-                          border: `1px solid ${catColor?.border}`
-                        }}>
-                          {item.category}
-                        </span>
-
-                        <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                          par {item.created_by}
-                        </span>
-
-                        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                          {new Date(item.created_at).toLocaleDateString('fr-FR')}
-                        </span>
-                      </div>
-                    </div>
+                    )}
 
                     {item.description && (
                       <p style={{
@@ -271,7 +483,7 @@ const AdminBacklog: React.FC = () => {
                         </span>
                       </div>
 
-                      {editingId === item.id ? (
+                      {editingBasicsId === item.id ? (
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <select
                             value={editingStatus}
@@ -303,7 +515,7 @@ const AdminBacklog: React.FC = () => {
                             Confirmer
                           </button>
                           <button
-                            onClick={() => setEditingId(null)}
+                            onClick={() => setEditingStatusId(null)}
                             style={{
                               padding: '6px 12px',
                               background: '#ef4444',
@@ -320,7 +532,7 @@ const AdminBacklog: React.FC = () => {
                       ) : (
                         <button
                           onClick={() => {
-                            setEditingId(item.id);
+                            setEditingStatusId(item.id);
                             setEditingStatus(item.status);
                           }}
                           style={{

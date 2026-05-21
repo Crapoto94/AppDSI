@@ -49,7 +49,7 @@ exports.createBacklogItem = async (req, res) => {
 exports.updateBacklogItem = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, category, status } = req.body;
+    const { title, description, category, status, created_by } = req.body;
 
     const validStatuses = ['open', 'in_progress', 'accepted', 'rejected', 'completed'];
     if (status && !validStatuses.includes(status)) {
@@ -75,6 +75,10 @@ exports.updateBacklogItem = async (req, res) => {
     if (status) {
       updates.push(`status = $${paramCount++}`);
       params.push(status);
+    }
+    if (created_by) {
+      updates.push(`created_by = $${paramCount++}`);
+      params.push(created_by);
     }
 
     if (updates.length === 0) {
