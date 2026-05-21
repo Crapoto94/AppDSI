@@ -504,7 +504,16 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
                 const pmoCheck = await pgDb.get('SELECT 1 FROM projet_favoris WHERE username = $1 LIMIT 1', [user.username]);
                 user.est_pmo = false; // Default for PG users
             } catch { user.est_pmo = false; }
-            user.est_manager = user.role === 'admin';
+            // Check if user is manager
+            try {
+                const userInHub = await pgDb.get('SELECT id FROM hub.users WHERE username = $1', [user.username]);
+                if (userInHub) {
+                    const manager = await pgDb.get('SELECT 1 FROM hub.calendrier_managers WHERE user_id = $1', [userInHub.id]);
+                    user.est_manager = !!(manager || (user.role === 'admin'));
+                } else {
+                    user.est_manager = user.role === 'admin';
+                }
+            } catch { user.est_manager = user.role === 'admin'; }
         }
 
         res.json({ ...user, auth_source: source });
