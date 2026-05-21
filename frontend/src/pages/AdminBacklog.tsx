@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Check, X, Clock, AlertCircle, Trash2, Edit2, Filter, User } from 'lucide-react';
+import { Check, X, Clock, AlertCircle, Trash2, Edit2, Filter, User, Download } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -12,6 +12,13 @@ interface BacklogItem {
   created_by: string;
   created_at: string;
   updated_at: string;
+  attachments?: Array<{
+    filename: string;
+    path: string;
+    size: number;
+    mimetype: string;
+    uploadedAt: string;
+  }>;
 }
 
 interface ADUser {
@@ -291,7 +298,7 @@ const AdminBacklog: React.FC = () => {
                                 }
                               }}
                               onFocus={() => setShowUserSearch(true)}
-                              placeholder='Chercher dans l\'AD...'
+                              placeholder="Chercher dans l'AD..."
                               style={{
                                 width: '100%',
                                 padding: '10px 12px',
@@ -467,6 +474,56 @@ const AdminBacklog: React.FC = () => {
                       }}>
                         {item.description}
                       </p>
+                    )}
+
+                    {item.attachments && item.attachments.length > 0 && (
+                      <div style={{
+                        marginBottom: '12px',
+                        padding: '12px',
+                        background: '#f8fafc',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0'
+                      }}>
+                        <p style={{ fontSize: '0.85rem', fontWeight: '600', color: '#475569', marginBottom: '8px' }}>
+                          Fichiers attachés ({item.attachments.length})
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {item.attachments.map((file, idx) => (
+                            <a
+                              key={idx}
+                              href={`/uploads/backlog_attachments/${file.path}`}
+                              download={file.filename}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px 10px',
+                                background: 'white',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                textDecoration: 'none',
+                                color: '#0c4a6e',
+                                fontSize: '0.9rem',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={e => {
+                                e.currentTarget.style.background = '#f1f5f9';
+                                e.currentTarget.style.borderColor = '#7dd3fc';
+                              }}
+                              onMouseLeave={e => {
+                                e.currentTarget.style.background = 'white';
+                                e.currentTarget.style.borderColor = '#cbd5e1';
+                              }}
+                            >
+                              <Download size={14} color='#0284c7' />
+                              <span style={{ flex: 1 }}>{file.filename}</span>
+                              <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                                {(file.size / 1024 / 1024).toFixed(1)} MB
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      </div>
                     )}
 
                     <div style={{

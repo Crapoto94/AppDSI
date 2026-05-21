@@ -2207,6 +2207,20 @@ const maintenanceStorage = multer.diskStorage({
 });
 const maintenanceUpload = multer({ storage: maintenanceStorage });
 
+// Backlog attachments upload configuration
+const backlogUploadDir = path.join(__dirname, 'uploads', 'backlog_attachments');
+if (!fs.existsSync(backlogUploadDir)) {
+    fs.mkdirSync(backlogUploadDir, { recursive: true });
+}
+const backlogStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, backlogUploadDir),
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + '-' + file.originalname);
+    }
+});
+const backlogUpload = multer({ storage: backlogStorage, limits: { fileSize: 25 * 1024 * 1024 } });
+
 app.post('/api/admin/magapp/maintenances/upload', authenticateMagappControl, maintenanceUpload.array('files', 10), async (req, res) => {
     try {
         const { maintenance_id } = req.body;
@@ -4579,7 +4593,7 @@ const backlogController = require('./controllers/backlogController');
 
 app.get('/api/backlog', authenticateJWT, backlogController.getAllBacklogItems);
 app.get('/api/backlog/:id', authenticateJWT, backlogController.getBacklogItem);
-app.post('/api/backlog', authenticateJWT, backlogController.createBacklogItem);
+app.post('/api/backlog', authenticateJWT, backlogUpload.array('attachments', 5), backlogController.createBacklogItem);
 app.put('/api/backlog/:id', authenticateAdmin, backlogController.updateBacklogItem);
 app.delete('/api/backlog/:id', authenticateAdmin, backlogController.deleteBacklogItem);
 

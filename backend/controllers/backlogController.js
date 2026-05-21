@@ -33,12 +33,25 @@ exports.createBacklogItem = async (req, res) => {
       return res.status(400).json({ error: 'Invalid category' });
     }
 
-    const result = await pgDb.run(`
-      INSERT INTO hub.backlog (title, description, category, status, user_id, created_by, tile_id, created_at, updated_at)
-      VALUES ($1, $2, $3, 'open', $4, $5, $6, NOW(), NOW())
-    `, [title, description || '', category, userId, username, tile_id || null]);
+    const attachments = [];
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(file => {
+        attachments.push({
+          filename: file.originalname,
+          path: file.filename,
+          size: file.size,
+          mimetype: file.mimetype,
+          uploadedAt: new Date().toISOString()
+        });
+      });
+    }
 
-    res.json({ id: result.lastID, title, description, category, status: 'open', tile_id });
+    const result = await pgDb.run(`
+      INSERT INTO hub.backlog (title, description, category, status, user_id, created_by, tile_id, attachments, created_at, updated_at)
+      VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, NOW(), NOW())
+    `, [title, description || '', category, userId, username, tile_id || null, JSON.stringify(attachments)]);
+
+    res.json({ id: result.lastID, title, description, category, status: 'open', tile_id, attachments });
   } catch (error) {
     console.error('Error creating backlog item:', error);
     res.status(500).json({ error: error.message });

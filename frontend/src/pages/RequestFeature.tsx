@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Send, CheckCircle, AlertCircle } from 'lucide-react';
+import { Plus, Send, CheckCircle, AlertCircle, Paperclip, X } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +19,7 @@ const RequestFeature: React.FC = () => {
   const [tilesLoading, setTilesLoading] = useState(true);
   const [error, setError] = useState('');
   const [tiles, setTiles] = useState<Tile[]>([]);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -57,6 +58,17 @@ const RequestFeature: React.FC = () => {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      setAttachments(prev => [...prev, ...files].slice(0, 5));
+    }
+  };
+
+  const handleRemoveAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -69,13 +81,29 @@ const RequestFeature: React.FC = () => {
         return;
       }
 
-      const response = await axios.post('/api/backlog', formData, {
-        headers: { Authorization: `Bearer ${token}` }
+      const submitData = new FormData();
+      submitData.append('title', formData.title);
+      submitData.append('description', formData.description);
+      submitData.append('category', formData.category);
+      if (formData.tile_id) {
+        submitData.append('tile_id', formData.tile_id);
+      }
+
+      attachments.forEach(file => {
+        submitData.append('attachments', file);
+      });
+
+      const response = await axios.post('/api/backlog', submitData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
       });
 
       if (response.status === 200) {
         setSubmitted(true);
         setFormData({ title: '', description: '', category: 'Amélioration' });
+        setAttachments([]);
         setTimeout(() => {
           navigate('/');
         }, 3000);
@@ -332,6 +360,83 @@ const RequestFeature: React.FC = () => {
                     onFocus={e => e.currentTarget.style.borderColor = '#0284c7'}
                     onBlur={e => e.currentTarget.style.borderColor = '#7dd3fc'}
                   />
+                </div>
+
+                <div style={{ marginBottom: '24px' }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.85rem',
+                    fontWeight: '700',
+                    color: '#0c4a6e',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Pièces jointes (optionnel)
+                  </label>
+                  <input
+                    type='file'
+                    multiple
+                    onChange={handleFileChange}
+                    style={{
+                      width: '100%',
+                      padding: '12px 14px',
+                      border: '2px solid #7dd3fc',
+                      borderRadius: '10px',
+                      fontSize: '0.95rem',
+                      boxSizing: 'border-box',
+                      cursor: 'pointer'
+                    }}
+                    accept='.pdf,.doc,.docx,.xls,.xlsx,.txt,.jpg,.jpeg,.png,.gif'
+                  />
+                  <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '6px' }}>
+                    Maximum 5 fichiers, 25 MB chacun
+                  </p>
+
+                  {attachments.length > 0 && (
+                    <div style={{ marginTop: '12px' }}>
+                      <p style={{ fontSize: '0.85rem', fontWeight: '600', color: '#475569', marginBottom: '8px' }}>
+                        Fichiers sélectionnés ({attachments.length})
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {attachments.map((file, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '8px 12px',
+                              background: '#f0f9ff',
+                              borderRadius: '6px',
+                              border: '1px solid #7dd3fc'
+                            }}
+                          >
+                            <Paperclip size={14} color='#0284c7' />
+                            <span style={{ fontSize: '0.9rem', color: '#1e293b', flex: 1 }}>
+                              {file.name}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                              {(file.size / 1024 / 1024).toFixed(1)} MB
+                            </span>
+                            <button
+                              type='button'
+                              onClick={() => handleRemoveAttachment(idx)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#dc2626',
+                                cursor: 'pointer',
+                                padding: '4px'
+                              }}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', gap: '12px' }}>
