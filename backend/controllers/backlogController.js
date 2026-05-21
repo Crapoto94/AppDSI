@@ -27,6 +27,7 @@ exports.createBacklogItem = async (req, res) => {
     const { title, description, category, tile_id } = req.body;
     const userId = req.user.id;
     const username = req.user.username;
+    const userEmail = req.user.email || '';
 
     if (!title || !category) {
       return res.status(400).json({ error: 'Title and category are required' });
@@ -51,9 +52,9 @@ exports.createBacklogItem = async (req, res) => {
     }
 
     const result = await pgDb.run(`
-      INSERT INTO hub.backlog (title, description, category, status, user_id, created_by, tile_id, attachments, created_at, updated_at)
-      VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, NOW(), NOW())
-    `, [title, description || '', category, userId, username, tile_id || null, JSON.stringify(attachments)]);
+      INSERT INTO hub.backlog (title, description, category, status, user_id, created_by, created_by_email, tile_id, attachments, created_at, updated_at)
+      VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, NOW(), NOW())
+    `, [title, description || '', category, userId, username, userEmail, tile_id || null, JSON.stringify(attachments)]);
 
     res.json({ id: result.lastID, title, description, category, status: 'open', tile_id, attachments });
   } catch (error) {
@@ -120,34 +121,44 @@ exports.updateBacklogItem = async (req, res) => {
     // Send email if status changed
     if (status && status !== currentItem.status && sendMailFn) {
       const requesterUsername = created_by || currentItem.created_by;
+      let requesterEmail = currentItem.created_by_email || '';
+
       console.log(`[BACKLOG] Status change: ${currentItem.status} → ${status}, requester: ${requesterUsername}`);
 
       try {
-        // Get requester's email (try PostgreSQL first, then SQLite)
-        let requesterUser = await pgDb.get(
-          'SELECT email FROM hub.users WHERE username = $1',
-          [requesterUsername]
-        );
+        // If email not stored, try to find it from PostgreSQL or SQLite
+        if (!requesterEmail) {
+          console.log(`[BACKLOG] Email not found in backlog item, searching for ${requesterUsername}`);
 
-        console.log(`[BACKLOG] PostgreSQL lookup for ${requesterUsername}:`, requesterUser);
+          let requesterUser = await pgDb.get(
+            'SELECT email FROM hub.users WHERE username = $1',
+            [requesterUsername]
+          );
 
-        // Fallback to SQLite if not found in PostgreSQL
-        if (!requesterUser || !requesterUser.email) {
-          const sqlite = getSqlite();
-          if (sqlite) {
-            try {
-              requesterUser = await sqlite.get(
-                'SELECT email FROM users WHERE username = ?',
-                [requesterUsername]
-              );
-              console.log(`[BACKLOG] SQLite fallback lookup for ${requesterUsername}:`, requesterUser);
-            } catch (sqliteErr) {
-              console.log(`[BACKLOG] SQLite lookup failed: ${sqliteErr.message}`);
+          console.log(`[BACKLOG] PostgreSQL lookup for ${requesterUsername}:`, requesterUser);
+
+          // Fallback to SQLite if not found in PostgreSQL
+          if (!requesterUser || !requesterUser.email) {
+            const sqlite = getSqlite();
+            if (sqlite) {
+              try {
+                requesterUser = await sqlite.get(
+                  'SELECT email FROM users WHERE username = ?',
+                  [requesterUsername]
+                );
+                console.log(`[BACKLOG] SQLite fallback lookup for ${requesterUsername}:`, requesterUser);
+              } catch (sqliteErr) {
+                console.log(`[BACKLOG] SQLite lookup failed: ${sqliteErr.message}`);
+              }
             }
+          }
+
+          if (requesterUser && requesterUser.email) {
+            requesterEmail = requesterUser.email;
           }
         }
 
-        if (requesterUser && requesterUser.email) {
+        if (requesterEmail) {
           const statusLabels = {
             'open': 'En attente',
             'in_progress': 'En cours',
@@ -167,9 +178,9 @@ exports.updateBacklogItem = async (req, res) => {
             <p>Vous pouvez consulter les détails dans le portail DSI Hub.</p>
           `;
 
-          console.log(`[BACKLOG] Sending email to ${requesterUser.email}`);
-          await sendMailFn(requesterUser.email, `[DSI Hub] Mise à jour : ${currentItem.title}`, emailContent);
-          console.log(`[BACKLOG] Email sent successfully to ${requesterUser.email}`);
+          console.log(`[BACKLOG] Sending email to ${requesterEmail}`);
+          await sendMailFn(requesterEmail, `[DSI Hub] Mise à jour : ${currentItem.title}`, emailContent);
+          console.log(`[BACKLOG] Email sent successfully to ${requesterEmail}`);
         } else {
           console.log(`[BACKLOG] No email found for user ${requesterUsername}`);
         }

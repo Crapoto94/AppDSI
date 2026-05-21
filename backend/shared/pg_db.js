@@ -1809,6 +1809,13 @@ async function setupPgDb() {
       await client.query(`UPDATE finance.field_mapping_rubriques SET fiscal_year_column = 'FACTURE_DATENTREE' WHERE name = 'Factures' AND (fiscal_year_column IS NULL OR fiscal_year_column = '')`);
     } catch (e) {}
 
+    // Add created_by_email column to backlog if missing
+    try {
+      await client.query(`
+        ALTER TABLE hub.backlog ADD COLUMN IF NOT EXISTS created_by_email VARCHAR(255)
+      `);
+    } catch (e) {}
+
     // Tiles and tile_links for dashboard
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.tiles (
