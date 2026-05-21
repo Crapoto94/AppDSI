@@ -4599,6 +4599,17 @@ app.put('/api/backlog/:id', authenticateAdmin, backlogController.updateBacklogIt
 app.delete('/api/backlog/:id', authenticateAdmin, backlogController.deleteBacklogItem);
 
 // ============================================
+// DOCTRINES - Notes de service et doctrines
+// ============================================
+const doctrinesController = require('./controllers/doctrinesController');
+
+app.get('/api/doctrines', authenticateJWT, doctrinesController.getAllDoctrines);
+app.get('/api/doctrines/:id', authenticateJWT, doctrinesController.getDoctrine);
+app.post('/api/doctrines', authenticateJWT, doctrinesController.createDoctrine);
+app.put('/api/doctrines/:id', authenticateAdmin, doctrinesController.updateDoctrine);
+app.delete('/api/doctrines/:id', authenticateAdmin, doctrinesController.deleteDoctrine);
+
+// ============================================
 // PROJETS - Gestion de portefeuille
 // ============================================
 const projetsRouter = require('./modules/projets/projets.routes');

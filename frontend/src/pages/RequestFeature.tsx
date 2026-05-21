@@ -9,6 +9,7 @@ interface Tile {
   id: number;
   title: string;
   icon: string;
+  status?: string;
 }
 
 const RequestFeature: React.FC = () => {
@@ -102,7 +103,7 @@ const RequestFeature: React.FC = () => {
 
       if (response.status === 200) {
         setSubmitted(true);
-        setFormData({ title: '', description: '', category: 'Amélioration' });
+        setFormData({ title: '', description: '', category: 'Amélioration', tile_id: '' });
         setAttachments([]);
         setTimeout(() => {
           navigate('/');

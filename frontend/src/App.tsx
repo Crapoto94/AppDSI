@@ -35,6 +35,7 @@ import AgentsDSI from './pages/AgentsDSI';
 import RequestFeature from './pages/RequestFeature';
 import AdminBacklog from './pages/AdminBacklog';
 import WhatsNew from './pages/WhatsNew';
+import Doctrines from './pages/Doctrines';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -70,6 +71,7 @@ function App() {
         <Route path="/request-access" element={<AccessRequestPage />} />
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
+        <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />
 
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
         <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
