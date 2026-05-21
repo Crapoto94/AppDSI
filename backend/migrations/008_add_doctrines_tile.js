@@ -16,7 +16,8 @@ async function runMigration() {
     );
 
     if (existing.rows.length === 0) {
-      await pool.query(`
+      // Create tile
+      const result = await pool.query(`
         INSERT INTO hub.tiles (title, icon, description, status, sort_order)
         VALUES (
           'Notes de service et doctrines',
@@ -25,10 +26,35 @@ async function runMigration() {
           'active',
           (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM hub.tiles)
         )
+        RETURNING id
       `);
-      console.log('✅ Tile created successfully');
+
+      const tileId = result.rows[0].id;
+
+      // Add link to doctrines page
+      await pool.query(`
+        INSERT INTO hub.tile_links (tile_id, label, url, is_internal)
+        VALUES ($1, 'Accéder', '/doctrines', 1)
+      `, [tileId]);
+
+      console.log('✅ Tile and link created successfully');
     } else {
-      console.log('ℹ️  Tile already exists');
+      // Check if link exists
+      const linkExists = await pool.query(
+        `SELECT id FROM hub.tile_links WHERE tile_id = $1 AND url = '/doctrines'`,
+        [existing.rows[0].id]
+      );
+
+      if (linkExists.rows.length === 0) {
+        // Add link if it doesn't exist
+        await pool.query(`
+          INSERT INTO hub.tile_links (tile_id, label, url, is_internal)
+          VALUES ($1, 'Accéder', '/doctrines', 1)
+        `, [existing.rows[0].id]);
+        console.log('✅ Link added to existing tile');
+      } else {
+        console.log('ℹ️  Tile and link already exist');
+      }
     }
 
     process.exit(0);

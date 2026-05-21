@@ -134,7 +134,12 @@
       "Bash(node check-oracle-rh.js)",
       "Bash(node migrations/001_create_backlog_table.js)",
       "Bash(powershell -Command ' *)",
-      "Bash(node migrations/002_fix_backlog_fk.js)"
+      "Bash(node migrations/002_fix_backlog_fk.js)",
+      "Bash(node -c /c/dev/AppDSI/backend/controllers/doctrinesController.js)",
+      "Bash(node migrations/007_create_doctrines_table.js)",
+      "Bash(node migrations/008_add_doctrines_tile.js)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(curl -s http://localhost:3000/api/doctrines -H \"Authorization: Bearer test\")"
     ]
   }
 }
