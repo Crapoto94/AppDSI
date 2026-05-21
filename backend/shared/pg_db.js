@@ -58,7 +58,8 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!hub\.)\bemail_automation_recipients\b/gi, 'hub.email_automation_recipients')
                     .replace(/(?<!hub\.)\bemail_automation_logs\b/gi, 'hub.email_automation_logs')
                     .replace(/(?<!hub_calendrier\.)\bo365_calendars\b/gi, 'hub_calendrier.o365_calendars')
-                    .replace(/(?<!hub_calendrier\.)\bo365_events\b/gi, 'hub_calendrier.o365_events');
+                    .replace(/(?<!hub_calendrier\.)\bo365_events\b/gi, 'hub_calendrier.o365_events')
+                    .replace(/(?<!hub\.)\bbacklog\b/gi, 'hub.backlog');
 
     newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
                     .replace(/transcript_cues/gi, 'transcript.cues')

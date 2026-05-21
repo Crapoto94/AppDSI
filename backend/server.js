@@ -4573,6 +4573,17 @@ cron.schedule('* * * * *', async () => {
 console.log('[EMAIL-AUTO CRON] Cron job registered (every minute)');
 
 // ============================================
+// BACKLOG - Gestion des demandes
+// ============================================
+const backlogController = require('./controllers/backlogController');
+
+app.get('/api/backlog', authenticateJWT, backlogController.getAllBacklogItems);
+app.get('/api/backlog/:id', authenticateJWT, backlogController.getBacklogItem);
+app.post('/api/backlog', authenticateJWT, backlogController.createBacklogItem);
+app.put('/api/backlog/:id', authenticateAdmin, backlogController.updateBacklogItem);
+app.delete('/api/backlog/:id', authenticateAdmin, backlogController.deleteBacklogItem);
+
+// ============================================
 // PROJETS - Gestion de portefeuille
 // ============================================
 const projetsRouter = require('./modules/projets/projets.routes');

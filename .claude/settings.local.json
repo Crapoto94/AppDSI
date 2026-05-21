@@ -131,7 +131,9 @@
       "Bash(node debug-cadinot.js)",
       "Bash(cp debug-sedit.js backend/)",
       "Bash(node debug-sedit.js)",
-      "Bash(node check-oracle-rh.js)"
+      "Bash(node check-oracle-rh.js)",
+      "Bash(node migrations/001_create_backlog_table.js)",
+      "Bash(powershell -Command ' *)"
     ]
   }
 }

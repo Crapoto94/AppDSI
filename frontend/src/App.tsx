@@ -32,6 +32,8 @@ import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
 import Contrats from './pages/Contrats';
 import CalendrierDSI from './pages/CalendrierDSI';
 import AgentsDSI from './pages/AgentsDSI';
+import RequestFeature from './pages/RequestFeature';
+import AdminBacklog from './pages/AdminBacklog';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -65,6 +67,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/request-access" element={<AccessRequestPage />} />
+        <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
         <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
@@ -113,6 +116,7 @@ function App() {
           <Route path="transcript" element={<Admin section="transcript" />} />
           <Route path="finance" element={<AdminFinance />} />
           <Route path="email-automation" element={<EmailAutomation />} />
+          <Route path="backlog" element={<AdminBacklog />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />
