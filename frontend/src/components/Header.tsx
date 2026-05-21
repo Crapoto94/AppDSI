@@ -360,8 +360,8 @@ const Header: React.FC<HeaderProps> = () => {
           gap: 8px;
         }
         .logo-icon {
-          width: 32px;
-          height: 32px;
+          width: 48px;
+          height: 48px;
           object-fit: contain;
         }
         .logo-ivry {
