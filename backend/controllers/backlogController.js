@@ -35,7 +35,7 @@ exports.createBacklogItem = async (req, res) => {
 
     const result = await pgDb.run(`
       INSERT INTO hub.backlog (title, description, category, status, user_id, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, 'open', ?, ?, NOW(), NOW())
+      VALUES ($1, $2, $3, 'open', $4, $5, NOW(), NOW())
     `, [title, description || '', category, userId, username]);
 
     res.json({ id: result.lastID, title, description, category, status: 'open' });
@@ -58,21 +58,22 @@ exports.updateBacklogItem = async (req, res) => {
 
     const updates = [];
     const params = [];
+    let paramCount = 1;
 
     if (title) {
-      updates.push('title = ?');
+      updates.push(`title = $${paramCount++}`);
       params.push(title);
     }
     if (description !== undefined) {
-      updates.push('description = ?');
+      updates.push(`description = $${paramCount++}`);
       params.push(description);
     }
     if (category) {
-      updates.push('category = ?');
+      updates.push(`category = $${paramCount++}`);
       params.push(category);
     }
     if (status) {
-      updates.push('status = ?');
+      updates.push(`status = $${paramCount++}`);
       params.push(status);
     }
 
@@ -86,7 +87,7 @@ exports.updateBacklogItem = async (req, res) => {
     await pgDb.run(`
       UPDATE hub.backlog
       SET ${updates.join(', ')}
-      WHERE id = ?
+      WHERE id = $${paramCount}
     `, params);
 
     res.json({ success: true });
@@ -101,7 +102,7 @@ exports.deleteBacklogItem = async (req, res) => {
   try {
     const { id } = req.params;
 
-    await pgDb.run('DELETE FROM hub.backlog WHERE id = ?', [id]);
+    await pgDb.run('DELETE FROM hub.backlog WHERE id = $1', [id]);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting backlog item:', error);
@@ -114,7 +115,7 @@ exports.getBacklogItem = async (req, res) => {
   try {
     const { id } = req.params;
     const item = await pgDb.get(`
-      SELECT * FROM hub.backlog WHERE id = ?
+      SELECT * FROM hub.backlog WHERE id = $1
     `, [id]);
 
     if (!item) {

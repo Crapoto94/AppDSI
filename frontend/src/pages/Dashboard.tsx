@@ -149,8 +149,36 @@ const Dashboard: React.FC = () => {
       
       <main className={`container main-content ${!isApproved ? 'blurred' : ''}`}>
         <section className="welcome-section">
-          <h1>Bienvenue, {user?.username}</h1>
-          <p>Choisissez un service pour commencer votre session de travail.</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div>
+              <h1>Bienvenue, {user?.username}</h1>
+              <p>Choisissez un service pour commencer votre session de travail.</p>
+            </div>
+            <button
+              onClick={() => navigate('/request-feature')}
+              style={{
+                padding: '12px 20px',
+                background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 8px 16px rgba(37, 99, 235, 0.4)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.3)';
+              }}
+            >
+              ✨ Soumettre une demande
+            </button>
+          </div>
         </section>
 
         {loading ? (
