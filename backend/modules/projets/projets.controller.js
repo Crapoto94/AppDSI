@@ -1592,16 +1592,32 @@ const getJournal = async (req, res) => {
 const ajouterEntreeJournal = async (req, res) => {
     try {
         const { id } = req.params;
-        const { type_entree, message, details } = req.body;
+        const { type_entree, message, details, date_entree } = req.body;
         const username = req.user.username;
 
         if (!type_entree || !message) {
             return res.status(400).json({ error: 'Type et message requis' });
         }
 
+        let details_obj = details ? JSON.stringify(details) : null;
+
+        // Si un fichier est téléchargé, l'ajouter aux détails
+        if (req.file) {
+            const fileInfo = {
+                filename: req.file.originalname,
+                path: req.file.filename,
+                size: req.file.size,
+                mimetype: req.file.mimetype,
+                uploadedAt: new Date().toISOString()
+            };
+            details_obj = JSON.stringify(fileInfo);
+        }
+
+        const entryDate = date_entree ? date_entree : new Date().toISOString().split('T')[0];
+
         const result = await pgDb.run(
-            `INSERT INTO projet_journal (projet_id, type_entree, message, details, username) VALUES ($1, $2, $3, $4, $5)`,
-            [id, type_entree, message, details ? JSON.stringify(details) : null, username]
+            `INSERT INTO projet_journal (projet_id, type_entree, message, details, username, date_entree) VALUES ($1, $2, $3, $4, $5, $6)`,
+            [id, type_entree, message, details_obj, username, entryDate]
         );
 
         res.status(201).json({ id: result.lastID, message: 'Entrée ajoutée au journal' });

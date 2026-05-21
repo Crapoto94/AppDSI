@@ -1550,6 +1550,8 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
   const [entries, setEntries] = useState<any[]>([]);
   const [newEntryMsg, setNewEntryMsg] = useState('');
   const [newEntryType, setNewEntryType] = useState('note');
+  const [newEntryDate, setNewEntryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newEntryFile, setNewEntryFile] = useState<File | null>(null);
   const [adding, setAdding] = useState(false);
 
   const loadJournal = useCallback(async () => {
@@ -1566,12 +1568,28 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
     if (!newEntryMsg.trim()) return;
     setAdding(true);
     try {
-      await fetch(`/api/projets/${projetId}/journal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ type_entree: newEntryType, message: newEntryMsg })
-      });
+      if (newEntryFile) {
+        const formData = new FormData();
+        formData.append('type_entree', newEntryType);
+        formData.append('message', newEntryMsg);
+        formData.append('date_entree', newEntryDate);
+        formData.append('file', newEntryFile);
+
+        await fetch(`/api/projets/${projetId}/journal`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData
+        });
+      } else {
+        await fetch(`/api/projets/${projetId}/journal`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ type_entree: newEntryType, message: newEntryMsg, date_entree: newEntryDate })
+        });
+      }
       setNewEntryMsg('');
+      setNewEntryDate(new Date().toISOString().split('T')[0]);
+      setNewEntryFile(null);
       loadJournal();
     } catch (e) { console.error(e); }
     finally { setAdding(false); }
@@ -1579,21 +1597,41 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '12px 16px' }}>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <select value={newEntryType} onChange={e => setNewEntryType(e.target.value)} style={{ padding: '7px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
+      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', marginBottom: '12px' }}>
+          <select value={newEntryType} onChange={e => setNewEntryType(e.target.value)} style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white', fontWeight: '600' }}>
             <option value="note">📝 Note</option>
             <option value="decision">⚖️ Décision</option>
             <option value="action">✅ Action</option>
             <option value="alerte">⚠️ Alerte</option>
             <option value="evenement">📌 Événement</option>
           </select>
-          <input value={newEntryMsg} onChange={e => setNewEntryMsg(e.target.value)} placeholder="Ajouter un événement au journal..." style={{ flex: 1, padding: '7px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }}
-            onKeyDown={e => { if (e.key === 'Enter') addEntry(); }} />
-          <button onClick={addEntry} disabled={adding || !newEntryMsg.trim()} style={{ padding: '7px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', opacity: (adding || !newEntryMsg.trim()) ? 0.5 : 1, whiteSpace: 'nowrap', fontSize: '13px' }}>
-            Ajouter
+          <input
+            type="date"
+            value={newEntryDate}
+            onChange={e => setNewEntryDate(e.target.value)}
+            style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', color: '#475569' }}>
+            📎
+            <input
+              type="file"
+              onChange={e => setNewEntryFile(e.target.files?.[0] || null)}
+              style={{ display: 'none' }}
+            />
+            {newEntryFile ? newEntryFile.name : 'Joindre'}
+          </label>
+          <button onClick={addEntry} disabled={adding || !newEntryMsg.trim()} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', opacity: (adding || !newEntryMsg.trim()) ? 0.5 : 1, whiteSpace: 'nowrap', fontSize: '13px' }}>
+            {adding ? 'Ajout...' : 'Ajouter'}
           </button>
         </div>
+        <textarea
+          value={newEntryMsg}
+          onChange={e => setNewEntryMsg(e.target.value)}
+          placeholder="Ajouter un événement au journal..."
+          style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', fontFamily: 'inherit', minHeight: '60px', boxSizing: 'border-box' }}
+          onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) addEntry(); }}
+        />
       </div>
       {entries.length === 0 ? (
         <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Aucune entrée dans le journal</p>
