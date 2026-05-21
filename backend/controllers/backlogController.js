@@ -6,7 +6,7 @@ exports.getAllBacklogItems = async (req, res) => {
     const items = await pgDb.all(`
       SELECT
         id, title, description, category, status, created_by,
-        created_at, updated_at, user_id
+        created_at, updated_at, user_id, attachments
       FROM hub.backlog
       ORDER BY created_at DESC
     `);
