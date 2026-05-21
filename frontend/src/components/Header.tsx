@@ -526,9 +526,9 @@ const Header: React.FC<HeaderProps> = () => {
         .modal-content {
           background: white;
           width: 90%;
-          max-width: 600px;
+          max-width: 900px;
           border-radius: 16px;
-          max-height: 80vh;
+          max-height: 90vh;
           display: flex;
           flex-direction: column;
           box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
