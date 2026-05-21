@@ -115,17 +115,17 @@ async function getControlesCompletude(projetId, statutCible) {
 function getStatutsSuivants(statutActuel) {
     const transitions = {
         'idee': ['demande_initiale'],
-        'demande_initiale': ['etude_dsi'],
-        'etude_dsi': ['arbitrage'],
-        'arbitrage': ['planification', 'refuse', 'suspendu'],
-        'planification': ['en_cours', 'suspendu'],
-        'en_cours': ['en_recette', 'suspendu'],
-        'en_recette': ['en_cloture', 'suspendu'],
-        'en_cloture': ['cloture', 'suspendu'],
+        'demande_initiale': ['idee', 'etude_dsi'],
+        'etude_dsi': ['demande_initiale', 'arbitrage'],
+        'arbitrage': ['etude_dsi', 'demande_initiale', 'planification', 'refuse', 'suspendu'],
+        'planification': ['arbitrage', 'en_cours', 'suspendu'],
+        'en_cours': ['planification', 'en_recette', 'suspendu'],
+        'en_recette': ['en_cours', 'en_cloture', 'suspendu'],
+        'en_cloture': ['en_recette', 'cloture', 'suspendu'],
         'suspendu': ['demande_initiale', 'etude_dsi', 'arbitrage', 'planification', 'en_cours', 'en_recette', 'en_cloture', 'abandonne'],
-        'refuse': [],
-        'abandonne': [],
-        'cloture': []
+        'refuse': ['arbitrage'],
+        'abandonne': ['suspendu'],
+        'cloture': ['en_cloture']
     };
     return transitions[statutActuel] || [];
 }
