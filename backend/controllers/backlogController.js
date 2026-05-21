@@ -152,6 +152,25 @@ exports.createBacklogItem = async (req, res) => {
       VALUES ($1, $2, $3, 'open', $4, $5, $6, $7, $8, NOW(), NOW())
     `, [title, description || '', category, userId, username, userEmail, tile_id || null, JSON.stringify(attachments)]);
 
+    // Send acknowledgment email (AR)
+    if (userEmail && sendMailFn) {
+      try {
+        const arContent = `
+          <h2>Accusé de réception - Demande enregistrée</h2>
+          <p>Votre demande <strong>"${title}"</strong> a été enregistrée avec succès.</p>
+          <p><strong>Catégorie :</strong> ${category}</p>
+          <p><strong>Statut :</strong> En attente</p>
+          <p>Un administrateur traitera votre demande au plus tôt.</p>
+          <p>Vous pouvez consulter l'état de votre demande dans le portail DSI Hub.</p>
+        `;
+        console.log(`[BACKLOG] Sending AR email to ${userEmail}`);
+        await sendMailFn(userEmail, `[DSI Hub] AR - Demande reçue : ${title}`, arContent);
+        console.log(`[BACKLOG] AR email sent successfully to ${userEmail}`);
+      } catch (emailError) {
+        console.error(`[BACKLOG] Error sending AR email:`, emailError);
+      }
+    }
+
     res.json({ id: result.lastID, title, description, category, status: 'open', tile_id, attachments });
   } catch (error) {
     console.error('Error creating backlog item:', error);
