@@ -38,14 +38,14 @@ const STATUT_LABELS: Record<string, string> = {
   idee: 'Idée', demande_initiale: 'Demande initiale', etude_dsi: 'Étude DSI',
   arbitrage: 'Arbitrage', planification: 'Planification', en_cours: 'En cours',
   en_recette: 'En recette', en_cloture: 'En clôture', cloture: 'Clôturé',
-  refuse: 'Refusé', suspendu: 'Suspendu', abandonne: 'Abandonné'
+  refuse: 'Refusé', suspendu: 'Suspendu', abandonne: 'Abandonné', en_pause: 'En pause'
 };
 
 const STATUT_COLORS: Record<string, string> = {
   idee: '#94a3b8', demande_initiale: '#f59e0b', etude_dsi: '#3b82f6',
   arbitrage: '#8b5cf6', planification: '#06b6d4', en_cours: '#22c55e',
   en_recette: '#14b8a6', en_cloture: '#f97316', cloture: '#64748b',
-  refuse: '#ef4444', suspendu: '#eab308', abandonne: '#6b7280'
+  refuse: '#ef4444', suspendu: '#eab308', abandonne: '#6b7280', en_pause: '#a855f7'
 };
 
 const COMPTEUR_MAP: Record<string, string> = {
@@ -522,14 +522,56 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
               <span>{projet.service_pilote}</span>
             </div>
           </div>
-          <button onClick={() => {
-            fetchTransitions();
-            setShowTransitionPicker(!showTransitionPicker);
-            if (!showTransitionPicker) setTransitionStatutCible('');
-          }}
-            style={{ padding: '9px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <ArrowRight size={16} /> Changer le statut
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => {
+              fetchTransitions();
+              setShowTransitionPicker(!showTransitionPicker);
+              if (!showTransitionPicker) setTransitionStatutCible('');
+            }}
+              style={{ padding: '9px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <ArrowRight size={16} /> Changer le statut
+            </button>
+            {projet?.statut !== 'refuse' && (
+              <button onClick={async () => {
+                if (window.confirm('Êtes-vous sûr de vouloir refuser ce projet ?')) {
+                  try {
+                    const res = await fetch(`/api/projets/${id}/transition`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                      body: JSON.stringify({ statut_cible: 'refuse', commentaire: null })
+                    });
+                    if (res.ok) {
+                      fetchProjet();
+                      fetchTransitions();
+                    }
+                  } catch (e) { console.error(e); }
+                }
+              }}
+                style={{ padding: '9px 16px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                ✕ Refuser
+              </button>
+            )}
+            {projet?.statut !== 'en_pause' && !['refuse', 'abandonne', 'cloture'].includes(projet?.statut || '') && (
+              <button onClick={async () => {
+                if (window.confirm('Êtes-vous sûr de vouloir mettre ce projet en pause ?')) {
+                  try {
+                    const res = await fetch(`/api/projets/${id}/transition`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                      body: JSON.stringify({ statut_cible: 'en_pause', commentaire: null })
+                    });
+                    if (res.ok) {
+                      fetchProjet();
+                      fetchTransitions();
+                    }
+                  } catch (e) { console.error(e); }
+                }
+              }}
+                style={{ padding: '9px 16px', background: '#a855f7', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                ⏸ Mettre en pause
+              </button>
+            )}
+          </div>
           {showTransitionPicker && (
             <div style={{ position: 'absolute', top: '100%', right: '0', marginTop: '4px', background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 50, minWidth: '320px', padding: '16px' }}>
               <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b', marginBottom: '12px' }}>🔄 Changer le statut</div>

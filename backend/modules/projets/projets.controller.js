@@ -115,15 +115,16 @@ async function getControlesCompletude(projetId, statutCible) {
 function getStatutsSuivants(statutActuel) {
     const transitions = {
         'idee': ['demande_initiale'],
-        'demande_initiale': ['idee', 'etude_dsi'],
-        'etude_dsi': ['demande_initiale', 'arbitrage'],
-        'arbitrage': ['etude_dsi', 'demande_initiale', 'planification', 'refuse', 'suspendu'],
-        'planification': ['arbitrage', 'en_cours', 'suspendu'],
-        'en_cours': ['planification', 'en_recette', 'suspendu'],
-        'en_recette': ['en_cours', 'en_cloture', 'suspendu'],
-        'en_cloture': ['en_recette', 'cloture', 'suspendu'],
+        'demande_initiale': ['idee', 'etude_dsi', 'refuse', 'en_pause'],
+        'etude_dsi': ['demande_initiale', 'arbitrage', 'refuse', 'en_pause'],
+        'arbitrage': ['etude_dsi', 'demande_initiale', 'planification', 'refuse', 'suspendu', 'en_pause'],
+        'planification': ['arbitrage', 'en_cours', 'suspendu', 'refuse', 'en_pause'],
+        'en_cours': ['planification', 'en_recette', 'suspendu', 'refuse', 'en_pause'],
+        'en_recette': ['en_cours', 'en_cloture', 'suspendu', 'refuse', 'en_pause'],
+        'en_cloture': ['en_recette', 'cloture', 'suspendu', 'refuse', 'en_pause'],
+        'en_pause': ['demande_initiale', 'etude_dsi', 'arbitrage', 'planification', 'en_cours', 'en_recette', 'en_cloture', 'abandonne'],
         'suspendu': ['demande_initiale', 'etude_dsi', 'arbitrage', 'planification', 'en_cours', 'en_recette', 'en_cloture', 'abandonne'],
-        'refuse': ['arbitrage'],
+        'refuse': ['arbitrage', 'demande_initiale'],
         'abandonne': ['suspendu'],
         'cloture': ['en_cloture']
     };
@@ -143,7 +144,8 @@ function getStatutLabel(statut) {
         'cloture': 'Clôturé',
         'refuse': 'Refusé',
         'suspendu': 'Suspendu',
-        'abandonne': 'Abandonné'
+        'abandonne': 'Abandonné',
+        'en_pause': 'En pause'
     };
     return labels[statut] || statut;
 }
