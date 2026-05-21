@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Check, X, Clock, AlertCircle, Trash2, Edit2, Filter } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import Header from '../components/Header';
 
 interface BacklogItem {
   id: number;
@@ -92,17 +91,14 @@ const AdminBacklog: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-color)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px' }}>
         <div style={{ fontSize: '1.1rem', color: '#64748b' }}>Chargement...</div>
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-color)' }}>
-      <Header />
-      <main style={{ padding: '60px 20px' }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+    <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
           <h1 style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a', marginBottom: '8px' }}>
             Gestion du Backlog
           </h1>
@@ -113,13 +109,13 @@ const AdminBacklog: React.FC = () => {
           {/* Filtres */}
           <div style={{
             background: 'white',
-            borderRadius: '12px',
+            borderRadius: '8px',
             padding: '20px',
             marginBottom: '24px',
             display: 'flex',
             gap: '20px',
             flexWrap: 'wrap',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+            border: '1px solid #e2e8f0'
           }}>
             <div>
               <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '8px' }}>
@@ -172,10 +168,11 @@ const AdminBacklog: React.FC = () => {
             {filteredItems.length === 0 ? (
               <div style={{
                 background: 'white',
-                borderRadius: '12px',
+                borderRadius: '8px',
                 padding: '40px',
                 textAlign: 'center',
-                color: '#94a3b8'
+                color: '#94a3b8',
+                border: '1px solid #e2e8f0'
               }}>
                 Aucune demande trouvée
               </div>
@@ -190,9 +187,9 @@ const AdminBacklog: React.FC = () => {
                     key={item.id}
                     style={{
                       background: 'white',
-                      borderRadius: '12px',
+                      borderRadius: '8px',
                       padding: '20px',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                      border: '1px solid #e2e8f0',
                       borderLeft: `4px solid ${statusInfo?.color || '#94a3b8'}`
                     }}
                   >
@@ -349,8 +346,6 @@ const AdminBacklog: React.FC = () => {
               })
             )}
           </div>
-        </div>
-      </main>
     </div>
   );
 };
