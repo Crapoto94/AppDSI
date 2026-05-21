@@ -544,30 +544,26 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
                 style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px', background: 'white', marginBottom: '10px' }}>
                 <option value="">Sélectionner...</option>
                 {(() => {
-                  const currentIdx = etapesActives.indexOf(projet.statut);
-                  const prevStatut = currentIdx > 0 ? etapesActives[currentIdx - 1] : null;
-                  const nextStatut = currentIdx >= 0 && currentIdx < etapesActives.length - 1 ? etapesActives[currentIdx + 1] : null;
+                  const etapesOrdre = ['idee', 'demande_initiale', 'etude_dsi', 'arbitrage', 'planification', 'en_cours', 'en_recette', 'en_cloture', 'cloture'];
+                  const currentIdx = etapesOrdre.indexOf(projet.statut);
                   const result: { statut: string; label: string; alerte?: boolean }[] = [];
-                  // Toujours proposer l'étape précédente
-                  if (prevStatut && prevStatut !== projet.statut_precedent) {
-                    result.push({ statut: prevStatut, label: `← ${STATUT_LABELS[prevStatut] || prevStatut}` });
-                  }
-                  // Toujours proposer l'étape suivante
-                  if (nextStatut) {
-                    const t = transitions.find((t: any) => t.statut === nextStatut);
-                    result.push({ statut: nextStatut, label: `${STATUT_LABELS[nextStatut] || nextStatut} →`, alerte: (t?.alertes?.length || 0) > 0 });
-                  }
-                  // Ajouter les autres transitions (inclut suspendu/refuse du backend)
+
+                  // Ajouter toutes les transitions du backend
                   transitions.forEach(t => {
-                    if (t.statut !== nextStatut) {
-                      result.push({ statut: t.statut, label: t.label, alerte: t.alertes?.length > 0 });
+                    const tIdx = etapesOrdre.indexOf(t.statut);
+                    let prefix = '';
+                    // Ajouter des flèches pour indiquer avant/après
+                    if (currentIdx >= 0 && tIdx >= 0) {
+                      if (tIdx < currentIdx) prefix = '← '; // Retour en arrière
+                      else if (tIdx > currentIdx) prefix = '→ '; // En avant
                     }
+                    result.push({
+                      statut: t.statut,
+                      label: `${prefix}${STATUT_LABELS[t.statut] || t.statut}`,
+                      alerte: t.alertes?.length > 0
+                    });
                   });
-                  // Suspendu et Refusé toujours disponibles (sauf déjà dedans)
-                  if (!result.find(r => r.statut === 'suspendu') && !['suspendu','refuse','abandonne','cloture'].includes(projet.statut))
-                    result.push({ statut: 'suspendu', label: '⏸️ Suspendu' });
-                  if (!result.find(r => r.statut === 'refuse') && !['refuse','abandonne','cloture'].includes(projet.statut))
-                    result.push({ statut: 'refuse', label: '🚫 Refusé' });
+
                   // Retirer les doublons
                   const seen = new Set<string>();
                   return result.filter(r => {
