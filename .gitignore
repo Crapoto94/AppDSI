@@ -63,3 +63,18 @@ backend/old/
 uploads/
 package-lock.json
 frontend/start_frontend.bat
+
+# Fichiers de données import
+*.csv
+certificates-import*.json
+certif.sqlite*
+
+# Images uploadées
+backend/magapp_img/*
+!backend/magapp_img/.gitkeep
+
+# Configuration locale
+.claude/
+
+# Test data
+printer_attributes.csv

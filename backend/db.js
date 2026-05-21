@@ -610,6 +610,25 @@ async function setupDb() {
         console.warn('[DB Migration] Erreur création tuile Mes Réunions:', e.message);
     }
 
+    // Migration: Créer la tuile Photocopieurs si elle n'existe pas
+    try {
+        const existingTile = await db.get("SELECT id FROM tiles WHERE title = 'Photocopieurs'");
+        if (!existingTile) {
+            const maxOrder = await db.get("SELECT MAX(sort_order) as max FROM tiles");
+            const result = await db.run(
+                "INSERT INTO tiles (title, icon, description, status, sort_order, is_public) VALUES (?, ?, ?, ?, ?, ?)",
+                ['Photocopieurs', 'Printer', 'Gestion des photocopieurs Canon de la ville et des écoles', 'active', (maxOrder?.max || 999) + 1, 1]
+            );
+            const tileId = result.lastID;
+            try {
+                await db.run("INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)", [tileId, 'Gérer les copieurs', '/copieurs', 1]);
+            } catch (e2) {}
+            console.log('[DB Migration] Tuile Photocopieurs créée');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur création tuile Photocopieurs:', e.message);
+    }
+
     // Note: Tables moved to external DBs (gf, rh) are not created here anymore.
     // They are accessed via their attached aliases (e.g. gf.oracle_commande).
     // However, views that were migrated (v_orders) need to be recreated in the main DB

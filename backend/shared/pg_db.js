@@ -65,7 +65,8 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!hub\.)\bemail_automation_logs\b/gi, 'hub.email_automation_logs')
                     .replace(/(?<!hub_calendrier\.)\bo365_calendars\b/gi, 'hub_calendrier.o365_calendars')
                     .replace(/(?<!hub_calendrier\.)\bo365_events\b/gi, 'hub_calendrier.o365_events')
-                    .replace(/(?<!hub\.)\bbacklog\b/gi, 'hub.backlog');
+                    .replace(/(?<!hub\.)\bbacklog\b/gi, 'hub.backlog')
+                    .replace(/(?<!hub_copieurs\.)\bcopieurs\b(?!\s*\.)/gi, 'hub_copieurs.copieurs');
 
     newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
                     .replace(/transcript_cues/gi, 'transcript.cues')
@@ -1556,6 +1557,63 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE finance.field_mapping_variables ADD COLUMN IF NOT EXISTS display_type TEXT NOT NULL DEFAULT 'text'`);
     } catch (e) {}
+
+    // Create hub_copieurs schema and table
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_copieurs;');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_copieurs.copieurs (
+        id SERIAL PRIMARY KEY,
+        direction TEXT DEFAULT '',
+        service TEXT DEFAULT '',
+        secteur TEXT DEFAULT '',
+        adresse TEXT DEFAULT '',
+        numero_serie TEXT DEFAULT '',
+        modele TEXT DEFAULT '',
+        modele_papercut TEXT DEFAULT '',
+        couleur TEXT DEFAULT '',
+        date_acquisition DATE,
+        nom_reseau TEXT DEFAULT '',
+        ip TEXT DEFAULT '',
+        present TEXT DEFAULT '',
+        nb_pages INTEGER,
+        mainteneur TEXT DEFAULT '',
+        divers TEXT DEFAULT '',
+        source TEXT DEFAULT 'ville',
+        archive BOOLEAN DEFAULT FALSE,
+        latitude NUMERIC,
+        longitude NUMERIC,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_copieurs_archive ON hub_copieurs.copieurs(archive)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_copieurs_direction ON hub_copieurs.copieurs(direction)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_copieurs_numero_serie ON hub_copieurs.copieurs(numero_serie)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_copieurs_coords ON hub_copieurs.copieurs(latitude, longitude)');
+    try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS ping_status TEXT DEFAULT 'inconnu'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS last_seen_active TIMESTAMP`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS papercut_matched BOOLEAN DEFAULT FALSE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS papercut_last_import TIMESTAMP`); } catch (e) {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_copieurs.copieur_moves (
+        id SERIAL PRIMARY KEY,
+        copieur_id INTEGER NOT NULL REFERENCES hub_copieurs.copieurs(id) ON DELETE CASCADE,
+        moved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        moved_by TEXT,
+        old_source TEXT,
+        new_source TEXT,
+        old_direction TEXT,
+        new_direction TEXT,
+        old_service TEXT,
+        new_service TEXT,
+        old_adresse TEXT,
+        new_adresse TEXT,
+        old_ip TEXT,
+        new_ip TEXT
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_moves_copieur ON hub_copieurs.copieur_moves(copieur_id)');
 
     // Create hub_calendrier schema and table
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_calendrier;');

@@ -22,6 +22,7 @@ const contratsRouter = require('./modules/contrats/contrats.routes');
 const tiersRouter = require('./modules/finance/tiers.routes');
 const contactsRouter = require('./modules/finance/contacts.routes');
 const certificatesRouter = require('./modules/certificates/certificates.routes');
+const copieursRouter = require('./modules/copieurs/copieurs.routes');
 const transcriptManagerRouter = require('./modules/transcriptmanager/transcriptmanager.routes');
 const { recalculateAllOperations, deduplicateOperations } = require('./modules/finance/finance.controller');
 const multer = require('multer');
@@ -2005,6 +2006,9 @@ app.use('/api/oracle-automation', oracleAutomationRouter);
 
 // Certificates Module
 app.use('/api/certificates', certificatesRouter);
+
+// Copieurs Module
+app.use('/api/copieurs', copieursRouter);
 
 // Contrats Module
 app.use('/api/contrats', contratsRouter);
