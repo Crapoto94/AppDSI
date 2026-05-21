@@ -523,7 +523,7 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
             </div>
           </div>
           <button onClick={() => {
-            if (!transitions.length) fetchTransitions();
+            fetchTransitions();
             setShowTransitionPicker(!showTransitionPicker);
             if (!showTransitionPicker) setTransitionStatutCible('');
           }}
