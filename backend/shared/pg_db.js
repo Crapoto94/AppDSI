@@ -1809,6 +1809,55 @@ async function setupPgDb() {
       await client.query(`UPDATE finance.field_mapping_rubriques SET fiscal_year_column = 'FACTURE_DATENTREE' WHERE name = 'Factures' AND (fiscal_year_column IS NULL OR fiscal_year_column = '')`);
     } catch (e) {}
 
+    // Tiles and tile_links for dashboard
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.tiles (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        icon VARCHAR(255),
+        description TEXT,
+        status VARCHAR(50) DEFAULT 'active',
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.tile_links (
+        id SERIAL PRIMARY KEY,
+        tile_id INTEGER NOT NULL REFERENCES hub.tiles(id) ON DELETE CASCADE,
+        label VARCHAR(255) NOT NULL,
+        url VARCHAR(1024) NOT NULL,
+        is_internal INTEGER DEFAULT 0,
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Doctrines table for Notes de service et doctrines
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.doctrines (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        content TEXT NOT NULL,
+        category VARCHAR(100),
+        doctrine_date DATE NOT NULL,
+        created_by VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_doctrines_category ON hub.doctrines(category)
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_doctrines_date ON hub.doctrines(doctrine_date DESC)
+    `);
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);
