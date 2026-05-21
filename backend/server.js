@@ -4591,6 +4591,7 @@ console.log('[EMAIL-AUTO CRON] Cron job registered (every minute)');
 // ============================================
 const backlogController = require('./controllers/backlogController');
 backlogController.setSendMail(sendMail);
+backlogController.setDb(db.get.bind(db)); // Pass database for AD lookups
 
 app.get('/api/backlog', authenticateJWT, backlogController.getAllBacklogItems);
 app.get('/api/backlog/:id', authenticateJWT, backlogController.getBacklogItem);

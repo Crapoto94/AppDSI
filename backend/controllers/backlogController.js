@@ -1,8 +1,104 @@
 const { pgDb } = require('../shared/pg_db');
 const { getSqlite } = require('../shared/database');
+const ldap = require('ldapjs');
 
 let sendMailFn = null;
+let dbFn = null; // SQLite database
 const setSendMail = (fn) => { sendMailFn = fn; };
+const setDb = (fn) => { dbFn = fn; };
+
+// Helper to flatten LDAP entries
+function flattenLDAPEntry(entry) {
+  if (!entry || !entry.pojo) return null;
+  const obj = {};
+  if (entry.pojo.attributes) {
+    entry.pojo.attributes.forEach(attr => {
+      obj[attr.type] = attr.vals.length === 1 ? attr.vals[0] : attr.vals;
+    });
+  }
+  return obj;
+}
+
+// Get email from AD (Active Directory / Entra AD)
+async function getADUserEmail(username) {
+  try {
+    if (!dbFn) {
+      console.log(`[BACKLOG] DB function not available for AD lookup`);
+      return null;
+    }
+
+    const adSettings = await dbFn.get('SELECT * FROM ad_settings WHERE id = 1');
+    if (!adSettings || !adSettings.is_enabled) {
+      console.log(`[BACKLOG] AD not enabled`);
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      const client = ldap.createClient({
+        url: `ldap://${adSettings.host}:${adSettings.port}`,
+        connectTimeout: 5000,
+        timeout: 5000
+      });
+
+      client.on('error', (err) => {
+        console.log(`[BACKLOG] AD LDAP error: ${err.message}`);
+        client.destroy();
+        resolve(null);
+      });
+
+      client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+        if (err) {
+          console.log(`[BACKLOG] AD bind failed: ${err.message}`);
+          client.destroy();
+          return resolve(null);
+        }
+
+        const searchOptions = {
+          filter: `(sAMAccountName=${username})`,
+          scope: 'sub',
+          attributes: ['mail'],
+          referrals: false,
+          paged: false
+        };
+
+        client.search(adSettings.base_dn, searchOptions, (err, res) => {
+          if (err) {
+            console.log(`[BACKLOG] AD search error: ${err.message}`);
+            client.destroy();
+            return resolve(null);
+          }
+
+          let userEmail = null;
+          res.on('searchEntry', (entry) => {
+            const obj = flattenLDAPEntry(entry);
+            if (obj && obj.mail) {
+              userEmail = Array.isArray(obj.mail) ? obj.mail[0] : obj.mail;
+            }
+          });
+
+          res.on('error', (err) => {
+            console.log(`[BACKLOG] AD search results error: ${err.message}`);
+            client.destroy();
+            resolve(null);
+          });
+
+          res.on('end', () => {
+            client.destroy();
+            if (userEmail) {
+              console.log(`[BACKLOG] Found email in AD for ${username}: ${userEmail}`);
+            } else {
+              console.log(`[BACKLOG] No email found in AD for ${username}`);
+            }
+            resolve(userEmail);
+          });
+        });
+      });
+    });
+  } catch (error) {
+    console.error(`[BACKLOG] Error getting AD user email:`, error.message);
+    return null;
+  }
+}
 
 // Get all backlog items
 exports.getAllBacklogItems = async (req, res) => {
@@ -126,35 +222,45 @@ exports.updateBacklogItem = async (req, res) => {
       console.log(`[BACKLOG] Status change: ${currentItem.status} → ${status}, requester: ${requesterUsername}`);
 
       try {
-        // If email not stored, try to find it from PostgreSQL or SQLite
+        // If email not stored, try to find it from AD first, then PostgreSQL, then SQLite
         if (!requesterEmail) {
           console.log(`[BACKLOG] Email not found in backlog item, searching for ${requesterUsername}`);
 
-          let requesterUser = await pgDb.get(
-            'SELECT email FROM hub.users WHERE username = $1',
-            [requesterUsername]
-          );
+          // Try AD first
+          requesterEmail = await getADUserEmail(requesterUsername);
 
-          console.log(`[BACKLOG] PostgreSQL lookup for ${requesterUsername}:`, requesterUser);
+          // Fallback to PostgreSQL if not found in AD
+          if (!requesterEmail) {
+            let requesterUser = await pgDb.get(
+              'SELECT email FROM hub.users WHERE username = $1',
+              [requesterUsername]
+            );
+
+            console.log(`[BACKLOG] PostgreSQL lookup for ${requesterUsername}:`, requesterUser);
+
+            if (requesterUser && requesterUser.email) {
+              requesterEmail = requesterUser.email;
+            }
+          }
 
           // Fallback to SQLite if not found in PostgreSQL
-          if (!requesterUser || !requesterUser.email) {
+          if (!requesterEmail) {
             const sqlite = getSqlite();
             if (sqlite) {
               try {
-                requesterUser = await sqlite.get(
+                let requesterUser = await sqlite.get(
                   'SELECT email FROM users WHERE username = ?',
                   [requesterUsername]
                 );
                 console.log(`[BACKLOG] SQLite fallback lookup for ${requesterUsername}:`, requesterUser);
+
+                if (requesterUser && requesterUser.email) {
+                  requesterEmail = requesterUser.email;
+                }
               } catch (sqliteErr) {
                 console.log(`[BACKLOG] SQLite lookup failed: ${sqliteErr.message}`);
               }
             }
-          }
-
-          if (requesterUser && requesterUser.email) {
-            requesterEmail = requesterUser.email;
           }
         }
 
@@ -230,3 +336,4 @@ exports.getBacklogItem = async (req, res) => {
 };
 
 exports.setSendMail = setSendMail;
+exports.setDb = setDb;
