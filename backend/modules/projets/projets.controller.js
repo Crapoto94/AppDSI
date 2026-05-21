@@ -1626,6 +1626,25 @@ const ajouterEntreeJournal = async (req, res) => {
     }
 };
 
+const supprimerEntreeJournal = async (req, res) => {
+    try {
+        const { id, journalId } = req.params;
+
+        const result = await pgDb.run(
+            `DELETE FROM projet_journal WHERE id = $1 AND projet_id = $2`,
+            [journalId, id]
+        );
+
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Entrée du journal non trouvée' });
+        }
+
+        res.json({ message: 'Entrée supprimée' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 // ============================================
 // INDICATEURS
 // ============================================
@@ -2417,7 +2436,7 @@ module.exports = {
     creerDocument, updateDocumentType, supprimerDocument, uploadVersion, uploadVersionsVrac, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
     enregistrerScore, getScores, getScoreCalcule,
     lierReunion, delierReunion, getReunionsLiees,
-    getJournal, ajouterEntreeJournal,
+    getJournal, ajouterEntreeJournal, supprimerEntreeJournal,
     getIndicateurs, ajouterIndicateur,
     getStats,
     getScoringConfig, updateScoringConfig, getTypesDocumentaires, updateTypesDocumentaires,

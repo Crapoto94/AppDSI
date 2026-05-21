@@ -95,6 +95,7 @@ router.delete('/:id/reunions/:rid', authenticateAdminOrPMO, ctrl.delierReunion);
 // ============================================
 router.get('/:id/journal', authenticateJWT, ctrl.getJournal);
 router.post('/:id/journal', authenticateJWT, uploadDoc.single('file'), ctrl.ajouterEntreeJournal);
+router.delete('/:id/journal/:journalId', authenticateAdminOrPMO, ctrl.supprimerEntreeJournal);
 
 // ============================================
 // INDICATEURS

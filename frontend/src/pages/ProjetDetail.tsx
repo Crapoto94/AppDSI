@@ -1547,12 +1547,15 @@ const JOURNAL_ICONES: Record<string, string> = {
 
 // ===== ONGLET JOURNAL =====
 const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDocument: (details: string) => void }> = ({ projetId, token, onOuvrirDocument }) => {
+  const { user } = useAuth();
   const [entries, setEntries] = useState<any[]>([]);
   const [newEntryMsg, setNewEntryMsg] = useState('');
   const [newEntryType, setNewEntryType] = useState('note');
   const [newEntryDate, setNewEntryDate] = useState(new Date().toISOString().split('T')[0]);
   const [newEntryFile, setNewEntryFile] = useState<File | null>(null);
   const [adding, setAdding] = useState(false);
+  const isAdmin = user?.role === 'admin';
+  const isPMO = user?.est_pmo;
 
   const loadJournal = useCallback(async () => {
     try {
@@ -1593,6 +1596,17 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
       loadJournal();
     } catch (e) { console.error(e); }
     finally { setAdding(false); }
+  };
+
+  const deleteEntry = async (entryId: number) => {
+    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cette entrée ?')) return;
+    try {
+      await fetch(`/api/projets/${projetId}/journal/${entryId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      loadJournal();
+    } catch (e) { console.error(e); }
   };
 
   return (
@@ -1645,6 +1659,14 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
             ) : e.message}
           </span>
           <span style={{ fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>{e.username}</span>
+          {(isAdmin || isPMO) && (
+            <button
+              onClick={() => deleteEntry(e.id)}
+              style={{ padding: '4px 8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       ))}
     </div>
