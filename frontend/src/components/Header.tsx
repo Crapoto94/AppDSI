@@ -239,11 +239,11 @@ const Header: React.FC<HeaderProps> = () => {
                 >
                   What's New ?
                 </button>
-                <button 
-                  className={`modal-tab-btn ${activeTab === 'todo' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('todo')}
+                <button
+                  className={`modal-tab-btn ${activeTab === 'backlog' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('backlog')}
                 >
-                  Backlog {todos.length > 0 && <span className="todo-count">{todos.length}</span>}
+                  Backlog
                 </button>
               </div>
               <button className="close-btn" onClick={() => setShowModal(false)}><X size={24} /></button>
@@ -268,6 +268,18 @@ const Header: React.FC<HeaderProps> = () => {
                 </div>
               ) : (
                 <div className="backlog-view">
+                  <div className="backlog-toolbar">
+                    <button
+                      className="btn-submit-backlog"
+                      onClick={() => {
+                        setShowModal(false);
+                        navigate('/request-feature');
+                      }}
+                    >
+                      <Plus size={18} />
+                      Soumettre une demande
+                    </button>
+                  </div>
                   <div className="backlog-list">
                     {backlogItems.length === 0 ? (
                       <p className="empty-backlog">Aucune demande pour le moment</p>
@@ -776,14 +788,40 @@ const Header: React.FC<HeaderProps> = () => {
           font-style: italic;
         }
         .backlog-view {
-          overflow-y: auto;
-          max-height: 500px;
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+        }
+        .backlog-toolbar {
+          padding: 12px 16px;
+          border-bottom: 1px solid #e2e8f0;
+          flex-shrink: 0;
+        }
+        .btn-submit-backlog {
+          width: 100%;
+          padding: 10px 16px;
+          background: #2563eb;
+          color: white;
+          border: none;
+          border-radius: 8px;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          transition: background 0.2s;
+        }
+        .btn-submit-backlog:hover {
+          background: #1d4ed8;
         }
         .backlog-list {
           display: flex;
           flex-direction: column;
           gap: 12px;
           padding: 16px;
+          overflow-y: auto;
+          flex: 1;
         }
         .backlog-item {
           padding: 12px;
