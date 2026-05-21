@@ -81,6 +81,7 @@ const MagAppController = {
                 (SELECT COUNT(*) FROM magapp.app_users WHERE app_id = a.id) as user_count,
                 (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE AND is_technical = FALSE) as normal_doc_count,
                 (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE AND is_technical = TRUE) as technical_doc_count,
+                (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE) as doc_count,
                 (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date > CURRENT_TIMESTAMP) as future_maintenance_count,
                 (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date <= CURRENT_TIMESTAMP AND end_date >= CURRENT_TIMESTAMP) as ongoing_maintenance_count
                 FROM magapp_apps a
