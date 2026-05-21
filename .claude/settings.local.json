@@ -140,7 +140,8 @@
       "Bash(node migrations/008_add_doctrines_tile.js)",
       "Bash(curl -s http://localhost:5173)",
       "Bash(curl -s http://localhost:3000/api/doctrines -H \"Authorization: Bearer test\")",
-      "Bash(node migrations/011_populate_backlog_emails.js)"
+      "Bash(node migrations/011_populate_backlog_emails.js)",
+      "Bash(node migrations/013_convert_timestamps_to_timestamptz.js)"
     ]
   }
 }

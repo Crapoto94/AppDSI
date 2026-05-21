@@ -6,6 +6,12 @@ const pool = new Pool({
   database: process.env.POSTGRES_DB || 'ivry_admin',
   password: process.env.POSTGRES_PASSWORD || 'ivrypassword',
   port: process.env.POSTGRES_PORT || 5432,
+  timezone: 'UTC'
+});
+
+// Ensure all connections use UTC timezone
+pool.on('connect', (client) => {
+  client.query("SET timezone = 'UTC';");
 });
 
 function convertSqliteToPostgres(sql) {
@@ -108,6 +114,8 @@ async function setupPgDb() {
   let client;
   try {
     client = await pool.connect();
+    // Set timezone to UTC for all connections
+    await client.query("SET timezone = 'UTC';");
     await client.query('CREATE SCHEMA IF NOT EXISTS magapp;');
     await client.query('CREATE SCHEMA IF NOT EXISTS hub;');
     await client.query('CREATE SCHEMA IF NOT EXISTS glpi;');
