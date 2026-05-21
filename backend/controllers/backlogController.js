@@ -27,7 +27,7 @@ async function getADUserEmail(username) {
       return null;
     }
 
-    const adSettings = await dbFn.get('SELECT * FROM ad_settings WHERE id = 1');
+    const adSettings = await dbFn.get('SELECT * FROM ad_settings WHERE id = 1', []);
     if (!adSettings || !adSettings.is_enabled) {
       console.log(`[BACKLOG] AD not enabled`);
       return null;

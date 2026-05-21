@@ -2553,7 +2553,7 @@ setupDb().then(async database => {
     db = database;
 
     // Initialize backlog controller with database for AD lookups
-    backlogController.setDb(db.get.bind(db));
+    backlogController.setDb(db);
 
     // Vérification structure table users
     const userCols = await db.all("PRAGMA table_info(users)");
