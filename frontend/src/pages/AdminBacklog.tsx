@@ -42,6 +42,7 @@ const AdminBacklog: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [showArchived, setShowArchived] = useState(false);
   const [editingBasicsId, setEditingBasicsId] = useState<number | null>(null);
   const [editingStatusId, setEditingStatusId] = useState<number | null>(null);
   const [editingStatus, setEditingStatus] = useState('');
@@ -179,7 +180,8 @@ const AdminBacklog: React.FC = () => {
   const filteredItems = items.filter(item => {
     const statusMatch = filterStatus === 'all' || item.status === filterStatus;
     const categoryMatch = filterCategory === 'all' || item.category === filterCategory;
-    return statusMatch && categoryMatch;
+    const archivedMatch = showArchived || (item.status !== 'completed' && item.status !== 'rejected');
+    return statusMatch && categoryMatch && archivedMatch;
   });
 
   const getStatusInfo = (status: string) => {
@@ -212,6 +214,7 @@ const AdminBacklog: React.FC = () => {
             display: 'flex',
             gap: '20px',
             flexWrap: 'wrap',
+            alignItems: 'flex-end',
             border: '1px solid #e2e8f0'
           }}>
             <div>
@@ -258,6 +261,23 @@ const AdminBacklog: React.FC = () => {
                 ))}
               </select>
             </div>
+
+            <button
+              onClick={() => setShowArchived(!showArchived)}
+              style={{
+                padding: '8px 16px',
+                background: showArchived ? '#8b5cf6' : '#f1f5f9',
+                color: showArchived ? 'white' : '#475569',
+                border: showArchived ? 'none' : '2px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                fontWeight: '600',
+                transition: 'all 0.2s'
+              }}
+            >
+              {showArchived ? '📦 Archive (actif)' : '📦 Archive'}
+            </button>
           </div>
 
           {/* Liste des demandes */}
