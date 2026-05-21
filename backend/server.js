@@ -2547,6 +2547,116 @@ app.post('/api/release', authenticateAdmin, async (req, res) => {
     }
 });
 
+// New Release from Backlog API (for AdminBacklog)
+app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
+    try {
+        const { version: customVersion, description } = req.body;
+
+        // 1. Load current changelog
+        const changelogPath = path.join(__dirname, 'changelog.json');
+        const changelog = JSON.parse(fs.readFileSync(changelogPath, 'utf8'));
+
+        // 2. Get the date of the last version to find completed backlog items since then
+        const lastVersionDate = changelog.history.length > 0
+            ? new Date(changelog.history[0].date)
+            : new Date('2024-01-01');
+
+        // 3. Get completed backlog items updated since last version
+        const completedBacklog = await db.all(
+            "SELECT title FROM backlog WHERE status = 'completed' AND updated_at >= ? ORDER BY updated_at DESC",
+            [lastVersionDate.toISOString()]
+        );
+
+        if (completedBacklog.length === 0) {
+            return res.status(400).json({ message: "Aucun backlog complété depuis la dernière version." });
+        }
+
+        // 4. Calculate version (use custom version if provided, otherwise increment)
+        let newVersion = customVersion;
+        if (!newVersion) {
+            const parts = changelog.currentVersion.split('.');
+            parts[parts.length - 1] = parseInt(parts[parts.length - 1]) + 1;
+            newVersion = parts.join('.');
+        }
+
+        // 5. Create new release entry with backlog items
+        const changes = description
+            ? [description, ...completedBacklog.map(b => b.title)]
+            : completedBacklog.map(b => b.title);
+
+        const newRelease = {
+            version: newVersion,
+            date: new Date().toLocaleDateString('fr-FR'),
+            changes: changes
+        };
+
+        // 6. Update changelog
+        changelog.currentVersion = newVersion;
+        changelog.history.unshift(newRelease);
+
+        // 7. Save changelog.json
+        fs.writeFileSync(changelogPath, JSON.stringify(changelog, null, 4));
+
+        // 8. Mark completed backlog as released (add a flag or keep as is)
+        // For now, we just keep them completed
+
+        // 9. Git commit
+        exec(`git add . && git commit -m "Release v${newVersion}"`, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Git Error: ${error.message}`);
+                return res.json({
+                    message: `Version ${newVersion} créée localement, mais échec du commit git.`,
+                    version: newVersion,
+                    backlogCount: completedBacklog.length,
+                    gitError: error.message
+                });
+            }
+            res.json({
+                message: `Version ${newVersion} créée avec succès !`,
+                version: newVersion,
+                backlogCount: completedBacklog.length,
+                gitOutput: stdout
+            });
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la release backlog', error: error.message });
+    }
+});
+
+// Get backlog items for version release preview
+app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) => {
+    try {
+        const changelogPath = path.join(__dirname, 'changelog.json');
+        const changelog = JSON.parse(fs.readFileSync(changelogPath, 'utf8'));
+
+        // Calculate next version
+        const parts = changelog.currentVersion.split('.');
+        parts[parts.length - 1] = parseInt(parts[parts.length - 1]) + 1;
+        const nextVersion = parts.join('.');
+
+        // Get the date of the last version
+        const lastVersionDate = changelog.history.length > 0
+            ? new Date(changelog.history[0].date)
+            : new Date('2024-01-01');
+
+        // Get completed backlog items since last version
+        const completedBacklog = await db.all(
+            "SELECT * FROM backlog WHERE status = 'completed' AND updated_at >= ? ORDER BY updated_at DESC",
+            [lastVersionDate.toISOString()]
+        );
+
+        res.json({
+            currentVersion: changelog.currentVersion,
+            nextVersion: nextVersion,
+            completedItems: completedBacklog,
+            count: completedBacklog.length
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des backlog', error: error.message });
+    }
+});
+
 let db;
 
 // Initialize Database

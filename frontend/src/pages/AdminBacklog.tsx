@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Check, X, Clock, AlertCircle, Trash2, Edit2, Filter, User, Download } from 'lucide-react';
+import { Check, X, Clock, AlertCircle, Trash2, Edit2, Filter, User, Download, Zap, ChevronUp } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -54,6 +54,12 @@ const AdminBacklog: React.FC = () => {
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ADUser[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
+  const [showVersionModal, setShowVersionModal] = useState(false);
+  const [versionData, setVersionData] = useState<any>(null);
+  const [versionLoading, setVersionLoading] = useState(false);
+  const [versionDescription, setVersionDescription] = useState('');
+  const [releaseProposedVersion, setReleaseProposedVersion] = useState('');
+  const [isReleasing, setIsReleasing] = useState(false);
 
   const categoryColors: Record<string, { bg: string; text: string; border: string }> = {
     'Bug': { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
@@ -177,6 +183,51 @@ const AdminBacklog: React.FC = () => {
     }
   };
 
+  const openVersionModal = async () => {
+    setVersionLoading(true);
+    try {
+      const response = await axios.get('/api/backlog/ready-for-release', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setVersionData(response.data);
+      setReleaseProposedVersion(response.data.nextVersion);
+      setVersionDescription('');
+      setShowVersionModal(true);
+    } catch (error) {
+      console.error('Error loading version data:', error);
+      alert('Erreur lors du chargement des données de montée de version');
+    } finally {
+      setVersionLoading(false);
+    }
+  };
+
+  const handleVersionRelease = async () => {
+    if (!versionData || versionData.completedItems.length === 0) {
+      alert('Aucun backlog complété à inclure dans cette version');
+      return;
+    }
+
+    if (!window.confirm(`Créer la version ${releaseProposedVersion} avec ${versionData.completedItems.length} backlog complété(s) ?`)) return;
+
+    setIsReleasing(true);
+    try {
+      const response = await axios.post('/api/release-from-backlog', {
+        version: releaseProposedVersion,
+        description: versionDescription
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      alert(`Version ${response.data.version} créée avec succès !`);
+      setShowVersionModal(false);
+      setVersionDescription('');
+    } catch (error: any) {
+      console.error('Error releasing version:', error);
+      alert('Erreur : ' + (error.response?.data?.message || error.message));
+    } finally {
+      setIsReleasing(false);
+    }
+  };
+
   const filteredItems = items.filter(item => {
     const statusMatch = filterStatus === 'all' || item.status === filterStatus;
     const categoryMatch = filterCategory === 'all' || item.category === filterCategory;
@@ -198,12 +249,38 @@ const AdminBacklog: React.FC = () => {
 
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-          <h1 style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a', marginBottom: '8px' }}>
-            Gestion du Backlog
-          </h1>
-          <p style={{ color: '#64748b', fontSize: '1rem', marginBottom: '32px' }}>
-            {items.length} demande{items.length !== 1 ? 's' : ''} au total
-          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+            <div>
+              <h1 style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a', marginBottom: '8px' }}>
+                Gestion du Backlog
+              </h1>
+              <p style={{ color: '#64748b', fontSize: '1rem', margin: 0 }}>
+                {items.length} demande{items.length !== 1 ? 's' : ''} au total
+              </p>
+            </div>
+            <button
+              onClick={openVersionModal}
+              style={{
+                padding: '12px 20px',
+                background: 'linear-gradient(135deg, #7c3aed, #5b21b6)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '700',
+                fontSize: '0.95rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)'}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
+            >
+              <ChevronUp size={18} />
+              Montée de version
+            </button>
+          </div>
 
           {/* Filtres */}
           <div style={{
@@ -710,6 +787,190 @@ const AdminBacklog: React.FC = () => {
               })
             )}
           </div>
+
+          {/* Version Modal */}
+          {showVersionModal && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000
+            }} onClick={() => setShowVersionModal(false)}>
+              <div style={{
+                background: 'white',
+                borderRadius: '12px',
+                padding: '32px',
+                maxWidth: '600px',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                width: '90%'
+              }} onClick={e => e.stopPropagation()}>
+                <div style={{ marginBottom: '24px' }}>
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: '900', color: '#0f172a', margin: '0 0 8px' }}>
+                    📦 Montée de version
+                  </h2>
+                  <p style={{ color: '#64748b', margin: 0 }}>Créer une nouvelle version avec les backlog complétés</p>
+                </div>
+
+                {versionLoading ? (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                    Chargement...
+                  </div>
+                ) : versionData ? (
+                  <>
+                    {/* Version Info */}
+                    <div style={{
+                      background: '#f8fafc',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      padding: '16px',
+                      marginBottom: '24px'
+                    }}>
+                      <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
+                        <div>
+                          <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                            Version actuelle
+                          </div>
+                          <div style={{ fontSize: '1.5rem', fontWeight: '900', color: '#0f172a' }}>
+                            v{versionData.currentVersion}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '2rem', color: '#cbd5e1' }}>→</div>
+                        <div>
+                          <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                            Nouvelle version
+                          </div>
+                          <input
+                            type="text"
+                            value={releaseProposedVersion}
+                            onChange={e => setReleaseProposedVersion(e.target.value)}
+                            style={{
+                              fontSize: '1.5rem',
+                              fontWeight: '900',
+                              color: '#7c3aed',
+                              border: '2px solid #7c3aed',
+                              borderRadius: '6px',
+                              padding: '6px 10px',
+                              fontFamily: 'monospace',
+                              width: '120px'
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                        {versionData.count} backlog complété{versionData.count !== 1 ? 's' : ''} à inclure
+                      </div>
+                    </div>
+
+                    {/* Backlog Items List */}
+                    {versionData.completedItems.length > 0 && (
+                      <div style={{ marginBottom: '24px' }}>
+                        <h3 style={{ fontSize: '0.95rem', fontWeight: '700', color: '#1e293b', marginBottom: '12px' }}>
+                          ✅ Backlog complétés
+                        </h3>
+                        <div style={{
+                          background: '#f0fdf4',
+                          border: '1px solid #bbf7d0',
+                          borderRadius: '8px',
+                          padding: '12px',
+                          maxHeight: '300px',
+                          overflow: 'auto'
+                        }}>
+                          {versionData.completedItems.map((item: any) => (
+                            <div key={item.id} style={{
+                              padding: '8px 0',
+                              borderBottom: '1px solid #dcfce7',
+                              color: '#166534',
+                              fontSize: '0.9rem'
+                            }}>
+                              • {item.title}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Description Field */}
+                    <div style={{ marginBottom: '24px' }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '0.85rem',
+                        fontWeight: '700',
+                        color: '#475569',
+                        marginBottom: '8px'
+                      }}>
+                        📝 Ajouter une note (optionnel)
+                      </label>
+                      <textarea
+                        value={versionDescription}
+                        onChange={e => setVersionDescription(e.target.value)}
+                        placeholder="Ex: Améliorations majeures de performance et stabilité"
+                        style={{
+                          width: '100%',
+                          padding: '12px',
+                          border: '2px solid #e2e8f0',
+                          borderRadius: '8px',
+                          fontSize: '0.9rem',
+                          fontFamily: 'inherit',
+                          resize: 'vertical',
+                          minHeight: '80px',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+
+                    {/* Buttons */}
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <button
+                        onClick={handleVersionRelease}
+                        disabled={isReleasing || versionData.completedItems.length === 0}
+                        style={{
+                          flex: 1,
+                          padding: '12px 16px',
+                          background: versionData.completedItems.length === 0 ? '#cbd5e1' : '#7c3aed',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          cursor: versionData.completedItems.length === 0 ? 'not-allowed' : 'pointer',
+                          fontWeight: '700',
+                          fontSize: '0.95rem',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        {isReleasing ? 'Création en cours...' : `Créer v${releaseProposedVersion}`}
+                      </button>
+                      <button
+                        onClick={() => setShowVersionModal(false)}
+                        style={{
+                          flex: 1,
+                          padding: '12px 16px',
+                          background: '#f1f5f9',
+                          color: '#475569',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          fontWeight: '700',
+                          fontSize: '0.95rem'
+                        }}
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '40px', color: '#ef4444' }}>
+                    Erreur lors du chargement
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
     </div>
   );
 };
