@@ -145,7 +145,9 @@
       "Bash(node -c modules/projets/projets.controller.js)",
       "Bash(taskkill /PID 27256 /F)",
       "Bash(kill -9 27256)",
-      "Bash(xargs grep -l \"reunions\\\\|réunions\")"
+      "Bash(xargs grep -l \"reunions\\\\|réunions\")",
+      "PowerShell(cd C:\\\\dev\\\\AppDSI\\\\backend; node -e \"const { Pool } = require\\('pg'\\); const pool = new Pool\\({ user: 'postgres', host: '10.103.130.106', database: 'ivry_admin', password: 'ivrypassword', port: 5432 }\\); pool.query\\('SELECT column_name, is_nullable FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2', ['hub_copieurs','copieur_interventions']\\).then\\(r => { r.rows.forEach\\(row => console.log\\(row.column_name, row.is_nullable\\)\\); pool.end\\(\\); }\\).catch\\(e => { console.log\\('Err:', e.message\\); pool.end\\(\\); }\\);\")",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:3000/api/copieurs\" -UseBasicParsing -TimeoutSec 5 2>&1)"
     ]
   }
 }
