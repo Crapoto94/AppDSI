@@ -48,8 +48,8 @@ interface AdminProps {
 }
 
 const FENCE = '```';
-const DEFAULT_PROMPT_TEMPLATE_CONST = `Tu es un assistant spÃ©cialisÃ© dans la synthÃ¨se de rÃ©unions de direction d'un service informatique (DSI) municipal.
-Ta mission est de produire un compte-rendu clair, structurÃ© et professionnel Ã  partir de la transcription fournie.
+const DEFAULT_PROMPT_TEMPLATE_CONST = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
+Ta mission est de produire un compte-rendu clair, structuré et professionnel Ã  partir de la transcription fournie.
 
 REUNION : {REUNION}
 
@@ -59,26 +59,26 @@ TRANSCRIPTION :
 ---
 
 STRUCTURE DU COMPTE-RENDU (MARKDOWN) :
-## RÃ©sumÃ© exÃ©cutif
-(3 Ã  5 phrases rÃ©sumant l'essentiel de la rÃ©union)
+## Résumé exécutif
+(3 Ã  5 phrases résumant l'essentiel de la réunion)
 
-## Points abordÃ©s
-(liste des sujets discutÃ©s avec une brÃ¨ve description)
+## Points abordés
+(liste des sujets discutés avec une brève description)
 
-## DÃ©cisions prises
-(liste des dÃ©cisions actÃ©es, ou Â« Aucune dÃ©cision formelle Â» si applicable)
+## Décisions prises
+(liste des décisions actées, ou Â« Aucune décision formelle Â» si applicable)
 
 ---
 
 INSTRUCTIONS CRITIQUES :
-1. Ne rÃ©dige PAS de section "Plan d'action" ou "TÃ¢ches" dans le texte Markdown.
+1. Ne rédige PAS de section "Plan d'action" ou "Tâches" dans le texte Markdown.
 2. Ne fais AUCUNE mention du bloc JSON Ã  la fin.
-3. Ajoute ENSUITE un bloc JSON dÃ©limitÃ© par ${FENCE}json contenant la liste des tÃ¢ches.
+3. Ajoute ENSUITE un bloc JSON délimité par ${FENCE}json contenant la liste des tâches.
 
 FORMAT DU JSON :
 ${FENCE}json
 [
-  {"what": "Description", "who": "Responsable", "req": "Demandeur", "when": "Ã‰chÃ©ance", "ts": "HH:MM:SS"}
+  {"what": "Description", "who": "Responsable", "req": "Demandeur", "when": "Échéance", "ts": "HH:MM:SS"}
 ]
 ${FENCE}`;
 
@@ -325,7 +325,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   const setTablePK = (type: string, table: string, field: string) => {
     setPrimaryKeys({ ...primaryKeys, [`${type}:${table}`]: field });
-    // Si on choisit un champ comme PK, on s'assure qu'il est sÃ©lectionnÃ© pour l'import
+    // Si on choisit un champ comme PK, on s'assure qu'il est sélectionné pour l'import
     const key = `${type}:${table}`;
     const current = selectedFields[key] || [];
     if (!current.includes(field)) {
@@ -338,7 +338,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     const subst = substitutions[type]?.[table]?.[currentField] || {};
     updateSubstitution(type, table, currentField, { ...subst, secondaryTable: refTable });
     
-    // Charger les colonnes de cette table de rÃ©fÃ©rence
+    // Charger les colonnes de cette table de référence
     if (!tableColumns[`${type}:${refTable}`]) {
       await fetchTableColumns(type, refTable);
     }
@@ -385,12 +385,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     const tables = selectedTables[type] || [];
     if (tables.length === 0) return;
     
-    if (!window.confirm(`Confirmer l'importation de ${tables.length} objet(s) (tables/vues) depuis Oracle ${type} vers la base locale ?\nLes tables locales seront prÃ©fixÃ©es par 'oracle_'.`)) return;
+    if (!window.confirm(`Confirmer l'importation de ${tables.length} objet(s) (tables/vues) depuis Oracle ${type} vers la base locale ?\nLes tables locales seront préfixées par 'oracle_'.`)) return;
 
     setImporting(prev => ({ ...prev, [type]: true }));
     setImportReports(prev => ({ ...prev, [type]: [] }));
 
-    // PrÃ©parer le mapping pour le backend
+    // Préparer le mapping pour le backend
     const tableConfig: Record<string, string[]> = {};
     const pkConfig: Record<string, string> = {};
     
@@ -459,8 +459,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           base_dn: data.base_dn || '',
           required_group: data.required_group || '',
           bind_dn: data.bind_dn || '',
-          // Si un mot de passe est dÃ©jÃ  enregistrÃ©, on affiche un masque
-          // Le backend prÃ©serve le mdp existant si on renvoie 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'
+          // Si un mot de passe est déjÃ  enregistré, on affiche un masque
+          // Le backend préserve le mdp existant si on renvoie 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'
           bind_password: data.bind_password ? 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' : ''
         });
       }
@@ -530,10 +530,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     const nextTime = new Date(nextSyncTime);
     const diff = nextTime.getTime() - now.getTime();
 
-    // If time has passed but is within 1 minute, show "Ã€ peu prÃ¨s maintenant"
-    if (diff <= 0 && diff > -60000) return 'Ã€ peu prÃ¨s maintenant';
-    // If time is significantly in the past, return "DÃ©passÃ©"
-    if (diff < -60000) return 'DÃ©passÃ© - en attente de mise Ã  jour';
+    // If time has passed but is within 1 minute, show "Ã€ peu près maintenant"
+    if (diff <= 0 && diff > -60000) return 'Ã€ peu près maintenant';
+    // If time is significantly in the past, return "Dépassé"
+    if (diff < -60000) return 'Dépassé - en attente de mise Ã  jour';
 
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -580,7 +580,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      alert('Configuration de synchronisation enregistrÃ©e avec succÃ¨s');
+      alert('Configuration de synchronisation enregistrée avec succès');
 
       // Reload the config to get updated next_sync_at
       setTimeout(fetchOracleAutomationConfig, 500);
@@ -613,7 +613,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data.success) {
-        alert(`Test de synchronisation ${syncType} rÃ©ussi!\n${res.data.records_synced} enregistrements synchronisÃ©s`);
+        alert(`Test de synchronisation ${syncType} réussi!\n${res.data.records_synced} enregistrements synchronisés`);
         // Recharger les logs
         setTimeout(fetchOracleSyncLogs, 500);
       } else {
@@ -680,7 +680,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const handleSaveOracleSyncConfig = async (type: string) => {
     setIsSaving(true);
     
-    // PrÃ©parer les configurations avancÃ©es pour chaque table
+    // Préparer les configurations avancées pour chaque table
     const advancedConfigs: Record<string, any> = {};
     const tables = selectedTables[type] || [];
     
@@ -703,7 +703,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert('Configuration de synchronisation enregistrÃ©e');
+      alert('Configuration de synchronisation enregistrée');
     } catch (error) {
       alert('Erreur lors de la sauvegarde de la configuration');
     } finally {
@@ -747,7 +747,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       await axios.post('/api/glpi/settings', glpiConfig, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert('ParamÃ¨tres GLPI enregistrÃ©s');
+      alert('paramètres GLPI enregistrés');
     } catch (error) {
       alert('Erreur lors de l\'enregistrement');
     } finally {
@@ -789,7 +789,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         alert(data.message);
       }
     } catch (e) {
-      alert('Erreur lors de la rÃ©cupÃ©ration du nombre de tickets');
+      alert('Erreur lors de la récupération du nombre de tickets');
     } finally {
       setIsLoadingTickets(false);
     }
@@ -801,7 +801,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const res = await axios.post('/api/glpi/sync-recent', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`Synchronisation rÃ©ussie : ${res.data.count} tickets importÃ©s.`);
+      alert(`Synchronisation réussie : ${res.data.count} tickets importés.`);
       fetchSyncLogs();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Erreur lors de la synchronisation');
@@ -838,7 +838,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       });
       setScheduledSyncs(res.data);
     } catch (e) {
-      console.error('Erreur chargement synchros programmÃ©es:', e);
+      console.error('Erreur chargement synchros programmées:', e);
     }
   };
 
@@ -868,20 +868,20 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       fetchScheduledSyncs();
       fetchSyncLogs();
     } catch (e) {
-      console.error('Erreur sauvegarde synchro programmÃ©e:', e);
+      console.error('Erreur sauvegarde synchro programmée:', e);
       alert('Erreur lors de la sauvegarde');
     }
   };
 
   const handleDeleteScheduledSync = async (id: number) => {
-    if (!window.confirm('Supprimer cette synchro programmÃ©e ?')) return;
+    if (!window.confirm('Supprimer cette synchro programmée ?')) return;
     try {
       await axios.delete(`/api/glpi/scheduled-syncs/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       fetchScheduledSyncs();
     } catch (e) {
-      console.error('Erreur suppression synchro programmÃ©e:', e);
+      console.error('Erreur suppression synchro programmée:', e);
     }
   };
 
@@ -910,7 +910,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   };
 
   const handleSyncAllTickets = async () => {
-    if (!window.confirm("Attention : Vous allez synchroniser l'intÃ©gralitÃ© de la base GLPI (+36 000 tickets). Cette opÃ©ration peut prendre quelques minutes. Souhaitez-vous continuer ?")) return;
+    if (!window.confirm("Attention : Vous allez synchroniser l'intégralité de la base GLPI (+36 000 tickets). Cette opération peut prendre quelques minutes. Souhaitez-vous continuer ?")) return;
 
     setIsSyncingAll(true);
     setSyncStatus({ active: true, processed: 0, total: 0 });
@@ -941,7 +941,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const response = await axios.post('/api/glpi/sync-all-tickets', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`Synchronisation totale rÃ©ussie : ${response.data.count} / ${response.data.total} tickets importÃ©s.`);
+      alert(`Synchronisation totale réussie : ${response.data.count} / ${response.data.total} tickets importés.`);
     } catch (error: any) {
       if (pollInterval) clearInterval(pollInterval);
       setSyncStatus(prev => ({ ...prev, active: false }));
@@ -956,14 +956,14 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       await axios.post('/api/glpi/sync-cancel', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert('Annulation demandÃ©e. La synchronisation s\'arrÃªtera bientÃ´t.');
+      alert('Annulation demandée. La synchronisation s\'arrÃªtera bientôt.');
     } catch (e) {
       console.error('Erreur lors de l\'annulation:', e);
     }
   };
 
   const handleSyncObservers = async () => {
-    if (!window.confirm('Synchroniser les observateurs GLPI ? Cette opÃ©ration peut prendre plusieurs minutes.')) return;
+    if (!window.confirm('Synchroniser les observateurs GLPI ? Cette opération peut prendre plusieurs minutes.')) return;
     
     setIsSyncingObservers(true);
     setObserversSyncStatus({ active: true, processed: 0, total: 0 });
@@ -984,7 +984,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const response = await axios.post('/api/glpi/sync-observers', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`Synchronisation des observateurs rÃ©ussie : ${response.data.count} observateurs importÃ©s.`);
+      alert(`Synchronisation des observateurs réussie : ${response.data.count} observateurs importés.`);
     } catch (error: any) {
       alert(error.response?.data?.message || 'Erreur lors de la synchronisation des observateurs');
     } finally {
@@ -1000,7 +1000,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       await axios.post('/api/glpi/sync-observers-cancel', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert('Annulation demandÃ©e. La synchronisation s\'arrÃªtera bientÃ´t.');
+      alert('Annulation demandée. La synchronisation s\'arrÃªtera bientôt.');
     } catch (e) {
       console.error('Erreur lors de l\'annulation:', e);
     }
@@ -1026,7 +1026,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const response = await axios.post('/api/glpi/sync-observers-recent', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`Synchronisation rÃ©ussie : ${response.data.count} observateurs importÃ©s.`);
+      alert(`Synchronisation réussie : ${response.data.count} observateurs importés.`);
       fetchSyncLogs();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Erreur lors de la synchronisation');
@@ -1038,7 +1038,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   };
 
   const handleSyncFollowups = async () => {
-    if (!window.confirm('Synchroniser tous les traitements de tickets ? Cette opÃ©ration peut prendre plusieurs minutes.')) return;
+    if (!window.confirm('Synchroniser tous les traitements de tickets ? Cette opération peut prendre plusieurs minutes.')) return;
     
     setIsSyncingFollowups(true);
     setFollowupsSyncStatus({ active: true, processed: 0, total: 0 });
@@ -1059,7 +1059,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const response = await axios.post('/api/glpi/sync-followups', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`Synchronisation rÃ©ussie : ${response.data.count} traitements importÃ©s.`);
+      alert(`Synchronisation réussie : ${response.data.count} traitements importés.`);
       fetchSyncLogs();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Erreur lors de la synchronisation des traitements');
@@ -1090,7 +1090,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const response = await axios.post('/api/glpi/sync-followups-recent', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`Synchronisation rÃ©ussie : ${response.data.count} traitements importÃ©s.`);
+      alert(`Synchronisation réussie : ${response.data.count} traitements importés.`);
       fetchSyncLogs();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Erreur lors de la synchronisation');
@@ -1127,9 +1127,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`Ticket crÃ©Ã© avec succÃ¨s ! ID: ${response.data.ticket?.id || 'N/A'}`);
+      alert(`Ticket créé avec succès ! ID: ${response.data.ticket?.id || 'N/A'}`);
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Erreur lors de la crÃ©ation du ticket');
+      alert(error.response?.data?.message || 'Erreur lors de la création du ticket');
     }
   };
 
@@ -1139,7 +1139,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       await axios.post('/api/oracle-settings', config, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`ParamÃ¨tres Oracle ${config.type} enregistrÃ©s`);
+      alert(`paramètres Oracle ${config.type} enregistrés`);
       fetchOracleSettings();
     } catch (error) {
       alert('Erreur lors de la sauvegarde');
@@ -1188,7 +1188,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       await axios.post('/api/mariadb-settings', config, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`ParamÃ¨tres MariaDB ${config.type} enregistrÃ©s`);
+      alert(`paramètres MariaDB ${config.type} enregistrés`);
       fetchMariaDBSettings();
     } catch (error) {
       alert('Erreur lors de la sauvegarde');
@@ -1243,7 +1243,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         });
         setOracleTestResults(prev => ({ ...prev, [type]: { success: res.data.success, message: res.data.message, details: res.data.details } }));
     } catch (error: any) {
-        setOracleTestResults(prev => ({ ...prev, [type]: { success: false, message: 'Erreur lors de la vÃ©rification' } }));
+        setOracleTestResults(prev => ({ ...prev, [type]: { success: false, message: 'Erreur lors de la vérification' } }));
     } finally {
         setIsTestingOracle(prev => ({ ...prev, [type]: false }));
     }
@@ -1259,7 +1259,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         body: JSON.stringify(adConfig)
       });
       if (response.ok) {
-        setTestResult({ success: true, message: 'Configuration enregistrÃ©e avec succÃ¨s.' });
+        setTestResult({ success: true, message: 'Configuration enregistrée avec succès.' });
       } else {
         setTestResult({ success: false, message: 'Erreur lors de l\'enregistrement.' });
       }
@@ -1278,7 +1278,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         body: JSON.stringify(azureConfig)
       });
       if (response.ok) {
-        setTestResult({ success: true, message: 'Configuration Azure AD enregistrÃ©e avec succÃ¨s.' });
+        setTestResult({ success: true, message: 'Configuration Azure AD enregistrée avec succès.' });
       } else {
         setTestResult({ success: false, message: 'Erreur lors de l\'enregistrement Azure AD.' });
       }
@@ -1298,7 +1298,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         body: JSON.stringify(transcriptConfig)
       });
       if (response.ok) {
-        alert('Configuration Transcript enregistrÃ©e');
+        alert('Configuration Transcript enregistrée');
         fetchTranscriptSettings();
       } else {
         alert('Erreur lors de l\'enregistrement');
@@ -1321,7 +1321,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         const data = JSON.parse(text);
         setTranscriptTestResult(data);
       } catch {
-        setTranscriptTestResult({ success: false, message: `RÃ©ponse inattendue du serveur: ${text.substring(0, 300)}` });
+        setTranscriptTestResult({ success: false, message: `Réponse inattendue du serveur: ${text.substring(0, 300)}` });
       }
     } catch (err: any) {
       setTranscriptTestResult({ success: false, message: err.message });
@@ -1414,7 +1414,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     try {
       let tileId: number;
       if (editingTile) {
-        // Ã‰dition d'une tuile existante
+        // Édition d'une tuile existante
         tileId = editingTile.id;
         const response = await fetch(`/api/tiles/${editingTile.id}`, {
           method: 'PUT',
@@ -1429,7 +1429,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         });
         if (!response.ok) throw new Error(`Erreur ${response.status}`);
       } else if (newTile.title) {
-        // CrÃ©ation d'une nouvelle tuile
+        // Création d'une nouvelle tuile
         const response = await fetch('/api/tiles', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1465,7 +1465,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         }
       }
 
-      // Supprimer les liens qui ont Ã©tÃ© retirÃ©s
+      // Supprimer les liens qui ont été retirés
       for (const originalLink of originalLinks) {
         const stillExists = editingLinks.some(l => l.id === originalLink.id);
         if (!stillExists && originalLink.id && typeof originalLink.id === 'number') {
@@ -1556,7 +1556,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   return (
     <div className="admin-page-content animate-in fade-in duration-500">
-        {/* Modal Synchro ProgrammÃ©e */}
+        {/* Modal Synchro Programmée */}
         {showScheduledModal && (
           <div className="modal-overlay">
             <div className="modal-container" style={{ maxWidth: '500px' }}>
@@ -1566,8 +1566,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     <Clock size={24} />
                   </div>
                   <div>
-                    <h3 className="modal-title">{editingScheduledSync ? 'Modifier la synchro' : 'Nouvelle synchro programmÃ©e'}</h3>
-                    <p className="modal-subtitle">Configurez la frÃ©quence d'exÃ©cution automatique</p>
+                    <h3 className="modal-title">{editingScheduledSync ? 'Modifier la synchro' : 'Nouvelle synchro programmée'}</h3>
+                    <p className="modal-subtitle">Configurez la fréquence d'exécution automatique</p>
                   </div>
                 </div>
                 <button onClick={() => setShowScheduledModal(false)} className="icon-btn">
@@ -1599,12 +1599,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       disabled={!!editingScheduledSync}
                       style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
                     >
-                      <option value="recent">RÃ©cents</option>
+                      <option value="recent">Récents</option>
                       <option value="full">Totale</option>
                     </select>
                   </div>
                   <div className="form-field">
-                    <label className="field-label">FrÃ©quence</label>
+                    <label className="field-label">Fréquence</label>
                     <div style={{ display: 'flex', gap: '10px' }}>
                       <input
                         type="number"
@@ -1628,7 +1628,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                   </div>
                   {newScheduledSync.frequency_type === 'days' && (
                     <div className="form-field">
-                      <label className="field-label">Heure d'exÃ©cution</label>
+                      <label className="field-label">Heure d'exécution</label>
                       <input
                         type="time"
                         className="admin-input"
@@ -1645,7 +1645,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         checked={newScheduledSync.is_enabled}
                         onChange={e => setNewScheduledSync({...newScheduledSync, is_enabled: e.target.checked})}
                       />
-                      <span style={{ fontWeight: 600 }}>ActivÃ©e</span>
+                      <span style={{ fontWeight: 600 }}>Activée</span>
                     </label>
                   </div>
                 </div>
@@ -1656,7 +1656,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                   <button onClick={() => setShowScheduledModal(false)} className="btn-admin-outline">Annuler</button>
                   <button onClick={handleSaveScheduledSync} className="btn-admin-primary" style={{ background: '#059669' }}>
                     <Save size={18} />
-                    {editingScheduledSync ? 'Modifier' : 'CrÃ©er'}
+                    {editingScheduledSync ? 'Modifier' : 'Créer'}
                   </button>
                 </div>
               </div>
@@ -1664,7 +1664,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           </div>
         )}
 
-        {/* Modal Substitutions Oracle AssistÃ©e */}
+        {/* Modal Substitutions Oracle Assistée */}
         {/* Modal Super-Configuration Oracle (Structure + Jointures + Preview) */}
         {activeSelectionModal && (
           <div className="modal-overlay">
@@ -1677,7 +1677,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                   </div>
                   <div>
                     <h3 className="modal-title">Configuration de l'import : {activeSelectionModal.table}</h3>
-                    <p className="modal-subtitle">DÃ©finissez la structure, l'identifiant et les transformations de libellÃ©s.</p>
+                    <p className="modal-subtitle">Définissez la structure, l'identifiant et les transformations de libellés.</p>
                   </div>
                 </div>
                 <button onClick={() => setActiveSelectionModal(null)} className="icon-btn">
@@ -1692,7 +1692,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     <thead>
                       <tr>
                         <th>Colonne</th>
-                        <th>AperÃ§u</th>
+                        <th>Aperçu</th>
                         <th style={{ textAlign: 'center' }}>Import</th>
                         <th style={{ textAlign: 'center' }}>Index</th>
                         <th style={{ textAlign: 'center' }}>Date</th>
@@ -1778,7 +1778,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       <div style={{ width: '60px', height: '60px', background: '#e2e8f0', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '15px' }}>
                         <Box size={30} />
                       </div>
-                      <p style={{ fontSize: '12px', fontWeight: 'bold' }}>Cliquez sur un champ ou sur l'icÃ´ne <Activity size={12} /> pour configurer une jointure.</p>
+                      <p style={{ fontSize: '12px', fontWeight: 'bold' }}>Cliquez sur un champ ou sur l'icône <Activity size={12} /> pour configurer une jointure.</p>
                     </div>
                   ) : (
                     <div className="animate-in slide-in-from-right-4 duration-300">
@@ -1789,7 +1789,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         )}
                       </div>
 
-                      <div className="config-section-title"><div className="step-badge">1</div> Table de rÃ©fÃ©rence</div>
+                      <div className="config-section-title"><div className="step-badge">1</div> Table de référence</div>
                       <div className="search-input-wrapper">
                         <Search className="search-icon-inside" size={16} />
                         <input 
@@ -1814,7 +1814,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       {substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig]?.secondaryTable && (
                         <>
                           <div style={{ padding: '12px', background: '#eff6ff', borderRadius: '12px', border: '1px solid #dbeafe', marginBottom: '20px' }}>
-                            <span className="stat-label-mini">Table liÃ©e</span>
+                            <span className="stat-label-mini">Table liée</span>
                             <div style={{ fontWeight: 'bold', fontSize: '12px', fontFamily: 'monospace' }}>{substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig].secondaryTable}</div>
                           </div>
 
@@ -1828,7 +1828,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             {(tableColumns[`${activeSelectionModal.type}:${substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig].secondaryTable}`] || []).map(c => <option key={c} value={c}>{c}</option>)}
                           </select>
 
-                          <div className="config-section-title"><div className="step-badge">3</div> Champs LibellÃ©s (Multi)</div>
+                          <div className="config-section-title"><div className="step-badge">3</div> Champs Libellés (Multi)</div>
                           <div className="table-ref-list" style={{ gridTemplateColumns: '1fr', maxHeight: '150px' }}>
                             {(tableColumns[`${activeSelectionModal.type}:${substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig].secondaryTable}`] || []).map(c => {
                               const isChecked = (substitutions[activeSelectionModal.type]?.[activeSelectionModal.table]?.[activeFieldConfig]?.labelFields || []).includes(c);
@@ -1846,7 +1846,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           </div>
 
                           <div className="sql-preview" style={{ padding: '15px', fontSize: '9px', marginTop: '20px', border: '1px solid #10b981' }}>
-                            <div style={{ color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', fontWeight: '900' }}>RÃ©sultat de la jointure (ConcatÃ©nÃ©) :</div>
+                            <div style={{ color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', fontWeight: '900' }}>Résultat de la jointure (Concaténé) :</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={{ color: '#94a3b8' }}>{String(tablePreviews[`${activeSelectionModal.type}:${activeSelectionModal.table}`]?.[activeFieldConfig])}</span>
                               <span style={{ color: '#10b981' }}>âžœ</span>
@@ -1871,7 +1871,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <div className="footer-stats">
                   <div className="stat-item">
                     <span className="stat-label-mini">Colonnes</span>
-                    <span className="stat-value-mini">{(selectedFields[`${activeSelectionModal.type}:${activeSelectionModal.table}`] || []).length} sÃ©lectionnÃ©s</span>
+                    <span className="stat-value-mini">{(selectedFields[`${activeSelectionModal.type}:${activeSelectionModal.table}`] || []).length} sélectionnés</span>
                   </div>
                   <div className="stat-item">
                     <span className="stat-label-mini">Transformations</span>
@@ -1886,14 +1886,14 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           </div>
         )}
 
-        {/* Modal Substitutions Oracle AssistÃ©e (RetirÃ©e car fusionnÃ©e) */}
+        {/* Modal Substitutions Oracle Assistée (Retirée car fusionnée) */}
 
         {section === 'main' && (
           <div className="space-y-8">
             <div className="welcome-banner">
               <div className="banner-content">
                 <h2>Vue d'ensemble</h2>
-                <p>Bienvenue dans votre console d'administration. GÃ©rez les paramÃ¨tres globaux du DSI Hub.</p>
+                <p>Bienvenue dans votre console d'administration. Gérez les paramètres globaux du DSI Hub.</p>
               </div>
               <ShieldCheck size={80} className="banner-icon" />
             </div>
@@ -1917,7 +1917,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <div className="stat-icon status"><Activity size={20} /></div>
                 <div className="stat-info">
                   <span className="stat-value">OK</span>
-                  <span className="stat-label">Statut SystÃ¨me</span>
+                  <span className="stat-label">Statut Système</span>
                 </div>
               </div>
             </div>
@@ -1927,7 +1927,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                   <Activity size={32} />
                </div>
                <h3 className="text-xl font-bold text-gray-400">KPIs et Statistiques</h3>
-               <p className="text-gray-400">Cet espace sera prochainement dÃ©diÃ© aux indicateurs de performance.</p>
+               <p className="text-gray-400">Cet espace sera prochainement dédié aux indicateurs de performance.</p>
             </div>
           </div>
         )}
@@ -1970,11 +1970,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <input disabled={!!editingUser} value={editingUser ? editingUser.username : newUser.username} onChange={e => editingUser ? setEditingUser({...editingUser, username: e.target.value}) : setNewUser({...newUser, username: e.target.value})} required />
                       </div>
                       <div className="form-group">
-                        <label>RÃ´le</label>
+                        <label>Rôle</label>
                         <select value={editingUser ? editingUser.role : newUser.role} onChange={e => editingUser ? setEditingUser({...editingUser, role: e.target.value}) : setNewUser({...newUser, role: e.target.value})}>
                           <option value="user">Utilisateur standard</option>
                           <option value="finances">Direction Finances</option>
-                          <option value="compta">ComptabilitÃ©</option>
+                          <option value="compta">Comptabilité</option>
                           <option value="magapp">Magasin d'Apps</option>
                           <option value="admin">Administrateur</option>
                         </select>
@@ -1989,7 +1989,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <label>Statut Approbation</label>
                         <div className="approval-toggle flex gap-3">
                           <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 1})} className={`toggle-btn approved ${editingUser?.is_approved === 1 ? 'active' : ''}`}>
-                            <CheckCircle2 size={16} /> ApprouvÃ©
+                            <CheckCircle2 size={16} /> Approuvé
                           </button>
                           <button type="button" onClick={() => editingUser && setEditingUser({...editingUser, is_approved: 0})} className={`toggle-btn pending ${editingUser?.is_approved === 0 ? 'active' : ''}`}>
                             <ShieldAlert size={16} /> En attente
@@ -2001,12 +2001,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <input placeholder="ex: DSI" value={editingUser ? editingUser.service_code || '' : newUser.service_code} onChange={e => editingUser ? setEditingUser({...editingUser, service_code: e.target.value}) : setNewUser({...newUser, service_code: e.target.value})} />
                       </div>
                       <div className="form-group">
-                        <label>ComplÃ©ment Service</label>
+                        <label>Complément Service</label>
                         <input placeholder="Description longue..." value={editingUser ? editingUser.service_complement || '' : newUser.service_complement} onChange={e => editingUser ? setEditingUser({...editingUser, service_complement: e.target.value}) : setNewUser({...newUser, service_complement: e.target.value})} />
                       </div>
                       {editingUser && (
                         <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                          <label>Tuiles AutorisÃ©es & Permissions</label>
+                          <label>Tuiles Autorisées & Permissions</label>
                           <div className="tiles-grid-compact grid grid-cols-2 lg:grid-cols-3 gap-3 mt-2">
                             {tiles.filter(t => t.is_public !== 1).map(tile => {
                               const isAuth = editingUser?.authorized_tiles?.includes(tile.id);
@@ -2036,7 +2036,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     </div>
                     <div className="form-footer mt-8 pt-6 border-t border-gray-100 flex justify-end">
                       <button type="submit" className="btn btn-primary" style={{ borderRadius: '14px', padding: '12px 30px', fontWeight: '800',  boxShadow: '0 4px 12px rgba(227, 6, 19, 0.2)' }}>
-                        <Save size={18} className="mr-2 inline-block" /> {editingUser ? 'Sauvegarder le profil' : 'CrÃ©er le compte'}
+                        <Save size={18} className="mr-2 inline-block" /> {editingUser ? 'Sauvegarder le profil' : 'Créer le compte'}
                       </button>
                     </div>
                   </form>
@@ -2049,10 +2049,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <thead>
                   <tr>
                     <th>Utilisateur</th>
-                    <th>RÃ´le</th>
+                    <th>Rôle</th>
                     <th>Statut</th>
                     <th>Service</th>
-                    <th>ActivitÃ©</th>
+                    <th>Activité</th>
                     <th className="actions">Actions</th>
                   </tr>
                 </thead>
@@ -2075,7 +2075,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           )}
                           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', marginTop: '4px', maxWidth: '260px' }}>
                             {user.role === 'admin' ? (
-                              <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.05em', background: '#f3e8ff', color: '#7c3aed', border: '1px solid #c4b5fd' }}>ACCÃˆS TOTAL</span>
+                              <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.05em', background: '#f3e8ff', color: '#7c3aed', border: '1px solid #c4b5fd' }}>ACCÈS TOTAL</span>
                             ) : (
                               tiles.filter(t => user.authorized_tiles?.includes(t.id)).map(t => {
                                 const colors: Record<string, { bg: string; color: string; border: string }> = {
@@ -2136,12 +2136,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     <div className="admin-card ad-config-card">
                         <div className="card-banner">
                             <div className="banner-info">
-                                <h3 className="banner-title">ParamÃ¨tres Active Directory</h3>
+                                <h3 className="banner-title">paramètres Active Directory</h3>
                                 <p className="banner-subtitle">Liaison avec l'annuaire LDAP de la Ville d'Ivry-sur-Seine.</p>
                             </div>
                             <div className="banner-controls">
                                 <span className={`status-pill ${adConfig.is_enabled ? 'active' : 'inactive'}`}>
-                                    {adConfig.is_enabled ? 'ActivÃ©' : 'DÃ©sactivÃ©'}
+                                    {adConfig.is_enabled ? 'Activé' : 'Désactivé'}
                                 </span>
                                 <label className="switch">
                                     <input type="checkbox" checked={adConfig.is_enabled} onChange={e => setAdConfig({...adConfig, is_enabled: e.target.checked})} />
@@ -2153,7 +2153,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <div className={`card-content ${!adConfig.is_enabled ? 'is-disabled' : ''}`}>
                             <div className="form-responsive-grid">
                                 <div className="form-field">
-                                    <label className="field-label"><Globe size={14} /> HÃ´te (Serveur ou IP)</label>
+                                    <label className="field-label"><Globe size={14} /> Hôte (Serveur ou IP)</label>
                                     <input 
                                         className="admin-input"
                                         value={adConfig.host} 
@@ -2216,7 +2216,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <div className="ad-side-column">
                     <div className="admin-side-card lookup-card">
                         <h3 className="side-card-title"><Search size={18} /> Outil de Lookup AD</h3>
-                        <p className="side-card-desc">VÃ©rifiez si un utilisateur est correctement identifiÃ© par l'AD.</p>
+                        <p className="side-card-desc">Vérifiez si un utilisateur est correctement identifié par l'AD.</p>
                         
                         <form onSubmit={handleVerifyUser} className="lookup-search-form">
                             <input 
@@ -2259,12 +2259,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     <div className="admin-card ad-config-card">
                         <div className="card-banner" style={{ background: 'linear-gradient(135deg, #0078d4 0%, #28a8ea 100%)' }}>
                             <div className="banner-info">
-                                <h3 className="banner-title">ParamÃ¨tres Azure AD (Entra ID)</h3>
+                                <h3 className="banner-title">paramètres Azure AD (Entra ID)</h3>
                                 <p className="banner-subtitle">Authentification OAuth2 / OpenID Connect avec Microsoft 365.</p>
                             </div>
                             <div className="banner-controls">
                                 <span className={`status-pill ${azureConfig.is_enabled ? 'active' : 'inactive'}`}>
-                                    {azureConfig.is_enabled ? 'ActivÃ©' : 'DÃ©sactivÃ©'}
+                                    {azureConfig.is_enabled ? 'Activé' : 'Désactivé'}
                                 </span>
                                 <label className="switch">
                                     <input type="checkbox" checked={azureConfig.is_enabled} onChange={e => setAzureConfig({...azureConfig, is_enabled: e.target.checked})} />
@@ -2327,7 +2327,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <div className="ad-side-column">
                     <div className="admin-side-card lookup-card">
                         <h3 className="side-card-title"><Search size={18} /> Outil de Lookup Azure AD</h3>
-                        <p className="side-card-desc">VÃ©rifiez si un utilisateur est correctement identifiÃ© par Entra ID (Graph API).</p>
+                        <p className="side-card-desc">Vérifiez si un utilisateur est correctement identifié par Entra ID (Graph API).</p>
                         
                         <form onSubmit={handleVerifyAzureUser} className="lookup-search-form">
                             <input 
@@ -2381,7 +2381,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                   <div className="card-content">
                     <div className="form-responsive-grid">
                       <div className="form-field full-width">
-                        <label className="field-label"><Zap size={14} /> Fournisseur d'IA par dÃ©faut</label>
+                        <label className="field-label"><Zap size={14} /> Fournisseur d'IA par défaut</label>
                         <select 
                           className="admin-input"
                           value={transcriptConfig.ai_provider}
@@ -2389,7 +2389,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         >
                           <option value="groq">Groq (Llama 3 / Mixtral)</option>
                           <option value="gemini">Google Gemini</option>
-                          <option value="openrouter">OpenRouter (Tous modÃ¨les)</option>
+                          <option value="openrouter">OpenRouter (Tous modèles)</option>
                           <option value="anthropic">Anthropic (Claude)</option>
                           <option value="ollama">Ollama (Local)</option>
                         </select>
@@ -2398,7 +2398,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       {transcriptConfig.ai_provider === 'groq' && (
                         <>
                           <div className="form-field full-width">
-                            <label className="field-label"><Key size={14} /> ClÃ© API Groq</label>
+                            <label className="field-label"><Key size={14} /> Clé API Groq</label>
                             <input 
                               type="password"
                               className="admin-input font-mono text-xs"
@@ -2408,7 +2408,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             />
                           </div>
                           <div className="form-field full-width">
-                            <label className="field-label"><Sparkles size={14} /> ModÃ¨le Groq</label>
+                            <label className="field-label"><Sparkles size={14} /> Modèle Groq</label>
                             <input 
                               className="admin-input font-mono text-xs"
                               value={transcriptConfig.default_model}
@@ -2421,7 +2421,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                       {transcriptConfig.ai_provider === 'gemini' && (
                         <div className="form-field full-width">
-                          <label className="field-label"><Key size={14} /> ClÃ© API Gemini</label>
+                          <label className="field-label"><Key size={14} /> Clé API Gemini</label>
                           <input 
                             type="password"
                             className="admin-input font-mono text-xs"
@@ -2434,7 +2434,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                       {transcriptConfig.ai_provider === 'openrouter' && (
                         <div className="form-field full-width">
-                          <label className="field-label"><Key size={14} /> ClÃ© API OpenRouter</label>
+                          <label className="field-label"><Key size={14} /> Clé API OpenRouter</label>
                           <input 
                             type="password"
                             className="admin-input font-mono text-xs"
@@ -2448,7 +2448,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       {transcriptConfig.ai_provider === 'anthropic' && (
                         <>
                           <div className="form-field full-width">
-                            <label className="field-label"><Key size={14} /> ClÃ© API Anthropic</label>
+                            <label className="field-label"><Key size={14} /> Clé API Anthropic</label>
                             <input 
                               type="password"
                               className="admin-input font-mono text-xs"
@@ -2458,7 +2458,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             />
                           </div>
                           <div className="form-field full-width">
-                            <label className="field-label"><Sparkles size={14} /> ModÃ¨le Anthropic</label>
+                            <label className="field-label"><Sparkles size={14} /> Modèle Anthropic</label>
                             <input 
                               className="admin-input font-mono text-xs"
                               value={transcriptConfig.anthropic_model}
@@ -2471,7 +2471,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                       {transcriptConfig.ai_provider === 'ollama' && (
                         <div className="form-field full-width">
-                          <label className="field-label"><Globe size={14} /> HÃ´te Ollama</label>
+                          <label className="field-label"><Globe size={14} /> Hôte Ollama</label>
                           <input 
                             className="admin-input font-mono text-xs"
                             value={transcriptConfig.ollama_host}
@@ -2482,10 +2482,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       )}
                     </div>
 
-                    {/* Limite de caractÃ¨res */}
+                    {/* Limite de caractères */}
                     <div className="form-field full-width" style={{ marginTop: '0.5rem' }}>
                       <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span>ðŸ“</span> Limite de contexte envoyÃ©e Ã  l'IA (caractÃ¨res)
+                        <span>ðŸ“</span> Limite de contexte envoyée Ã  l'IA (caractères)
                       </label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                         <input
@@ -2501,7 +2501,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <span style={{ fontSize: '0.85rem', color: '#6d28d9' }}>
                           â‰ˆ {Math.round(parseInt(transcriptConfig.max_chars_context || String(MAX_CHARS_BY_PROVIDER[transcriptConfig.ai_provider] || 24000)) / 4).toLocaleString('fr-FR')} tokens
                           {!transcriptConfig.max_chars_context && (
-                            <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: '#94A3B8' }}>(dÃ©faut {transcriptConfig.ai_provider})</span>
+                            <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: '#94A3B8' }}>(défaut {transcriptConfig.ai_provider})</span>
                           )}
                         </span>
                         {transcriptConfig.max_chars_context && (
@@ -2510,19 +2510,19 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             style={{ fontSize: '0.75rem', color: '#94A3B8', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
                             onClick={() => setTranscriptConfig({ ...transcriptConfig, max_chars_context: '' })}
                           >
-                            RÃ©initialiser
+                            Réinitialiser
                           </button>
                         )}
                       </div>
                     </div>
 
-                    {/* Ã‰diteur de prompt */}
+                    {/* Éditeur de prompt */}
                     <div className="form-field full-width" style={{ marginTop: '1rem' }}>
                       <label className="field-label">
-                        ðŸ“ Prompt d'instruction envoyÃ© Ã  l'IA
+                        ðŸ“ Prompt d'instruction envoyé Ã  l'IA
                       </label>
                       <p style={{ fontSize: '0.78rem', color: '#7c3aed', marginBottom: '0.5rem' }}>
-                        Utilisez <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{REUNION}'}</code> pour le titre et <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{TRANSCRIPTION}'}</code> pour le contenu. Laissez vide pour utiliser le prompt par dÃ©faut.
+                        Utilisez <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{REUNION}'}</code> pour le titre et <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{TRANSCRIPTION}'}</code> pour le contenu. Laissez vide pour utiliser le prompt par défaut.
                       </p>
                       <textarea
                         className="admin-input"
@@ -2538,7 +2538,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
                           onClick={() => setTranscriptConfig({ ...transcriptConfig, custom_prompt: '' })}
                         >
-                          RÃ©initialiser au prompt par dÃ©faut
+                          Réinitialiser au prompt par défaut
                         </button>
                       )}
                     </div>
@@ -2571,12 +2571,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <div className="admin-side-card info-card" style={{ background: '#f5f3ff', border: '1px solid #ddd6fe' }}>
                   <h3 className="side-card-title" style={{ color: '#5b21b6' }}><Sparkles size={18} /> Aide</h3>
                   <p className="side-card-desc" style={{ color: '#6d28d9' }}>
-                    Ces paramÃ¨tres configurent l'intelligence artificielle utilisÃ©e pour rÃ©sumer les rÃ©unions et identifier les intervenants.
+                    Ces paramètres configurent l'intelligence artificielle utilisée pour résumer les réunions et identifier les intervenants.
                   </p>
                   <ul style={{ fontSize: '0.8rem', color: '#7c3aed', paddingLeft: '20px', marginTop: '10px' }}>
-                    <li style={{ marginBottom: '8px' }}><strong>Groq :</strong> TrÃ¨s rapide, idÃ©al pour le temps rÃ©el.</li>
-                    <li style={{ marginBottom: '8px' }}><strong>Gemini :</strong> Excellente comprÃ©hension du contexte long.</li>
-                    <li style={{ marginBottom: '8px' }}><strong>Anthropic :</strong> ModÃ¨les Claude trÃ¨s qualitatifs.</li>
+                    <li style={{ marginBottom: '8px' }}><strong>Groq :</strong> Très rapide, idéal pour le temps réel.</li>
+                    <li style={{ marginBottom: '8px' }}><strong>Gemini :</strong> Excellente compréhension du contexte long.</li>
+                    <li style={{ marginBottom: '8px' }}><strong>Anthropic :</strong> Modèles Claude très qualitatifs.</li>
                     <li style={{ marginBottom: '8px' }}><strong>Ollama :</strong> Solution locale (RGPD compliant).</li>
                   </ul>
                 </div>
@@ -2593,7 +2593,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </div>
               <div className="header-content">
                 <h2>Synchronisation Oracle</h2>
-                <p>ParamÃ©trez les flux de donnÃ©es entre les bases Oracle RH/FINANCES et la base locale.</p>
+                <p>Paramétrez les flux de données entre les bases Oracle RH/FINANCES et la base locale.</p>
               </div>
             </div>
 
@@ -2650,14 +2650,14 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <h3>Oracle {type}</h3>
                       </div>
                       <div className={`status-badge ${config.is_enabled ? 'active' : 'inactive'}`}>
-                        {config.is_enabled ? 'ActivÃ©' : 'DÃ©sactivÃ©'}
+                        {config.is_enabled ? 'Activé' : 'Désactivé'}
                       </div>
                     </div>
 
                     <div className="card-body">
                       <div className="form-grid">
                         <div className="input-group">
-                          <label><Globe size={14} /> HÃ´te / IP</label>
+                          <label><Globe size={14} /> Hôte / IP</label>
                           <input 
                             type="text" 
                             placeholder="ex: 10.1.x.x"
@@ -2732,7 +2732,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                       <div className="card-actions">
                       <button className="btn-save-luxe" onClick={() => handleSaveOracle(config)} disabled={isSaving}>
-                        <Save size={18} /> Enregistrer ParamÃ¨tres Connexion
+                        <Save size={18} /> Enregistrer paramètres Connexion
                       </button>
                       <div className="btn-group">
                         <button className="btn-test-luxe" onClick={() => handleTestOracle(type)} disabled={testing}>
@@ -2748,7 +2748,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       {result && result.details && result.details.length > 0 && (
                       <div className="oracle-tables-selector mt-4">
                         <div className="selector-header flex justify-between items-center mb-4">
-                          <h4 className="selector-title mb-0">SÃ©lection des objets (tables/vues) Ã  synchroniser :</h4>
+                          <h4 className="selector-title mb-0">Sélection des objets (tables/vues) Ã  synchroniser :</h4>
                           <div className="search-mini">
                             <Search size={14} />
                             <input 
@@ -2855,7 +2855,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           </button>
 
                           <p className="text-[10px] text-gray-400 mt-1 italic text-center">
-                            La synchronisation supprimera et recrÃ©era les tables locales sÃ©lectionnÃ©es.
+                            La synchronisation supprimera et recréera les tables locales sélectionnées.
                           </p>
                         </div>
                       </div>
@@ -2866,7 +2866,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       <div className="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
                         <p className="text-xs font-bold text-gray-500 mb-3 flex items-center gap-2">
                            <Check size={14} className="text-green-500" /> 
-                           {selectedTables[type].length} objet(s) configurÃ©(s) pour synchronisation.
+                           {selectedTables[type].length} objet(s) configuré(s) pour synchronisation.
                         </p>
                         <button 
                           className="btn-import-oracle" 
@@ -2914,7 +2914,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               <div>
                 <div style={{ marginBottom: '2rem' }}>
                   <h3 style={{ margin: '0 0 0.5rem 0', color: '#1e293b', fontSize: '1.25rem', fontWeight: '600' }}>Automatisation des synchronisations</h3>
-                  <p style={{ color: '#64748b', margin: 0, fontSize: '0.95rem' }}>Configurez la frÃ©quence de synchronisation pour chaque base Oracle. Les tÃ¢ches s'exÃ©cuteront automatiquement selon le calendrier dÃ©fini.</p>
+                  <p style={{ color: '#64748b', margin: 0, fontSize: '0.95rem' }}>Configurez la fréquence de synchronisation pour chaque base Oracle. Les tâches s'exécuteront automatiquement selon le calendrier défini.</p>
                 </div>
 
                 <div className="oracle-grid">
@@ -2937,7 +2937,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             })}
                           />
                           <span style={{ fontSize: '0.85rem' }}>
-                            {oracleAutomations[type]?.enabled ? 'ActivÃ©e' : 'DÃ©sactivÃ©e'}
+                            {oracleAutomations[type]?.enabled ? 'Activée' : 'Désactivée'}
                           </span>
                         </label>
                       </div>
@@ -2946,7 +2946,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '0.5rem', marginBottom: '1rem' }}>
                           <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#475569', fontSize: '0.9rem' }}>
                             <Clock size={14} style={{ marginRight: '0.5rem', display: 'inline' }} />
-                            FrÃ©quence de synchronisation
+                            Fréquence de synchronisation
                           </label>
                           <select
                             value={oracleAutomations[type]?.frequency || 'daily'}
@@ -2980,8 +2980,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             <strong>Automatisation active</strong>
                             <br />
                             {oracleAutomations[type]?.enabled
-                              ? `Les synchronisations s'exÃ©cuteront ${oracleAutomations[type]?.frequency === 'hourly' ? 'toutes les heures' : oracleAutomations[type]?.frequency === 'daily' ? 'une fois par jour' : oracleAutomations[type]?.frequency === 'weekly' ? 'une fois par semaine' : 'une fois par mois'} automatiquement.`
-                              : 'Activez l\'automatisation pour dÃ©marrer les synchronisations planifiÃ©es.'}
+                              ? `Les synchronisations s'exécuteront ${oracleAutomations[type]?.frequency === 'hourly' ? 'toutes les heures' : oracleAutomations[type]?.frequency === 'daily' ? 'une fois par jour' : oracleAutomations[type]?.frequency === 'weekly' ? 'une fois par semaine' : 'une fois par mois'} automatiquement.`
+                              : 'Activez l\'automatisation pour démarrer les synchronisations planifiées.'}
                           </div>
                         </div>
 
@@ -3063,7 +3063,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <h3 style={{ margin: '0 0 0.5rem 0', color: '#1e293b', fontSize: '1.25rem', fontWeight: '600' }}>Historique des synchronisations</h3>
-                    <p style={{ color: '#64748b', margin: 0, fontSize: '0.95rem' }}>Consultez les dÃ©tails de toutes les synchronisations Oracle effectuÃ©es.</p>
+                    <p style={{ color: '#64748b', margin: 0, fontSize: '0.95rem' }}>Consultez les détails de toutes les synchronisations Oracle effectuées.</p>
                   </div>
                   <button
                     onClick={() => fetchOracleSyncLogs()}
@@ -3104,7 +3104,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Type</th>
                           <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Statut</th>
                           <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Enregistrements</th>
-                          <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>DurÃ©e</th>
+                          <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Durée</th>
                           <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#475569' }}>Message</th>
                         </tr>
                       </thead>
@@ -3145,7 +3145,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 {log.status === 'success' && <CheckCircle2 size={14} />}
                                 {log.status === 'running' && <Loader2 size={14} className="animate-spin" />}
                                 {log.status === 'failed' && <AlertTriangle size={14} />}
-                                {log.status === 'success' ? 'SuccÃ¨s' : log.status === 'running' ? 'En cours' : 'Erreur'}
+                                {log.status === 'success' ? 'Succès' : log.status === 'running' ? 'En cours' : 'Erreur'}
                               </span>
                             </td>
                             <td style={{ padding: '1rem', color: '#1e293b', textAlign: 'center' }}>
@@ -3176,7 +3176,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </div>
               <div className="header-content">
                 <h2>Liaison MariaDB</h2>
-                <p>ParamÃ©trez les flux de donnÃ©es entre les bases MariaDB RH/FINANCES et la base locale.</p>
+                <p>Paramétrez les flux de données entre les bases MariaDB RH/FINANCES et la base locale.</p>
               </div>
             </div>
 
@@ -3196,14 +3196,14 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <h3>Connexion Centrale MariaDB</h3>
                       </div>
                       <div className={`status-badge ${config.is_enabled ? 'active' : 'inactive'}`}>
-                        {config.is_enabled ? 'ActivÃ©' : 'DÃ©sactivÃ©'}
+                        {config.is_enabled ? 'Activé' : 'Désactivé'}
                       </div>
                     </div>
 
                     <div className="card-body">
                       <div className="form-grid">
                         <div className="input-group">
-                          <label><Globe size={14} /> HÃ´te / IP</label>
+                          <label><Globe size={14} /> Hôte / IP</label>
                           <input 
                             type="text" 
                             placeholder="ex: 10.1.x.x"
@@ -3248,7 +3248,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           />
                         </div>
                         <div className="input-group full">
-                          <label><Database size={14} /> Base de donnÃ©es</label>
+                          <label><Database size={14} /> Base de données</label>
                           <input 
                             type="text" 
                             placeholder="Nom de la base..."
@@ -3278,7 +3278,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                       <div className="card-actions">
                         <button className="btn-save-luxe" onClick={() => handleSaveMariaDB(config)} disabled={isSaving}>
-                          <Save size={18} /> Enregistrer ParamÃ¨tres
+                          <Save size={18} /> Enregistrer paramètres
                         </button>
                         <div className="btn-group">
                           <button className="btn-test-luxe" onClick={() => handleTestMariaDB(type)} disabled={testing}>
@@ -3293,7 +3293,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                       {result && result.details && result.details.length > 0 && (
                         <div className="mt-4">
-                          <h4 className="text-sm font-semibold mb-2">Tables trouvÃ©es ({result.details.length}) :</h4>
+                          <h4 className="text-sm font-semibold mb-2">Tables trouvées ({result.details.length}) :</h4>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-h-60 overflow-y-auto w-full p-2 bg-gray-50 border rounded text-xs font-mono">
                              {result.details.map((t: string) => (
                                <div key={t} className="p-1 bg-white border shadow-sm rounded truncate">
@@ -3328,11 +3328,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         <div className="card-banner">
                             <div className="banner-info">
                                 <h3 className="banner-title">Configuration GLPI</h3>
-                                <p className="banner-subtitle">Liaison temps rÃ©el avec l'Ã©cosystÃ¨me de tickets DSI.</p>
+                                <p className="banner-subtitle">Liaison temps réel avec l'écosystème de tickets DSI.</p>
                             </div>
                             <div className="banner-controls">
                                 <span className={`status-pill ${glpiConfig.is_enabled ? 'active' : 'inactive'}`}>
-                                    {glpiConfig.is_enabled ? 'ActivÃ©' : 'DÃ©sactivÃ©'}
+                                    {glpiConfig.is_enabled ? 'Activé' : 'Désactivé'}
                                 </span>
                                 <label className="switch">
                                     <input type="checkbox" checked={glpiConfig.is_enabled} onChange={e => setGlpiConfig({...glpiConfig, is_enabled: e.target.checked})} />
@@ -3351,7 +3351,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         onChange={e => setGlpiConfig({...glpiConfig, url: e.target.value})} 
                                         placeholder="https://glpi-prod.../apirest.php" 
                                     />
-                                    <span className="field-tip">Conseil : privilÃ©giez le HTTPS pour une session stable.</span>
+                                    <span className="field-tip">Conseil : privilégiez le HTTPS pour une session stable.</span>
                                 </div>
                                 <div className="form-field">
                                     <label className="field-label"><Key size={14} /> App-Token</label>
@@ -3391,7 +3391,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         placeholder="Mot de passe" 
                                     />
                                 </div>
-                                <p className="box-note">L'identifiant/password est prioritaire sur le User-Token si renseignÃ©.</p>
+                                <p className="box-note">L'identifiant/password est prioritaire sur le User-Token si renseigné.</p>
                             </div>
 
                             <div className="card-footer-btns">
@@ -3428,7 +3428,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                     <div className="counter-label">Tickets en base locale</div>
                                 </div>
                             ) : (
-                                <div className="counter-empty">Non testÃ©</div>
+                                <div className="counter-empty">Non testé</div>
                             )}
                         </div>
 
@@ -3440,7 +3440,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             
                             <button onClick={handleFetchRecentTickets} className="action-tile" disabled={isSyncingRecent || !glpiConfig.is_enabled}>
                                 <HistoryIcon size={18} />
-                                <span>{isSyncingRecent ? '...' : 'Tickets RÃ©cents'}</span>
+                                <span>{isSyncingRecent ? '...' : 'Tickets Récents'}</span>
                             </button>
 
                             <button onClick={handleSyncAllTickets} className="action-tile danger" disabled={isSyncingAll || !glpiConfig.is_enabled}>
@@ -3450,7 +3450,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                             <button onClick={handleTestCreateTicket} className="action-tile success" disabled={!glpiConfig.is_enabled}>
                                 <Plus size={18} />
-                                <span>CrÃ©er Ticket</span>
+                                <span>Créer Ticket</span>
                             </button>
 
                             <button onClick={handleSyncObservers} className="action-tile info" disabled={isSyncingObservers || !glpiConfig.is_enabled}>
@@ -3460,7 +3460,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                             <button onClick={handleSyncObserversRecent} className="action-tile info" disabled={isSyncingObservers || !glpiConfig.is_enabled}>
                                 <Users size={18} />
-                                <span>Obs. RÃ©cents</span>
+                                <span>Obs. Récents</span>
                             </button>
 
                             <button onClick={handleSyncFollowups} className="action-tile warning" disabled={isSyncingFollowups || !glpiConfig.is_enabled}>
@@ -3470,7 +3470,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                             <button onClick={handleSyncFollowupsRecent} className="action-tile warning" disabled={isSyncingFollowups || !glpiConfig.is_enabled}>
                                 <MessageSquare size={18} />
-                                <span>Trait. RÃ©cents</span>
+                                <span>Trait. Récents</span>
                             </button>
 
                         </div>
@@ -3563,7 +3563,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                             <strong>{syncStatus.processed.toLocaleString()}</strong> / {syncStatus.total.toLocaleString()}
                                         </span>
                                         <span className="stat-item">
-                                            {syncStatus.total > 0 ? ((syncStatus.processed / syncStatus.total) * 100).toFixed(1) : '0'}% complÃ©tÃ©
+                                            {syncStatus.total > 0 ? ((syncStatus.processed / syncStatus.total) * 100).toFixed(1) : '0'}% complété
                                         </span>
                                     </div>
                                     <button className="btn-cancel-sync" onClick={handleCancelSync}>
@@ -3578,7 +3578,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <div className="admin-card scheduled-syncs-card" style={{ marginTop: '20px' }}>
                     <div className="card-banner" style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)' }}>
                         <div className="banner-info">
-                            <h3 className="banner-title" style={{ color: 'white' }}><Clock size={20} /> Synchronisations ProgrammÃ©es</h3>
+                            <h3 className="banner-title" style={{ color: 'white' }}><Clock size={20} /> Synchronisations Programmées</h3>
                             <p className="banner-subtitle" style={{ color: 'rgba(255,255,255,0.8)' }}>{scheduledSyncs.length} synchros actives</p>
                         </div>
                         <button 
@@ -3591,7 +3591,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     </div>
                     <div className="card-content">
                         {scheduledSyncs.length === 0 ? (
-                            <p style={{ color: '#64748b', textAlign: 'center', padding: '20px' }}>Aucune synchro programmÃ©e</p>
+                            <p style={{ color: '#64748b', textAlign: 'center', padding: '20px' }}>Aucune synchro programmée</p>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {scheduledSyncs.map(sync => (
@@ -3613,7 +3613,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                                 <div style={{ fontWeight: 600, color: '#1e293b' }}>
                                                     {sync.sync_type === 'tickets' ? 'Tickets' : sync.sync_type === 'observers' ? 'Observateurs' : 'Traitements'}
                                                     {' - '}
-                                                    {sync.sync_mode === 'recent' ? 'RÃ©cents' : 'Totale'}
+                                                    {sync.sync_mode === 'recent' ? 'Récents' : 'Totale'}
                                                 </div>
                                                 <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
                                                     Toutes les {sync.frequency_value} {sync.frequency_type}
@@ -3656,13 +3656,13 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 <div className="card-banner" style={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)' }}>
                     <div className="banner-info">
                         <h3 className="banner-title" style={{ color: 'white' }}><HistoryIcon size={20} /> Historique des Synchronisations</h3>
-                        <p className="banner-subtitle" style={{ color: '#cbd5e1' }}>{syncLogs.length} entrÃ©es</p>
+                        <p className="banner-subtitle" style={{ color: '#cbd5e1' }}>{syncLogs.length} entrées</p>
                     </div>
                     <button 
                         onClick={fetchSyncLogs} 
                         style={{ padding: '8px 16px', fontSize: '0.85rem', background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', cursor: 'pointer' }}
                     >
-                        â†» RafraÃ®chir
+                        â†» Rafraîchir
                     </button>
                 </div>
                 <div style={{ display: 'flex', gap: '12px', padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -3675,21 +3675,21 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     </select>
                     <select value={syncLogFilters.status} onChange={e => setSyncLogFilters(f => ({ ...f, status: e.target.value }))} style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', background: 'white', color: '#475569' }}>
                         <option value="">Tous les statuts</option>
-                        <option value="completed">TerminÃ©</option>
+                        <option value="completed">Terminé</option>
                         <option value="running">En cours</option>
                         <option value="error">Erreur</option>
                     </select>
                     <input type="date" value={syncLogFilters.dateFrom} onChange={e => setSyncLogFilters(f => ({ ...f, dateFrom: e.target.value }))} style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', color: '#475569' }} placeholder="Du" />
                     <input type="date" value={syncLogFilters.dateTo} onChange={e => setSyncLogFilters(f => ({ ...f, dateTo: e.target.value }))} style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', color: '#475569' }} placeholder="Au" />
                     {(syncLogFilters.type || syncLogFilters.status || syncLogFilters.dateFrom || syncLogFilters.dateTo) && (
-                        <button onClick={() => setSyncLogFilters({ type: '', status: '', dateFrom: '', dateTo: '' })} style={{ padding: '6px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>âœ• RÃ©initialiser</button>
+                        <button onClick={() => setSyncLogFilters({ type: '', status: '', dateFrom: '', dateTo: '' })} style={{ padding: '6px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>âœ• Réinitialiser</button>
                     )}
                 </div>
                 
                 <div className="card-body" style={{ padding: '0' }}>
                     {syncLogs.length === 0 ? (
                         <div style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', padding: '40px' }}>
-                            Aucune synchronisation effectuÃ©e
+                            Aucune synchronisation effectuée
                         </div>
                     ) : (
                         <>
@@ -3715,7 +3715,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                                     background: log.sync_type === 'tickets' ? '#dbeafe' : log.sync_type === 'observers' ? '#dcfce7' : log.sync_type === 'followups' ? '#fef3c7' : '#f3e8ff',
                                                     color: log.sync_type === 'tickets' ? '#1e40af' : log.sync_type === 'observers' ? '#166534' : log.sync_type === 'followups' ? '#92400e' : '#7c3aed'
                                                 }}>
-                                                    {(log.sync_type === 'tickets' ? 'Tickets' : log.sync_type === 'observers' ? 'Observateurs' : log.sync_type === 'followups' ? 'Traitements' : log.sync_type === 'ticket' ? 'Ticket' : log.sync_type) + ' - ' + (log.sync_mode === 'recent' ? 'RÃ©cents' : log.sync_mode === 'partial' ? 'Partielle' : log.sync_mode === 'full' ? 'Totale' : log.sync_mode === 'auto' ? 'Auto' : log.sync_mode === 'close' ? 'ClÃ´ture' : log.sync_mode)}
+                                                    {(log.sync_type === 'tickets' ? 'Tickets' : log.sync_type === 'observers' ? 'Observateurs' : log.sync_type === 'followups' ? 'Traitements' : log.sync_type === 'ticket' ? 'Ticket' : log.sync_type) + ' - ' + (log.sync_mode === 'recent' ? 'Récents' : log.sync_mode === 'partial' ? 'Partielle' : log.sync_mode === 'full' ? 'Totale' : log.sync_mode === 'auto' ? 'Auto' : log.sync_mode === 'close' ? 'Clôture' : log.sync_mode)}
                                                 </span>
                                             </td>
                                             <td style={{ padding: '12px 16px', fontSize: '0.85rem' }}>
@@ -3724,7 +3724,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                                     color: log.status === 'error' ? '#ef4444' : log.status === 'running' ? '#3b82f6' : '#22c55e'
                                                 }}>
                                                     {log.status === 'error' ? 'âœ—' : log.status === 'running' ? 'âŸ³' : 'âœ“'}
-                                                    {log.status === 'error' ? 'Erreur' : log.status === 'running' ? 'En cours' : 'TerminÃ©'}
+                                                    {log.status === 'error' ? 'Erreur' : log.status === 'running' ? 'En cours' : 'Terminé'}
                                                 </span>
                                                 {log.status === 'error' && (
                                                     <span style={{ fontSize: '0.75rem', color: '#ef4444', display: 'block', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -3757,7 +3757,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         disabled={syncLogsPage === 1}
                                         style={{ padding: '8px 12px', background: syncLogsPage === 1 ? '#f1f5f9' : '#e2e8f0', border: 'none', borderRadius: '6px', cursor: syncLogsPage === 1 ? 'not-allowed' : 'pointer', color: syncLogsPage === 1 ? '#94a3b8' : '#475569' }}
                                     >
-                                        â† PrÃ©cÃ©dent
+                                        â† Précédent
                                     </button>
                                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
                                         Page {syncLogsPage} / {Math.ceil(syncLogs.length / syncLogsPerPage)}
@@ -3783,7 +3783,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             <div className="section-header">
               <div className="flex flex-col">
                 <h3 className="text-xl font-black">Configuration du Hub</h3>
-                <p className="text-sm text-gray-500">GÃ©rez les briques de services et leur ordre d'affichage.</p>
+                <p className="text-sm text-gray-500">Gérez les briques de services et leur ordre d'affichage.</p>
               </div>
               <button className="btn btn-primary" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(true); }}>
                 <Plus size={18} /> Ajouter une brique
@@ -3797,7 +3797,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     <div className="modal-header-info">
                       <div className="modal-icon-box blue"><Box size={24} /></div>
                       <div>
-                        <h3 className="modal-title">{editingTile ? 'Ã‰diter la brique' : 'CrÃ©er une brique'}</h3>
+                        <h3 className="modal-title">{editingTile ? 'Éditer la brique' : 'Créer une brique'}</h3>
                         <p className="modal-subtitle">{editingTile?.title || 'Nouvelle brique'}</p>
                       </div>
                     </div>
@@ -3843,7 +3843,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                               e.target.style.borderColor = '#7dd3fc';
                               e.target.style.boxShadow = 'none';
                             }}
-                            placeholder="ex: Gestion BudgÃ©taire"
+                            placeholder="ex: Gestion Budgétaire"
                           />
                         </div>
 
@@ -3883,15 +3883,15 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           >
                             <option value="active">âœ“ Actif</option>
                             <option value="inactive">âœ— Inactif</option>
-                            <option value="soon">â‹¯ BientÃ´t</option>
+                            <option value="soon">â‹¯ Bientôt</option>
                             <option value="maintenance">ðŸ”§ Maintenance</option>
                           </select>
                         </div>
                       </div>
 
-                      {/* IcÃ´ne */}
+                      {/* Icône */}
                       <div style={{ marginBottom: '20px' }}>
-                        <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>IcÃ´ne (lucide-react)</label>
+                        <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Icône (lucide-react)</label>
                         {(() => {
                           const ICON_LIST = ['Activity','AlertCircle','AlertTriangle','Archive','Award','BarChart','BarChart2','BarChart3','Bell','Book','Bookmark','Box','Brain','Briefcase','Building','Bulb','Bug','Calendar','Camera','Check','CheckCircle','Clock','Code','Command','Copy','Database','Delete','Download','Edit','Edit2','Eye','File','Filter','Folder','FormInput','GitBranch','GitCommit','Globe','Grid','Hash','Heart','Home','Image','Info','Key','Layers','Layout','Link','List','Lock','LogOut','Mail','Menu','MessageSquare','Minus','Monitor','Moon','MoreHorizontal','MoreVertical','Music','Package','PauseCircle','Pencil','Phone','PlayCircle','Plus','PlusCircle','Power','Printer','Protect','Radio','RefreshCw','Repeat','Settings','Share2','Shield','ShieldAlert','ShoppingCart','Smartphone','Star','Sun','Tag','Target','Trash','Trash2','TrendingDown','TrendingUp','Upload','User','Users','Video','Volume2','Wifi','X','Zap'];
                           const currentIcon = editingTile ? editingTile.icon || 'Box' : newTile.icon || 'Box';
@@ -3916,7 +3916,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                   boxSizing: 'border-box', background: 'white',
                                   outline: 'none'
                                 }}
-                                placeholder="Rechercher une icÃ´ne..."
+                                placeholder="Rechercher une icône..."
                               />
                               <div style={{
                                 display: 'grid',
@@ -3975,7 +3975,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           />
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <span style={{ fontSize: '0.95rem', fontWeight: '700', color: '#0c4a6e' }}>Brique Publique</span>
-                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Accessible Ã  tous les utilisateurs identifiÃ©s (pas besoin d'autorisation individuelle)</span>
+                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Accessible Ã  tous les utilisateurs identifiés (pas besoin d'autorisation individuelle)</span>
                           </div>
                         </label>
                       </div>
@@ -4098,10 +4098,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                           <div>
-                            <label style={{ fontSize: '0.85rem', fontWeight: '600', color: '#475569', display: 'block', marginBottom: '6px' }}>LibellÃ© du lien *</label>
+                            <label style={{ fontSize: '0.85rem', fontWeight: '600', color: '#475569', display: 'block', marginBottom: '6px' }}>Libellé du lien *</label>
                             <input
                               type="text"
-                              placeholder="ex: GÃ©rer le parc"
+                              placeholder="ex: Gérer le parc"
                               value={newLink.label || ''}
                               onChange={(e) => setNewLink({ ...newLink, label: e.target.value })}
                               style={{
@@ -4201,7 +4201,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         {(!newLink.label || !newLink.url) && (
                           <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#ea580c', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <AlertTriangle size={14} />
-                            Remplissez le libellÃ© et l'URL pour ajouter un lien
+                            Remplissez le libellé et l'URL pour ajouter un lien
                           </div>
                         )}
                       </div>
@@ -4221,7 +4221,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       className="btn btn-primary"
                       style={{ background: '#2563eb', color: 'white', border: 'none', cursor: 'pointer', padding: '10px 20px', borderRadius: '8px', fontWeight: '700' }}
                     >
-                      {editingTile ? 'Mettre Ã  jour' : 'CrÃ©er'}
+                      {editingTile ? 'Mettre Ã  jour' : 'Créer'}
                     </button>
                   </div>
                 </div>
@@ -4233,7 +4233,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     <thead>
                         <tr>
                             <th style={{ width: '80px' }}>Ordre</th>
-                            <th style={{ width: '60px' }}>IcÃ´ne</th>
+                            <th style={{ width: '60px' }}>Icône</th>
                             <th>Service</th>
                             <th>Description</th>
                             <th>Liens</th>
