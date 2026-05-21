@@ -38,14 +38,14 @@ const STATUT_LABELS: Record<string, string> = {
   idee: 'Idée', demande_initiale: 'Demande initiale', etude_dsi: 'Étude DSI',
   arbitrage: 'Arbitrage', planification: 'Planification', en_cours: 'En cours',
   en_recette: 'En recette', en_cloture: 'En clôture', cloture: 'Clôturé',
-  refuse: 'Refusé', suspendu: 'Suspendu', abandonne: 'Abandonné'
+  refuse: 'Refusé', suspendu: 'Suspendu', abandonne: 'Abandonné', en_pause: 'En pause'
 };
 
 const STATUT_COLORS: Record<string, string> = {
   idee: '#94a3b8', demande_initiale: '#f59e0b', etude_dsi: '#3b82f6',
   arbitrage: '#8b5cf6', planification: '#06b6d4', en_cours: '#22c55e',
   en_recette: '#14b8a6', en_cloture: '#f97316', cloture: '#64748b',
-  refuse: '#ef4444', suspendu: '#eab308', abandonne: '#6b7280'
+  refuse: '#ef4444', suspendu: '#eab308', abandonne: '#6b7280', en_pause: '#a855f7'
 };
 
 const COMPTEUR_MAP: Record<string, string> = {

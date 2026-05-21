@@ -115,17 +115,18 @@ async function getControlesCompletude(projetId, statutCible) {
 function getStatutsSuivants(statutActuel) {
     const transitions = {
         'idee': ['demande_initiale'],
-        'demande_initiale': ['idee', 'etude_dsi'],
-        'etude_dsi': ['demande_initiale', 'arbitrage'],
-        'arbitrage': ['etude_dsi', 'demande_initiale', 'planification', 'refuse', 'suspendu'],
-        'planification': ['arbitrage', 'en_cours', 'suspendu'],
-        'en_cours': ['planification', 'en_recette', 'suspendu'],
-        'en_recette': ['en_cours', 'en_cloture', 'suspendu'],
-        'en_cloture': ['en_recette', 'cloture', 'suspendu'],
-        'suspendu': ['demande_initiale', 'etude_dsi', 'arbitrage', 'planification', 'en_cours', 'en_recette', 'en_cloture', 'abandonne'],
-        'refuse': ['arbitrage'],
-        'abandonne': ['suspendu'],
-        'cloture': ['en_cloture']
+        'demande_initiale': ['idee', 'etude_dsi', 'en_pause'],
+        'etude_dsi': ['demande_initiale', 'arbitrage', 'en_pause'],
+        'arbitrage': ['etude_dsi', 'demande_initiale', 'planification', 'refuse', 'suspendu', 'en_pause'],
+        'planification': ['arbitrage', 'en_cours', 'suspendu', 'en_pause'],
+        'en_cours': ['planification', 'en_recette', 'suspendu', 'en_pause'],
+        'en_recette': ['en_cours', 'en_cloture', 'suspendu', 'en_pause'],
+        'en_cloture': ['en_recette', 'cloture', 'suspendu', 'en_pause'],
+        'en_pause': ['demande_initiale', 'etude_dsi', 'arbitrage', 'planification', 'en_cours', 'en_recette', 'en_cloture', 'abandonne'],
+        'suspendu': ['demande_initiale', 'etude_dsi', 'arbitrage', 'planification', 'en_cours', 'en_recette', 'en_cloture', 'abandonne', 'en_pause'],
+        'refuse': ['arbitrage', 'en_pause'],
+        'abandonne': ['suspendu', 'en_pause'],
+        'cloture': ['en_cloture', 'en_pause']
     };
     return transitions[statutActuel] || [];
 }
@@ -143,7 +144,8 @@ function getStatutLabel(statut) {
         'cloture': 'Clôturé',
         'refuse': 'Refusé',
         'suspendu': 'Suspendu',
-        'abandonne': 'Abandonné'
+        'abandonne': 'Abandonné',
+        'en_pause': 'En pause'
     };
     return labels[statut] || statut;
 }
