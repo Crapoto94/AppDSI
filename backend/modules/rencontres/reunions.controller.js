@@ -316,6 +316,11 @@ ${tasksHtml}
             const isAdmin = req.user?.role === 'admin';
             const isCreator = req.user?.username && reunion.created_by === req.user.username;
             if (!isAdmin && !isCreator) return res.status(403).json({ error: 'Seuls l\'administrateur ou le créateur peuvent supprimer cette réunion' });
+
+            // Supprimer les liaisons avec les projets avant de supprimer la réunion
+            await pgDb.run('DELETE FROM projets.projet_reunions WHERE reunion_id = $1', [req.params.id]);
+
+            // Supprimer la réunion
             await pgDb.run('DELETE FROM rencontres_reunions WHERE id=?', [req.params.id]);
             res.json({ message: 'Réunion supprimée' });
         } catch (error) { res.status(500).json({ error: error.message }); }

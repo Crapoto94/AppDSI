@@ -144,7 +144,8 @@
       "Bash(node migrations/013_convert_timestamps_to_timestamptz.js)",
       "Bash(node -c modules/projets/projets.controller.js)",
       "Bash(taskkill /PID 27256 /F)",
-      "Bash(kill -9 27256)"
+      "Bash(kill -9 27256)",
+      "Bash(xargs grep -l \"reunions\\\\|réunions\")"
     ]
   }
 }
