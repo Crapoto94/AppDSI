@@ -1,6 +1,17 @@
 {
-    "currentVersion": "0.3.9",
+    "currentVersion": "0.4.0",
     "history": [
+        {
+            "version": "0.4.0",
+            "date": "21/05/2026",
+            "changes": [
+                "Version proposée en utilisation à la DSI ",
+                "Lors de la recherche d'un agent à rajouter en tant que participant à une réunion, il ne le trouve pas, ou alors il faut saisir le prénom pour qu'il ressorte bien",
+                "Journal de maintenance\\Créneau horaire validé: 12h00 - 16h30\\Créneau horaire affiché: 14h00-18h30",
+                "Impossible d'activer la page de maintenance",
+                "Création d'un calendrier DSI synchronisé avec ESEDIT"
+            ]
+        },
         {
             "version": "0.3.9",
             "date": "11/05/2026",
