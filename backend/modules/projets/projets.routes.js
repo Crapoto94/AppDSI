@@ -88,7 +88,7 @@ router.get('/:id/score-calcule', authenticateJWT, ctrl.getScoreCalcule);
 // ============================================
 router.get('/:id/reunions', authenticateJWT, ctrl.getReunionsLiees);
 router.post('/:id/reunions', authenticateJWT, ctrl.lierReunion);
-router.delete('/:id/reunions/:rid', authenticateJWT, ctrl.delierReunion);
+router.delete('/:id/reunions/:rid', authenticateAdminOrPMO, ctrl.delierReunion);
 
 // ============================================
 // JOURNAL

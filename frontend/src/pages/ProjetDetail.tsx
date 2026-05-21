@@ -1889,7 +1889,10 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
 
 // ===== ONGLET RÉUNIONS =====
 const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterReunion: () => void; onVoirReunion: (id: number) => void }> = ({ projetId, token, onAjouterReunion, onVoirReunion }) => {
+  const { user } = useAuth();
   const [reunions, setReunions] = useState<any[]>([]);
+  const isPMOOrAdmin = user?.role === 'admin' || user?.isPMO;
+
   const loadReunions = useCallback(async () => {
     try {
       const r = await fetch(`/api/projets/${projetId}/reunions`, { headers: { Authorization: `Bearer ${token}` } });
@@ -1897,6 +1900,24 @@ const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterR
       if (Array.isArray(d)) setReunions(d);
     } catch {}
   }, [projetId, token]);
+
+  const handleDelete = async (reunionId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cette réunion du projet ?')) return;
+
+    try {
+      const response = await fetch(`/api/projets/${projetId}/reunions/${reunionId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        setReunions(reunions.filter(r => r.id !== reunionId));
+      }
+    } catch (error) {
+      console.error('Erreur lors de la suppression:', error);
+    }
+  };
+
   useEffect(() => { loadReunions(); }, [loadReunions]);
   return (
     <div>
@@ -1910,7 +1931,8 @@ const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterR
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {reunions.map(r => (
-            <div key={r.id} onClick={() => onVoirReunion(r.id)} style={{ background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '14px 18px', cursor: 'pointer' }}>
+            <div key={r.id} style={{ background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div onClick={() => onVoirReunion(r.id)} style={{ cursor: 'pointer', flex: 1 }}>
               <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '14px' }}>{r.titre}</div>
               <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
                 <span>📅 {r.date_reunion ? new Date(r.date_reunion).toLocaleDateString('fr-FR') : '—'}</span>
@@ -1918,6 +1940,30 @@ const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterR
                 {r.type_gouvernance && !r.comite_nom && <span style={{ padding: '1px 6px', background: '#f1f5f9', borderRadius: '4px' }}>{r.type_gouvernance}</span>}
                 <span>👥 {r.participant_count} participants</span>
               </div>
+              </div>
+              {isPMOOrAdmin && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDelete(r.id, e); }}
+                  style={{
+                    padding: '6px 10px',
+                    background: '#fee2e2',
+                    color: '#991b1b',
+                    border: '1px solid #fca5a5',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    marginLeft: '12px',
+                    flexShrink: 0
+                  }}
+                  title="Supprimer cette réunion du projet"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
             </div>
           ))}
         </div>
