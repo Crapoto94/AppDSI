@@ -2557,14 +2557,29 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
         const changelog = JSON.parse(fs.readFileSync(changelogPath, 'utf8'));
 
         // 2. Get the date of the last version to find completed backlog items since then
-        const lastVersionDate = changelog.history.length > 0
-            ? new Date(changelog.history[0].date)
-            : new Date('2024-01-01');
+        let lastVersionDate;
+        if (changelog.history.length > 0) {
+            const dateStr = changelog.history[0].date;
+            // Try to parse French format (DD/MM/YYYY)
+            const frenchMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (frenchMatch) {
+                const [_, day, month, year] = frenchMatch;
+                lastVersionDate = new Date(year, parseInt(month) - 1, day);
+            } else {
+                // Try ISO format
+                lastVersionDate = new Date(dateStr);
+                if (isNaN(lastVersionDate.getTime())) {
+                    lastVersionDate = new Date('2024-01-01');
+                }
+            }
+        } else {
+            lastVersionDate = new Date('2024-01-01');
+        }
 
         // 3. Get completed backlog items updated since last version
         const completedBacklog = await db.all(
-            "SELECT title FROM backlog WHERE status = 'completed' AND updated_at >= ? ORDER BY updated_at DESC",
-            [lastVersionDate.toISOString()]
+            "SELECT title FROM backlog WHERE status = 'completed' AND datetime(updated_at) >= datetime(?) ORDER BY updated_at DESC",
+            [lastVersionDate.toISOString().split('T')[0]]
         );
 
         if (completedBacklog.length === 0) {
@@ -2635,15 +2650,30 @@ app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) =>
         parts[parts.length - 1] = parseInt(parts[parts.length - 1]) + 1;
         const nextVersion = parts.join('.');
 
-        // Get the date of the last version
-        const lastVersionDate = changelog.history.length > 0
-            ? new Date(changelog.history[0].date)
-            : new Date('2024-01-01');
+        // Get the date of the last version (parse French date format or ISO format)
+        let lastVersionDate;
+        if (changelog.history.length > 0) {
+            const dateStr = changelog.history[0].date;
+            // Try to parse French format (DD/MM/YYYY)
+            const frenchMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (frenchMatch) {
+                const [_, day, month, year] = frenchMatch;
+                lastVersionDate = new Date(year, parseInt(month) - 1, day);
+            } else {
+                // Try ISO format
+                lastVersionDate = new Date(dateStr);
+                if (isNaN(lastVersionDate.getTime())) {
+                    lastVersionDate = new Date('2024-01-01');
+                }
+            }
+        } else {
+            lastVersionDate = new Date('2024-01-01');
+        }
 
         // Get completed backlog items since last version
         const completedBacklog = await db.all(
-            "SELECT * FROM backlog WHERE status = 'completed' AND updated_at >= ? ORDER BY updated_at DESC",
-            [lastVersionDate.toISOString()]
+            "SELECT * FROM backlog WHERE status = 'completed' AND datetime(updated_at) >= datetime(?) ORDER BY updated_at DESC",
+            [lastVersionDate.toISOString().split('T')[0]]
         );
 
         res.json({
@@ -2653,6 +2683,7 @@ app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) =>
             count: completedBacklog.length
         });
     } catch (error) {
+        console.error('Error in ready-for-release:', error);
         res.status(500).json({ message: 'Erreur lors de la récupération des backlog', error: error.message });
     }
 });
