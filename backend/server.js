@@ -2938,26 +2938,41 @@ app.get('/api/magapp/my-demandes', async (req, res) => {
 app.get('/api/mes-reunions', authenticateJWT, async (req, res) => {
     try {
         const username = req.user.username;
-
+        const isAdmin = req.user?.role === 'admin';
         const emailLocal = username.toLowerCase();
 
-        console.log(`[Mes Réunions] username=${username}`);
+        console.log(`[Mes Réunions] username=${username}, isAdmin=${isAdmin}`);
 
-        let participantReunions = await pgDb.all(
-            `SELECT DISTINCT p.reunion_id, p.statut_presence, p.nom, p.prenom, p.type_presence
-             FROM reunion_participants p
-             WHERE (LOWER(p.email) = ? OR LOWER(p.email) = ? OR LOWER(p.ad_username) = ?)
-             AND p.reunion_id IS NOT NULL`,
-            [emailLocal + '@ivry94.fr', emailLocal, emailLocal]
-        );
+        let reunionIds;
 
-        console.log(`[Mes Réunions] Found ${participantReunions.length} participant records`);
+        if (isAdmin) {
+            // Admins see all reunions
+            const allReunions = await pgDb.all(`SELECT DISTINCT id FROM rencontres_reunions`);
+            reunionIds = allReunions.map(r => r.id);
+            console.log(`[Mes Réunions] Admin - showing all ${reunionIds.length} reunions`);
+        } else {
+            // Non-admins see only reunions where they are participants
+            let participantReunions = await pgDb.all(
+                `SELECT DISTINCT p.reunion_id, p.statut_presence, p.nom, p.prenom, p.type_presence
+                 FROM reunion_participants p
+                 WHERE (LOWER(p.email) = ? OR LOWER(p.email) = ? OR LOWER(p.ad_username) = ?)
+                 AND p.reunion_id IS NOT NULL`,
+                [emailLocal + '@ivry94.fr', emailLocal, emailLocal]
+            );
 
-        if (!participantReunions || participantReunions.length === 0) {
+            console.log(`[Mes Réunions] Found ${participantReunions.length} participant records`);
+
+            if (!participantReunions || participantReunions.length === 0) {
+                return res.json([]);
+            }
+
+            reunionIds = participantReunions.map(p => p.reunion_id);
+        }
+
+        if (!reunionIds || reunionIds.length === 0) {
             return res.json([]);
         }
 
-        const reunionIds = participantReunions.map(p => p.reunion_id);
         const idPlaceholders = reunionIds.map(() => '?').join(',');
 
         const reunions = await pgDb.all(
