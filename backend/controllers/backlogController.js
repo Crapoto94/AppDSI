@@ -1,5 +1,8 @@
 const { pgDb } = require('../shared/pg_db');
 
+let sendMailFn = null;
+const setSendMail = (fn) => { sendMailFn = fn; };
+
 // Get all backlog items
 exports.getAllBacklogItems = async (req, res) => {
   try {
@@ -69,6 +72,12 @@ exports.updateBacklogItem = async (req, res) => {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
+    // Get current item to check if status changed
+    const currentItem = await pgDb.get('SELECT * FROM hub.backlog WHERE id = $1', [id]);
+    if (!currentItem) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
     const updates = [];
     const params = [];
     let paramCount = 1;
@@ -106,6 +115,52 @@ exports.updateBacklogItem = async (req, res) => {
       SET ${updates.join(', ')}
       WHERE id = $${paramCount}
     `, params);
+
+    // Send email if status changed
+    if (status && status !== currentItem.status && sendMailFn) {
+      const requesterUsername = created_by || currentItem.created_by;
+      console.log(`[BACKLOG] Status change: ${currentItem.status} → ${status}, requester: ${requesterUsername}`);
+
+      try {
+        // Get requester's email
+        const requesterUser = await pgDb.get(
+          'SELECT email FROM hub.users WHERE username = $1',
+          [requesterUsername]
+        );
+
+        console.log(`[BACKLOG] User lookup for ${requesterUsername}:`, requesterUser);
+
+        if (requesterUser && requesterUser.email) {
+          const statusLabels = {
+            'open': 'En attente',
+            'in_progress': 'En cours',
+            'accepted': 'Acceptée',
+            'rejected': 'Rejetée',
+            'completed': 'Complétée'
+          };
+
+          const oldStatusLabel = statusLabels[currentItem.status] || currentItem.status;
+          const newStatusLabel = statusLabels[status] || status;
+
+          const emailContent = `
+            <h2>Mise à jour de votre demande</h2>
+            <p>Votre demande <strong>"${currentItem.title}"</strong> a été mise à jour.</p>
+            <p><strong>Statut précédent :</strong> ${oldStatusLabel}</p>
+            <p><strong>Nouveau statut :</strong> ${newStatusLabel}</p>
+            <p>Vous pouvez consulter les détails dans le portail DSI Hub.</p>
+          `;
+
+          console.log(`[BACKLOG] Sending email to ${requesterUser.email}`);
+          await sendMailFn(requesterUser.email, `[DSI Hub] Mise à jour : ${currentItem.title}`, emailContent);
+          console.log(`[BACKLOG] Email sent successfully to ${requesterUser.email}`);
+        } else {
+          console.log(`[BACKLOG] No email found for user ${requesterUsername}`);
+        }
+      } catch (emailError) {
+        console.error(`[BACKLOG] Error sending email to requester:`, emailError);
+        // Don't fail the request if email fails
+      }
+    }
 
     res.json({ success: true });
   } catch (error) {
@@ -145,3 +200,5 @@ exports.getBacklogItem = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.setSendMail = setSendMail;

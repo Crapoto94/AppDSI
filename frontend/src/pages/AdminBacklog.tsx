@@ -540,7 +540,7 @@ const AdminBacklog: React.FC = () => {
                         </span>
                       </div>
 
-                      {editingBasicsId === item.id ? (
+                      {editingStatusId === item.id ? (
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <select
                             value={editingStatus}

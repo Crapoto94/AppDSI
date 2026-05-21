@@ -201,9 +201,6 @@ const Header: React.FC<HeaderProps> = () => {
         <nav className="header-nav">
           {token ? (
             <div className="user-menu">
-              <Link to="/whats-new" className={`nav-link ${location.pathname === '/whats-new' ? 'active' : ''}`} title="What's New ?">
-                <Info size={18} />
-              </Link>
               <Link to="/profile" className="user-info-link" title="Mon Profil">
                 <span className="user-name">
                   {user.username} {user.service_code && <span className="service-badge-header">{user.service_code}</span>}
@@ -284,40 +281,67 @@ const Header: React.FC<HeaderProps> = () => {
                     {backlogItems.length === 0 ? (
                       <p className="empty-backlog">Aucune demande pour le moment</p>
                     ) : (
-                      backlogItems.map(item => (
-                        <div key={item.id} className="backlog-item">
-                          <div className="backlog-header">
-                            <h4 className="backlog-title">{item.title}</h4>
-                            <span className={`backlog-category cat-${item.category.toLowerCase().replace(' ', '-')}`}>
-                              {item.category}
-                            </span>
+                      (() => {
+                        const statusOrder = { 'open': 0, 'in_progress': 1, 'accepted': 2, 'rejected': 3, 'completed': 4 };
+                        const statusLabels = { 'open': 'En attente', 'in_progress': 'En cours', 'accepted': 'Acceptée', 'rejected': 'Rejetée', 'completed': 'Complétée' };
+                        const statusColors = { 'open': '#f59e0b', 'in_progress': '#3b82f6', 'accepted': '#10b981', 'rejected': '#ef4444', 'completed': '#8b5cf6' };
+
+                        const sorted = [...backlogItems].sort((a, b) =>
+                          (statusOrder[a.status as keyof typeof statusOrder] || 5) - (statusOrder[b.status as keyof typeof statusOrder] || 5)
+                        );
+
+                        const grouped: Record<string, BacklogItem[]> = {};
+                        sorted.forEach(item => {
+                          if (!grouped[item.status]) grouped[item.status] = [];
+                          grouped[item.status].push(item);
+                        });
+
+                        return Object.entries(grouped).map(([status, items]) => (
+                          <div key={status} style={{ marginBottom: '24px' }}>
+                            <h3 style={{ fontSize: '0.9rem', fontWeight: '700', color: statusColors[status as keyof typeof statusColors], textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 12px 0', paddingBottom: '8px', borderBottom: `2px solid ${statusColors[status as keyof typeof statusColors]}` }}>
+                              {statusLabels[status as keyof typeof statusLabels]}
+                            </h3>
+                            {items.map(item => (
+                              <div
+                                key={item.id}
+                                className="backlog-item"
+                                style={{ backgroundColor: user?.username === item.created_by ? '#fef3c7' : '#f8fafc' }}
+                              >
+                                <div className="backlog-header">
+                                  <h4 className="backlog-title">{item.title}</h4>
+                                  <span className={`backlog-category cat-${item.category.toLowerCase().replace(' ', '-')}`}>
+                                    {item.category}
+                                  </span>
+                                </div>
+                                {item.description && (
+                                  <p className="backlog-description">{item.description.substring(0, 100)}...</p>
+                                )}
+                                <div className="backlog-meta">
+                                  <span className="backlog-status">{item.status}</span>
+                                  <span className="backlog-author">par {item.created_by}{user?.username === item.created_by && ' (vous)'}</span>
+                                  <span className="backlog-date">
+                                    {new Date(item.created_at).toLocaleDateString('fr-FR')}
+                                  </span>
+                                </div>
+                                {item.attachments && item.attachments.length > 0 && (
+                                  <div className="backlog-attachments">
+                                    {item.attachments.map((file, idx) => (
+                                      <a
+                                        key={idx}
+                                        href={`/uploads/backlog_attachments/${file.path}`}
+                                        download={file.filename}
+                                        className="backlog-file-link"
+                                      >
+                                        📎 {file.filename}
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
                           </div>
-                          {item.description && (
-                            <p className="backlog-description">{item.description.substring(0, 100)}...</p>
-                          )}
-                          <div className="backlog-meta">
-                            <span className="backlog-status">{item.status}</span>
-                            <span className="backlog-author">par {item.created_by}</span>
-                            <span className="backlog-date">
-                              {new Date(item.created_at).toLocaleDateString('fr-FR')}
-                            </span>
-                          </div>
-                          {item.attachments && item.attachments.length > 0 && (
-                            <div className="backlog-attachments">
-                              {item.attachments.map((file, idx) => (
-                                <a
-                                  key={idx}
-                                  href={`/uploads/backlog_attachments/${file.path}`}
-                                  download={file.filename}
-                                  className="backlog-file-link"
-                                >
-                                  📎 {file.filename}
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))
+                        ));
+                      })()
                     )}
                   </div>
                 </div>

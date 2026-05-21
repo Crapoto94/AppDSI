@@ -4590,6 +4590,7 @@ console.log('[EMAIL-AUTO CRON] Cron job registered (every minute)');
 // BACKLOG - Gestion des demandes
 // ============================================
 const backlogController = require('./controllers/backlogController');
+backlogController.setSendMail(sendMail);
 
 app.get('/api/backlog', authenticateJWT, backlogController.getAllBacklogItems);
 app.get('/api/backlog/:id', authenticateJWT, backlogController.getBacklogItem);
