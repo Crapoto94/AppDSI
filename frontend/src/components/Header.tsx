@@ -172,6 +172,9 @@ const Header: React.FC<HeaderProps> = () => {
         <nav className="header-nav">
           {token ? (
             <div className="user-menu">
+              <Link to="/whats-new" className={`nav-link ${location.pathname === '/whats-new' ? 'active' : ''}`} title="What's New ?">
+                <Info size={18} />
+              </Link>
               <Link to="/profile" className="user-info-link" title="Mon Profil">
                 <span className="user-name">
                   {user.username} {user.service_code && <span className="service-badge-header">{user.service_code}</span>}
