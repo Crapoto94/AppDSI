@@ -255,11 +255,52 @@ const Header: React.FC<HeaderProps> = () => {
                         <h3>Version {release.version}</h3>
                         <span className="release-date">{release.date}</span>
                       </div>
-                      <ul className="release-changes">
-                        {release.changes.map((change: string, cIdx: number) => (
-                          <li key={cIdx}>{change}</li>
-                        ))}
-                      </ul>
+                      <div className="release-changes">
+                        {release.changes.map((change: string, cIdx: number) => {
+                          // Check if this is a category header (### Type)
+                          const categoryMatch = change.match(/^###\s+(.+)$/);
+                          if (categoryMatch) {
+                            const category = categoryMatch[1];
+                            const categoryColors: Record<string, { bg: string; text: string; icon: string }> = {
+                              'Bug': { bg: '#fee2e2', text: '#991b1b', icon: '🐛' },
+                              'Amélioration': { bg: '#dbeafe', text: '#1e40af', icon: '⬆️' },
+                              'Nouvelle fonctionnalité': { bg: '#e9d5ff', text: '#5b21b6', icon: '✨' },
+                              'Graphisme': { bg: '#fed7aa', text: '#92400e', icon: '🎨' },
+                              'Autre': { bg: '#f3f4f6', text: '#374151', icon: '📝' }
+                            };
+                            const colors = categoryColors[category] || categoryColors['Autre'];
+                            return (
+                              <div key={cIdx} style={{
+                                marginTop: cIdx > 0 ? '16px' : '0',
+                                marginBottom: '8px',
+                                paddingBottom: '8px',
+                                borderBottom: `2px solid ${colors.bg}`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                color: colors.text,
+                                fontWeight: '700',
+                                fontSize: '0.9rem'
+                              }}>
+                                <span>{colors.icon}</span>
+                                <span>{category}</span>
+                              </div>
+                            );
+                          }
+                          // Regular item with bullet
+                          return (
+                            <div key={cIdx} style={{
+                              marginBottom: '8px',
+                              paddingLeft: '16px',
+                              display: 'flex',
+                              gap: '8px'
+                            }}>
+                              <span style={{ color: '#cbd5e1', marginLeft: '-12px' }}>•</span>
+                              <span style={{ color: '#64748b', lineHeight: 1.5 }}>{change}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   ))}
                 </div>
