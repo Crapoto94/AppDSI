@@ -443,6 +443,20 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
 
         if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
 
+        // Check manager status for all users
+        try {
+            const userInHub = await pgDb.get('SELECT id FROM hub.users WHERE username = $1', [user.username]);
+            if (userInHub) {
+                const manager = await pgDb.get('SELECT 1 FROM hub.calendrier_managers WHERE user_id = $1', [userInHub.id]);
+                user.est_manager = !!(manager || (user.role === 'admin'));
+            } else {
+                user.est_manager = user.role === 'admin';
+            }
+        } catch (e) {
+            console.error('[Auth] Error checking manager status:', e);
+            user.est_manager = user.role === 'admin';
+        }
+
         // Force l'approbation pour les admins
         if (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub' || user.username.toLowerCase() === 'machevalier') {
             user.is_approved = 1;
@@ -484,36 +498,14 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         user.authorized_urls = Array.from(urls);
         }
 
-        // Check if user is PMO (has "Mes projets" tile)
-        if (source === 'sqlite' && user.id) {
+        // Set est_pmo for users (not available for magapp users)
+        if (source === 'sqlite') {
             try {
                 const pmoCheck = await db.get('SELECT 1 FROM user_tiles WHERE user_id = ? AND tile_id = 24', [user.id]);
                 user.est_pmo = !!pmoCheck;
             } catch { user.est_pmo = false; }
-            try {
-                try {
-                    const manager = await pgDb.get("SELECT 1 FROM hub.calendrier_managers WHERE user_id = $1", [user.id]);
-                    user.est_manager = !!(manager || (user.role === 'admin'));
-                } catch (e) {
-                    user.est_manager = user.role === 'admin';
-                }
-            } catch { user.est_manager = user.role === 'admin'; }
-        } else if (source === 'postgres') {
-            // PMO check via PostgreSQL table if it exists
-            try {
-                const pmoCheck = await pgDb.get('SELECT 1 FROM projet_favoris WHERE username = $1 LIMIT 1', [user.username]);
-                user.est_pmo = false; // Default for PG users
-            } catch { user.est_pmo = false; }
-            // Check if user is manager
-            try {
-                const userInHub = await pgDb.get('SELECT id FROM hub.users WHERE username = $1', [user.username]);
-                if (userInHub) {
-                    const manager = await pgDb.get('SELECT 1 FROM hub.calendrier_managers WHERE user_id = $1', [userInHub.id]);
-                    user.est_manager = !!(manager || (user.role === 'admin'));
-                } else {
-                    user.est_manager = user.role === 'admin';
-                }
-            } catch { user.est_manager = user.role === 'admin'; }
+        } else {
+            user.est_pmo = false;
         }
 
         res.json({ ...user, auth_source: source });
