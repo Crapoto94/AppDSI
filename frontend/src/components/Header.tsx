@@ -11,6 +11,21 @@ interface Todo {
   created_at: string;
 }
 
+interface BacklogItem {
+  id: number;
+  title: string;
+  description: string;
+  category: string;
+  status: string;
+  created_by: string;
+  created_at: string;
+  attachments?: Array<{
+    filename: string;
+    path: string;
+    size: number;
+  }>;
+}
+
 interface HeaderProps {
 }
 
@@ -32,15 +47,17 @@ const Header: React.FC<HeaderProps> = () => {
   }, []);
   const [changelog, setChangelog] = useState<any>(null);
   const [showModal, setShowModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'whatsnew' | 'todo'>('whatsnew');
+  const [activeTab, setActiveTab] = useState<'whatsnew' | 'backlog'>('whatsnew');
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [backlogItems, setBacklogItems] = useState<BacklogItem[]>([]);
   const [newTodo, setNewTodo] = useState({ task: '', priority: 0 });
   const [isReleasing, setIsReleasing] = useState(false);
 
   useEffect(() => {
     fetchChangelog();
     fetchTodos();
-  }, []);
+    if (token) fetchBacklog();
+  }, [token]);
 
   const fetchChangelog = async () => {
     try {
@@ -60,6 +77,18 @@ const Header: React.FC<HeaderProps> = () => {
       setTodos(res.data);
     } catch (err) {
       console.error("Error fetching todos:", err);
+    }
+  };
+
+  const fetchBacklog = async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get('/api/backlog', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setBacklogItems(res.data);
+    } catch (err) {
+      console.error("Error fetching backlog:", err);
     }
   };
 
@@ -238,90 +267,47 @@ const Header: React.FC<HeaderProps> = () => {
                   ))}
                 </div>
               ) : (
-                <div className="todo-view">
-                  <form className="todo-add-form" onSubmit={handleAddTodo}>
-                    <input 
-                      type="text" 
-                      placeholder="Nouvelle fonctionnalité ou bug..." 
-                      value={newTodo.task}
-                      onChange={e => setNewTodo({...newTodo, task: e.target.value})}
-                      required
-                    />
-                    <select 
-                      value={newTodo.priority} 
-                      onChange={e => setNewTodo({...newTodo, priority: parseInt(e.target.value)})}
-                      className="priority-select"
-                    >
-                      <option value="0">Normal</option>
-                      <option value="1">Important</option>
-                      <option value="2">Urgent</option>
-                    </select>
-                    <button type="submit" className="btn-add-todo"><Plus size={18} /></button>
-                  </form>
-
-                  <div className="todo-list">
-                    {todos.map(todo => (
-                      <div key={todo.id} className={`todo-item prio-${todo.priority}`}>
-                        <div className="todo-main">
-                          <button 
-                            className={`todo-status-btn status-${todo.status.replace(' ', '-')}`}
-                            onClick={() => {
-                              const states: Todo['status'][] = ['à faire', 'en cours', 'à tester', 'ok'];
-                              const nextIdx = (states.indexOf(todo.status) + 1) % states.length;
-                              handleUpdateTodo(todo.id, { status: states[nextIdx] });
-                            }}
-                            title="Changer le statut"
-                          >
-                            {getStatusIcon(todo.status)}
-                          </button>
-                          <span className="todo-task">{todo.task}</span>
+                <div className="backlog-view">
+                  <div className="backlog-list">
+                    {backlogItems.length === 0 ? (
+                      <p className="empty-backlog">Aucune demande pour le moment</p>
+                    ) : (
+                      backlogItems.map(item => (
+                        <div key={item.id} className="backlog-item">
+                          <div className="backlog-header">
+                            <h4 className="backlog-title">{item.title}</h4>
+                            <span className={`backlog-category cat-${item.category.toLowerCase().replace(' ', '-')}`}>
+                              {item.category}
+                            </span>
+                          </div>
+                          {item.description && (
+                            <p className="backlog-description">{item.description.substring(0, 100)}...</p>
+                          )}
+                          <div className="backlog-meta">
+                            <span className="backlog-status">{item.status}</span>
+                            <span className="backlog-author">par {item.created_by}</span>
+                            <span className="backlog-date">
+                              {new Date(item.created_at).toLocaleDateString('fr-FR')}
+                            </span>
+                          </div>
+                          {item.attachments && item.attachments.length > 0 && (
+                            <div className="backlog-attachments">
+                              {item.attachments.map((file, idx) => (
+                                <a
+                                  key={idx}
+                                  href={`/uploads/backlog_attachments/${file.path}`}
+                                  download={file.filename}
+                                  className="backlog-file-link"
+                                >
+                                  📎 {file.filename}
+                                </a>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className="todo-actions">
-                          <select 
-                            value={todo.priority} 
-                            onChange={e => handleUpdateTodo(todo.id, { priority: parseInt(e.target.value) })}
-                            className="todo-prio-select"
-                          >
-                            <option value="0">Normal</option>
-                            <option value="1">Haut</option>
-                            <option value="2">Urgent</option>
-                          </select>
-                          <button 
-                            className="btn-delete-todo"
-                            onClick={() => handleDeleteTodo(todo.id)}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {todos.length === 0 && <p className="empty-todo">Aucune tâche prévue. Tout est prêt !</p>}
+                      ))
+                    )}
                   </div>
-
-                  {user.role === 'admin' && todos.some(t => t.status === 'ok') && (
-                    <div className="release-action-footer">
-                      <button 
-                        className="btn-release" 
-                        onClick={handleRelease}
-                        disabled={isReleasing}
-                      >
-                        {isReleasing ? (
-                          <>
-                            <Loader2 size={18} className="animate-spin" />
-                            Génération de la version...
-                          </>
-                        ) : (
-                          <>
-                            <Github size={18} />
-                            Déployer Release {getNextVersion()}
-                          </>
-                        )}
-                      </button>
-                      <p className="release-hint">
-                        Documente les tâches marquées <span className="status-ok-text">ok</span> et commit sur GitHub.
-                      </p>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -784,6 +770,100 @@ const Header: React.FC<HeaderProps> = () => {
           to { transform: rotate(360deg); }
         }
         .empty-todo {
+          text-align: center;
+          padding: 30px;
+          color: #94a3b8;
+          font-style: italic;
+        }
+        .backlog-view {
+          overflow-y: auto;
+          max-height: 500px;
+        }
+        .backlog-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          padding: 16px;
+        }
+        .backlog-item {
+          padding: 12px;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          background: #f8fafc;
+        }
+        .backlog-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 8px;
+          gap: 8px;
+        }
+        .backlog-title {
+          font-weight: 700;
+          color: #1e293b;
+          margin: 0;
+          flex: 1;
+        }
+        .backlog-category {
+          font-size: 0.75rem;
+          padding: 3px 8px;
+          border-radius: 4px;
+          white-space: nowrap;
+          font-weight: 600;
+        }
+        .backlog-category.cat-bug {
+          background: #fee2e2;
+          color: #991b1b;
+        }
+        .backlog-category.cat-amélioration {
+          background: #dbeafe;
+          color: #1e40af;
+        }
+        .backlog-category.cat-nouvelle-fonctionnalité {
+          background: #e9d5ff;
+          color: #5b21b6;
+        }
+        .backlog-category.cat-graphisme {
+          background: #fed7aa;
+          color: #92400e;
+        }
+        .backlog-description {
+          font-size: 0.9rem;
+          color: #475569;
+          margin: 8px 0;
+        }
+        .backlog-meta {
+          display: flex;
+          gap: 12px;
+          font-size: 0.8rem;
+          color: #94a3b8;
+          flex-wrap: wrap;
+        }
+        .backlog-status {
+          background: #f1f5f9;
+          padding: 2px 8px;
+          border-radius: 4px;
+        }
+        .backlog-attachments {
+          display: flex;
+          gap: 8px;
+          margin-top: 8px;
+          flex-wrap: wrap;
+        }
+        .backlog-file-link {
+          font-size: 0.8rem;
+          color: #0284c7;
+          text-decoration: none;
+          padding: 4px 8px;
+          border-radius: 4px;
+          border: 1px solid #7dd3fc;
+          background: white;
+        }
+        .backlog-file-link:hover {
+          background: #f0f9ff;
+          border-color: #0284c7;
+        }
+        .empty-backlog {
           text-align: center;
           padding: 30px;
           color: #94a3b8;
