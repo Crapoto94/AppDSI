@@ -581,7 +581,7 @@ async function searchADUsersByQuery(query, config) {
             const opts = {
                 filter,
                 scope: 'sub',
-                attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'department', 'company'],
+                attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'userPrincipalName', 'department', 'company'],
                 sizeLimit: 20
             };
 
@@ -598,7 +598,7 @@ async function searchADUsersByQuery(query, config) {
                         results.push({
                             username: user.sAMAccountName,
                             displayName: decodeLDAPString(user.displayName || user.cn || user.sAMAccountName),
-                            email: user.mail || '',
+                            email: user.mail || user.userPrincipalName || '',
                             service: user.department || '',
                             direction: user.company || ''
                         });
