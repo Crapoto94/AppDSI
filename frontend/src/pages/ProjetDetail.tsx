@@ -1993,7 +1993,7 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
 const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterReunion: () => void; onVoirReunion: (id: number) => void }> = ({ projetId, token, onAjouterReunion, onVoirReunion }) => {
   const { user } = useAuth();
   const [reunions, setReunions] = useState<any[]>([]);
-  const isPMOOrAdmin = user?.role === 'admin' || user?.isPMO;
+  const isPMOOrAdmin = user?.role === 'admin' || user?.est_pmo;
 
   const loadReunions = useCallback(async () => {
     try {
