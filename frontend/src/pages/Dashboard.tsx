@@ -23,7 +23,6 @@ const Dashboard: React.FC = () => {
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [tileOrder, setTileOrder] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pendingConsumablesCount, setPendingConsumablesCount] = useState(0);
   const [restrictedMessage, setRestrictedMessage] = useState('');
   const [draggedTile, setDraggedTile] = useState<number | null>(null);
   const [dragOverTile, setDragOverTile] = useState<number | null>(null);
@@ -101,26 +100,27 @@ const Dashboard: React.FC = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [tilesRes, pendingRes] = await Promise.all([
-          fetch('/api/tiles', { headers: { 'Authorization': `Bearer ${token}` } }),
-          axios.get('/api/consumable/pending-count')
+        const headers = { 'Authorization': `Bearer ${token}` };
+        const [tilesRes, pendingRes, renewalRes] = await Promise.all([
+          fetch('/api/tiles', { headers }),
+          axios.get('/api/consumable/pending-count').catch(() => ({ data: { count: 0 } })),
+          axios.get('/api/certificates/renewal-count', { headers }).catch(() => ({ data: { count: 0 } }))
         ]);
 
         const tilesData = await tilesRes.json();
         const pendingCount = pendingRes.data.count || 0;
+        const renewalCount = renewalRes.data.count || 0;
 
         if (Array.isArray(tilesData)) {
           const updatedTiles = tilesData.map((t: TileData) => {
-            console.log(`Checking tile: "${t.title}" - Match?`, t.title === 'Gestion des Consommables');
-            return t.title === 'Gestion des Consommables' ? { ...t, pending_requests: pendingCount } : t;
+            if (t.title === 'Gestion des Consommables') return { ...t, pending_requests: pendingCount };
+            if (t.title === 'Suivi des Certificats') return { ...t, pending_requests: renewalCount };
+            return t;
           });
           setTiles(updatedTiles);
 
-          // Fetch user tile order
           try {
-            const orderResponse = await fetch('/api/user-tile-order', {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const orderResponse = await fetch('/api/user-tile-order', { headers });
             const orderData = await orderResponse.json();
             setTileOrder(Array.isArray(orderData) ? orderData.map((o: any) => o.tile_id) : tilesData.map((t: TileData) => t.id));
           } catch (err) {
