@@ -65,7 +65,7 @@ module.exports = {
                         WHERE statut != 'archivé'
                         AND date_fin IS NOT NULL
                         AND date_fin >= CURRENT_DATE
-                        AND date_fin <= CURRENT_DATE + INTERVAL '30 days'`)
+                        AND date_fin <= CURRENT_DATE + INTERVAL '90 days'`)
             ]);
             res.json({ expired: Number(expiredRow.count), soon: Number(soonRow.count) });
         } catch (error) {
