@@ -1850,9 +1850,9 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
       setRequests(ordered);
       
       if (ordered.length > 0) {
-        const monthsInOrder = Array.from(new Set(ordered.map((r: any) => getMonthStr(r.date_commande))))
-          .filter(m => !!m)
-          .sort((a: any, b: string) => b.localeCompare(a));
+        const monthsInOrder = (Array.from(new Set(ordered.map((r: any) => getMonthStr(r.date_commande)))) as string[])
+          .filter((m: string) => !!m)
+          .sort((a: string, b: string) => b.localeCompare(a));
         if (!monthsInOrder.includes(selectedMonth)) {
           setSelectedMonth(monthsInOrder[0]);
         }
