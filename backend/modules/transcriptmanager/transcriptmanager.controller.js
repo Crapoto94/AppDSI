@@ -88,8 +88,24 @@ const transcriptController = {
                         WHERE tc.meeting_id = m.id
                         AND (LOWER(tc.speaker_email) = ? OR LOWER(tc.speaker_email) = ?)
                     )
+                    OR (
+                        m.shared_with_direction IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1 FROM hub_consommables.consumable_requests cr
+                            WHERE LOWER(cr.username) = LOWER(?)
+                            AND cr.direction = m.shared_with_direction
+                        )
+                    )
+                    OR (
+                        m.shared_with_service IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1 FROM hub_consommables.consumable_requests cr
+                            WHERE LOWER(cr.username) = LOWER(?)
+                            AND cr.service = m.shared_with_service
+                        )
+                    )
                     ORDER BY meeting_date DESC NULLS LAST, created_at DESC
-                `, [emailFull, emailLocal, emailLocal, emailFull, emailLocal]);
+                `, [emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username]);
             }
             res.json(meetings);
         } catch (error) {
@@ -142,8 +158,24 @@ const transcriptController = {
                             WHERE tc.meeting_id = m.id
                             AND (LOWER(tc.speaker_email) = ? OR LOWER(tc.speaker_email) = ?)
                         )
+                        OR (
+                            m.shared_with_direction IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1 FROM hub_consommables.consumable_requests cr
+                                WHERE LOWER(cr.username) = LOWER(?)
+                                AND cr.direction = m.shared_with_direction
+                            )
+                        )
+                        OR (
+                            m.shared_with_service IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1 FROM hub_consommables.consumable_requests cr
+                                WHERE LOWER(cr.username) = LOWER(?)
+                                AND cr.service = m.shared_with_service
+                            )
+                        )
                     )
-                `, [meetingId, emailFull, emailLocal, emailLocal, emailFull, emailLocal]);
+                `, [meetingId, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username]);
 
                 if (!canAccess) return res.status(403).json({ error: 'Accès refusé' });
             }
@@ -584,10 +616,26 @@ const transcriptController = {
                             WHERE tc2.meeting_id = m.id
                             AND (LOWER(tc2.speaker_email) = ? OR LOWER(tc2.speaker_email) = ?)
                         )
+                        OR (
+                            m.shared_with_direction IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1 FROM hub_consommables.consumable_requests cr
+                                WHERE LOWER(cr.username) = LOWER(?)
+                                AND cr.direction = m.shared_with_direction
+                            )
+                        )
+                        OR (
+                            m.shared_with_service IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1 FROM hub_consommables.consumable_requests cr
+                                WHERE LOWER(cr.username) = LOWER(?)
+                                AND cr.service = m.shared_with_service
+                            )
+                        )
                       )
                     ORDER BY m.meeting_date DESC NULLS LAST, c.start_seconds ASC
                     LIMIT 200
-                `, [term, term, emailFull, emailLocal, emailLocal, emailFull, emailLocal]);
+                `, [term, term, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username]);
             }
 
             const grouped = new Map();
@@ -621,12 +669,18 @@ const transcriptController = {
         try {
             const db = pgDb;
             const meetingId = req.params.id;
-            const { title, meeting_date, summary } = req.body;
+            const { title, meeting_date, summary, shared_with_direction, shared_with_service } = req.body;
 
             if (summary !== undefined) {
                 await db.run(
                     'UPDATE transcript_meetings SET title = ?, meeting_date = ?, summary = ? WHERE id = ?',
                     [title, meeting_date, summary, meetingId]
+                );
+            } else if (shared_with_direction !== undefined || shared_with_service !== undefined) {
+                // Sharing update only
+                await db.run(
+                    'UPDATE transcript_meetings SET shared_with_direction = ?, shared_with_service = ? WHERE id = ?',
+                    [shared_with_direction || null, shared_with_service || null, meetingId]
                 );
             } else {
                 await db.run(

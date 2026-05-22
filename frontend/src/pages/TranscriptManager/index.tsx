@@ -20,6 +20,8 @@ interface Meeting {
     reunion_id?: number | null;
     duration_seconds?: number;
     char_count?: number;
+    shared_with_direction?: string | null;
+    shared_with_service?: string | null;
 }
 
 interface SearchMatch {
@@ -266,6 +268,12 @@ const TranscriptManager: React.FC = () => {
                                             <td className="title-cell">
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
                                                     <span className="meeting-title">{meeting.title}</span>
+                                                    {(meeting.shared_with_direction || meeting.shared_with_service) && (
+                                                        <span title={`Partagé avec : ${meeting.shared_with_service || meeting.shared_with_direction}`}
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, background: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: 12, border: '1px solid #bfdbfe', whiteSpace: 'nowrap' }}>
+                                                            🔗 {meeting.shared_with_service || meeting.shared_with_direction}
+                                                        </span>
+                                                    )}
                                                     {meeting.summary && (
                                                         <span className="summary-badge" title="Résumé IA disponible">
                                                             <Sparkles size={12} />

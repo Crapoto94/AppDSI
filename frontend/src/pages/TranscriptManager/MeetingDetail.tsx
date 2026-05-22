@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
-import { 
-    ArrowLeft, Calendar, Clock, Send, 
-    CheckCircle2, Circle, RefreshCw, 
-    MessageSquare, ListTodo, FileText, Search, Users
+import {
+    ArrowLeft, Calendar, Clock, Send,
+    CheckCircle2, Circle, RefreshCw,
+    MessageSquare, ListTodo, FileText, Search, Users, Share2, Building2, CheckCircle
 } from 'lucide-react';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -25,6 +25,8 @@ interface Meeting {
     summary: string;
     created_at: string;
     cues: Cue[];
+    shared_with_direction?: string | null;
+    shared_with_service?: string | null;
 }
 
 interface Task {
@@ -40,7 +42,8 @@ interface Task {
 const MeetingDetail: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { token } = useAuth();
+    const { token, user } = useAuth();
+    const isAdmin = user?.role === 'admin';
     const [meeting, setMeeting] = useState<Meeting | null>(null);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
@@ -56,6 +59,15 @@ const MeetingDetail: React.FC = () => {
     const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
     const [taskDraft, setTaskDraft] = useState({ description: '', assignee: '', requester: '', deadline: '' });
     const transcriptRef = useRef<HTMLDivElement>(null);
+
+    // Sharing state
+    const [orgDirections, setOrgDirections] = useState<{ code: string; label: string }[]>([]);
+    const [orgServices, setOrgServices] = useState<{ code: string; label: string }[]>([]);
+    const [shareDirection, setShareDirection] = useState('');
+    const [shareService, setShareService] = useState('');
+    const [isSharingMode, setIsSharingMode] = useState<'direction' | 'service' | ''>('');
+    const [shareSaved, setShareSaved] = useState(false);
+    const [isSavingShare, setIsSavingShare] = useState(false);
 
     useEffect(() => {
         fetchData();
@@ -74,11 +86,54 @@ const MeetingDetail: React.FC = () => {
                 meeting_date: mRes.data.meeting_date ? new Date(mRes.data.meeting_date).toISOString().split('T')[0] : new Date(mRes.data.created_at).toISOString().split('T')[0]
             });
             setTasks(tRes.data);
+            // Init sharing state from existing meeting data
+            const existingDir = mRes.data.shared_with_direction || '';
+            const existingService = mRes.data.shared_with_service || '';
+            setShareDirection(existingDir);
+            setShareService(existingService);
+            if (existingService) setIsSharingMode('service');
+            else if (existingDir) setIsSharingMode('direction');
         } catch (err) {
             console.error(err);
         } finally {
             setLoading(false);
         }
+    };
+
+    const loadOrgDirections = async () => {
+        try {
+            const res = await axios.get('/api/consumable/org-directions', { headers: { Authorization: `Bearer ${token}` } });
+            setOrgDirections(res.data);
+        } catch (err) { console.error(err); }
+    };
+
+    const loadOrgServices = async (directionLabel: string) => {
+        if (!directionLabel) { setOrgServices([]); return; }
+        const dir = orgDirections.find(d => d.label === directionLabel);
+        if (!dir) return;
+        try {
+            const res = await axios.get(`/api/consumable/org-services/${encodeURIComponent(dir.code)}`, { headers: { Authorization: `Bearer ${token}` } });
+            setOrgServices(res.data);
+        } catch (err) { console.error(err); }
+    };
+
+    const handleSaveSharing = async () => {
+        if (!id || !token) return;
+        setIsSavingShare(true);
+        try {
+            const payload = isSharingMode === 'direction'
+                ? { shared_with_direction: shareDirection || null, shared_with_service: null }
+                : isSharingMode === 'service'
+                ? { shared_with_direction: null, shared_with_service: shareService || null }
+                : { shared_with_direction: null, shared_with_service: null };
+            await axios.put(`/api/transcriptmanager/meeting/${id}`, payload, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setMeeting(m => m ? { ...m, ...payload } : null);
+            setShareSaved(true);
+            setTimeout(() => setShareSaved(false), 2500);
+        } catch (err) { console.error(err); }
+        finally { setIsSavingShare(false); }
     };
 
     const handleUpdateMeeting = async () => {
@@ -387,6 +442,98 @@ const MeetingDetail: React.FC = () => {
                                 )}
                             </div>
                         </div>
+
+                        {isAdmin && (
+                        <div className="md-card" style={{ padding: '1.25rem' }}>
+                            <div className="card-head" style={{ marginBottom: '1rem' }}>
+                                <Share2 size={18} />
+                                <h2>Partager</h2>
+                                {(meeting?.shared_with_direction || meeting?.shared_with_service) && (
+                                    <span style={{ marginLeft: 'auto', fontSize: '11px', fontWeight: 700, background: '#dcfce7', color: '#16a34a', padding: '2px 8px', borderRadius: 12 }}>
+                                        Partagé
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Scope toggle */}
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                                {(['', 'direction', 'service'] as const).map(mode => (
+                                    <button key={mode} onClick={() => {
+                                        setIsSharingMode(mode);
+                                        setShareDirection('');
+                                        setShareService('');
+                                        setOrgServices([]);
+                                        if (mode !== '' && orgDirections.length === 0) loadOrgDirections();
+                                    }} style={{
+                                        flex: 1, padding: '6px 0', borderRadius: 8, border: '1.5px solid',
+                                        borderColor: isSharingMode === mode ? '#3b82f6' : '#e2e8f0',
+                                        background: isSharingMode === mode ? '#eff6ff' : 'white',
+                                        color: isSharingMode === mode ? '#1d4ed8' : '#64748b',
+                                        fontWeight: 700, fontSize: 12, cursor: 'pointer'
+                                    }}>
+                                        {mode === '' ? 'Non partagé' : mode === 'direction' ? 'Direction' : 'Service'}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {isSharingMode === 'direction' && (
+                                <div style={{ marginBottom: 10 }}>
+                                    <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Direction</label>
+                                    <select value={shareDirection} onChange={e => setShareDirection(e.target.value)}
+                                        style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none' }}>
+                                        <option value="">-- Choisir une direction --</option>
+                                        {orgDirections.map(d => <option key={d.code} value={d.label}>{d.label}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                            {isSharingMode === 'service' && (
+                                <>
+                                    <div style={{ marginBottom: 8 }}>
+                                        <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Direction</label>
+                                        <select value={shareDirection} onChange={e => {
+                                            setShareDirection(e.target.value);
+                                            setShareService('');
+                                            loadOrgServices(e.target.value);
+                                        }} style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none' }}>
+                                            <option value="">-- Choisir une direction --</option>
+                                            {orgDirections.map(d => <option key={d.code} value={d.label}>{d.label}</option>)}
+                                        </select>
+                                    </div>
+                                    <div style={{ marginBottom: 10 }}>
+                                        <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Service</label>
+                                        <select value={shareService} onChange={e => setShareService(e.target.value)}
+                                            disabled={!shareDirection}
+                                            style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none', opacity: !shareDirection ? 0.5 : 1 }}>
+                                            <option value="">-- Choisir un service --</option>
+                                            {orgServices.map(s => <option key={s.code} value={s.label}>{s.label}</option>)}
+                                        </select>
+                                    </div>
+                                </>
+                            )}
+
+                            <button onClick={handleSaveSharing} disabled={isSavingShare ||
+                                (isSharingMode === 'direction' && !shareDirection) ||
+                                (isSharingMode === 'service' && !shareService)}
+                                style={{
+                                    width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
+                                    background: shareSaved ? '#16a34a' : '#3b82f6',
+                                    color: 'white', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                                    transition: 'background 0.3s', opacity: (isSavingShare) ? 0.7 : 1
+                                }}>
+                                {shareSaved ? <><CheckCircle size={14} /> Enregistré</> : isSavingShare ? 'Enregistrement...' : <><Building2 size={14} /> Appliquer le partage</>}
+                            </button>
+
+                            {(meeting?.shared_with_direction || meeting?.shared_with_service) && (
+                                <p style={{ margin: '8px 0 0', fontSize: 11, color: '#64748b', textAlign: 'center' }}>
+                                    Visible par : <strong style={{ color: '#1d4ed8' }}>
+                                        {meeting.shared_with_service || meeting.shared_with_direction}
+                                    </strong>
+                                </p>
+                            )}
+                        </div>
+                        )}
 
                         <div className="md-card summary-card">
                             <div className="card-head">
