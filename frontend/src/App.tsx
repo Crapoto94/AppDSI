@@ -6,6 +6,7 @@ import Admin from './pages/Admin';
 import Budget from './pages/Budget';
 import Profile from './pages/Profile';
 import Certif from './pages/Certif';
+import MesTaches from './pages/MesTaches';
 import MailSettings from './pages/MailSettings';
 import EmailTemplates from './pages/EmailTemplates';
 import Tiers from './pages/Tiers';
@@ -104,6 +105,7 @@ function App() {
         <Route path="/tiers" element={<PrivateRoute path="/tiers"><Tiers /></PrivateRoute>} />
         <Route path="/profile" element={<PrivateRoute path="/profile"><Profile /></PrivateRoute>} />
         <Route path="/certif" element={<PrivateRoute path="/certif"><Certif /></PrivateRoute>} />
+        <Route path="/mes-taches" element={<PrivateRoute path="/mes-taches"><MesTaches /></PrivateRoute>} />
         <Route path="/telecom" element={<PrivateRoute path="/telecom"><TelecomManagement /></PrivateRoute>} />
         <Route path="/rencontres-budgetaires" element={<PrivateRoute path="/rencontres-budgetaires"><RencontresBudgetaires /></PrivateRoute>} />
         <Route path="/mes-reunions" element={<PrivateRoute path="/mes-reunions"><MesReunions /></PrivateRoute>} />

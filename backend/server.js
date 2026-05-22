@@ -18,6 +18,7 @@ const glpiController = require('./modules/glpi/glpi.controller');
 const oracleAutomationRouter = require('./routes/oracle-automation.routes');
 const oracleScheduler = require('./modules/oracle/oracle-scheduler');
 const contratsRouter = require('./modules/contrats/contrats.routes');
+const tasksRouter = require('./modules/tasks/tasks.routes');
 
 const tiersRouter = require('./modules/finance/tiers.routes');
 const contactsRouter = require('./modules/finance/contacts.routes');
@@ -2084,6 +2085,9 @@ app.use('/api/copieurs', copieursRouter);
 
 // Contrats Module
 app.use('/api/contrats', contratsRouter);
+
+// Tasks Module (tâches agrégées)
+app.use('/api/tasks', tasksRouter);
 
 // Consommables Module
 const consommablesCtrl = require('./modules/consommables/consommables.controller');

@@ -787,6 +787,19 @@ async function setupDb() {
     } catch (e) {}
 
     try {
+        const existingTasksTile = await db.get("SELECT id FROM tiles WHERE title = 'Mes Tâches'");
+        if (!existingTasksTile) {
+            const maxOrder = await db.get("SELECT MAX(sort_order) as max FROM tiles");
+            const result = await db.run(
+                "INSERT INTO tiles (title, icon, description, status, sort_order, is_public) VALUES (?, ?, ?, ?, ?, ?)",
+                ['Mes Tâches', 'CheckSquare', 'Retrouvez toutes vos tâches en un seul endroit', 'active', (maxOrder?.max || 999) + 1, 0]
+            );
+            const tileId = result.lastID;
+            await db.run("INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)", [tileId, 'Voir mes tâches', '/mes-taches', 1]);
+        }
+    } catch (e) {}
+
+    try {
         const existingConsoTile = await db.get("SELECT id FROM tiles WHERE title = 'Gestion des Consommables'");
         if (!existingConsoTile) {
             const maxOrder = await db.get("SELECT MAX(sort_order) as max FROM tiles");

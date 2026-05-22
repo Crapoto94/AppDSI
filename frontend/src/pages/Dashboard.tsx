@@ -102,11 +102,12 @@ const Dashboard: React.FC = () => {
       try {
         setLoading(true);
         const headers = { 'Authorization': `Bearer ${token}` };
-        const [tilesRes, pendingRes, renewalRes, contratsExpiryRes] = await Promise.all([
+        const [tilesRes, pendingRes, renewalRes, contratsExpiryRes, tasksCountRes] = await Promise.all([
           fetch('/api/tiles', { headers }),
           axios.get('/api/consumable/pending-count').catch(() => ({ data: { count: 0 } })),
           axios.get('/api/certificates/renewal-count', { headers }).catch(() => ({ data: { count: 0 } })),
-          axios.get('/api/contrats/expiry-count', { headers }).catch(() => ({ data: { expired: 0, soon: 0 } }))
+          axios.get('/api/contrats/expiry-count', { headers }).catch(() => ({ data: { expired: 0, soon: 0 } })),
+          axios.get('/api/tasks/count', { headers }).catch(() => ({ data: { count: 0 } }))
         ]);
 
         const tilesData = await tilesRes.json();
@@ -114,6 +115,7 @@ const Dashboard: React.FC = () => {
         const renewalCount = renewalRes.data.count || 0;
         const contratsExpired = contratsExpiryRes.data.expired || 0;
         const contratsSoon = contratsExpiryRes.data.soon || 0;
+        const tasksOverdue = tasksCountRes.data.count || 0;
 
         if (Array.isArray(tilesData)) {
           const updatedTiles = tilesData.map((t: TileData) => {
@@ -121,9 +123,11 @@ const Dashboard: React.FC = () => {
             const isConsommables = urls.some(u => u.includes('/consommables') || u.includes('/consumable')) || t.title === 'Gestion des Consommables';
             const isCertif = urls.some(u => u.includes('/certif')) || t.title === 'Suivi des Certificats';
             const isContrats = urls.some(u => u.includes('/contrats')) || t.title === 'Gestion des Contrats';
+            const isTaches = urls.some(u => u.includes('/mes-taches')) || t.title === 'Mes Tâches';
             if (isConsommables) return { ...t, pending_requests: pendingCount };
             if (isCertif) return { ...t, pending_requests: renewalCount };
             if (isContrats) return { ...t, pending_requests: contratsExpired, warning_count: contratsSoon };
+            if (isTaches) return { ...t, pending_requests: tasksOverdue };
             return t;
           });
           setTiles(updatedTiles);
