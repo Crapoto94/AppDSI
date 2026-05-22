@@ -112,11 +112,11 @@ module.exports = {
     getAll: async (req, res) => {
         try {
             const filter = req.query.filter || 'actifs';
-            let sql = 'SELECT * FROM hub_copieurs.copieurs';
-            if (filter === 'archives') sql += ' WHERE archive = true';
+            let sql = 'SELECT c.*, (SELECT MAX(date_visite) FROM hub_copieurs.copieur_visites v WHERE v.copieur_id = c.id) as last_visit_date FROM hub_copieurs.copieurs c';
+            if (filter === 'archives') sql += ' WHERE c.archive = true';
             else if (filter === 'tous') ;
-            else sql += ' WHERE archive = false';
-            sql += ' ORDER BY direction, service';
+            else sql += ' WHERE c.archive = false';
+            sql += ' ORDER BY c.direction, c.service';
             const copieurs = await pgDb.all(sql);
             res.json(copieurs.map(fixNumeric));
         } catch (error) {
@@ -126,7 +126,7 @@ module.exports = {
 
     getById: async (req, res) => {
         try {
-            const copieur = await pgDb.get('SELECT * FROM hub_copieurs.copieurs WHERE id = ?', [req.params.id]);
+            const copieur = await pgDb.get('SELECT c.*, (SELECT MAX(date_visite) FROM hub_copieurs.copieur_visites v WHERE v.copieur_id = c.id) as last_visit_date FROM hub_copieurs.copieurs c WHERE c.id = ?', [req.params.id]);
             if (!copieur) return res.status(404).json({ message: 'Copieur non trouvé' });
             res.json(fixNumeric(copieur));
         } catch (error) {
@@ -608,6 +608,7 @@ module.exports = {
                     const status = row[2] ? row[2].toString().trim().toLowerCase() : 'non géré';
                     const rawIp = row[6] ? row[6].toString().trim() : '';
                     const ip = rawIp.replace(/^net:\/\//, '').replace(/\/\w+$/, '');
+                    const nomReseau = row[9] ? row[9].toString().trim() : '';
                     const rawCollecte = row[1];
 
                     let collecteDate = null;
@@ -630,6 +631,7 @@ module.exports = {
                     const kpaxStatus = status === 'géré' ? 'géré' : 'non géré';
                     const updates = { kpax_status: kpaxStatus, kpax_last_collecte: collecteDate };
                     if (ip) updates.ip = ip;
+                    if (nomReseau) updates.nom_reseau = nomReseau;
 
                     const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
                     const values = Object.values(updates);
@@ -943,6 +945,106 @@ module.exports = {
             res.json(map);
         } catch (error) {
             res.status(500).json({ message: 'Erreur comptage interventions', error: error.message });
+        }
+    },
+
+    getVisites: async (req, res) => {
+        try {
+            const visites = await pgDb.all(
+                'SELECT * FROM hub_copieurs.copieur_visites WHERE copieur_id = ? ORDER BY date_visite DESC, created_at DESC',
+                [req.params.id]
+            );
+            const formatted = visites.map(v => {
+                try {
+                    v.photos = JSON.parse(v.photos || '[]');
+                } catch {
+                    v.photos = [];
+                }
+                return v;
+            });
+            res.json(formatted);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur récupération visites', error: error.message });
+        }
+    },
+
+    addVisite: async (req, res) => {
+        try {
+            const { date_visite, annotation } = req.body;
+            if (!date_visite) return res.status(400).json({ message: 'Date requise' });
+
+            const copieur = await pgDb.get('SELECT id FROM hub_copieurs.copieurs WHERE id = ?', [req.params.id]);
+            if (!copieur) return res.status(404).json({ message: 'Copieur non trouvé' });
+
+            const photos = [];
+            if (req.files && req.files.length > 0) {
+                const fs = require('fs');
+                const path = require('path');
+                
+                for (const file of req.files) {
+                    const extension = path.extname(file.originalname).toLowerCase();
+                    const filename = `visit_${Date.now()}_${Math.round(Math.random() * 1E9)}${extension}`;
+                    const destPath = path.join(__dirname, '..', '..', 'uploads', filename);
+                    
+                    fs.renameSync(file.path, destPath);
+                    photos.push(`/uploads/${filename}`);
+                }
+            }
+
+            const result = await pgDb.run(
+                'INSERT INTO hub_copieurs.copieur_visites (copieur_id, date_visite, annotation, photos, created_by) VALUES (?, ?, ?, ?, ?)',
+                [req.params.id, date_visite, annotation || '', JSON.stringify(photos), req.user?.username || 'inconnu']
+            );
+
+            const visite = await pgDb.get('SELECT * FROM hub_copieurs.copieur_visites WHERE id = ?', [result.lastID]);
+            try {
+                visite.photos = JSON.parse(visite.photos || '[]');
+            } catch {
+                visite.photos = [];
+            }
+
+            logMouchard(`Visite ajoutée au copieur ${req.params.id}: par ${req.user?.username || 'inconnu'}`);
+            res.status(201).json(visite);
+        } catch (error) {
+            if (req.files) {
+                const fs = require('fs');
+                req.files.forEach(f => {
+                    try { if (fs.existsSync(f.path)) fs.unlinkSync(f.path); } catch (e) {}
+                });
+            }
+            res.status(500).json({ message: 'Erreur ajout visite', error: error.message });
+        }
+    },
+
+    deleteVisite: async (req, res) => {
+        try {
+            const visite = await pgDb.get('SELECT * FROM hub_copieurs.copieur_visites WHERE id = ?', [req.params.visiteId]);
+            if (!visite) return res.status(404).json({ message: 'Visite non trouvée' });
+
+            let photos = [];
+            try {
+                photos = JSON.parse(visite.photos || '[]');
+            } catch {}
+
+            const fs = require('fs');
+            const path = require('path');
+            photos.forEach(photoPath => {
+                const filename = path.basename(photoPath);
+                const fullPath = path.join(__dirname, '..', '..', 'uploads', filename);
+                try {
+                    if (fs.existsSync(fullPath)) {
+                        fs.unlinkSync(fullPath);
+                    }
+                } catch (e) {
+                    console.error('Erreur suppression fichier photo:', fullPath, e.message);
+                }
+            });
+
+            await pgDb.run('DELETE FROM hub_copieurs.copieur_visites WHERE id = ?', [req.params.visiteId]);
+            logMouchard(`Visite ${req.params.visiteId} supprimée du copieur ${visite.copieur_id}`);
+            res.json({ message: 'Visite supprimée' });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur suppression visite', error: error.message });
         }
     }
 };

@@ -15,7 +15,8 @@ const Login: React.FC = () => {
     const attemptAuth = async () => {
       // 1. Si on est déjà connecté via localStorage, on redirige vers l'accueil
       if (localStorage.getItem('token')) {
-        navigate('/');
+        const redirect = localStorage.getItem('restrictedPath');
+        navigate(redirect || '/');
         return;
       }
 
@@ -34,6 +35,7 @@ const Login: React.FC = () => {
       const params = new URLSearchParams(window.location.search);
       const token = params.get('token');
       const azureError = params.get('error');
+      const state = params.get('state');
 
       if (token) {
         // Authentifier proprement avec le token reçu
@@ -44,7 +46,8 @@ const Login: React.FC = () => {
           if (userRes.ok) {
             const userData = await userRes.json();
             login(token, userData);
-            navigate('/');
+            const redirect = params.get('redirect') || state || localStorage.getItem('restrictedPath') || '/';
+            navigate(redirect);
             return;
           }
         } catch (e) {
@@ -62,11 +65,12 @@ const Login: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const redirectParam = new URLSearchParams(window.location.search).get('redirect') || localStorage.getItem('restrictedPath') || '';
     try {
       const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username, password, redirect: redirectParam })
       });
       const data = await response.json();
 
@@ -78,7 +82,8 @@ const Login: React.FC = () => {
       if (response.ok) {
         login(data.accessToken, data.user);
         localStorage.removeItem('manualLogout');
-        navigate('/');
+        const redirect = data.redirect || '/';
+        navigate(redirect);
       } else {
         setError(data.message || 'Erreur de connexion');
       }
@@ -132,7 +137,11 @@ const Login: React.FC = () => {
                     <span>OU</span>
                   </div>
                   <button 
-                    onClick={() => window.location.href = '/api/auth/azure/login'} 
+                    onClick={() => {
+                      const redirect = new URLSearchParams(window.location.search).get('redirect') || localStorage.getItem('restrictedPath') || '';
+                      const baseUrl = '/api/auth/azure/login';
+                      window.location.href = redirect ? `${baseUrl}?state=${encodeURIComponent(redirect)}` : baseUrl;
+                    }} 
                     className="btn btn-azure btn-full"
                   >
                     <svg className="microsoft-icon" viewBox="0 0 23 23" xmlns="http://www.w3.org/2000/svg">

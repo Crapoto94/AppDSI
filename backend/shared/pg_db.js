@@ -66,7 +66,12 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!hub_calendrier\.)\bo365_calendars\b/gi, 'hub_calendrier.o365_calendars')
                     .replace(/(?<!hub_calendrier\.)\bo365_events\b/gi, 'hub_calendrier.o365_events')
                     .replace(/(?<!hub\.)\bbacklog\b/gi, 'hub.backlog')
-                    .replace(/(?<!hub_copieurs\.)\bcopieurs\b(?!\s*\.)/gi, 'hub_copieurs.copieurs');
+                    .replace(/(?<!hub_copieurs\.)\bcopieurs\b(?!\s*\.)/gi, 'hub_copieurs.copieurs')
+                    .replace(/(?<!hub_copieurs\.)\bcopieur_visites\b/gi, 'hub_copieurs.copieur_visites')
+                    .replace(/(?<!hub_consommables\.)\bconsumable_types\b/gi, 'hub_consommables.consumable_types')
+                    .replace(/(?<!hub_consommables\.)\bconsumable_catalog\b/gi, 'hub_consommables.consumable_catalog')
+                    .replace(/(?<!hub_consommables\.)\bconsumable_requests\b/gi, 'hub_consommables.consumable_requests')
+                    .replace(/(?<!hub_consommables\.)\brequest_articles\b/gi, 'hub_consommables.request_articles');
 
     newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
                     .replace(/transcript_cues/gi, 'transcript.cues')
@@ -165,11 +170,12 @@ async function setupPgDb() {
         show_create_buttons BOOLEAN DEFAULT true,
         show_ideas BOOLEAN DEFAULT true,
         show_rencontres BOOLEAN DEFAULT true,
-        show_library BOOLEAN DEFAULT false
+        show_library BOOLEAN DEFAULT false,
+        show_consommables BOOLEAN DEFAULT true
       );
     `);
 
-    await client.query('INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres) VALUES (1, true, true, true, true, true, true) ON CONFLICT (id) DO NOTHING');
+    await client.query('INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_consommables) VALUES (1, true, true, true, true, true, true, true) ON CONFLICT (id) DO NOTHING');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.favorites (
@@ -403,6 +409,9 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_library BOOLEAN DEFAULT false`);
     } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_consommables BOOLEAN DEFAULT true`);
+    } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.app_docs (
@@ -447,8 +456,8 @@ async function setupPgDb() {
     `);
 
     await client.query(`
-      INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres)
-      VALUES (1, true, true, true, true, true, true)
+      INSERT INTO magapp.settings (id, show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_consommables)
+      VALUES (1, true, true, true, true, true, true, true)
       ON CONFLICT (id) DO NOTHING;
     `);
 
@@ -1639,6 +1648,156 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub_copieurs.copieur_interventions ADD COLUMN IF NOT EXISTS email_demandeur TEXT`); } catch (e) {}
     try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_copieur_interventions_msgid ON hub_copieurs.copieur_interventions(email_message_id)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_copieurs.copieur_interventions ALTER COLUMN copieur_id DROP NOT NULL`); } catch (e) {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_copieurs.copieur_visites (
+        id SERIAL PRIMARY KEY,
+        copieur_id INTEGER NOT NULL REFERENCES hub_copieurs.copieurs(id) ON DELETE CASCADE,
+        date_visite DATE NOT NULL,
+        annotation TEXT DEFAULT '',
+        photos TEXT DEFAULT '[]',
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_visites_copieur ON hub_copieurs.copieur_visites(copieur_id)');
+
+    // Create hub_consommables schema and tables
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_consommables;');
+
+    // Drop old tables if they have wrong schema
+    try {
+      const checkRequest = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'consumable_requests' AND table_schema = 'hub_consommables' AND column_name = 'type_consommable'
+      `);
+      if (checkRequest.rows.length > 0) {
+        console.log('[PG DB] Dropping old consumable_requests table with wrong schema...');
+        await client.query('DROP TABLE IF EXISTS hub_consommables.request_articles CASCADE');
+        await client.query('DROP TABLE IF EXISTS hub_consommables.consumable_requests CASCADE');
+      }
+    } catch (e) {
+      // Table doesn't exist yet, that's fine
+    }
+
+    // Types de consommables
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_consommables.consumable_types (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        display_name TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Articles disponibles (catalogue)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_consommables.consumable_catalog (
+        id SERIAL PRIMARY KEY,
+        type_id INTEGER NOT NULL REFERENCES hub_consommables.consumable_types(id) ON DELETE CASCADE,
+        designation TEXT,
+        article TEXT NOT NULL,
+        code_fabricant TEXT,
+        ref_commande TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Demandes de consommables
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_consommables.consumable_requests (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        date_commande DATE NOT NULL,
+        direction TEXT NOT NULL,
+        service TEXT NOT NULL,
+        nom_referent TEXT NOT NULL,
+        tel_complet TEXT NOT NULL,
+        type_id INTEGER NOT NULL REFERENCES hub_consommables.consumable_types(id),
+        status TEXT DEFAULT 'pending',
+        order_number TEXT,
+        tier TEXT DEFAULT 'UGAP',
+        total_amount_ttc NUMERIC,
+        is_school BOOLEAN DEFAULT FALSE,
+        user_comment TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Articles dans une demande
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_consommables.request_articles (
+        id SERIAL PRIMARY KEY,
+        request_id INTEGER NOT NULL REFERENCES hub_consommables.consumable_requests(id) ON DELETE CASCADE,
+        catalog_id INTEGER NOT NULL REFERENCES hub_consommables.consumable_catalog(id),
+        quantite INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Images des désignations
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_consommables.designation_images (
+        id SERIAL PRIMARY KEY,
+        designation TEXT NOT NULL UNIQUE,
+        image_path TEXT NOT NULL,
+        image_url TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Migration: ajouter colonne email si absente
+    try {
+      const checkEmail = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'consumable_requests' AND table_schema = 'hub_consommables'
+        AND column_name = 'email'
+      `);
+      if (checkEmail.rows.length === 0) {
+        await client.query('ALTER TABLE hub_consommables.consumable_requests ADD COLUMN email TEXT DEFAULT \'\'');
+        console.log('[PG DB] Added email column to consumable_requests');
+      }
+    } catch (e) {
+      console.log('[PG DB] Migration email column skipped:', e.message);
+    }
+
+    // Migration: ajouter colonne archived si absente
+    try {
+      const checkArchived = await client.query(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'consumable_requests' AND table_schema = 'hub_consommables'
+        AND column_name = 'archived'
+      `);
+      if (checkArchived.rows.length === 0) {
+        await client.query('ALTER TABLE hub_consommables.consumable_requests ADD COLUMN archived BOOLEAN DEFAULT FALSE');
+        console.log('[PG DB] Added archived column to consumable_requests');
+      }
+    } catch (e) {
+      console.log('[PG DB] Migration archived column skipped:', e.message);
+    }
+
+    // Migration: ajouter colonnes de commande si absentes
+    try {
+      await client.query(`
+        ALTER TABLE hub_consommables.consumable_requests 
+        ADD COLUMN IF NOT EXISTS order_number TEXT,
+        ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'UGAP',
+        ADD COLUMN IF NOT EXISTS total_amount_ttc NUMERIC;
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration order columns skipped:', e.message);
+    }
+
+    // Indices
+    await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_requests_user ON hub_consommables.consumable_requests(user_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_requests_status ON hub_consommables.consumable_requests(status)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_requests_type ON hub_consommables.consumable_requests(type_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_catalog_type ON hub_consommables.consumable_catalog(type_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_request_articles_request ON hub_consommables.request_articles(request_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_request_articles_catalog ON hub_consommables.request_articles(catalog_id)');
 
     // Create hub_calendrier schema and table
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_calendrier;');

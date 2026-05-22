@@ -34,4 +34,8 @@ router.get('/:id/interventions', authenticateJWT, copieursController.getInterven
 router.post('/:id/interventions', authenticateJWT, copieursController.addIntervention);
 router.delete('/:id/interventions/:interventionId', authenticateJWT, copieursController.deleteIntervention);
 
+router.get('/:id/visites', authenticateJWT, copieursController.getVisites);
+router.post('/:id/visites', authenticateJWT, uploadExcel.array('photos', 10), copieursController.addVisite);
+router.delete('/:id/visites/:visiteId', authenticateJWT, copieursController.deleteVisite);
+
 module.exports = router;

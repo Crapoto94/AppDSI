@@ -34,6 +34,7 @@ import Contrats from './pages/Contrats';
 import Copieurs from './pages/Copieurs';
 import CalendrierDSI from './pages/CalendrierDSI';
 import AgentsDSI from './pages/AgentsDSI';
+import ConsommablesManagement from './pages/ConsommablesManagement';
 import RequestFeature from './pages/RequestFeature';
 import AdminBacklog from './pages/AdminBacklog';
 import WhatsNew from './pages/WhatsNew';
@@ -42,6 +43,7 @@ import Doctrines from './pages/Doctrines';
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
   const token = localStorage.getItem('token');
+  const restrictedPath = localStorage.getItem('restrictedPath');
   let user: any = {};
   try {
     const userStr = localStorage.getItem('user');
@@ -50,7 +52,28 @@ const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactN
     console.error('Erreur lors du parsing du user en localStorage', e);
   }
 
-  if (!token) return <Navigate to="/login" />;
+  if (!token) {
+    // Store the intended path for redirect after login
+    const hasNomenu = window.location.search.includes('nomenu');
+    if (hasNomenu) {
+      localStorage.setItem('restrictedPath', window.location.pathname + window.location.search);
+    }
+    return <Navigate to="/login" />;
+  }
+
+  // Si un restrictedPath est en cours, on bloque l'accès au dashboard et aux autres pages
+  if (restrictedPath) {
+    if (path === '/') {
+      return <Navigate to={restrictedPath} />;
+    }
+    if (path && path !== restrictedPath && path !== '/login') {
+      const isSamePath = path === restrictedPath || (restrictedPath && path && restrictedPath.startsWith(path));
+      if (!isSamePath) {
+        return <Navigate to={restrictedPath} />;
+      }
+    }
+  }
+
   if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/" />;
   
   if (path && user.authorized_urls && !user.authorized_urls.includes('*')) {
@@ -92,6 +115,7 @@ function App() {
         <Route path="/transcriptmanager/meeting/:id" element={<PrivateRoute path="/transcriptmanager"><TranscriptMeetingDetail /></PrivateRoute>} />
         <Route path="/contrats" element={<PrivateRoute path="/contrats"><Contrats /></PrivateRoute>} />
         <Route path="/copieurs" element={<PrivateRoute path="/copieurs"><Copieurs /></PrivateRoute>} />
+        <Route path="/consommables" element={<PrivateRoute path="/consommables"><ConsommablesManagement /></PrivateRoute>} />
         <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
         <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
 

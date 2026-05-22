@@ -32,6 +32,10 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  if (searchParams.get('nomenu') !== null) {
+    return null;
+  }
   const token = localStorage.getItem('token');
   const [user, setUser] = useState<any>({});
 

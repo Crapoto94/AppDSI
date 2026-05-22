@@ -41,6 +41,7 @@ interface Copieur {
   papercut_last_import: string;
   kpax_status: string;
   kpax_last_collecte: string;
+  last_visit_date?: string;
   created_at: string;
 }
 
@@ -126,6 +127,15 @@ const Copieurs: React.FC = () => {
   const [emailPreviewHtml, setEmailPreviewHtml] = useState<string | null>(null);
   const [emailPreviewLoading, setEmailPreviewLoading] = useState(false);
 
+  const [showVisitesModal, setShowVisitesModal] = useState(false);
+  const [visitesTarget, setVisitesTarget] = useState<Copieur | null>(null);
+  const [visites, setVisites] = useState<any[]>([]);
+  const [loadingVisites, setLoadingVisites] = useState(false);
+  const [visiteForm, setVisiteForm] = useState({ date_visite: '', annotation: '' });
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [submittingVisite, setSubmittingVisite] = useState(false);
+  const [activeLightbox, setActiveLightbox] = useState<string | null>(null);
+
   useEffect(() => {
     axios.get('/api/copieurs/boundary').then(r => setIvryBoundary(r.data)).catch(() => {});
   }, []);
@@ -189,7 +199,8 @@ const Copieurs: React.FC = () => {
         c.adresse?.toLowerCase().includes(q) ||
         c.numero_serie?.toLowerCase().includes(q) ||
         c.modele?.toLowerCase().includes(q) ||
-        c.ip?.toLowerCase().includes(q)
+        c.ip?.toLowerCase().includes(q) ||
+        c.nom_reseau?.toLowerCase().includes(q)
       );
     }
     setFiltered(sorted(result));
@@ -371,6 +382,64 @@ const Copieurs: React.FC = () => {
       setCopieurIntervList(res.data);
     } catch {}
     finally { setLoadingCopieurInterv(false); }
+  };
+
+  const openVisitesModal = async (c: Copieur) => {
+    setVisitesTarget(c);
+    setShowVisitesModal(true);
+    setLoadingVisites(false);
+    setVisiteForm({ date_visite: new Date().toISOString().split('T')[0], annotation: '' });
+    setSelectedFiles([]);
+    await fetchVisites(c.id);
+  };
+
+  const fetchVisites = async (copieurId: number) => {
+    setLoadingVisites(true);
+    try {
+      const res = await api.get(`/${copieurId}/visites`);
+      setVisites(res.data);
+    } catch (e) {
+      console.error('Erreur chargement visites', e);
+      setVisites([]);
+    } finally {
+      setLoadingVisites(false);
+    }
+  };
+
+  const handleAddVisite = async () => {
+    if (!visitesTarget || !visiteForm.date_visite) return;
+    setSubmittingVisite(true);
+    const formData = new FormData();
+    formData.append('date_visite', visiteForm.date_visite);
+    formData.append('annotation', visiteForm.annotation);
+    selectedFiles.forEach((file) => {
+      formData.append('photos', file);
+    });
+
+    try {
+      await api.post(`/${visitesTarget.id}/visites`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setVisiteForm({ date_visite: new Date().toISOString().split('T')[0], annotation: '' });
+      setSelectedFiles([]);
+      await fetchVisites(visitesTarget.id);
+      await fetchCopieurs();
+    } catch (e) {
+      alert('Erreur lors de l\'ajout de la visite');
+    } finally {
+      setSubmittingVisite(false);
+    }
+  };
+
+  const handleDeleteVisite = async (visiteId: number) => {
+    if (!visitesTarget || !confirm('Supprimer cette visite ?')) return;
+    try {
+      await api.delete(`/${visitesTarget.id}/visites/${visiteId}`);
+      await fetchVisites(visitesTarget.id);
+      await fetchCopieurs();
+    } catch (e) {
+      alert('Erreur lors de la suppression de la visite');
+    }
   };
 
   const openAllInterventions = async () => {
@@ -621,7 +690,7 @@ const Copieurs: React.FC = () => {
                     )}
                   </th>
                   <th className="sortable" onClick={() => handleSort('direction')}>
-                    Direction / École {sortIcon('direction')}
+                    Direction / Service {sortIcon('direction')}
                     <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'direction' ? null : 'direction'); }} />
                     {showColFilter === 'direction' && (
                       <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
@@ -632,19 +701,6 @@ const Copieurs: React.FC = () => {
                       </div>
                     )}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('service')}>
-                    Service {sortIcon('service')}
-                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'service' ? null : 'service'); }} />
-                    {showColFilter === 'service' && (
-                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
-                        <button className={!colFilters.service ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, service: '' })); setShowColFilter(null); }}>Tous</button>
-                        {[...new Set(copieurs.map(c => c.service).filter(Boolean))].sort().map(v => (
-                          <button key={v} className={colFilters.service === v ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, service: v })); setShowColFilter(null); }}>{v}</button>
-                        ))}
-                      </div>
-                    )}
-                  </th>
-                  <th className="sortable" onClick={() => handleSort('adresse')}>Adresse {sortIcon('adresse')}</th>
                   <th className="sortable" onClick={() => handleSort('numero_serie')}>N° Série {sortIcon('numero_serie')}</th>
                   <th className="sortable" onClick={() => handleSort('modele')}>
                     Modèle {sortIcon('modele')}
@@ -658,7 +714,7 @@ const Copieurs: React.FC = () => {
                       </div>
                     )}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('ip')}>IP {sortIcon('ip')}</th>
+                  <th className="sortable" onClick={() => handleSort('ip')}>IP / Nom réseau {sortIcon('ip')}</th>
                   <th className="sortable" onClick={() => handleSort('ping_status')}>
                     Ping {sortIcon('ping_status')}
                     <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'ping_status' ? null : 'ping_status'); }} />
@@ -684,18 +740,6 @@ const Copieurs: React.FC = () => {
                     )}
                   </th>
                   <th className="sortable" onClick={() => handleSort('date_acquisition')}>Date acq. {sortIcon('date_acquisition')}</th>
-                  <th className="sortable" onClick={() => handleSort('couleur')}>
-                    Couleur {sortIcon('couleur')}
-                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'couleur' ? null : 'couleur'); }} />
-                    {showColFilter === 'couleur' && (
-                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
-                        <button className={!colFilters.couleur ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, couleur: '' })); setShowColFilter(null); }}>Tous</button>
-                        {[...new Set(copieurs.map(c => c.couleur).filter(Boolean))].sort().map(v => (
-                          <button key={v} className={colFilters.couleur === v ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, couleur: v })); setShowColFilter(null); }}>{v}</button>
-                        ))}
-                      </div>
-                    )}
-                  </th>
                   <th className="sortable" onClick={() => handleSort('divers')}>
                     Annotation {sortIcon('divers')}
                     <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'divers' ? null : 'divers'); }} />
@@ -708,48 +752,73 @@ const Copieurs: React.FC = () => {
                       </div>
                     )}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('archive')}>
-                    Statut {sortIcon('archive')}
-                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'archive' ? null : 'archive'); }} />
-                    {showColFilter === 'archive' && (
-                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
-                        <button className={!colFilters.archive ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, archive: '' })); setShowColFilter(null); }}>Tous</button>
-                        <button className={colFilters.archive === 'false' ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, archive: 'false' })); setShowColFilter(null); }}>Actif</button>
-                        <button className={colFilters.archive === 'true' ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, archive: 'true' })); setShowColFilter(null); }}>Archivé</button>
-                      </div>
-                    )}
-                  </th>
+                  <th className="sortable" onClick={() => handleSort('last_visit_date')}>Dernière visite {sortIcon('last_visit_date')}</th>
                   <th className="sortable" style={{ width: 60 }} onClick={() => handleSort('interventions')}>Int. {sortIcon('interventions')}</th>
                   <th style={{ width: 120 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={15} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
+                  <tr><td colSpan={12} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
                 )}
                 {filtered.map(c => (
                   <React.Fragment key={c.id}>
                     <tr className={c.archive ? 'archived' : ''} onClick={() => setExpandedId(expandedId === c.id ? null : c.id)} style={{ cursor: 'pointer' }}>
                       <td>{c.source === 'ecoles' ? <span className="src-badge ecoles"><School size={12} /> École</span> : <span className="src-badge ville"><Building2 size={12} /> Mairie</span>}</td>
-                      <td><strong>{c.direction}</strong></td>
-                      <td>{c.service}</td>
-                      <td>{c.adresse}{c.latitude && c.longitude ? <MapPin size={12} style={{ marginLeft: 6, color: '#2563eb', verticalAlign: 'middle', flexShrink: 0 }} /> : null}</td>
+                      <td>
+                        <strong>{c.direction}</strong>
+                        {c.service && <><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{c.service}</span></>}
+                      </td>
                       <td><code>{c.numero_serie}</code>{c.papercut_matched ? <span title="Données PaperCut" style={{ marginLeft: 6, fontSize: 12, color: '#0891b2', fontWeight: 700 }}>🖨️</span> : null}</td>
-                      <td>{c.modele}</td>
-                      <td>{c.ip ? <code className="ip-link" onClick={() => window.open(`http://${c.ip}`, '_blank')}>{c.ip}</code> : <code>-</code>}</td>
+                      <td style={{ color: c.couleur === 'Oui' ? '#0891b2' : undefined, fontWeight: c.couleur === 'Oui' ? 600 : undefined }}>{c.modele}</td>
+                      <td>
+                        {c.ip ? <code className="ip-link" onClick={() => window.open(`http://${c.ip}`, '_blank')}>{c.ip}</code> : <code>-</code>}
+                        {c.nom_reseau && <><br /><span style={{ fontSize: 11, color: '#94a3b8' }}>{c.nom_reseau}</span></>}
+                      </td>
                       <td>
                         <span className={`ping-dot ${c.ping_status || 'inconnu'}`} title={c.ping_status === 'actif' ? `Vu ${lastSeen(c.last_seen_active)}` : c.ping_status === 'inactif' ? 'Injoignable' : 'Inconnu'} />
                         {c.ping_status === 'actif' ? <span className="ping-label">{lastSeen(c.last_seen_active)}</span> : c.ping_status === 'inactif' ? <span className="ping-label">injoignable</span> : '-'}
                       </td>
                       <td>
-                        {c.kpax_status === 'géré' ? <><span className="kpax-badge kpax-gere">géré</span>{c.kpax_last_collecte ? <span className={`kpax-date${isKpaxAlert(c) ? ' kpax-date-alert' : ''}`}>{new Date(c.kpax_last_collecte).toLocaleDateString('fr-FR')}</span> : <span className="kpax-date kpax-date-alert">jamais</span>}</> :
-                         c.kpax_status === 'non géré' ? <><span className="kpax-badge kpax-non-gere">non géré</span>{c.kpax_last_collecte ? <span className={`kpax-date${isKpaxAlert(c) ? ' kpax-date-alert' : ''}`}>{new Date(c.kpax_last_collecte).toLocaleDateString('fr-FR')}</span> : <span className="kpax-date kpax-date-alert">jamais</span>}</> :
-                         <span className="kpax-badge kpax-non">non</span>}
+                        {c.kpax_status === 'géré' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-start' }}>
+                            <span className="kpax-badge kpax-gere">géré</span>
+                            {c.kpax_last_collecte ? (
+                              <span className={`kpax-date${isKpaxAlert(c) ? ' kpax-date-alert' : ''}`}>
+                                {new Date(c.kpax_last_collecte).toLocaleDateString('fr-FR')}
+                              </span>
+                            ) : (
+                              <span className="kpax-date kpax-date-alert">jamais</span>
+                            )}
+                          </div>
+                        ) : c.kpax_status === 'non géré' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', alignItems: 'flex-start' }}>
+                            <span className="kpax-badge kpax-non-gere">non géré</span>
+                            {c.kpax_last_collecte ? (
+                              <span className={`kpax-date${isKpaxAlert(c) ? ' kpax-date-alert' : ''}`}>
+                                {new Date(c.kpax_last_collecte).toLocaleDateString('fr-FR')}
+                              </span>
+                            ) : (
+                              <span className="kpax-date kpax-date-alert">jamais</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="kpax-badge kpax-non">non</span>
+                        )}
                       </td>
                       <td>{formatDate(c.date_acquisition)}</td>
-                      <td>{c.couleur === 'Oui' ? '🟥' : (c.couleur || '-')}</td>
                       <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.divers || ''}>{c.divers || '-'}</td>
-                      <td>{c.archive ? <span className="badge badge-archived">Archivé</span> : <span className="badge badge-active">Actif</span>}</td>
+                      <td>
+                        {c.last_visit_date ? (
+                          <span className="visit-badge visit-badge-active" onClick={(e) => { e.stopPropagation(); openVisitesModal(c); }}>
+                            {formatDate(c.last_visit_date)}
+                          </span>
+                        ) : (
+                          <span className="visit-badge visit-badge-empty" onClick={(e) => { e.stopPropagation(); openVisitesModal(c); }}>
+                            Aucune (Ajouter)
+                          </span>
+                        )}
+                      </td>
                       <td>
                         <span className="interv-count" onClick={e => { e.stopPropagation(); openCopieurInterventions(c); }} title="Voir les interventions">
                           {interventionCounts[c.id] || 0}
@@ -766,7 +835,7 @@ const Copieurs: React.FC = () => {
                     </tr>
                     {expandedId === c.id && (
                       <tr className="expanded-row">
-                        <td colSpan={15}>
+                        <td colSpan={12}>
                           <div className="expanded-details">
                             <div><strong>Secteur:</strong> {c.secteur || '-'}</div>
                             <div><strong>N° série:</strong> {c.numero_serie}</div>
@@ -1398,6 +1467,178 @@ const Copieurs: React.FC = () => {
         </div>
       )}
 
+      {showVisitesModal && visitesTarget && (
+        <div className="modal-overlay" onClick={() => setShowVisitesModal(false)}>
+          <div className="modal modal-visites" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 style={{ marginBottom: 2 }}>Visites de copieur — <code style={{ fontSize: 18, background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: 6 }}>{visitesTarget.numero_serie}</code></h2>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{visitesTarget.direction}{visitesTarget.service ? ` / ${visitesTarget.service}` : ''}</p>
+              </div>
+              <button className="btn-icon" onClick={() => setShowVisitesModal(false)}><X size={20} /></button>
+            </div>
+            
+            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 24 }}>
+              {/* Formulaire d'ajout de visite */}
+              <div className="visit-form-card" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 16, padding: 20 }}>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: 15, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Plus size={18} style={{ color: '#0284c7' }} /> Enregistrer une nouvelle visite
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div className="form-group">
+                      <label>Date de la visite *</label>
+                      <input 
+                        type="date" 
+                        value={visiteForm.date_visite} 
+                        onChange={e => setVisiteForm({ ...visiteForm, date_visite: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Photos (Une ou plusieurs)</label>
+                      <input 
+                        type="file" 
+                        multiple 
+                        accept="image/*" 
+                        onChange={e => {
+                          if (e.target.files) {
+                            setSelectedFiles(Array.from(e.target.files));
+                          }
+                        }}
+                        style={{ padding: '6px 12px' }}
+                      />
+                    </div>
+                  </div>
+                  
+                  {selectedFiles.length > 0 && (
+                    <div style={{ fontSize: 12, color: '#0284c7', fontWeight: 600, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      Fichiers sélectionnés ({selectedFiles.length}) :
+                      {selectedFiles.map((file, idx) => (
+                        <span key={idx} style={{ background: '#e0f2fe', padding: '2px 8px', borderRadius: 6, fontSize: 11 }}>
+                          {file.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="form-group">
+                    <label>Annotation / Commentaires</label>
+                    <textarea 
+                      value={visiteForm.annotation} 
+                      onChange={e => setVisiteForm({ ...visiteForm, annotation: e.target.value })} 
+                      rows={3} 
+                      placeholder="Observations, remarques, état du matériel..."
+                    />
+                  </div>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={handleAddVisite} 
+                      disabled={submittingVisite || !visiteForm.date_visite}
+                      style={{ background: '#0284c7' }}
+                    >
+                      {submittingVisite ? 'Enregistrement...' : 'Enregistrer la visite'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Historique des visites */}
+              <div>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: 16, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  Historique des visites ({visites.length})
+                </h3>
+                
+                {loadingVisites ? (
+                  <div style={{ textAlign: 'center', padding: '32px 0', color: '#64748b' }}>
+                    ⏳ Chargement des visites...
+                  </div>
+                ) : visites.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8', fontStyle: 'italic', border: '1px dashed #e2e8f0', borderRadius: 12 }}>
+                    Aucune visite enregistrée pour le moment.
+                  </div>
+                ) : (
+                  <div className="visits-timeline" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    {visites.map((visite) => (
+                      <div key={visite.id} className="visit-card" style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, position: 'relative', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                          <div>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>
+                              Visite du {new Date(visite.date_visite).toLocaleDateString('fr-FR')}
+                            </span>
+                            <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>
+                              par {visite.created_by || 'inconnu'}
+                            </span>
+                          </div>
+                          <button 
+                            className="btn-icon btn-icon-danger" 
+                            title="Supprimer la visite"
+                            onClick={() => handleDeleteVisite(visite.id)}
+                            style={{ margin: '-8px -8px 0 0' }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                        
+                        {visite.annotation && (
+                          <p style={{ margin: '0 0 12px 0', fontSize: 13, color: '#334155', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                            {visite.annotation}
+                          </p>
+                        )}
+                        
+                        {visite.photos && visite.photos.length > 0 && (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8, marginTop: 8 }}>
+                            {visite.photos.map((photo: string, index: number) => (
+                              <div 
+                                key={index} 
+                                className="visit-photo-thumb"
+                                onClick={() => setActiveLightbox(photo)}
+                                style={{ 
+                                  height: 80, 
+                                  borderRadius: 8, 
+                                  overflow: 'hidden', 
+                                  cursor: 'pointer', 
+                                  border: '1px solid #f1f5f9',
+                                  position: 'relative'
+                                }}
+                              >
+                                <img 
+                                  src={photo} 
+                                  alt={`Visite ${visite.id} - ${index}`} 
+                                  style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.2s' }}
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none';
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="modal-footer">
+              <button className="btn btn-outline" onClick={() => setShowVisitesModal(false)}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeLightbox && (
+        <div className="lightbox-overlay" onClick={() => setActiveLightbox(null)} style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: 20 }}>
+          <button style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 40, height: 40, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setActiveLightbox(null)}>
+            <X size={24} />
+          </button>
+          <img src={activeLightbox} alt="Visite zoom" style={{ maxWidth: '90%', maxHeight: '90%', objectFit: 'contain', margin: 'auto', borderRadius: 8, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }} />
+        </div>
+      )}
+
       <style>{`
         .copieurs-page { min-height: 100vh; background: var(--bg-color); }
         .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
@@ -1463,7 +1704,7 @@ const Copieurs: React.FC = () => {
         .kpax-gere { background: #dcfce7; color: #16a34a; }
         .kpax-non-gere { background: #fef9c3; color: #ca8a04; }
         .kpax-non { background: #f1f5f9; color: #94a3b8; }
-        .kpax-date { margin-left: 4px; font-size: 11px; color: #64748b; white-space: nowrap; }
+        .kpax-date { font-size: 11px; color: #64748b; white-space: nowrap; margin-top: 2px; }
         .kpax-date-alert { color: #dc2626; font-weight: 700; }
         .ip-link { cursor: pointer; text-decoration: underline dotted; }
         .ip-link:hover { color: #2563eb; }
@@ -1535,6 +1776,54 @@ const Copieurs: React.FC = () => {
         .detail-field { background: #f8fafc; border-radius: 8px; padding: 10px 14px; border: 1px solid #f1f5f9; }
         .detail-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
         .detail-value { font-size: 14px; color: #0f172a; font-weight: 500; }
+
+        .visit-badge {
+          display: inline-flex;
+          padding: 4px 8px;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .visit-badge-active {
+          background: #e0f2fe;
+          color: #0369a1;
+          border: 1px solid #bae6fd;
+        }
+        .visit-badge-active:hover {
+          background: #0284c7;
+          color: #fff;
+          border-color: #0284c7;
+          transform: translateY(-1px);
+        }
+        .visit-badge-empty {
+          background: #f8fafc;
+          color: #94a3b8;
+          border: 1px dashed #cbd5e1;
+        }
+        .visit-badge-empty:hover {
+          background: #f1f5f9;
+          color: #475569;
+          border-color: #94a3b8;
+          transform: translateY(-1px);
+        }
+        .modal-visites {
+          max-width: 700px;
+        }
+        .visit-form-card input[type="date"], .visit-form-card textarea {
+          background: #fff !important;
+        }
+        .visit-photo-thumb:hover img {
+          transform: scale(1.08);
+        }
+        .visit-card:hover {
+          box-shadow: 0 4px 12px rgba(0,0,0,0.05) !important;
+          border-color: #cbd5e1 !important;
+          transform: translateY(-1px);
+          transition: all 0.2s ease;
+        }
       `}</style>
     </div>
   );

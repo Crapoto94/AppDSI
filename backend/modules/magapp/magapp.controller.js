@@ -588,7 +588,7 @@ const MagAppController = {
                     }
                 } catch (e) { console.error('[MAGAPP SETTINGS] Beta check error:', e.message); }
             }
-            
+                        
             if (isSpecialUser) {
                 result.is_beta_user = true;
                 // Save originals before forcing them to true
@@ -599,6 +599,7 @@ const MagAppController = {
                 result.show_ideas_original = result.show_ideas;
                 result.show_rencontres_original = result.show_rencontres;
                 result.show_library_original = result.show_library;
+                result.show_consommables_original = result.show_consommables;
 
                 result.show_tickets = true;
                 result.show_subscriptions = true;
@@ -607,6 +608,7 @@ const MagAppController = {
                 result.show_ideas = true;
                 result.show_rencontres = true;
                 result.show_library = true;
+                result.show_consommables = true;
             } else {
                 result.show_tickets_original = result.show_tickets;
                 result.show_subscriptions_original = result.show_subscriptions;
@@ -615,6 +617,7 @@ const MagAppController = {
                 result.show_ideas_original = result.show_ideas;
                 result.show_rencontres_original = result.show_rencontres;
                 result.show_library_original = result.show_library;
+                result.show_consommables_original = result.show_consommables;
             }
 
             let hasRencontresAccess = false;
@@ -635,6 +638,39 @@ const MagAppController = {
             } catch (e) { console.error('[MAGAPP SETTINGS] Rencontres access check error:', e.message); }
             
             result.has_rencontres_access = hasRencontresAccess;
+
+            let hasConsommablesAccess = false;
+            try {
+                const db = getSqlite();
+                let checkUserId = req.user?.id;
+                
+                if (!checkUserId) {
+                    const { username, email } = req.query;
+                    const identifier = (username || (email && email.split('@')[0]) || '').toLowerCase().trim();
+                    if (identifier) {
+                        const user = await db.get('SELECT id FROM users WHERE LOWER(username) = ?', [identifier]);
+                        if (user) {
+                            checkUserId = user.id;
+                        }
+                    }
+                }
+                
+                if (checkUserId) {
+                    const tileAccess = await db.get(`
+                        SELECT 1 FROM user_tiles ut
+                        JOIN tiles t ON ut.tile_id = t.id
+                        LEFT JOIN tile_links tl ON t.id = tl.tile_id
+                        WHERE ut.user_id = ? AND (
+                            LOWER(t.title) = 'demandes de consommables' 
+                            OR LOWER(t.title) = 'gestion des consommables' 
+                            OR LOWER(tl.url) = '/consommables'
+                        )
+                    `, [checkUserId]);
+                    hasConsommablesAccess = !!tileAccess;
+                }
+            } catch (e) { console.error('[MAGAPP SETTINGS] Consommables access check error:', e.message); }
+            result.has_consumables_access = hasConsommablesAccess;
+
             res.json(result);
         } catch (error) {
             console.error('[MAGAPP] Error fetching settings:', error.message);
@@ -643,10 +679,10 @@ const MagAppController = {
     },
 
     updateSettings: async (req, res) => {
-        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library } = req.body;
+        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables } = req.body;
         try {
-            await pgDb.run('UPDATE magapp.settings SET show_tickets = $1, show_subscriptions = $2, show_health_check = $3, show_create_buttons = $4, show_ideas = $5, show_rencontres = $6, show_library = $7 WHERE id = 1',
-                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library]);
+            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ? WHERE id = 1',
+                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables]);
             res.json({ message: 'Settings updated' });
         } catch (error) {
             console.error('[MAGAPP] Error updating settings:', error.message);

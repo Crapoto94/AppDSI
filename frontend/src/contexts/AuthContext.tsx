@@ -107,6 +107,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const logout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('restrictedPath');
         setToken(null);
         setUser(null);
         setPendingApproval(null);

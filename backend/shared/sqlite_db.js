@@ -787,6 +787,24 @@ async function setupDb() {
     } catch (e) {}
 
     try {
+        const existingConsoTile = await db.get("SELECT id FROM tiles WHERE title = 'Gestion des Consommables'");
+        if (!existingConsoTile) {
+            const maxOrder = await db.get("SELECT MAX(sort_order) as max FROM tiles");
+            const result = await db.run(
+                "INSERT INTO tiles (title, icon, description, status, sort_order, is_public) VALUES (?, ?, ?, ?, ?, ?)",
+                ['Gestion des Consommables', 'Package', 'Demandez des consommables informatiques', 'active', (maxOrder?.max || 999) + 1, 1]
+            );
+            const tileId = result.lastID;
+            const existingLink = await db.get("SELECT id FROM tile_links WHERE tile_id = ? AND label = 'Faire une demande'", [tileId]);
+            if (!existingLink) {
+                try {
+                    await db.run("INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)", [tileId, 'Faire une demande', '/consommables', 1]);
+                } catch (e2) {}
+            }
+        }
+    } catch (e) {}
+
+    try {
         const result = await db.all("PRAGMA table_info(tiles)");
         const hasIsPublicColumn = result.some(col => col.name === 'is_public');
         if (!hasIsPublicColumn) {

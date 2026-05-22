@@ -24,6 +24,7 @@ const contactsRouter = require('./modules/finance/contacts.routes');
 const certificatesRouter = require('./modules/certificates/certificates.routes');
 const copieursRouter = require('./modules/copieurs/copieurs.routes');
 const transcriptManagerRouter = require('./modules/transcriptmanager/transcriptmanager.routes');
+const consommablesRouter = require('./modules/consommables/consommables.routes');
 const { recalculateAllOperations, deduplicateOperations } = require('./modules/finance/finance.controller');
 const multer = require('multer');
 const fs = require('fs');
@@ -612,6 +613,46 @@ async function searchADUsersByQuery(query, config) {
     });
 }
 
+// Récupérer les infos AD de l'utilisateur connecté (service, direction)
+app.get('/api/ad/my-info', authenticateJWT, async (req, res) => {
+    try {
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) {
+            return res.json({ service: '', direction: '' });
+        }
+
+        const username = req.user.username;
+        const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}`, connectTimeout: 5000, timeout: 5000 });
+
+        client.on('error', () => { client.destroy(); return res.json({ service: '', direction: '' }); });
+
+        client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+            if (err) { client.destroy(); return res.json({ service: '', direction: '' }); }
+
+            const filter = `(&(objectClass=user)(sAMAccountName=${username}))`;
+            const opts = { filter, scope: 'sub', attributes: ['department', 'company', 'displayName'], sizeLimit: 1 };
+
+            client.search(adSettings.base_dn, opts, (err, searchRes) => {
+                if (err) { client.destroy(); return res.json({ service: '', direction: '' }); }
+
+                let found = null;
+                searchRes.on('searchEntry', (entry) => {
+                    const user = flattenLDAPEntry(entry);
+                    if (user) found = {
+                        service: user.department || '',
+                        direction: user.company || ''
+                    };
+                });
+                searchRes.on('end', () => { client.destroy(); res.json(found || { service: '', direction: '' }); });
+                searchRes.on('error', () => { client.destroy(); res.json({ service: '', direction: '' }); });
+            });
+        });
+    } catch (error) {
+        console.error('[AD my-info] Error:', error);
+        res.json({ service: '', direction: '' });
+    }
+});
+
 // Azure AD (Entra ID) Settings API
 // Route publique : retourne uniquement is_enabled (pour Login.tsx)
 app.get('/api/azure-ad-settings/status', async (req, res) => {
@@ -826,13 +867,14 @@ app.get('/api/auth/azure/login', async (req, res) => {
             return res.status(503).json({ message: 'L\'authentification Azure AD est désactivée' });
         }
 
+        const state = req.query.state || '';
         const params = new URLSearchParams({
             client_id: settings.client_id,
             response_type: 'code',
             redirect_uri: settings.redirect_uri,
             response_mode: 'query',
             scope: 'openid profile email User.Read',
-            state: '12345'
+            state: state
         });
 
         const authUrl = `https://login.microsoftonline.com/${settings.tenant_id}/oauth2/v2.0/authorize?${params.toString()}`;
@@ -845,11 +887,13 @@ app.get('/api/auth/azure/login', async (req, res) => {
 });
 
 app.get('/api/auth/azure/callback', async (req, res) => {
-    const { code, error, error_description } = req.query;
+    const { code, error, error_description, state } = req.query;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const stateParam = state ? `&state=${encodeURIComponent(state)}` : '';
 
     if (error) {
         console.error('[AZURE] Callback Error Query Params:', error, error_description);
-        return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?error=${encodeURIComponent(error_description)}`);
+        return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(error_description)}${stateParam}`);
     }
 
     try {
@@ -921,14 +965,12 @@ app.get('/api/auth/azure/callback', async (req, res) => {
         }, SECRET_KEY);
 
         console.log(`[AZURE] Login réussi pour ${username}. Redirection vers frontend.`);
-        // 4. Rediriger vers le frontend avec le token
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-        res.redirect(`${frontendUrl}/login?token=${accessToken}`);
+        // 4. Rediriger vers le frontend avec le token et l'état (redirect)
+        res.redirect(`${frontendUrl}/login?token=${accessToken}${stateParam}`);
 
     } catch (error) {
         console.error('[AZURE] Erreur critique lors du process callback:', error.response?.data || error.message);
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-        res.redirect(`${frontendUrl}/login?error=azure_failed`);
+        res.redirect(`${frontendUrl}/login?error=azure_failed${stateParam}`);
     }
 });
 
@@ -2043,6 +2085,11 @@ app.use('/api/copieurs', copieursRouter);
 // Contrats Module
 app.use('/api/contrats', contratsRouter);
 
+// Consommables Module
+const consommablesCtrl = require('./modules/consommables/consommables.controller');
+consommablesCtrl.setSendMail(sendMail);
+app.use('/api/consumable', consommablesRouter);
+
 // Finance & Tiers Module
 app.use('/api/budget', financeRouter);
 app.use('/api/finance/field-mapping', fieldMappingRouter);
@@ -2832,19 +2879,62 @@ setupDb().then(async database => {
     }
 
     // Initialize Oracle Automation Router dependencies
-    try {
-        oracleAutomationRouter.setDependencies(db, pool, getOracleConnection);
-        console.log('[Oracle Router] Dependencies initialized');
-    } catch (e) {
-        console.error('[Oracle Router] Failed to initialize dependencies:', e.message);
-    }
 
-    // Initialize Oracle Automation Scheduler
+    // Seed consumable email templates
     try {
-        await oracleScheduler.initializeScheduler();
-        console.log('[Oracle Scheduler] Scheduler initialized');
+        const consumableTemplates = [
+            {
+                slug: 'consumable_confirmation',
+                label: 'Confirmation commande consommables',
+                subject: '[Consommables] Confirmation de votre commande n°{{request_id}}',
+                body: `<h2>Demande de consommables n°{{request_id}}</h2>
+<p>Bonjour {{nom_referent}},</p>
+<p>Votre demande a bien été enregistrée.</p>
+<table border="0" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:500px">
+<tr style="background:#003366;color:white"><th style="padding:8px;border:1px solid #003366">Article</th><th style="padding:8px;border:1px solid #003366">Qté</th></tr>
+{{articles}}
+</table>
+<p>Direction: {{direction}}</p>
+<p>Nous vous tiendrons informé de l'évolution de votre commande.</p>`
+            },
+            {
+                slug: 'consumable_validated',
+                label: 'Validation commande consommables',
+                subject: '[Consommables] Commande n°{{request_id}} validée',
+                body: `<h2>Commande n°{{request_id}} - Validée</h2>
+<p>Bonjour {{nom_referent}},</p>
+<p>Votre demande de consommables a été validée et sera traitée prochainement.</p>
+<table border="0" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:500px">
+<tr style="background:#003366;color:white"><th style="padding:8px;border:1px solid #003366">Article</th><th style="padding:8px;border:1px solid #003366">Qté</th></tr>
+{{articles}}
+</table>`
+            },
+            {
+                slug: 'consumable_modified',
+                label: 'Modification commande consommables',
+                subject: '[Consommables] Commande n°{{request_id}} modifiée',
+                body: `<h2>Commande n°{{request_id}} - Modifiée</h2>
+<p>Bonjour {{nom_referent}},</p>
+<p>Votre demande de consommables a été modifiée.</p>
+<table border="0" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:500px">
+<tr style="background:#003366;color:white"><th style="padding:8px;border:1px solid #003366">Article</th><th style="padding:8px;border:1px solid #003366">Qté</th></tr>
+{{articles}}
+</table>`
+            }
+        ];
+
+        for (const tpl of consumableTemplates) {
+            const existing = await db.get('SELECT id FROM email_templates WHERE slug = ?', [tpl.slug]);
+            if (!existing) {
+                await db.run(
+                    'INSERT INTO email_templates (slug, label, subject, body) VALUES (?, ?, ?, ?)',
+                    [tpl.slug, tpl.label, tpl.subject, tpl.body]
+                );
+                console.log(`[Consommables] Email template "${tpl.slug}" created`);
+            }
+        }
     } catch (e) {
-        console.error('[Oracle Scheduler] Failed to initialize scheduler:', e.message);
+        console.error('[Consommables] Error seeding email templates:', e.message);
     }
 
     app.listen(PORT, '0.0.0.0', () => {
@@ -3381,7 +3471,7 @@ app.post('/api/admin/sql/query', authenticateAdmin, async (req, res) => {
 // Auth Routes
 app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
     console.log(`[DEBUG LOGIN] Received request on ${req.path}`);
-    let { username, password } = req.body;
+    let { username, password, redirect } = req.body;
     
     if (username) username = username.replace(/@ivry94\.fr$/i, '');
 
@@ -3431,7 +3521,8 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                     service_complement: u.service_complement,
                     email: userEmail,
                     source
-                }
+                },
+                redirect: redirect || ''
             });
         }
     }
@@ -3504,7 +3595,8 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                             service_complement: u.service_complement || null,
                             email: adUser.email,
                             source
-                        }
+                        },
+                        redirect: redirect || ''
                     });
                 }
             }
@@ -3547,7 +3639,8 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                         is_approved: isApproved,
                         service_code: user.service_code,
                         service_complement: user.service_complement
-                    }
+                    },
+                    redirect: redirect || ''
                 });
             } else {
                 console.log(`[DEBUG LOGIN] Password mismatch for: ${username}`);

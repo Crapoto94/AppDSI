@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, Building2 } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
 import ConfirmationModal from './components/ConfirmationModal';
+import ConsumableRequestModal from './components/ConsumableRequestModal';
 
 interface Category {
   id: number;
@@ -78,8 +79,9 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
+  const [hasConsommablesAccess, setHasConsommablesAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
   const [allVersions, setAllVersions] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string; is_active: boolean }[]>([]);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
@@ -111,6 +113,7 @@ function App() {
   const [highPriorityIncidents, setHighPriorityIncidents] = useState<{glpi_id: number, title: string, status_label: string, date_creation: string}[]>([]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
   const [isCreatingIdea, setIsCreatingIdea] = useState(false);
+  const [showConsumables, setShowConsumables] = useState(false);
   
   // Library states
   const [showLibrary, setShowLibrary] = useState(false);
@@ -253,8 +256,9 @@ function App() {
       setSubscriptions(subs);
       setTicketCount(tickets.count || 0);
       setUserTickets(ticketsList);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
+      setHasConsommablesAccess(settingsData.has_consumables_access || false);
       setTiles(tilesData.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
     } catch (error) {
       console.error("Erreur globale de chargement des données", error);
@@ -1139,6 +1143,32 @@ function App() {
               </button>
             )}
 
+            {(settings.show_consommables || settings.is_beta_user || hasConsommablesAccess) && (
+              <button
+                onClick={() => setShowConsumables(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: '#0078a4',
+                  color: 'white',
+                  border: 'none',
+                  padding: '10px 18px',
+                  borderRadius: '10px',
+                  fontSize: '0.9rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 4px 6px -1px rgba(0,120,164,0.2)',
+                  position: 'relative'
+                }}
+              >
+                <ShoppingCart size={18} />
+                Consommables
+                {!settings.show_consommables_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+              </button>
+            )}
+
             <button
               onClick={handleLogout}
               style={{
@@ -1890,6 +1920,15 @@ function App() {
         cancelLabel={modalConfig.cancelLabel}
         onConfirm={modalConfig.onConfirm}
         onCancel={() => setModalConfig(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <ConsumableRequestModal
+        isOpen={showConsumables}
+        onClose={() => setShowConsumables(false)}
+        token={localStorage.getItem('token') || ''}
+        userEmail={userEmail}
+        displayName={displayName}
+        username={windowLogin}
       />
 
       {showCreateTicket && (

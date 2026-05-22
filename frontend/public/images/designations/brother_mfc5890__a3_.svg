@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <rect width="200" height="200" fill="white"/>
+  <circle cx="100" cy="100" r="95" fill="#003a6f" opacity="0.1" stroke="#003a6f" stroke-width="2"/>
+  <text x="100" y="70" font-size="32" font-weight="bold" text-anchor="middle" fill="#003a6f" font-family="Arial, sans-serif">
+    BRO
+  </text>
+  <text x="100" y="130" font-size="14" text-anchor="middle" fill="#666" font-family="Arial, sans-serif" dominant-baseline="middle">
+    Brother
+  </text>
+</svg>
