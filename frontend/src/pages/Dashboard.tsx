@@ -16,12 +16,14 @@ interface TileData {
   is_authorized?: boolean;
   is_public?: number;
   links: { label: string; url: string; is_internal: boolean }[];
+  pending_requests?: number;
 }
 
 const Dashboard: React.FC = () => {
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [tileOrder, setTileOrder] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingConsumablesCount, setPendingConsumablesCount] = useState(0);
   const [restrictedMessage, setRestrictedMessage] = useState('');
   const [draggedTile, setDraggedTile] = useState<number | null>(null);
   const [dragOverTile, setDragOverTile] = useState<number | null>(null);
@@ -98,37 +100,35 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch('/api/tiles', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          console.log('Received tiles:', data);
-          setTiles(data);
+        setLoading(true);
+        const [tilesRes, pendingRes] = await Promise.all([
+          fetch('/api/tiles', { headers: { 'Authorization': `Bearer ${token}` } }),
+          axios.get('/api/consumable/pending-count')
+        ]);
+
+        const tilesData = await tilesRes.json();
+        const pendingCount = pendingRes.data.count || 0;
+
+        if (Array.isArray(tilesData)) {
+          const updatedTiles = tilesData.map((t: TileData) => {
+            console.log(`Checking tile: "${t.title}" - Match?`, t.title === 'Gestion des Consommables');
+            return t.title === 'Gestion des Consommables' ? { ...t, pending_requests: pendingCount } : t;
+          });
+          setTiles(updatedTiles);
 
           // Fetch user tile order
           try {
             const orderResponse = await fetch('/api/user-tile-order', {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
+              headers: { 'Authorization': `Bearer ${token}` }
             });
             const orderData = await orderResponse.json();
-            if (Array.isArray(orderData)) {
-              const order = orderData.map((o: any) => o.tile_id);
-              setTileOrder(order);
-              console.log('Loaded tile order:', order);
-            }
+            setTileOrder(Array.isArray(orderData) ? orderData.map((o: any) => o.tile_id) : tilesData.map((t: TileData) => t.id));
           } catch (err) {
-            console.log('No saved tile order found, using default');
-            // Use default order from tiles
-            setTileOrder(data.map((t: TileData) => t.id));
+            setTileOrder(tilesData.map((t: TileData) => t.id));
           }
         }
       } catch (error) {
-        console.error('Error fetching tiles:', error);
+        console.error('Error fetching dashboard data:', error);
       } finally {
         setLoading(false);
       }
@@ -148,6 +148,7 @@ const Dashboard: React.FC = () => {
     fetchData();
     fetchRestrictedMessage();
   }, [token, isApproved]);
+
 
   return (
     <div className="dashboard">
@@ -185,7 +186,8 @@ const Dashboard: React.FC = () => {
                     transition: 'all 0.2s'
                   }}
                 >
-                  <Tile
+                    <Tile
+                    key={`${tile.id}-${tile.pending_requests || 0}`}
                     id={tile.id}
                     title={tile.title}
                     icon={tile.icon}
@@ -195,6 +197,7 @@ const Dashboard: React.FC = () => {
                     is_authorized={tile.is_authorized}
                     is_public={tile.is_public === 1}
                     isAdmin={user?.role === 'admin'}
+                    pending_requests={tile.pending_requests || 0}
                   />
                 </div>
               ))}
