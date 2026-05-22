@@ -247,10 +247,11 @@ async function setupPgDb() {
         position INTEGER NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, tile_id),
-        FOREIGN KEY (user_id) REFERENCES hub.users(id) ON DELETE CASCADE
+        UNIQUE(user_id, tile_id)
       );
     `);
+    try { await client.query(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS hub_user_tile_order_user_id_fkey`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS fk_user_tile_order_user`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.calendrier_managers (

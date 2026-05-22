@@ -3697,8 +3697,29 @@ app.delete('/api/links/:id', authenticateAdmin, async (req, res) => {
 });
 
 // User Tile Order Management
+const ensureUserTileOrderTable = async () => {
+    try {
+        await pgDb.run(`
+            CREATE TABLE IF NOT EXISTS hub.user_tile_order (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                tile_id INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, tile_id)
+            )
+        `);
+        try { await pgDb.run(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS hub_user_tile_order_user_id_fkey`); } catch (e) {}
+        try { await pgDb.run(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS fk_user_tile_order_user`); } catch (e) {}
+    } catch (e) {
+        console.error('[USER TILE ORDER] Table creation error:', e.message);
+    }
+};
+
 app.get('/api/user-tile-order', authenticateJWT, async (req, res) => {
     try {
+        await ensureUserTileOrderTable();
         const orders = await pgDb.all(
             `SELECT tile_id, position FROM hub.user_tile_order
              WHERE user_id = $1
@@ -3714,6 +3735,7 @@ app.get('/api/user-tile-order', authenticateJWT, async (req, res) => {
 
 app.post('/api/user-tile-order', authenticateJWT, async (req, res) => {
     try {
+        await ensureUserTileOrderTable();
         const { tileOrder } = req.body;
 
         if (!Array.isArray(tileOrder)) {
