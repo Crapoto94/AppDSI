@@ -276,6 +276,17 @@ module.exports = {
         }
     },
 
+    getRenewalCount: async (req, res) => {
+        try {
+            const db = pgDb;
+            const result = await db.get("SELECT count(*) as count FROM hub.certificates WHERE expiry_date < CURRENT_DATE + INTERVAL '3 months' AND (renewal_status IS NULL OR renewal_status NOT IN ('en_cours','renouvelé','non_renouvelé'))");
+            res.json({ count: Number(result.count) });
+        } catch (error) {
+            console.error('Error getting renewal count:', error);
+            res.status(500).json({ error: 'Erreur lors de la récupération du compteur' });
+        }
+    },
+
     createCertificate: async (req, res) => {
         try {
             const db = pgDb;
