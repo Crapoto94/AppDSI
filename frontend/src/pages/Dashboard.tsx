@@ -113,8 +113,11 @@ const Dashboard: React.FC = () => {
 
         if (Array.isArray(tilesData)) {
           const updatedTiles = tilesData.map((t: TileData) => {
-            if (t.title === 'Gestion des Consommables') return { ...t, pending_requests: pendingCount };
-            if (t.title === 'Suivi des Certificats') return { ...t, pending_requests: renewalCount };
+            const urls = (t.links || []).map(l => l.url || '');
+            const isConsommables = urls.some(u => u.includes('/consommables') || u.includes('/consumable')) || t.title === 'Gestion des Consommables';
+            const isCertif = urls.some(u => u.includes('/certif')) || t.title === 'Suivi des Certificats';
+            if (isConsommables) return { ...t, pending_requests: pendingCount };
+            if (isCertif) return { ...t, pending_requests: renewalCount };
             return t;
           });
           setTiles(updatedTiles);
