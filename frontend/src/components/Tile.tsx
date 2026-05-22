@@ -22,14 +22,17 @@ interface TileProps {
   isAdmin?: boolean;
   orphan_orders?: number;
   orphan_invoices?: number;
+  pending_requests?: number;
 }
 
-const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status = 'active', is_authorized = true, is_public = false, isAdmin = false, orphan_orders, orphan_invoices }) => {
+const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status = 'active', is_authorized = true, is_public = false, isAdmin = false, orphan_orders, orphan_invoices, pending_requests }) => {
   // Dynamically get icon from lucide-react
   // @ts-expect-error Lucide icons dynamically loaded
   const IconComponent = Icons[icon.charAt(0).toUpperCase() + icon.slice(1)] || Icons.Box;
 
   const isLocked = (status === 'maintenance' || status === 'soon') && !isAdmin;
+
+  console.log(`Tile "${title}" props:`, { orphan_orders, orphan_invoices, pending_requests });
 
   return (
     <div className={`tile ${status} ${!is_authorized ? 'locked' : ''} ${isAdmin ? 'admin-mode' : ''}`}>
@@ -59,12 +62,30 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
       )}
       <div className="tile-icon">
         <IconComponent size={32} />
-        {status === 'active' && (orphan_orders || orphan_invoices) ? (
-          <div className="orphan-badge" title="Éléments non rapprochés">
-            {(orphan_orders || 0) + (orphan_invoices || 0)}
-          </div>
-        ) : null}
       </div>
+      {(pending_requests ?? 0) > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: '10px',
+          right: '10px',
+          background: '#ef4444',
+          color: 'white',
+          borderRadius: '50%',
+          minWidth: '24px',
+          height: '24px',
+          fontSize: '12px',
+          fontWeight: 800,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '0 5px',
+          boxShadow: '0 2px 6px rgba(239,68,68,0.4)',
+          border: '2px solid white',
+          zIndex: 30
+        }}>
+          {pending_requests}
+        </div>
+      )}
       <h3 className="tile-title">{title}</h3>
       <p className="tile-description">{description}</p>
 
@@ -109,7 +130,6 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
           box-shadow: 0 4px 6px rgba(0,0,0,0.05);
           border-top: 4px solid var(--primary-color);
           position: relative;
-          overflow: hidden;
         }
         .tile.maintenance { border-top-color: #f59e0b; opacity: 0.8; }
         .tile.soon { border-top-color: #64748b; opacity: 0.5; filter: grayscale(100%); transition: all 0.3s ease; }
@@ -186,23 +206,25 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
           border-radius: 50%;
           position: relative;
           z-index: 20;
+          display: inline-block;
         }
         .orphan-badge {
           position: absolute;
-          top: -5px;
-          right: -5px;
-          background: var(--primary-color);
+          top: 5px;
+          right: 5px;
+          background: #f59e0b !important;
           color: white;
           border-radius: 50%;
-          width: 22px;
-          height: 22px;
-          font-size: 11px;
+          width: 25px;
+          height: 25px;
+          font-size: 12px;
           font-weight: 800;
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+          box-shadow: 0 4px 6px rgba(0,0,0,0.3);
           border: 2px solid white;
+          z-index: 100 !important;
         }
         .tile.maintenance .tile-icon { color: #f59e0b; background: #fffbeb; }
         .tile.soon .tile-icon { color: #64748b; background: #f8fafc; }
