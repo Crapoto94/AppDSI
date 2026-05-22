@@ -2147,6 +2147,21 @@ async function setupPgDb() {
       console.log('[PG DB] Changelog seed skipped:', e.message);
     }
 
+    // Table de tâches personnelles (Mes Tâches)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.user_tasks (
+        id SERIAL PRIMARY KEY,
+        username TEXT NOT NULL,
+        description TEXT NOT NULL,
+        echeance DATE,
+        statut TEXT DEFAULT 'a_faire',
+        notes TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_username ON hub.user_tasks(username)`);
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);

@@ -14,7 +14,7 @@ async function getUserDisplayName(username) {
 
 module.exports = {
 
-    // GET /api/tasks/my-tasks
+    // GET /api/tasks
     async getMyTasks(req, res) {
         const username = req.user.username;
         try {
@@ -23,6 +23,22 @@ module.exports = {
             const dn = displayName.toLowerCase();
 
             const { rows } = await pool.query(`
+                SELECT
+                    'personal'    AS source,
+                    ut.id,
+                    NULL::integer AS source_id,
+                    'Tâche personnelle' AS source_title,
+                    ut.description,
+                    ut.echeance::text AS echeance,
+                    ut.statut,
+                    ut.username   AS responsable,
+                    ut.created_at
+                FROM hub.user_tasks ut
+                WHERE ut.statut != 'terminé'
+                  AND LOWER(ut.username) = $1
+
+                UNION ALL
+
                 SELECT
                     'transcript'  AS source,
                     t.id,
@@ -75,15 +91,15 @@ module.exports = {
                 UNION ALL
 
                 SELECT
-                    'rencontre'           AS source,
+                    'rencontre'            AS source,
                     rs.id,
-                    rs.rencontre_id       AS source_id,
-                    rb.titre              AS source_title,
-                    rs.action_item        AS description,
+                    rs.rencontre_id        AS source_id,
+                    rb.titre               AS source_title,
+                    rs.action_item         AS description,
                     rs.date_echeance::text AS echeance,
                     rs.statut,
                     rs.responsable,
-                    rs.updated_at         AS created_at
+                    rs.updated_at          AS created_at
                 FROM hub_rencontres.rencontres_suivi rs
                 JOIN hub_rencontres.rencontres_budgetaires rb ON rs.rencontre_id = rb.id
                 WHERE rs.statut NOT IN ('terminé', 'done')
@@ -129,6 +145,13 @@ module.exports = {
 
             const { rows } = await pool.query(`
                 SELECT COUNT(*) AS count FROM (
+                    SELECT 1 FROM hub.user_tasks ut
+                    WHERE ut.statut != 'terminé'
+                      AND ut.echeance IS NOT NULL AND ut.echeance < CURRENT_DATE
+                      AND LOWER(ut.username) = $1
+
+                    UNION ALL
+
                     SELECT 1 FROM transcript.tasks t
                     WHERE t.is_completed = 0
                       AND t.deadline IS NOT NULL AND t.deadline::date < CURRENT_DATE
@@ -170,6 +193,23 @@ module.exports = {
         }
     },
 
+    // POST /api/tasks  { description, echeance }
+    async createTask(req, res) {
+        const username = req.user.username;
+        const { description, echeance } = req.body;
+        if (!description?.trim()) return res.status(400).json({ error: 'Description requise' });
+        try {
+            const { rows } = await pool.query(
+                `INSERT INTO hub.user_tasks (username, description, echeance, statut)
+                 VALUES ($1, $2, $3, 'a_faire') RETURNING *`,
+                [username, description.trim(), echeance || null]
+            );
+            res.json(rows[0]);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
     // PATCH /api/tasks/:source/:id  { statut }
     async updateTaskStatus(req, res) {
         const { source, id } = req.params;
@@ -177,6 +217,12 @@ module.exports = {
         if (!statut) return res.status(400).json({ error: 'statut requis' });
         try {
             switch (source) {
+                case 'personal':
+                    await pool.query(
+                        'UPDATE hub.user_tasks SET statut = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                        [statut, id]
+                    );
+                    break;
                 case 'transcript':
                     await pool.query(
                         'UPDATE transcript.tasks SET is_completed = $1 WHERE id = $2',
@@ -210,6 +256,21 @@ module.exports = {
                 default:
                     return res.status(400).json({ error: 'Source inconnue' });
             }
+            res.json({ ok: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // DELETE /api/tasks/personal/:id
+    async deleteTask(req, res) {
+        const username = req.user.username;
+        const { id } = req.params;
+        try {
+            await pool.query(
+                'DELETE FROM hub.user_tasks WHERE id = $1 AND LOWER(username) = LOWER($2)',
+                [id, username]
+            );
             res.json({ ok: true });
         } catch (error) {
             res.status(500).json({ error: error.message });
