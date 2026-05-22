@@ -269,6 +269,21 @@ module.exports = {
         }
     },
 
+    savePingResults: async (req, res) => {
+        try {
+            const { results } = req.body;
+            if (!Array.isArray(results)) return res.status(400).json({ message: 'Résultats manquants' });
+            for (const r of results) {
+                await pgDb.run('UPDATE hub_copieurs.copieurs SET ping_status = ?, last_seen_active = ? WHERE id = ?',
+                    [r.ping_status, r.last_seen_active || null, r.id]);
+            }
+            const actifs = results.filter(r => r.ping_status === 'actif').length;
+            res.json({ saved: results.length, actifs, inactifs: results.length - actifs });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur sauvegarde ping', error: error.message });
+        }
+    },
+
     importExcel: async (req, res) => {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
         try {
@@ -567,6 +582,70 @@ module.exports = {
             res.json({ message: `PaperCut: ${matched} copieurs mis à jour, ${notFound} non trouvés`, matched, notFound, errors: errors.slice(0, 10) });
         } catch (error) {
             res.status(500).json({ message: 'Erreur import PaperCut', error: error.message });
+        }
+    },
+
+    importKpax: async (req, res) => {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+        try {
+            const fs = require('fs');
+            const XLSX = require('xlsx');
+            const workbook = XLSX.readFile(req.file.path);
+            const ws = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(ws, { defval: '', header: 1 });
+            const dataRows = rows.slice(1).filter(r => r[7] && r[7].toString().trim());
+
+            let updated = 0, notFound = 0, errors = [];
+
+            const now = new Date().toLocaleString('sv').replace(' ', 'T');
+
+            // Reset all copieurs kpax status to 'non' before import
+            await pgDb.run("UPDATE hub_copieurs.copieurs SET kpax_status = 'non', kpax_last_collecte = NULL");
+
+            for (const row of dataRows) {
+                try {
+                    const serial = row[7].toString().trim();
+                    const status = row[2] ? row[2].toString().trim().toLowerCase() : 'non géré';
+                    const rawIp = row[6] ? row[6].toString().trim() : '';
+                    const ip = rawIp.replace(/^net:\/\//, '').replace(/\/\w+$/, '');
+                    const rawCollecte = row[1];
+
+                    let collecteDate = null;
+                    if (rawCollecte !== undefined && rawCollecte !== null && rawCollecte !== '') {
+                        const num = Number(rawCollecte);
+                        if (!isNaN(num) && num > 1) {
+                            const d = new Date((num - 25569) * 86400 * 1000);
+                            if (!isNaN(d.getTime())) {
+                                collecteDate = d.toLocaleString('sv').replace(' ', 'T');
+                            }
+                        }
+                    }
+
+                    const existing = await pgDb.get('SELECT id, ip FROM hub_copieurs.copieurs WHERE numero_serie = ?', [serial]);
+                    if (!existing) {
+                        notFound++;
+                        continue;
+                    }
+
+                    const kpaxStatus = status === 'géré' ? 'géré' : 'non géré';
+                    const updates = { kpax_status: kpaxStatus, kpax_last_collecte: collecteDate };
+                    if (ip) updates.ip = ip;
+
+                    const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+                    const values = Object.values(updates);
+                    values.push(existing.id);
+                    await pgDb.run(`UPDATE hub_copieurs.copieurs SET ${setClauses} WHERE id = ?`, values);
+                    updated++;
+                } catch (e) {
+                    errors.push(e.message);
+                }
+            }
+
+            logMouchard(`Import KPAX: ${updated} copieurs mis à jour, ${notFound} non trouvés dans la base`);
+            try { if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch (e) {}
+            res.json({ message: `KPAX: ${updated} copieurs mis à jour, ${notFound} non trouvés dans la base`, updated, notFound, errors: errors.slice(0, 10) });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur import KPAX', error: error.message });
         }
     },
 

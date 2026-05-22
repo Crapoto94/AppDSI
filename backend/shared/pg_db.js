@@ -1594,6 +1594,8 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS last_seen_active TIMESTAMP`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS papercut_matched BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS papercut_last_import TIMESTAMP`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS kpax_status TEXT DEFAULT 'non'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS kpax_last_collecte TIMESTAMP`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_copieurs.copieur_moves (

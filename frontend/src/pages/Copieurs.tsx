@@ -39,6 +39,8 @@ interface Copieur {
   last_seen_active: string;
   papercut_matched: boolean;
   papercut_last_import: string;
+  kpax_status: string;
+  kpax_last_collecte: string;
   created_at: string;
 }
 
@@ -88,6 +90,10 @@ const Copieurs: React.FC = () => {
   const [pinging, setPinging] = useState(false);
   const [importingPapercut, setImportingPapercut] = useState(false);
   const papercutInputRef = useRef<HTMLInputElement>(null);
+  const [importingKpax, setImportingKpax] = useState(false);
+  const kpaxInputRef = useRef<HTMLInputElement>(null);
+  const [kpaxAlertFilter, setKpaxAlertFilter] = useState(false);
+  const [pingProgress, setPingProgress] = useState<{ current: number; total: number } | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<string>('direction');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -169,6 +175,9 @@ const Copieurs: React.FC = () => {
     if (sourceFilter !== 'all') {
       result = result.filter(c => c.source === sourceFilter);
     }
+    if (kpaxAlertFilter) {
+      result = result.filter(isKpaxAlert);
+    }
     Object.entries(colFilters).forEach(([col, val]) => {
       if (val) result = result.filter(c => String((c as any)[col] ?? '') === val);
     });
@@ -184,7 +193,7 @@ const Copieurs: React.FC = () => {
       );
     }
     setFiltered(sorted(result));
-  }, [search, copieurs, sourceFilter, colFilters, sorted]);
+  }, [search, copieurs, sourceFilter, kpaxAlertFilter, colFilters, sorted]);
 
   const handleSubmit = async () => {
     try {
@@ -316,6 +325,25 @@ const Copieurs: React.FC = () => {
     } catch {}
   };
 
+  const handleImportKpax = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingKpax(true);
+    setImportResult('');
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await api.post('/import-kpax', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setImportResult(res.data.message || 'Import KPAX terminé');
+      fetchCopieurs();
+    } catch (err: any) {
+      setImportResult('Erreur import KPAX: ' + (err.response?.data?.message || err.response?.data?.error || err.message));
+    } finally {
+      setImportingKpax(false);
+      e.target.value = '';
+    }
+  };
+
   const handleImportEmails = async () => {
     setImportingEmails(true);
     setImportResult('');
@@ -383,16 +411,33 @@ const Copieurs: React.FC = () => {
   };
 
   const handlePingAll = async () => {
+    const toPing = copieurs.filter(c => c.ip && c.ip !== '42');
+    if (toPing.length === 0) { setImportResult('Aucun copieur avec IP'); return; }
     setPinging(true);
-    try {
-      const res = await api.post('/ping-all');
-      setImportResult(`Ping terminé: ${res.data.actifs} joignables, ${res.data.inactifs} injoignables sur ${res.data.total}`);
-      fetchCopieurs();
-    } catch (err: any) {
-      setImportResult('Erreur ping: ' + (err.response?.data?.error || err.message));
-    } finally {
-      setPinging(false);
+    setPingProgress({ current: 0, total: toPing.length });
+    setImportResult('');
+    const results: { id: number; ping_status: string; last_seen_active: string | null }[] = [];
+    for (let i = 0; i < toPing.length; i++) {
+      const c = toPing[i];
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        await fetch(`http://${c.ip}`, { mode: 'no-cors', signal: controller.signal });
+        clearTimeout(timer);
+        results.push({ id: c.id, ping_status: 'actif', last_seen_active: new Date().toISOString() });
+      } catch {
+        results.push({ id: c.id, ping_status: 'inactif', last_seen_active: null });
+      }
+      setPingProgress({ current: i + 1, total: toPing.length });
     }
+    try {
+      await api.post('/ping-save', { results });
+    } catch {}
+    const actifs = results.filter(r => r.ping_status === 'actif').length;
+    setImportResult(`Ping terminé: ${actifs} joignables, ${results.length - actifs} injoignables sur ${results.length}`);
+    setPingProgress(null);
+    setPinging(false);
+    fetchCopieurs();
   };
 
   const handleImportPapercut = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -438,6 +483,14 @@ const Copieurs: React.FC = () => {
     return d;
   };
 
+  const isKpaxAlert = (c: Copieur) => {
+    if (!c.kpax_last_collecte) return c.kpax_status !== 'non';
+    const diff = Date.now() - new Date(c.kpax_last_collecte).getTime();
+    return diff > 7 * 24 * 60 * 60 * 1000;
+  };
+
+  const kpaxAlertCount = copieurs.filter(isKpaxAlert).length;
+
   const formFields: { label: string; key: keyof CopieurForm; type?: string; cols?: number }[] = [
     { label: 'Direction', key: 'direction' },
     { label: 'Service', key: 'service' },
@@ -478,6 +531,10 @@ const Copieurs: React.FC = () => {
               <Printer size={16} /> {importingPapercut ? 'Import...' : 'Import PaperCut'}
               <input type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={handleImportPapercut} disabled={importingPapercut} ref={papercutInputRef} />
             </label>
+            <label className="btn btn-outline" style={{ cursor: 'pointer', color: '#0891b2', borderColor: '#a5f3fc' }}>
+              <Printer size={16} /> {importingKpax ? 'Import...' : 'Import KPAX'}
+              <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleImportKpax} disabled={importingKpax} ref={kpaxInputRef} />
+            </label>
             <button className="btn btn-outline" onClick={handleImportEmails} disabled={importingEmails}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: importingEmails ? '#fbbf24' : '#16a34a' }} /> {importingEmails ? 'Import...' : 'Import emails'}
             </button>
@@ -499,6 +556,15 @@ const Copieurs: React.FC = () => {
           <div className="stat stat-total">Total <strong>{copieurs.length}</strong></div>
         </div>
 
+        {pingProgress && (
+          <div className="ping-progress">
+            <div className="ping-progress-bar">
+              <div className="ping-progress-fill" style={{ width: `${(pingProgress.current / pingProgress.total) * 100}%` }} />
+            </div>
+            <span className="ping-progress-text">Ping {pingProgress.current}/{pingProgress.total}</span>
+          </div>
+        )}
+
         {importResult && (
           <div className="alert alert-info" style={{ marginBottom: 20, padding: '12px 20px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, color: '#1e40af', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>{importResult}</span>
@@ -517,6 +583,9 @@ const Copieurs: React.FC = () => {
               </button>
               <button className={`src-filter ${sourceFilter === 'ecoles' ? 'active' : ''}`} onClick={() => setSourceFilter('ecoles')}>
                 <School size={14} /> Écoles <span className="badge-filter">{counts.ecoles}</span>
+              </button>
+              <button className={`src-filter ${kpaxAlertFilter ? 'active' : ''}`} onClick={() => setKpaxAlertFilter(!kpaxAlertFilter)} style={{ color: kpaxAlertFilter ? '#dc2626' : undefined }}>
+                ⚠ Alerte KPAX <span className="badge-filter" style={kpaxAlertFilter ? { background: '#dc2626', color: '#fff' } : {}}>{kpaxAlertCount}</span>
               </button>
             </div>
             <div className="search-box">
@@ -563,23 +632,100 @@ const Copieurs: React.FC = () => {
                       </div>
                     )}
                   </th>
-                  <th className="sortable" onClick={() => handleSort('service')}>Service {sortIcon('service')}</th>
+                  <th className="sortable" onClick={() => handleSort('service')}>
+                    Service {sortIcon('service')}
+                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'service' ? null : 'service'); }} />
+                    {showColFilter === 'service' && (
+                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
+                        <button className={!colFilters.service ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, service: '' })); setShowColFilter(null); }}>Tous</button>
+                        {[...new Set(copieurs.map(c => c.service).filter(Boolean))].sort().map(v => (
+                          <button key={v} className={colFilters.service === v ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, service: v })); setShowColFilter(null); }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </th>
                   <th className="sortable" onClick={() => handleSort('adresse')}>Adresse {sortIcon('adresse')}</th>
                   <th className="sortable" onClick={() => handleSort('numero_serie')}>N° Série {sortIcon('numero_serie')}</th>
-                  <th className="sortable" onClick={() => handleSort('modele')}>Modèle {sortIcon('modele')}</th>
+                  <th className="sortable" onClick={() => handleSort('modele')}>
+                    Modèle {sortIcon('modele')}
+                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'modele' ? null : 'modele'); }} />
+                    {showColFilter === 'modele' && (
+                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
+                        <button className={!colFilters.modele ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, modele: '' })); setShowColFilter(null); }}>Tous</button>
+                        {[...new Set(copieurs.map(c => c.modele).filter(Boolean))].sort().map(v => (
+                          <button key={v} className={colFilters.modele === v ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, modele: v })); setShowColFilter(null); }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </th>
                   <th className="sortable" onClick={() => handleSort('ip')}>IP {sortIcon('ip')}</th>
-                  <th className="sortable" onClick={() => handleSort('ping_status')}>Ping {sortIcon('ping_status')}</th>
+                  <th className="sortable" onClick={() => handleSort('ping_status')}>
+                    Ping {sortIcon('ping_status')}
+                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'ping_status' ? null : 'ping_status'); }} />
+                    {showColFilter === 'ping_status' && (
+                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
+                        <button className={!colFilters.ping_status ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, ping_status: '' })); setShowColFilter(null); }}>Tous</button>
+                        {['actif', 'inactif', 'inconnu'].map(v => (
+                          <button key={v} className={colFilters.ping_status === v ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, ping_status: v })); setShowColFilter(null); }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </th>
+                  <th className="sortable" onClick={() => handleSort('kpax_status')}>
+                    KPAX {sortIcon('kpax_status')}
+                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'kpax_status' ? null : 'kpax_status'); }} />
+                    {showColFilter === 'kpax_status' && (
+                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
+                        <button className={!colFilters.kpax_status ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, kpax_status: '' })); setShowColFilter(null); }}>Tous</button>
+                        {['géré', 'non géré', 'non'].map(v => (
+                          <button key={v} className={colFilters.kpax_status === v ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, kpax_status: v })); setShowColFilter(null); }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </th>
                   <th className="sortable" onClick={() => handleSort('date_acquisition')}>Date acq. {sortIcon('date_acquisition')}</th>
-                  <th className="sortable" onClick={() => handleSort('couleur')}>Couleur {sortIcon('couleur')}</th>
-                  <th className="sortable" onClick={() => handleSort('divers')}>Annotation {sortIcon('divers')}</th>
-                  <th className="sortable" onClick={() => handleSort('archive')}>Statut {sortIcon('archive')}</th>
+                  <th className="sortable" onClick={() => handleSort('couleur')}>
+                    Couleur {sortIcon('couleur')}
+                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'couleur' ? null : 'couleur'); }} />
+                    {showColFilter === 'couleur' && (
+                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
+                        <button className={!colFilters.couleur ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, couleur: '' })); setShowColFilter(null); }}>Tous</button>
+                        {[...new Set(copieurs.map(c => c.couleur).filter(Boolean))].sort().map(v => (
+                          <button key={v} className={colFilters.couleur === v ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, couleur: v })); setShowColFilter(null); }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </th>
+                  <th className="sortable" onClick={() => handleSort('divers')}>
+                    Annotation {sortIcon('divers')}
+                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'divers' ? null : 'divers'); }} />
+                    {showColFilter === 'divers' && (
+                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
+                        <button className={!colFilters.divers ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, divers: '' })); setShowColFilter(null); }}>Tous</button>
+                        {[...new Set(copieurs.map(c => c.divers).filter(Boolean))].sort().map(v => (
+                          <button key={v} className={colFilters.divers === v ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, divers: v })); setShowColFilter(null); }}>{v}</button>
+                        ))}
+                      </div>
+                    )}
+                  </th>
+                  <th className="sortable" onClick={() => handleSort('archive')}>
+                    Statut {sortIcon('archive')}
+                    <Filter size={11} className="col-filter-btn" onClick={e => { e.stopPropagation(); setShowColFilter(showColFilter === 'archive' ? null : 'archive'); }} />
+                    {showColFilter === 'archive' && (
+                      <div className="col-filter-dropdown" onClick={e => e.stopPropagation()}>
+                        <button className={!colFilters.archive ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, archive: '' })); setShowColFilter(null); }}>Tous</button>
+                        <button className={colFilters.archive === 'false' ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, archive: 'false' })); setShowColFilter(null); }}>Actif</button>
+                        <button className={colFilters.archive === 'true' ? 'active' : ''} onClick={() => { setColFilters(f => ({ ...f, archive: 'true' })); setShowColFilter(null); }}>Archivé</button>
+                      </div>
+                    )}
+                  </th>
                   <th className="sortable" style={{ width: 60 }} onClick={() => handleSort('interventions')}>Int. {sortIcon('interventions')}</th>
                   <th style={{ width: 120 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={14} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
+                  <tr><td colSpan={15} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
                 )}
                 {filtered.map(c => (
                   <React.Fragment key={c.id}>
@@ -590,10 +736,15 @@ const Copieurs: React.FC = () => {
                       <td>{c.adresse}{c.latitude && c.longitude ? <MapPin size={12} style={{ marginLeft: 6, color: '#2563eb', verticalAlign: 'middle', flexShrink: 0 }} /> : null}</td>
                       <td><code>{c.numero_serie}</code>{c.papercut_matched ? <span title="Données PaperCut" style={{ marginLeft: 6, fontSize: 12, color: '#0891b2', fontWeight: 700 }}>🖨️</span> : null}</td>
                       <td>{c.modele}</td>
-                      <td><code>{c.ip || '-'}</code></td>
+                      <td>{c.ip ? <code className="ip-link" onClick={() => window.open(`http://${c.ip}`, '_blank')}>{c.ip}</code> : <code>-</code>}</td>
                       <td>
                         <span className={`ping-dot ${c.ping_status || 'inconnu'}`} title={c.ping_status === 'actif' ? `Vu ${lastSeen(c.last_seen_active)}` : c.ping_status === 'inactif' ? 'Injoignable' : 'Inconnu'} />
                         {c.ping_status === 'actif' ? <span className="ping-label">{lastSeen(c.last_seen_active)}</span> : c.ping_status === 'inactif' ? <span className="ping-label">injoignable</span> : '-'}
+                      </td>
+                      <td>
+                        {c.kpax_status === 'géré' ? <><span className="kpax-badge kpax-gere">géré</span>{c.kpax_last_collecte ? <span className={`kpax-date${isKpaxAlert(c) ? ' kpax-date-alert' : ''}`}>{new Date(c.kpax_last_collecte).toLocaleDateString('fr-FR')}</span> : <span className="kpax-date kpax-date-alert">jamais</span>}</> :
+                         c.kpax_status === 'non géré' ? <><span className="kpax-badge kpax-non-gere">non géré</span>{c.kpax_last_collecte ? <span className={`kpax-date${isKpaxAlert(c) ? ' kpax-date-alert' : ''}`}>{new Date(c.kpax_last_collecte).toLocaleDateString('fr-FR')}</span> : <span className="kpax-date kpax-date-alert">jamais</span>}</> :
+                         <span className="kpax-badge kpax-non">non</span>}
                       </td>
                       <td>{formatDate(c.date_acquisition)}</td>
                       <td>{c.couleur === 'Oui' ? '🟥' : (c.couleur || '-')}</td>
@@ -615,7 +766,7 @@ const Copieurs: React.FC = () => {
                     </tr>
                     {expandedId === c.id && (
                       <tr className="expanded-row">
-                        <td colSpan={14}>
+                        <td colSpan={15}>
                           <div className="expanded-details">
                             <div><strong>Secteur:</strong> {c.secteur || '-'}</div>
                             <div><strong>N° série:</strong> {c.numero_serie}</div>
@@ -627,6 +778,7 @@ const Copieurs: React.FC = () => {
                             <div><strong>Source:</strong> {c.source === 'ecoles' ? 'Écoles' : 'Administration'}</div>
                             <div><strong>Divers:</strong> {c.divers || '-'}</div>
                             <div><strong>PaperCut:</strong> {c.papercut_matched ? <span style={{ color: '#0891b2' }}>🖨️ Appairé{c.papercut_last_import ? ` (${new Date(c.papercut_last_import).toLocaleDateString('fr-FR')})` : ''}</span> : '—'}</div>
+                            <div><strong>KPAX:</strong> {c.kpax_status === 'géré' ? <span style={{ color: '#16a34a' }}>géré</span> : c.kpax_status === 'non géré' ? <span style={{ color: '#ca8a04' }}>non géré</span> : <span style={{ color: '#94a3b8' }}>non</span>}{c.kpax_last_collecte ? <span style={{ color: '#64748b', fontSize: 12 }}> (collecte: {new Date(c.kpax_last_collecte).toLocaleDateString('fr-FR')})</span> : ''}</div>
                             {(c.latitude || c.latitude === 0) && (c.longitude || c.longitude === 0) && <div><strong>Coordonnées:</strong> {c.latitude}, {c.longitude}</div>}
                             <div><button className="btn-icon" title="Historique des déménagements" onClick={() => toggleMoves(c.id)}><History size={15} /></button> <span style={{ fontSize: 12, color: '#94a3b8', cursor: 'pointer' }} onClick={() => toggleMoves(c.id)}>Déménagements</span></div>
                           </div>
@@ -1269,6 +1421,10 @@ const Copieurs: React.FC = () => {
         .stat-active .stat-dot { background: #16a34a; }
         .stat-archived .stat-dot { background: #94a3b8; }
         .stat-total { margin-left: auto; }
+        .ping-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 8px 20px; background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; }
+        .ping-progress-bar { flex: 1; height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+        .ping-progress-fill { height: 100%; background: linear-gradient(90deg, #2563eb, #0891b2); border-radius: 4px; transition: width .3s ease; }
+        .ping-progress-text { font-size: 13px; font-weight: 600; color: #64748b; white-space: nowrap; }
         .ping-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
         .ping-dot.actif { background: #16a34a; box-shadow: 0 0 6px rgba(22,163,74,.4); }
         .ping-dot.inactif { background: #dc2626; box-shadow: 0 0 6px rgba(220,38,38,.4); }
@@ -1303,6 +1459,14 @@ const Copieurs: React.FC = () => {
         .data-table tr.archived td { opacity: .5; }
         .data-table tr:hover td { background: #f8fafc; }
         .data-table code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+        .kpax-badge { display: inline-flex; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+        .kpax-gere { background: #dcfce7; color: #16a34a; }
+        .kpax-non-gere { background: #fef9c3; color: #ca8a04; }
+        .kpax-non { background: #f1f5f9; color: #94a3b8; }
+        .kpax-date { margin-left: 4px; font-size: 11px; color: #64748b; white-space: nowrap; }
+        .kpax-date-alert { color: #dc2626; font-weight: 700; }
+        .ip-link { cursor: pointer; text-decoration: underline dotted; }
+        .ip-link:hover { color: #2563eb; }
 
         .src-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 700; white-space: nowrap; }
         .src-badge.ville { background: #ede9fe; color: #7c3aed; }
