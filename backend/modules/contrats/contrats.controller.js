@@ -53,6 +53,27 @@ function toStr(v) {
 
 // Controller
 module.exports = {
+    // Compteur contrats expirés / expirant bientôt (pour badge dashboard)
+    async getExpiryCount(req, res, db) {
+        try {
+            const [expiredRow, soonRow] = await Promise.all([
+                db.get(`SELECT COUNT(*) as count FROM contrats
+                        WHERE statut != 'archivé'
+                        AND date_fin IS NOT NULL
+                        AND date_fin < CURRENT_DATE`),
+                db.get(`SELECT COUNT(*) as count FROM contrats
+                        WHERE statut != 'archivé'
+                        AND date_fin IS NOT NULL
+                        AND date_fin >= CURRENT_DATE
+                        AND date_fin <= CURRENT_DATE + INTERVAL '30 days'`)
+            ]);
+            res.json({ expired: Number(expiredRow.count), soon: Number(soonRow.count) });
+        } catch (error) {
+            console.error('Error getting contrat expiry count:', error);
+            res.status(500).json({ expired: 0, soon: 0 });
+        }
+    },
+
     // Récupérer tous les contrats
     async getAll(req, res, db) {
         try {

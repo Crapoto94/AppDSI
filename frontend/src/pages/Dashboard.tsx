@@ -17,6 +17,7 @@ interface TileData {
   is_public?: number;
   links: { label: string; url: string; is_internal: boolean }[];
   pending_requests?: number;
+  warning_count?: number;
 }
 
 const Dashboard: React.FC = () => {
@@ -101,23 +102,28 @@ const Dashboard: React.FC = () => {
       try {
         setLoading(true);
         const headers = { 'Authorization': `Bearer ${token}` };
-        const [tilesRes, pendingRes, renewalRes] = await Promise.all([
+        const [tilesRes, pendingRes, renewalRes, contratsExpiryRes] = await Promise.all([
           fetch('/api/tiles', { headers }),
           axios.get('/api/consumable/pending-count').catch(() => ({ data: { count: 0 } })),
-          axios.get('/api/certificates/renewal-count', { headers }).catch(() => ({ data: { count: 0 } }))
+          axios.get('/api/certificates/renewal-count', { headers }).catch(() => ({ data: { count: 0 } })),
+          axios.get('/api/contrats/expiry-count', { headers }).catch(() => ({ data: { expired: 0, soon: 0 } }))
         ]);
 
         const tilesData = await tilesRes.json();
         const pendingCount = pendingRes.data.count || 0;
         const renewalCount = renewalRes.data.count || 0;
+        const contratsExpired = contratsExpiryRes.data.expired || 0;
+        const contratsSoon = contratsExpiryRes.data.soon || 0;
 
         if (Array.isArray(tilesData)) {
           const updatedTiles = tilesData.map((t: TileData) => {
             const urls = (t.links || []).map(l => l.url || '');
             const isConsommables = urls.some(u => u.includes('/consommables') || u.includes('/consumable')) || t.title === 'Gestion des Consommables';
             const isCertif = urls.some(u => u.includes('/certif')) || t.title === 'Suivi des Certificats';
+            const isContrats = urls.some(u => u.includes('/contrats')) || t.title === 'Gestion des Contrats';
             if (isConsommables) return { ...t, pending_requests: pendingCount };
             if (isCertif) return { ...t, pending_requests: renewalCount };
+            if (isContrats) return { ...t, pending_requests: contratsExpired, warning_count: contratsSoon };
             return t;
           });
           setTiles(updatedTiles);
@@ -190,7 +196,7 @@ const Dashboard: React.FC = () => {
                   }}
                 >
                     <Tile
-                    key={`${tile.id}-${tile.pending_requests || 0}`}
+                    key={`${tile.id}-${tile.pending_requests || 0}-${tile.warning_count || 0}`}
                     id={tile.id}
                     title={tile.title}
                     icon={tile.icon}
@@ -201,6 +207,7 @@ const Dashboard: React.FC = () => {
                     is_public={tile.is_public === 1}
                     isAdmin={user?.role === 'admin'}
                     pending_requests={tile.pending_requests || 0}
+                    warning_count={tile.warning_count || 0}
                   />
                 </div>
               ))}

@@ -22,6 +22,11 @@ const uploadDoc = multer({ storage: docStorage });
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Badge dashboard : contrats expirés / bientôt expirés
+router.get('/expiry-count', authenticateJWT, async (req, res) => {
+    await controller.getExpiryCount(req, res, pgDb);
+});
+
 // Import Excel (specific route before generic POST /)
 router.post('/upload-excel', upload.single('file'), authenticateAdmin, async (req, res) => {
     await controller.uploadExcel(req, res, pgDb);
