@@ -22,7 +22,9 @@ const upload = multer({ storage });
 const uploadExcel = multer({ dest: 'uploads/' });
 
 // Routes
+router.get('/renewal-count', authenticateJWT, certificatesController.getRenewalCount);
 router.get('/', authenticateJWT, certificatesController.getCertificates);
+
 router.post('/', authenticateJWT, certificatesController.createCertificate);
 router.delete('/:id', authenticateJWT, certificatesController.deleteCertificate);
 router.put('/:id', authenticateJWT, certificatesController.updateCertificate);
