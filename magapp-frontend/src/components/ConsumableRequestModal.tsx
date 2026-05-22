@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { X, ShoppingCart, ChevronLeft, ChevronRight, Package, Printer, CheckCircle, AlertCircle, Building2, User, Phone, Calendar } from 'lucide-react';
+import { X, ShoppingCart, ChevronLeft, ChevronRight, Package, Printer, AlertCircle, Building2, User } from 'lucide-react';
 
 interface ConsumableType {
   id: number;
@@ -284,8 +284,10 @@ const ConsumableRequestModal: React.FC<ConsumableRequestModalProps> = ({ isOpen,
                           alt={des} 
                           style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '8px' }} 
                           onError={(e) => {
-                            (e.target as any).style.display = 'none';
-                            (e.target.parentElement as any).querySelector('.fallback-icon').style.display = 'flex';
+                            const img = e.target as HTMLImageElement;
+                            img.style.display = 'none';
+                            const parent = img.parentElement;
+                            if (parent) parent.querySelector<HTMLElement>('.fallback-icon')!.style.display = 'flex';
                           }}
                         />
                       ) : null}
