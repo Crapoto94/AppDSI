@@ -3699,6 +3699,9 @@ app.delete('/api/links/:id', authenticateAdmin, async (req, res) => {
 // User Tile Order Management
 const ensureUserTileOrderTable = async () => {
     try {
+        try { await pgDb.run(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS user_tile_order_user_id_fkey`); } catch (e) {}
+        try { await pgDb.run(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS hub_user_tile_order_user_id_fkey`); } catch (e) {}
+        try { await pgDb.run(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS fk_user_tile_order_user`); } catch (e) {}
         await pgDb.run(`
             CREATE TABLE IF NOT EXISTS hub.user_tile_order (
                 id SERIAL PRIMARY KEY,
@@ -3710,8 +3713,6 @@ const ensureUserTileOrderTable = async () => {
                 UNIQUE(user_id, tile_id)
             )
         `);
-        try { await pgDb.run(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS hub_user_tile_order_user_id_fkey`); } catch (e) {}
-        try { await pgDb.run(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS fk_user_tile_order_user`); } catch (e) {}
     } catch (e) {
         console.error('[USER TILE ORDER] Table creation error:', e.message);
     }
