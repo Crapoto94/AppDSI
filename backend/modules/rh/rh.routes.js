@@ -6,6 +6,7 @@ const { authenticateAdmin } = require('../../shared/middleware');
 // Stats and Hierarchy
 router.get('/stats', authenticateAdmin, rhController.getStats);
 router.get('/hierarchy', authenticateAdmin, rhController.getHierarchy);
+router.get('/organisation-chart', authenticateAdmin, rhController.getOrganisationChart);
 router.get('/onboarding', authenticateAdmin, rhController.getOnboarding);
 
 // Agents Management

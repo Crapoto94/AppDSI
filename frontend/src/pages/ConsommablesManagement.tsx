@@ -37,7 +37,7 @@ interface ConsumableRequest {
   nom_referent: string;
   tel_complet: string;
   type_consommable: string;
-  articles: { id: number; catalog_id?: number; article: string; quantite: number; ref_commande: string }[];
+  articles: { id: number; catalog_id?: number; article: string; designation?: string; code_fabricant?: string; quantite: number; ref_commande: string }[];
   created_at: string;
   status: 'pending' | 'approved' | 'rejected' | 'ordered';
   order_number?: string;
@@ -71,14 +71,17 @@ const ConsommablesManagement: React.FC = () => {
   const [consumableArticles, setConsumableArticles] = useState<ConsumableArticle[]>([]);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [orgDirections, setOrgDirections] = useState<{ code: string; label: string }[]>([]);
+  const [orgServices, setOrgServices] = useState<{ code: string; label: string }[]>([]);
+  const [ecoles, setEcoles] = useState<{ id: number; nom: string; type: string }[]>([]);
+  const [serviceIsEcole, setServiceIsEcole] = useState(false);
   const [selectedType, setSelectedType] = useState<number | null>(null);
   const [editingArticle, setEditingArticle] = useState<ConsumableArticle | null>(null);
   const [showCatalogForm, setShowCatalogForm] = useState(false);
   const [allCatalogDesignations, setAllCatalogDesignations] = useState<string[]>([]);
   const [designations, setDesignations] = useState<string[]>([]);
   const [designationImages, setDesignationImages] = useState<Record<string, { image_path: string }>>({});
-  const [showArchived, setShowArchived] = useState(false);
-const [adminTab, setAdminTab] = useState<'demandes' | 'commander'>('demandes');
+const [adminTab, setAdminTab] = useState<'demandes' | 'commander' | 'commandees' | 'archivees'>('demandes');
 const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(CART_STORAGE_KEY);
@@ -135,6 +138,8 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
     if (token) {
       loadTypes();
       loadRequests();
+      loadOrgDirections();
+      loadEcoles();
     }
   }, [token]);
 
@@ -220,18 +225,73 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
     }
   };
 
+  // Code SIIM de la DSALE (Direction Scolarité Accueils Loisirs)
+  const DSALE_CODE = 'BG';
+
+  const loadOrgDirections = async () => {
+    try {
+      const res = await axios.get('/api/consumable/org-directions', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setOrgDirections(res.data);
+    } catch (e) {
+      console.error('Error loading directions:', e);
+    }
+  };
+
+  const loadEcoles = async () => {
+    try {
+      const res = await axios.get('/api/consumable/ecoles', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setEcoles(res.data);
+    } catch (e) {
+      console.error('Error loading écoles:', e);
+    }
+  };
+
+  const loadOrgServices = async (directionLabel: string, dirs?: { code: string; label: string }[]) => {
+    if (!directionLabel) { setOrgServices([]); return; }
+    try {
+      const list = dirs || orgDirections;
+      const dir = list.find(d => d.label === directionLabel);
+      if (!dir) { setOrgServices([]); return; }
+      const res = await axios.get(`/api/consumable/org-services/${encodeURIComponent(dir.code)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setOrgServices(res.data);
+    } catch (e) {
+      console.error('Error loading services:', e);
+    }
+  };
+
   const loadADUserInfo = async () => {
     try {
       const response = await axios.get('/api/ad/my-info', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const { service, direction } = response.data;
-      if (service || direction) {
-        setFormData(prev => ({
-          ...prev,
-          service: service || prev.service,
-          direction: direction || prev.direction,
-        }));
+      // AD returns text labels — set direction only if it matches a known direction
+      if (direction) {
+        const matched = orgDirections.find(d =>
+          d.label.toLowerCase() === direction.toLowerCase()
+        );
+        if (matched) {
+          setFormData(prev => ({ ...prev, direction: matched.label, service: '' }));
+          // Load services for that direction
+          const svcRes = await axios.get(`/api/consumable/org-services/${encodeURIComponent(matched.code)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          setOrgServices(svcRes.data);
+          if (service) {
+            const matchedSvc = svcRes.data.find((s: any) =>
+              s.label.toLowerCase() === service.toLowerCase()
+            );
+            if (matchedSvc) {
+              setFormData(prev => ({ ...prev, direction: matched.label, service: matchedSvc.label }));
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading AD info:', error);
@@ -285,6 +345,18 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
       loadRequests();
     } catch (error: any) {
       setError(error.response?.data?.error || 'Erreur lors de l\'archivage');
+    }
+  };
+
+  const handleUnarchiveRequest = async (requestId: number) => {
+    if (!window.confirm('Désarchiver cette demande ?')) return;
+    try {
+      await axios.post(`/api/consumable/admin/${requestId}/unarchive`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      loadRequests();
+    } catch (error: any) {
+      setError(error.response?.data?.error || 'Erreur lors du désarchivage');
     }
   };
 
@@ -556,32 +628,108 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
         )}
 
         {/* Tabs (admin only) */}
+        {user?.role === 'admin' && (() => {
+          const demandesCount = requests.filter(r => !r.archived && r.status === 'pending').length;
+          const aCommanderCount = requests.filter(r => !r.archived && r.status === 'approved').length;
+          const commandeesCount = requests.filter(r => !r.archived && r.status === 'ordered').length;
+          const archiveesCount = requests.filter(r => r.archived).length;
+
+          return (
+            <div style={{ display: 'flex', gap: 4, marginBottom: 28, background: 'white', borderRadius: 12, padding: 4, width: 'fit-content', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
+              <button
+                onClick={() => { setActiveTab('requests'); setStep(1); setShowForm(false); setAdminTab('demandes'); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                  background: activeTab === 'requests' ? 'var(--secondary-color)' : 'transparent',
+                  color: activeTab === 'requests' ? 'white' : '#64748b',
+                  position: 'relative'
+                }}
+              >
+                <Package size={16} /> Demandes
+                {demandesCount > 0 && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--primary-color)', color: 'white',
+                    borderRadius: '50%', width: 22, height: 22, fontSize: 12, fontWeight: 700
+                  }}>
+                    {demandesCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => { setActiveTab('requests'); setShowForm(false); setAdminTab('commander'); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                  background: activeTab === 'requests' && adminTab === 'commander' ? 'var(--secondary-color)' : 'transparent',
+                  color: activeTab === 'requests' && adminTab === 'commander' ? 'white' : '#64748b',
+                  position: 'relative'
+                }}
+              >
+                <ShoppingBag size={16} /> À commander
+                {aCommanderCount > 0 && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--primary-color)', color: 'white',
+                    borderRadius: '50%', width: 22, height: 22, fontSize: 12, fontWeight: 700
+                  }}>
+                    {aCommanderCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => { setActiveTab('requests'); setShowForm(false); setAdminTab('commandees'); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                  background: activeTab === 'requests' && adminTab === 'commandees' ? 'var(--secondary-color)' : 'transparent',
+                  color: activeTab === 'requests' && adminTab === 'commandees' ? 'white' : '#64748b',
+                  position: 'relative'
+                }}
+              >
+                <CheckCircle size={16} /> Commandées
+                {commandeesCount > 0 && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--primary-color)', color: 'white',
+                    borderRadius: '50%', width: 22, height: 22, fontSize: 12, fontWeight: 700
+                  }}>
+                    {commandeesCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => { setActiveTab('requests'); setShowForm(false); setAdminTab('archivees'); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                  background: activeTab === 'requests' && adminTab === 'archivees' ? 'var(--secondary-color)' : 'transparent',
+                  color: activeTab === 'requests' && adminTab === 'archivees' ? 'white' : '#64748b',
+                  position: 'relative'
+                }}
+              >
+                <Archive size={16} /> Archivées
+                {archiveesCount > 0 && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--primary-color)', color: 'white',
+                    borderRadius: '50%', width: 22, height: 22, fontSize: 12, fontWeight: 700
+                  }}>
+                    {archiveesCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          );
+        })()}
+
         {user?.role === 'admin' && (
           <div style={{ display: 'flex', gap: 4, marginBottom: 28, background: 'white', borderRadius: 12, padding: 4, width: 'fit-content', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
-            <button
-              onClick={() => { setActiveTab('requests'); setStep(1); setShowForm(false); setAdminTab('demandes'); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
-                border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-                background: activeTab === 'requests' ? 'var(--secondary-color)' : 'transparent',
-                color: activeTab === 'requests' ? 'white' : '#64748b',
-              }}
-            >
-              <Package size={16} /> Demandes
-            </button>
-            <button
-              onClick={() => { setActiveTab('requests'); setShowForm(false); setAdminTab('commander'); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
-                border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-                background: activeTab === 'requests' && adminTab === 'commander' ? 'var(--secondary-color)' : 'transparent',
-                color: activeTab === 'requests' && adminTab === 'commander' ? 'white' : '#64748b',
-              }}
-            >
-              <ShoppingBag size={16} /> À commander
-            </button>
             <button
               onClick={() => { setActiveTab('catalog'); setSelectedType(null); setSearchTerm(''); }}
               style={{
@@ -728,31 +876,85 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                       <div>
                         <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
                           <Building2 size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                          Direction
+                          Direction <span style={{ color: '#dc2626' }}>*</span>
                         </label>
-                        <input
-                          type="text"
-                          placeholder="ex: DSI"
+                        <select
                           value={formData.direction}
-                          onChange={e => setFormData({ ...formData, direction: e.target.value })}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                          onChange={e => {
+                            const label = e.target.value;
+                            const dir = orgDirections.find(d => d.label === label);
+                            const isDSALE = dir?.code === DSALE_CODE;
+                            setFormData({ ...formData, direction: label, service: '' });
+                            setOrgServices([]);
+                            setServiceIsEcole(false);
+                            if (label) loadOrgServices(label);
+                            // Si DSALE, le mode école sera activable depuis le select service
+                            void isDSALE;
+                          }}
+                          style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: 'white', color: formData.direction ? '#1e293b' : '#94a3b8' }}
                           onFocus={e => (e.target.style.borderColor = 'var(--secondary-color)')}
                           onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-                        />
+                        >
+                          <option value="">-- Sélectionner une direction --</option>
+                          {orgDirections.map(d => (
+                            <option key={d.code} value={d.label}>{d.label}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                          Service
+                          Service <span style={{ color: '#dc2626' }}>*</span>
+                          {/* Bouton bascule école pour la DSALE */}
+                          {orgDirections.find(d => d.label === formData.direction)?.code === DSALE_CODE && (
+                            <button
+                              type="button"
+                              onClick={() => { setServiceIsEcole(v => !v); setFormData(prev => ({ ...prev, service: '' })); }}
+                              style={{ marginLeft: 10, padding: '2px 10px', fontSize: 11, fontWeight: 700, border: `1.5px solid ${serviceIsEcole ? '#f97316' : '#e2e8f0'}`, borderRadius: 20, background: serviceIsEcole ? '#fff7ed' : 'white', color: serviceIsEcole ? '#f97316' : '#64748b', cursor: 'pointer' }}
+                            >
+                              🏫 {serviceIsEcole ? 'Mode école actif' : 'Service = une école ?'}
+                            </button>
+                          )}
                         </label>
-                        <input
-                          type="text"
-                          placeholder="ex: Infrastructure"
-                          value={formData.service}
-                          onChange={e => setFormData({ ...formData, service: e.target.value })}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
-                          onFocus={e => (e.target.style.borderColor = 'var(--secondary-color)')}
-                          onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-                        />
+
+                        {serviceIsEcole ? (
+                          /* Mode école : groupé par type */
+                          <select
+                            value={formData.service}
+                            onChange={e => setFormData({ ...formData, service: e.target.value })}
+                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #f97316', borderRadius: 8, fontSize: 14, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: 'white', color: formData.service ? '#1e293b' : '#94a3b8' }}
+                            onFocus={e => (e.target.style.borderColor = '#f97316')}
+                            onBlur={e => (e.target.style.borderColor = '#f97316')}
+                          >
+                            <option value="">-- Sélectionner une école --</option>
+                            <optgroup label="Écoles Maternelles">
+                              {ecoles.filter(e => e.type === 'Maternelle').map(e => (
+                                <option key={e.id} value={e.nom}>{e.nom}</option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="Écoles Élémentaires">
+                              {ecoles.filter(e => e.type === 'Elémentaire' || e.type === 'Élémentaire').map(e => (
+                                <option key={e.id} value={e.nom}>{e.nom}</option>
+                              ))}
+                            </optgroup>
+                          </select>
+                        ) : (
+                          /* Mode normal : services de la direction */
+                          <select
+                            value={formData.service}
+                            onChange={e => setFormData({ ...formData, service: e.target.value })}
+                            disabled={!formData.direction || orgServices.length === 0}
+                            style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: (!formData.direction || orgServices.length === 0) ? '#f8fafc' : 'white', color: formData.service ? '#1e293b' : '#94a3b8', cursor: (!formData.direction || orgServices.length === 0) ? 'not-allowed' : 'default' }}
+                            onFocus={e => (e.target.style.borderColor = 'var(--secondary-color)')}
+                            onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                          >
+                            <option value="">
+                              {!formData.direction ? '-- Sélectionner d\'abord une direction --' : orgServices.length === 0 ? 'Chargement...' : '-- Sélectionner un service --'}
+                            </option>
+                            {orgServices.map(s => (
+                              <option key={s.code} value={s.label}>{s.label}</option>
+                            ))}
+                          </select>
+                        )}
                       </div>
                       <div>
                         <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
@@ -1191,15 +1393,11 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                   <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--secondary-color)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <ListChecks size={20} /> Demandes
+                    <ListChecks size={20} />
+                    {adminTab === 'demandes' && 'Demandes à Valider'}
+                    {adminTab === 'commandees' && 'Demandes Commandées'}
+                    {adminTab === 'archivees' && 'Demandes Archivées'}
                   </h3>
-                  {user?.role === 'admin' && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#64748b', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)}
-                        style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                      Afficher archivées
-                    </label>
-                  )}
                 </div>
 
                 {requests.length === 0 ? (
@@ -1209,54 +1407,57 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                   }}>
                     <Package size={48} style={{ display: 'block', margin: '0 auto 12px', color: '#cbd5e1' }} />
                     <p style={{ margin: '0 0 6px', fontWeight: 600, color: '#64748b' }}>Aucune demande pour le moment</p>
-                    <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>Créez votre première demande en cliquant sur le bouton ci-dessus</p>
+                    <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
+                      {adminTab === 'demandes' ? 'Créez votre première demande en cliquant sur le bouton ci-dessus' : 'Aucune demande archivée'}
+                    </p>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {requests
-                      .filter(r => showArchived || !r.archived)
+                      .filter(r => {
+                        if (adminTab === 'demandes') {
+                          return !r.archived && r.status === 'pending';
+                        } else if (adminTab === 'commandees') {
+                          return !r.archived && r.status === 'ordered';
+                        } else if (adminTab === 'archivees') {
+                          return r.archived;
+                        }
+                        return false;
+                      })
                       .map(request => (
                       <div key={request.id} style={{
                         background: 'white', borderRadius: 14, border: '1px solid #e2e8f0',
-                        padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-                        transition: 'box-shadow 0.2s', opacity: request.archived ? 0.6 : 1
+                        padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <div style={{ width: 42, height: 42, borderRadius: 10, background: '#f0f5ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {getStatusIcon(request.status)}
-                            </div>
-                            <div>
-                              <h4 style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{request.type_consommable}</h4>
-                              <p style={{ margin: '2px 0 0', fontSize: 12, color: '#94a3b8' }}>
-                                {new Date(request.created_at).toLocaleDateString('fr-FR')}
-                                {request.email && <span style={{ marginLeft: 8 }}>— {request.email}</span>}
-                              </p>
-                            </div>
+                        {/* Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                          <div>
+                            <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                              Demande n°{request.id} — {request.type_consommable}
+                            </p>
+                            <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>
+                              {request.direction} / {request.service} — {request.nom_referent}
+                            </p>
+                            {request.email && <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>{request.email}</p>}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {request.archived && (
-                              <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
-                                Archivé
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 8 }}>
+                              {request.archived && (
+                                <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#f1f5f9', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                                  Archivé
+                                </span>
+                              )}
+                              <span style={{ padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, ...getStatusStyle(request.status) }}>
+                                {getStatusText(request.status)}
                               </span>
-                            )}
-                            <span style={{ padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5, ...getStatusStyle(request.status) }}>
-                              {getStatusText(request.status)}
+                            </div>
+                            <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                              {new Date(request.created_at).toLocaleDateString('fr-FR')}
                             </span>
                           </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: '12px 14px', background: '#f8fafc', borderRadius: 10, marginBottom: 14 }}>
-                          <div>
-                            <p style={{ margin: '0 0 2px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.05em' }}>Direction</p>
-                            <p style={{ margin: 0, fontWeight: 600, color: '#1e293b', fontSize: 14 }}>{request.direction}</p>
-                          </div>
-                          <div>
-                            <p style={{ margin: '0 0 2px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#94a3b8', letterSpacing: '0.05em' }}>Service</p>
-                            <p style={{ margin: 0, fontWeight: 600, color: '#1e293b', fontSize: 14 }}>{request.service}</p>
-                          </div>
-                        </div>
-
+                        {/* Order Details if Ordered */}
                         {request.status === 'ordered' && (
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, padding: '12px 14px', background: '#eff6ff', borderRadius: 10, marginBottom: 14, border: '1px solid #bfdbfe' }}>
                             <div>
@@ -1278,49 +1479,69 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                                 </span>
                               </div>
                             )}
-                            {request.user_comment && (
-                              <div style={{ gridColumn: '1 / -1', marginTop: 12, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, borderLeft: '4px solid #cbd5e1' }}>
-                                <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Annotation demandeur</p>
-                                <p style={{ margin: 0, fontSize: 13, color: '#475569', fontStyle: 'italic' }}>"{request.user_comment}"</p>
-                              </div>
-                            )}
                           </div>
                         )}
 
-                        <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 14 }}>
-                          <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 600, color: '#475569' }}>Articles :</p>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                            {request.articles.map((article, idx) => (
-                              <span key={idx} style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 6,
-                                background: '#eff6ff', color: 'var(--secondary-color)',
-                                padding: '4px 10px', borderRadius: 20, fontSize: 13, fontWeight: 600
-                              }}>
-                                {article.article} <span style={{ color: 'var(--primary-color)' }}>×{article.quantite}</span>
-                              </span>
+                        {/* Articles Table */}
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc' }}>
+                              <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', borderBottom: '2px solid #e2e8f0' }}>Article</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', borderBottom: '2px solid #e2e8f0' }}>Désignation</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', borderBottom: '2px solid #e2e8f0' }}>Réf.</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: '#475569', borderBottom: '2px solid #e2e8f0' }}>Qté</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {request.articles && request.articles.map((a, idx) => (
+                              <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b' }}>{a.article || a.ref_commande || '—'}</td>
+                                <td style={{ padding: '8px 12px', color: '#64748b' }}>{a.designation || '—'}</td>
+                                <td style={{ padding: '8px 12px', color: '#64748b' }}>{a.ref_commande || '—'}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: 'var(--primary-color)' }}>{a.quantite}</td>
+                              </tr>
                             ))}
+                          </tbody>
+                        </table>
+
+                        {/* Commentaire utilisateur */}
+                        {request.user_comment && (
+                          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f1f5f9' }}>
+                            <div style={{ padding: '10px 14px', background: '#f8fafc', borderRadius: 8, borderLeft: '4px solid #cbd5e1' }}>
+                              <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Annotation demandeur</p>
+                              <p style={{ margin: 0, fontSize: 13, color: '#475569', fontStyle: 'italic' }}>"{request.user_comment}"</p>
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         {/* Admin Actions */}
-                        {user?.role === 'admin' && !request.archived && (
-                          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, marginTop: 12, display: 'flex', gap: 8 }}>
-                            {request.status === 'pending' && (
-                              <button onClick={() => handleValidateRequest(request.id)}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                                <CheckCircle size={14} /> Valider la demande
+                        {user?.role === 'admin' && (
+                          <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f1f5f9', display: 'flex', gap: 8 }}>
+                            {request.archived ? (
+                              <button onClick={() => handleUnarchiveRequest(request.id)}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                                <Archive size={14} /> Désarchiver
                               </button>
+                            ) : (
+                              <>
+                                {request.status === 'pending' && (
+                                  <button onClick={() => handleValidateRequest(request.id)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                                    <CheckCircle size={14} /> Valider la demande
+                                  </button>
+                                )}
+                                {request.status === 'approved' && (
+                                  <button onClick={() => setAdminTab('commander')}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                                    <ShoppingCart size={14} /> Passer la commande
+                                  </button>
+                                )}
+                                <button onClick={() => handleArchiveRequest(request.id)}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                                  <Archive size={14} /> Archiver
+                                </button>
+                              </>
                             )}
-                            {request.status === 'approved' && (
-                              <button onClick={() => setAdminTab('commander')}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                                <ShoppingCart size={14} /> Finaliser la commande
-                              </button>
-                            )}
-                            <button onClick={() => handleArchiveRequest(request.id)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                              <Archive size={14} /> Archiver
-                            </button>
                             <button onClick={() => handleDeleteRequest(request.id)}
                               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#fff5f5', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                               <Trash2 size={14} /> Supprimer
@@ -1376,45 +1597,77 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
               </div>
             </div>
 
-            {/* Catalog Form */}
+            {/* Catalog Form Modal */}
             {showCatalogForm && (
-              <div style={{ background: 'white', borderRadius: 14, border: '1px solid #e2e8f0', padding: 24, marginBottom: 20, boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
-                <h3 style={{ margin: '0 0 20px', fontSize: 17, fontWeight: 700, color: 'var(--secondary-color)' }}>
-                  {editingArticle ? 'Modifier un Article' : 'Ajouter un Article'}
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                  <select
-                    value={catalogFormData.type_id}
-                    onChange={e => setCatalogFormData({ ...catalogFormData, type_id: parseInt(e.target.value) })}
-                    style={{ gridColumn: '1 / -1', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none' }}
-                  >
-                    <option value={0}>Sélectionner un type</option>
-                    {consumableTypes.map(t => <option key={t.id} value={t.id}>{t.display_name}</option>)}
-                  </select>
-                  <input type="text" placeholder="Désignation (imprimante)" value={catalogFormData.designation}
-                    onChange={e => setCatalogFormData({ ...catalogFormData, designation: e.target.value })}
-                    style={{ padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none' }}
-                  />
-                  <input type="text" placeholder="Article (consommable)" value={catalogFormData.article}
-                    onChange={e => setCatalogFormData({ ...catalogFormData, article: e.target.value })}
-                    style={{ padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none' }}
-                  />
-                  <input type="text" placeholder="Code Fabricant" value={catalogFormData.code_fabricant}
-                    onChange={e => setCatalogFormData({ ...catalogFormData, code_fabricant: e.target.value })}
-                    style={{ padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none' }}
-                  />
-                  <input type="text" placeholder="Réf. Commande" value={catalogFormData.ref_commande}
-                    onChange={e => setCatalogFormData({ ...catalogFormData, ref_commande: e.target.value })}
-                    style={{ gridColumn: '1 / -1', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none' }}
-                  />
-                  <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 10 }}>
+              <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(0, 0, 0, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                zIndex: 1000
+              }} onClick={() => { setShowCatalogForm(false); setEditingArticle(null); setCatalogFormData({ type_id: 0, designation: '', article: '', code_fabricant: '', ref_commande: '' }); }}>
+                <div style={{
+                  background: 'white', borderRadius: 16, padding: 32, maxWidth: 500, width: '90%',
+                  boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto'
+                }} onClick={e => e.stopPropagation()}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+                    <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--secondary-color)' }}>
+                      {editingArticle ? 'Modifier un Article' : 'Ajouter un Article'}
+                    </h2>
+                    <button
+                      onClick={() => { setShowCatalogForm(false); setEditingArticle(null); setCatalogFormData({ type_id: 0, designation: '', article: '', code_fabricant: '', ref_commande: '' }); }}
+                      style={{ background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', color: '#64748b', padding: 0 }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Type</label>
+                      <select
+                        value={catalogFormData.type_id}
+                        onChange={e => setCatalogFormData({ ...catalogFormData, type_id: parseInt(e.target.value) })}
+                        style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                      >
+                        <option value={0}>Sélectionner un type</option>
+                        {consumableTypes.map(t => <option key={t.id} value={t.id}>{t.display_name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Désignation (imprimante)</label>
+                      <input type="text" placeholder="Ex: HP LaserJet Pro M404" value={catalogFormData.designation}
+                        onChange={e => setCatalogFormData({ ...catalogFormData, designation: e.target.value })}
+                        style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Article (consommable)</label>
+                      <input type="text" placeholder="Ex: Toner noir" value={catalogFormData.article}
+                        onChange={e => setCatalogFormData({ ...catalogFormData, article: e.target.value })}
+                        style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Code Fabricant</label>
+                      <input type="text" placeholder="Ex: CF258A" value={catalogFormData.code_fabricant}
+                        onChange={e => setCatalogFormData({ ...catalogFormData, code_fabricant: e.target.value })}
+                        style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Réf. Commande</label>
+                      <input type="text" placeholder="Ex: CF258A-REF" value={catalogFormData.ref_commande}
+                        onChange={e => setCatalogFormData({ ...catalogFormData, ref_commande: e.target.value })}
+                        style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
                     <button onClick={() => { setShowCatalogForm(false); setEditingArticle(null); setCatalogFormData({ type_id: 0, designation: '', article: '', code_fabricant: '', ref_commande: '' }); }}
-                      style={{ flex: 1, padding: '10px', border: '1px solid #e2e8f0', borderRadius: 8, background: 'white', color: '#64748b', cursor: 'pointer', fontWeight: 600 }}>
+                      style={{ flex: 1, padding: '12px', border: '1.5px solid #e2e8f0', borderRadius: 8, background: 'white', color: '#64748b', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
                       Annuler
                     </button>
                     <button onClick={handleSaveCatalogArticle}
-                      style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: 'var(--secondary-color)', color: 'white', cursor: 'pointer', fontWeight: 700 }}>
-                      Enregistrer
+                      style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 8, background: 'var(--secondary-color)', color: 'white', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>
+                      {editingArticle ? 'Mettre à jour' : 'Créer'}
                     </button>
                   </div>
                 </div>
@@ -1495,6 +1748,7 @@ interface ToOrderItem {
   date_commande: string;
   created_at: string;
   type_consommable: string;
+  user_comment?: string;
   articles: { catalog_id: number; article: string; designation: string; code_fabricant: string; ref_commande: string; quantite: number }[];
 }
 
@@ -1751,6 +2005,16 @@ const ConsommablesACommander: React.FC<{ token: string }> = ({ token }) => {
               ))}
             </tbody>
           </table>
+
+          {/* Commentaire utilisateur */}
+          {item.user_comment && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f1f5f9' }}>
+              <div style={{ padding: '10px 14px', background: '#f8fafc', borderRadius: 8, borderLeft: '4px solid #cbd5e1' }}>
+                <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Annotation demandeur</p>
+                <p style={{ margin: 0, fontSize: 13, color: '#475569', fontStyle: 'italic' }}>"{item.user_comment}"</p>
+              </div>
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -1828,9 +2092,13 @@ const ArticleRow: React.FC<ArticleRowProps> = ({ article, inCartQty, onAdd, show
 };
 
 const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
+  const currentYear = String(new Date().getFullYear());
+  const currentMonth = new Date().toISOString().slice(0, 7);
+
   const [requests, setRequests] = useState<ConsumableRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [selectedYear, setSelectedYear] = useState(currentYear);
   const [expandedRequests, setExpandedRequests] = useState<number[]>([]);
   const [expandedDirections, setExpandedDirections] = useState<string[]>([]);
   const [recapMode, setRecapMode] = useState<'details' | 'global'>('details');
@@ -1848,13 +2116,19 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
       });
       const ordered = response.data.filter((r: any) => r.status === 'ordered');
       setRequests(ordered);
-      
+
       if (ordered.length > 0) {
-        const monthsInOrder = (Array.from(new Set(ordered.map((r: any) => getMonthStr(r.date_commande)))) as string[])
-          .filter((m: string) => !!m)
-          .sort((a: string, b: string) => b.localeCompare(a));
-        if (!monthsInOrder.includes(selectedMonth)) {
-          setSelectedMonth(monthsInOrder[0]);
+        // Init selectedMonth to most recent available month
+        const months = (Array.from(new Set(ordered.map((r: any) => getMonthStr(r.date_commande)))) as string[])
+          .filter(Boolean).sort((a, b) => b.localeCompare(a));
+        if (months.length > 0 && !months.includes(currentMonth)) {
+          setSelectedMonth(months[0]);
+        }
+        // Init selectedYear to most recent available year
+        const years = (Array.from(new Set(months.map(m => m.split('-')[0]))) as string[])
+          .sort((a, b) => b.localeCompare(a));
+        if (years.length > 0 && !years.includes(currentYear)) {
+          setSelectedYear(years[0]);
         }
       }
     } catch (error) {
@@ -1871,22 +2145,28 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
     return parts.length >= 2 ? `${parts[0]}-${parts[1]}` : "";
   };
 
-  const selectedYear = selectedMonth.split('-')[0];
+  const getYearStr = (dateVal: any) => getMonthStr(dateVal).split('-')[0];
 
+  // Mode month → filter by selectedMonth ; mode annual → filter by selectedYear
   const filteredRequests = requests.filter(r => {
-    const m = getMonthStr(r.date_commande);
-    return amountMode === 'month' ? m === selectedMonth : m.startsWith(selectedYear);
+    if (amountMode === 'month') return getMonthStr(r.date_commande) === selectedMonth;
+    return getYearStr(r.date_commande) === selectedYear;
   });
 
-  const monthlyTotal = requests.filter(r => getMonthStr(r.date_commande) === selectedMonth)
-    .reduce((sum, r) => sum + (Number(r.total_amount_ttc) || 0), 0);
-  
-  const annualTotal = requests
-    .filter(r => getMonthStr(r.date_commande).startsWith(selectedYear))
+  // Stats cards
+  const monthlyTotal = requests
+    .filter(r => getMonthStr(r.date_commande) === selectedMonth)
     .reduce((sum, r) => sum + (Number(r.total_amount_ttc) || 0), 0);
 
-  const availableMonths = Array.from(new Set(requests.map(r => getMonthStr(r.date_commande))))
-    .filter(m => !!m)
+  const annualTotal = requests
+    .filter(r => getYearStr(r.date_commande) === selectedYear)
+    .reduce((sum, r) => sum + (Number(r.total_amount_ttc) || 0), 0);
+
+  // Available selectors
+  const availableMonths = (Array.from(new Set(requests.map(r => getMonthStr(r.date_commande)))) as string[])
+    .filter(Boolean).sort((a, b) => b.localeCompare(a));
+
+  const availableYears = (Array.from(new Set(availableMonths.map(m => m.split('-')[0]))) as string[])
     .sort((a, b) => b.localeCompare(a));
 
   const toggleRequest = (id: number) => {
@@ -1936,30 +2216,83 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
               <button onClick={() => setAmountMode('month')} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: amountMode === 'month' ? 'white' : 'transparent', color: amountMode === 'month' ? '#1e293b' : '#64748b', boxShadow: amountMode === 'month' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none' }}>Mois</button>
               <button onClick={() => setAmountMode('annual')} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: amountMode === 'annual' ? 'white' : 'transparent', color: amountMode === 'annual' ? '#1e293b' : '#64748b', boxShadow: amountMode === 'annual' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none' }}>Cumulé An</button>
             </div>
-            <select 
-              value={selectedMonth} 
-              onChange={e => setSelectedMonth(e.target.value)}
-              style={{ padding: '8px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', outline: 'none', fontWeight: 600, color: '#1e293b' }}
-            >
-              {availableMonths.map(m => (
-                <option key={m} value={m}>
-                  {new Date(m + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
-                </option>
-              ))}
-            </select>
+
+            {amountMode === 'month' ? (
+              <select
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                style={{ padding: '8px 12px', borderRadius: 8, border: '1.5px solid #e2e8f0', outline: 'none', fontWeight: 600, color: '#1e293b' }}
+              >
+                {availableMonths.map(m => (
+                  <option key={m} value={m}>
+                    {new Date(m + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={selectedYear}
+                onChange={e => setSelectedYear(e.target.value)}
+                style={{ padding: '8px 12px', borderRadius: 8, border: '1.5px solid #3b82f6', outline: 'none', fontWeight: 700, color: '#1e3a8a', background: '#eff6ff' }}
+              >
+                {availableYears.map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
         {/* TOP STATS */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 32 }}>
-          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: 20 }}>
-            <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase' }}>Total du mois ({new Date(selectedMonth + '-01').toLocaleDateString('fr-FR', { month: 'long' })})</p>
-            <p style={{ margin: 0, fontSize: 24, fontWeight: 900, color: '#15803d' }}>{monthlyTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €</p>
-          </div>
-          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: 20 }}>
-            <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase' }}>Total cumulé de l'année ({selectedYear})</p>
-            <p style={{ margin: 0, fontSize: 24, fontWeight: 900, color: '#1d4ed8' }}>{annualTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €</p>
-          </div>
+          {amountMode === 'month' ? (
+            <>
+              <div style={{ background: '#f0fdf4', border: '2px solid #bbf7d0', borderRadius: 12, padding: 20 }}>
+                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#166534', textTransform: 'uppercase' }}>
+                  Total du mois — {new Date(selectedMonth + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                </p>
+                <p style={{ margin: 0, fontSize: 28, fontWeight: 900, color: '#15803d' }}>{monthlyTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €</p>
+                <p style={{ margin: '6px 0 0', fontSize: 12, color: '#4ade80' }}>{filteredRequests.length} commande{filteredRequests.length > 1 ? 's' : ''}</p>
+              </div>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
+                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  Cumul année {selectedMonth.split('-')[0]}
+                </p>
+                <p style={{ margin: 0, fontSize: 28, fontWeight: 900, color: '#475569' }}>
+                  {requests.filter(r => getYearStr(r.date_commande) === selectedMonth.split('-')[0]).reduce((s, r) => s + (Number(r.total_amount_ttc) || 0), 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
+                </p>
+                <p style={{ margin: '6px 0 0', fontSize: 12, color: '#94a3b8' }}>
+                  {requests.filter(r => getYearStr(r.date_commande) === selectedMonth.split('-')[0]).length} commande{requests.filter(r => getYearStr(r.date_commande) === selectedMonth.split('-')[0]).length > 1 ? 's' : ''}
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ background: '#eff6ff', border: '2px solid #3b82f6', borderRadius: 12, padding: 20 }}>
+                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase' }}>
+                  Total cumulé — Année {selectedYear}
+                </p>
+                <p style={{ margin: 0, fontSize: 28, fontWeight: 900, color: '#1d4ed8' }}>{annualTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €</p>
+                <p style={{ margin: '6px 0 0', fontSize: 12, color: '#60a5fa' }}>{filteredRequests.length} commande{filteredRequests.length > 1 ? 's' : ''}</p>
+              </div>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
+                <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                  Répartition mensuelle {selectedYear}
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                  {availableMonths.filter(m => m.startsWith(selectedYear)).sort().map(m => {
+                    const mTotal = requests.filter(r => getMonthStr(r.date_commande) === m).reduce((s, r) => s + (Number(r.total_amount_ttc) || 0), 0);
+                    return (
+                      <div key={m} style={{ fontSize: 11, padding: '3px 8px', background: '#e2e8f0', borderRadius: 8, color: '#475569' }}>
+                        <span style={{ fontWeight: 700 }}>{new Date(m + '-01').toLocaleDateString('fr-FR', { month: 'short' })}</span>
+                        {' '}{mTotal.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* MAIN DATA TABLE / LIST */}
@@ -2039,7 +2372,11 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
             <div style={{ fontSize: 14 }}>
               <div style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 180px', padding: '14px 16px', fontWeight: 700, color: '#475569' }}>
                 <div>Direction / Service</div>
-                <div style={{ textAlign: 'right' }}>Montant {amountMode === 'month' ? 'du mois' : 'cumulé'}</div>
+                <div style={{ textAlign: 'right' }}>
+                  Montant {amountMode === 'month'
+                    ? `— ${new Date(selectedMonth + '-01').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}`
+                    : `cumulé ${selectedYear}`}
+                </div>
               </div>
               {Object.keys(globalData).length === 0 ? (
                 <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Aucune donnée à afficher</div>

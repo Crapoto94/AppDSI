@@ -72,6 +72,10 @@ router.get('/debug/token', (req, res) => {
 });
 
 // Routes authentifiées
+router.get('/pending-count', consommablesController.getPendingCount);
+router.get('/org-directions', authenticateJWT, consommablesController.getOrgDirections);
+router.get('/org-services/:directionCode', authenticateJWT, consommablesController.getOrgServices);
+router.get('/ecoles', authenticateJWT, consommablesController.getEcoles);
 router.get('/types', authenticateJWT, consommablesController.getTypes);
 router.get('/designations/:typeId', authenticateJWT, consommablesController.getDesignations);
 router.get('/articles/:typeId', authenticateJWT, consommablesController.getArticles);
@@ -80,7 +84,7 @@ router.get('/requests/all', authenticateJWT, consommablesController.getAllReques
 router.post('/requests', authenticateJWT, consommablesController.createRequest);
 
 // Routes admin - Gestion des demandes
-router.get('/admin/all', authenticateAdmin, consommablesController.getAllRequests);
+router.get('/admin/all', authenticateJWT, consommablesController.getAllRequests);
 router.put('/admin/:requestId/status', authenticateAdmin, consommablesController.updateRequestStatus);
 router.delete('/admin/:requestId', authenticateAdmin, consommablesController.deleteRequest);
 router.put('/admin/:requestId', authenticateAdmin, consommablesController.updateRequest);

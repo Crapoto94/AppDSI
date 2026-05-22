@@ -125,6 +125,73 @@ const rhController = {
         }
     },
 
+    // Organisation chart depuis oracle.rh_siim_organigramme
+    getOrganisationChart: async (req, res) => {
+        try {
+            const rows = await pgDb.all(`
+                SELECT
+                    "DIRECTION"   AS direction_code,
+                    "DIRECTION_L" AS direction_label,
+                    "SERVICE"     AS service_code,
+                    "SERVICE_L"   AS service_label,
+                    "SECTEUR"     AS secteur_code,
+                    "SECTEUR_L"   AS secteur_label
+                FROM oracle.rh_siim_organigramme
+                WHERE "DIRECTION" IS NOT NULL AND "DIRECTION" != ''
+            `);
+
+            // Build hierarchy: Direction → Service → Secteur
+            const dirMap = new Map();
+            for (const row of rows) {
+                const dCode = row.direction_code?.trim();
+                const dLabel = row.direction_label?.trim() || dCode;
+                const sCode = row.service_code?.trim();
+                const sLabel = row.service_label?.trim() || sCode;
+                const secCode = row.secteur_code?.trim();
+                const secLabel = row.secteur_label?.trim() || secCode;
+
+                if (!dCode) continue;
+
+                if (!dirMap.has(dCode)) {
+                    dirMap.set(dCode, { code: dCode, label: dLabel, services: new Map() });
+                }
+                const dir = dirMap.get(dCode);
+
+                if (sCode) {
+                    if (!dir.services.has(sCode)) {
+                        dir.services.set(sCode, { code: sCode, label: sLabel, secteurs: new Map() });
+                    }
+                    const svc = dir.services.get(sCode);
+
+                    if (secCode) {
+                        if (!svc.secteurs.has(secCode)) {
+                            svc.secteurs.set(secCode, { code: secCode, label: secLabel });
+                        }
+                    }
+                }
+            }
+
+            const result = Array.from(dirMap.values())
+                .sort((a, b) => a.code.localeCompare(b.code))
+                .map(dir => ({
+                    code: dir.code,
+                    label: dir.label,
+                    services: Array.from(dir.services.values())
+                        .sort((a, b) => a.code.localeCompare(b.code))
+                        .map(svc => ({
+                            code: svc.code,
+                            label: svc.label,
+                            secteurs: Array.from(svc.secteurs.values())
+                                .sort((a, b) => a.code.localeCompare(b.code))
+                        }))
+                }));
+
+            res.json(result);
+        } catch (err) {
+            res.status(500).json({ message: 'Erreur organigramme', error: err.message });
+        }
+    },
+
     // Onboarding
     getOnboarding: async (req, res) => {
         try {

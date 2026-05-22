@@ -37,6 +37,7 @@ import AgentsDSI from './pages/AgentsDSI';
 import ConsommablesManagement from './pages/ConsommablesManagement';
 import RequestFeature from './pages/RequestFeature';
 import AdminBacklog from './pages/AdminBacklog';
+import AdminOrganisation from './pages/AdminOrganisation';
 import WhatsNew from './pages/WhatsNew';
 import Doctrines from './pages/Doctrines';
 
@@ -149,6 +150,7 @@ function App() {
           <Route path="email-automation" element={<EmailAutomation />} />
           <Route path="backlog" element={<AdminBacklog />} />
           <Route path="o365-mail" element={<O365MailSettings />} />
+          <Route path="organisation" element={<AdminOrganisation />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />

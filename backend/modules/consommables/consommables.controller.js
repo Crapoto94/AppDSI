@@ -163,6 +163,61 @@ const controller = {
     }
   },
 
+  // Compteur de demandes en attente (pour badge dashboard)
+  async getPendingCount(req, res) {
+    try {
+      const result = await pgDb.all(`SELECT count(*) as count FROM hub_consommables.consumable_requests WHERE status = 'pending'`);
+      console.log('[Consommables] Pending count from DB:', result);
+      res.json({ count: Number(result[0].count) });
+    } catch (error) {
+      console.error('[Consommables] Error getting pending count:', error);
+      res.status(500).json({ error: 'Erreur lors de la récupération du compteur', details: error.message });
+    }
+  },
+
+  // Directions depuis l'organigramme RH (accessible à tous les users)
+  async getOrgDirections(req, res) {
+    try {
+      const rows = await pgDb.all(`
+        SELECT DISTINCT "DIRECTION" AS code, "DIRECTION_L" AS label
+        FROM oracle.rh_siim_organigramme
+        WHERE "DIRECTION" IS NOT NULL AND "DIRECTION" != ''
+        ORDER BY "DIRECTION"
+      `);
+      res.json(rows.map(r => ({ code: r.code?.trim(), label: r.label?.trim() })));
+    } catch (error) {
+      res.status(500).json({ error: 'Erreur chargement directions', details: error.message });
+    }
+  },
+
+  // Liste des écoles (hub.ecoles)
+  async getEcoles(req, res) {
+    try {
+      const rows = await pgDb.all(`
+        SELECT id, nom, type FROM hub.ecoles ORDER BY type, nom
+      `);
+      res.json(rows);
+    } catch (error) {
+      res.status(500).json({ error: 'Erreur chargement écoles', details: error.message });
+    }
+  },
+
+  // Services d'une direction depuis l'organigramme RH
+  async getOrgServices(req, res) {
+    try {
+      const { directionCode } = req.params;
+      const rows = await pgDb.all(`
+        SELECT DISTINCT "SERVICE" AS code, "SERVICE_L" AS label
+        FROM oracle.rh_siim_organigramme
+        WHERE "DIRECTION" = $1 AND "SERVICE" IS NOT NULL AND "SERVICE" != ''
+        ORDER BY "SERVICE"
+      `, [directionCode]);
+      res.json(rows.map(r => ({ code: r.code?.trim(), label: r.label?.trim() })));
+    } catch (error) {
+      res.status(500).json({ error: 'Erreur chargement services', details: error.message });
+    }
+  },
+
   // Récupérer les demandes de l'utilisateur
   async getRequests(req, res) {
     try {
@@ -241,7 +296,10 @@ const controller = {
           json_agg(
             json_build_object(
               'id', ra.id,
+              'catalog_id', cc.id,
               'article', cc.article,
+              'designation', cc.designation,
+              'code_fabricant', cc.code_fabricant,
               'quantite', ra.quantite,
               'ref_commande', cc.ref_commande
             )
@@ -251,10 +309,10 @@ const controller = {
         JOIN consumable_types ct ON cr.type_id = ct.id
         LEFT JOIN request_articles ra ON cr.id = ra.request_id
         LEFT JOIN consumable_catalog cc ON ra.catalog_id = cc.id
-        GROUP BY 
-          cr.id, cr.user_id, cr.username, cr.email, cr.date_commande, 
-          cr.direction, cr.service, cr.nom_referent, cr.tel_complet, 
-          ct.name, cr.status, cr.order_number, cr.tier, 
+        GROUP BY
+          cr.id, cr.user_id, cr.username, cr.email, cr.date_commande,
+          cr.direction, cr.service, cr.nom_referent, cr.tel_complet,
+          ct.name, cr.status, cr.order_number, cr.tier,
           cr.total_amount_ttc, cr.is_school, cr.user_comment, cr.archived, cr.created_at
         ORDER BY cr.created_at DESC
       `;
@@ -540,6 +598,7 @@ const controller = {
           cr.email,
           cr.date_commande,
           cr.created_at,
+          cr.user_comment,
           ct.name as type_consommable,
           json_agg(
             json_build_object(
@@ -557,7 +616,7 @@ const controller = {
         LEFT JOIN request_articles ra ON cr.id = ra.request_id
         LEFT JOIN consumable_catalog cc ON ra.catalog_id = cc.id
         WHERE cr.status = 'approved' AND (cr.archived IS NULL OR cr.archived = FALSE)
-        GROUP BY cr.id, ct.name, cr.direction, cr.service, cr.nom_referent, cr.email, cr.date_commande, cr.created_at
+        GROUP BY cr.id, ct.name, cr.direction, cr.service, cr.nom_referent, cr.email, cr.date_commande, cr.created_at, cr.user_comment
         ORDER BY cr.direction, cr.service, cr.nom_referent
       `;
       const result = await pgDb.all(query);
@@ -588,6 +647,7 @@ const controller = {
           cr.tier,
           cr.total_amount_ttc,
           cr.is_school,
+          cr.user_comment,
           cr.created_at,
           cr.archived,
           json_agg(
