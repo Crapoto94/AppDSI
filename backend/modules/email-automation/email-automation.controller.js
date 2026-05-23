@@ -330,7 +330,64 @@ const EmailAutomationController = {
     }
 };
 
+const EmailAutomationExtra = {
+
+    // GET /api/admin/email-automation/task-alerts
+    getTaskAlertUsers: async (req, res) => {
+        try {
+            const { rows } = await pool.query(
+                `SELECT username, displayname, email
+                 FROM hub.users
+                 WHERE task_alert_email = TRUE
+                 ORDER BY displayname, username`
+            );
+            res.json(rows);
+        } catch (err) {
+            res.status(500).json({ message: err.message });
+        }
+    },
+
+    // DELETE /api/admin/email-automation/task-alerts/:username
+    disableTaskAlert: async (req, res) => {
+        try {
+            await pool.query(
+                'UPDATE hub.users SET task_alert_email = FALSE WHERE LOWER(username) = LOWER($1)',
+                [req.params.username]
+            );
+            res.json({ ok: true });
+        } catch (err) {
+            res.status(500).json({ message: err.message });
+        }
+    },
+
+    // GET /api/admin/email-automation/mail-logs
+    getAllMailLogs: async (req, res) => {
+        try {
+            const limit = Math.min(parseInt(req.query.limit) || 300, 1000);
+            const source = req.query.source || null;
+            const status = req.query.status || null;
+
+            let where = '';
+            const params = [];
+            const conditions = [];
+            if (source) { params.push(source); conditions.push(`source = $${params.length}`); }
+            if (status) { params.push(status); conditions.push(`status = $${params.length}`); }
+            if (conditions.length) where = 'WHERE ' + conditions.join(' AND ');
+            params.push(limit);
+
+            const { rows } = await pool.query(
+                `SELECT * FROM hub.email_logs ${where} ORDER BY sent_at DESC LIMIT $${params.length}`,
+                params
+            );
+            res.json(rows);
+        } catch (err) {
+            res.status(500).json({ message: err.message });
+        }
+    }
+};
+
 module.exports = {
     setSendMail: (fn) => { sendMailFn = fn; },
-    ...EmailAutomationController
+    ...EmailAutomationController,
+    ...EmailAutomationExtra
 };

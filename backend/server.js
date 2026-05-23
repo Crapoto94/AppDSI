@@ -4580,13 +4580,18 @@ app.delete('/api/attachments/:id', authenticateJWT, async (req, res) => {
 });
 
 // Helper Mail
-async function sendMail(to, subject, content, extraAttachments = []) {
+async function sendMail(to, subject, content, extraAttachments = [], source = 'system') {
+    let _logStatus = 'sent';
+    let _logError = null;
+    let _skipped = false;
+    try {
     const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
     if (!s) throw new Error("Paramètres mail non configurés");
-    
+
     // Check if emails are globally disabled
     if (s.global_enable === 0 || s.global_enable === false) {
         console.log(`[MAIL SYSTEM] Envoi global désactivé. Mail ignoré pour: ${to}`);
+        _skipped = true;
         return { message: 'Envoi désactivé globalement' };
     }
 
@@ -4743,6 +4748,21 @@ async function sendMail(to, subject, content, extraAttachments = []) {
         } catch (error) {
             console.error('[MAIL] Échec SMTP:', error.message);
             throw new Error(`Échec de l'envoi SMTP : ${error.message}`);
+        }
+    }
+    } catch (_e) {
+        _logStatus = 'failed';
+        _logError = _e.message;
+        throw _e;
+    } finally {
+        if (!_skipped) {
+            try {
+                const { pool: _pgPool } = require('./shared/pg_db');
+                await _pgPool.query(
+                    'INSERT INTO hub.email_logs (recipient, subject, status, error_message, source) VALUES ($1, $2, $3, $4, $5)',
+                    [to, subject, _logStatus, _logError, source]
+                );
+            } catch (_le) { /* never let logging break delivery */ }
         }
     }
 }

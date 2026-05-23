@@ -347,7 +347,7 @@ module.exports = {
             if (!sendMailFn) return res.status(503).json({ error: 'Service mail non configuré' });
 
             const html = await buildTasksEmail(username, user.displayname || username);
-            await sendMailFn(user.email, '✅ [Test] Vos tâches du jour — DSI Hub', html);
+            await sendMailFn(user.email, '✅ [Test] Vos tâches du jour — DSI Hub', html, [], 'task_alert');
             res.json({ ok: true, to: user.email });
         } catch (error) {
             res.status(500).json({ error: error.message });
@@ -367,7 +367,7 @@ module.exports = {
             for (const user of users) {
                 try {
                     const html = await buildTasksEmail(user.username, user.displayname || user.username);
-                    if (html) await sendMailFn(user.email, '✅ Vos tâches du jour — DSI Hub', html);
+                    if (html) await sendMailFn(user.email, '✅ Vos tâches du jour — DSI Hub', html, [], 'task_alert');
                 } catch (e) {
                     console.error(`[tasks-alert] Erreur envoi à ${user.username}:`, e.message);
                 }

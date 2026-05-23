@@ -2168,6 +2168,20 @@ async function setupPgDb() {
     // Préférence d'alerte mail quotidienne (Mes Tâches)
     try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS task_alert_email BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
+    // Journal global de tous les emails envoyés par l'application
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.email_logs (
+        id SERIAL PRIMARY KEY,
+        recipient TEXT NOT NULL,
+        subject TEXT,
+        status TEXT DEFAULT 'sent',
+        error_message TEXT,
+        source TEXT DEFAULT 'system',
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_email_logs_sent_at ON hub.email_logs(sent_at DESC)`); } catch (e) {}
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);
