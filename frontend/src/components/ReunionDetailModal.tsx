@@ -38,7 +38,6 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [detailReunionData, setDetailReunionData] = useState({ description: '', releve_decision: '', liste_taches: '' });
   const [reunionAttachments, setReunionAttachments] = useState<Attachment[]>([]);
   const [newDecision, setNewDecision] = useState('');
-  const [newTask, setNewTask] = useState({ tache: '', responsable: '', responsable_username: '', echeance: '', statut: 'a_faire' });
   const [showAddParticipantDetail, setShowAddParticipantDetail] = useState(false);
   const [detailAdQuery, setDetailAdQuery] = useState('');
   const [detailAdResults, setDetailAdResults] = useState<ADUser[]>([]);
@@ -66,9 +65,6 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [hubTasks, setHubTasks] = useState<any[]>([]);
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
 
-  const [addTaskAdResults, setAddTaskAdResults] = useState<ADUser[]>([]);
-  const [addTaskAdSearching, setAddTaskAdSearching] = useState(false);
-  const addTaskAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const types = ['incident', 'demande', 'projet', 'autre'];
 
@@ -114,18 +110,6 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
     }, 400);
   }, [token]);
 
-  const searchADForAddTask = useCallback((q: string) => {
-    if (addTaskAdSearchTimerRef.current) clearTimeout(addTaskAdSearchTimerRef.current);
-    if (q.length < 2) { setAddTaskAdResults([]); return; }
-    setAddTaskAdSearching(true);
-    addTaskAdSearchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-        setAddTaskAdResults((await res.json()) || []);
-      } catch (e) { setAddTaskAdResults([]); }
-      finally { setAddTaskAdSearching(false); }
-    }, 400);
-  }, [token]);
 
   const startEditTask = (index: number) => {
     const items = JSON.parse(detailReunionData.liste_taches || '[]') as any[];
@@ -450,27 +434,16 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
 
           {/* Liste de tâches */}
           <div style={{marginBottom: '20px'}}>
-            <h4 style={{margin: '0 0 8px', fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em'}}>✅ Liste de tâches</h4>
-            <div style={{display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap'}}>
-              <input type="text" placeholder="Tâche..." style={{flex: '2', minWidth: '140px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px'}} value={newTask.tache} onChange={e => setNewTask(v => ({...v, tache: e.target.value}))} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (!newTask.tache.trim()) return; const items = JSON.parse(detailReunionData.liste_taches || '[]'); items.push({...newTask}); setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)})); setNewTask({ tache: '', responsable: '', responsable_username: '', echeance: '', statut: 'a_faire' }); setAddTaskAdResults([]); setTimeout(autoSave, 0); } }} />
-              <div style={{flex: '1', minWidth: '130px', position: 'relative'}}>
-                <input type="text" placeholder="Responsable (AD)..." style={{width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box'}} value={newTask.responsable} onChange={e => { setNewTask(v => ({...v, responsable: e.target.value, responsable_username: ''})); searchADForAddTask(e.target.value); }} />
-                {addTaskAdSearching && <span style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: '#64748b'}}>...</span>}
-                {addTaskAdResults.length > 0 && (
-                  <div style={{position: 'absolute', top: '100%', left: 0, right: 0, border: '1px solid #bfdbfe', borderRadius: '4px', background: 'white', maxHeight: '120px', overflowY: 'auto', zIndex: 20, boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}>
-                    {addTaskAdResults.map(u => (
-                      <div key={u.username} style={{padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px'}} onClick={() => { setNewTask(v => ({...v, responsable: u.displayName, responsable_username: u.username})); setAddTaskAdResults([]); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
-                        <div style={{fontWeight: '600'}}>{u.displayName}</div>
-                        <div style={{fontSize: '10px', color: '#64748b'}}>{u.email}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <input type="date" style={{flex: '1', minWidth: '120px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px'}} value={newTask.echeance} onChange={e => setNewTask(v => ({...v, echeance: e.target.value}))} />
-              <button onClick={() => { if (!newTask.tache.trim()) return; const items = JSON.parse(detailReunionData.liste_taches || '[]') as any[]; items.push({...newTask}); setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)})); setNewTask({ tache: '', responsable: '', responsable_username: '', echeance: '', statut: 'a_faire' }); setAddTaskAdResults([]); setTimeout(autoSave, 0); }} style={{padding: '8px 14px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', whiteSpace: 'nowrap'}}>+ Ajouter</button>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
+              <h4 style={{margin: 0, fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em'}}>✅ Tâches</h4>
+              <button onClick={() => setShowAddTaskModal(true)} style={{padding: '5px 12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 4}}>
+                <Plus size={13} /> Ajouter une tâche
+              </button>
             </div>
-            {(JSON.parse(detailReunionData.liste_taches || '[]') as any[]).length === 0 ? <p style={{color: '#94a3b8', fontSize: '12px', fontStyle: 'italic', margin: '4px 0'}}>Aucune tâche ajoutée</p> : (
+            {(JSON.parse(detailReunionData.liste_taches || '[]') as any[]).length === 0 && hubTasks.length === 0 && (
+              <p style={{color: '#94a3b8', fontSize: '12px', fontStyle: 'italic', margin: '4px 0'}}>Aucune tâche — cliquez sur "Ajouter une tâche" pour en créer une</p>
+            )}
+            {(JSON.parse(detailReunionData.liste_taches || '[]') as any[]).length > 0 && (
               <div style={{border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden'}}>
                 {(JSON.parse(detailReunionData.liste_taches || '[]') as any[]).map((t, i) => (
                   editingTaskIndex === i ? (
@@ -519,30 +492,16 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                 ))}
               </div>
             )}
-          </div>
-
-          {/* ── Tâches hub (API unifiée + équipe) ─────────────────────────── */}
-          <div style={{marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #e2e8f0'}}>
-            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px'}}>
-              <h4 style={{margin: 0, fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 6}}>
-                <Users size={13} /> Tâches hub / équipe ({hubTasks.length})
-              </h4>
-              <button onClick={() => setShowAddTaskModal(true)} style={{padding: '5px 12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 4}}>
-                <Plus size={13} /> Ajouter
-              </button>
-            </div>
-            {hubTasks.length === 0 ? (
-              <p style={{fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', margin: 0}}>Aucune tâche hub — utilisez "Ajouter" pour créer une tâche d'équipe liée à cette réunion</p>
-            ) : (
-              <div style={{border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden'}}>
+            {hubTasks.length > 0 && (
+              <div style={{marginTop: '8px', border: '1px solid #dbeafe', borderRadius: '8px', overflow: 'hidden'}}>
                 {hubTasks.map((t: any) => (
-                  <div key={t.id} style={{display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', fontSize: '12px', background: 'white'}}>
+                  <div key={t.id} style={{display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', fontSize: '12px', background: 'white', borderLeft: '3px solid #3b82f6'}}>
                     {t.is_team_task && <Users size={12} style={{color: '#2563eb', flexShrink: 0}} title="Tâche d'équipe" />}
                     <span style={{flex: 1, fontWeight: 600, color: '#1e293b'}}>{t.description}</span>
                     <span style={{fontSize: 11, color: '#64748b'}}>{t.username}</span>
                     {t.echeance && <span style={{fontSize: 10, color: '#94a3b8'}}>{new Date(t.echeance).toLocaleDateString('fr-FR')}</span>}
-                    <span style={{padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: t.statut === 'terminé' ? '#dcfce7' : t.statut === 'en_cours' ? '#dbeafe' : '#f1f5f9', color: t.statut === 'terminé' ? '#16a34a' : t.statut === 'en_cours' ? '#1d4ed8' : '#64748b'}}>
-                      {t.statut === 'terminé' ? 'Terminé' : t.statut === 'en_cours' ? 'En cours' : 'À faire'}
+                    <span style={{padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: t.statut === 'terminé' || t.statut === 'terminee' ? '#dcfce7' : t.statut === 'en_cours' ? '#dbeafe' : '#f1f5f9', color: t.statut === 'terminé' || t.statut === 'terminee' ? '#16a34a' : t.statut === 'en_cours' ? '#1d4ed8' : '#64748b'}}>
+                      {t.statut === 'terminé' || t.statut === 'terminee' ? 'Terminée' : t.statut === 'en_cours' ? 'En cours' : 'À faire'}
                     </span>
                   </div>
                 ))}

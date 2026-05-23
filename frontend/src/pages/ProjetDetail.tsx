@@ -2283,7 +2283,7 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
         </button>
       </div>
 
-      {loading ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Chargement...</p> : tasks.length === 0 ? (
+      {loading ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Chargement...</p> : tasks.length === 0 && hubTasks.length === 0 ? (
         <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Aucune tâche pour ce projet</p>
       ) : (
         <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
@@ -2390,6 +2390,20 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                 }
                 return rows;
               })}
+              {hubTasks.map((t: any) => (
+                <tr key={`hub_${t.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: '#f0f9ff', borderLeft: '3px solid #3b82f6' }}>
+                  <td style={{ padding: '10px 12px', fontWeight: '600', color: '#1e293b' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {t.is_team_task && <Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} title="Tâche d'équipe" />}
+                      {t.description}
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#475569' }}>{t.username || '—'}</td>
+                  <td style={{ padding: '10px 12px', color: '#64748b' }}>{t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
+                  <td style={{ padding: '10px 12px' }}>{statusBadge(t.statut || 'a_faire')}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>—</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -2398,28 +2412,8 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
         {tasks.filter(t => t.source === 'reunion').length > 0 && <span style={{ marginRight: '16px' }}>📅 {tasks.filter(t => t.source === 'reunion').length} tâche(s) issue(s) des réunions</span>}
         {tasks.filter(t => t.source === 'standalone').length > 0 && <span style={{ marginRight: '16px' }}>📝 {tasks.filter(t => t.source === 'standalone').length} tâche(s) ajoutée(s) manuellement</span>}
         {tasks.filter(t => t.source === 'revue').length > 0 && <span style={{ marginRight: '16px' }}>📋 {tasks.filter(t => t.source === 'revue').length} tâche(s) issue(s) des revues</span>}
-        {hubTasks.length > 0 && <span><Users size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{hubTasks.length} tâche(s) hub (incl. équipe)</span>}
+        {hubTasks.length > 0 && <span><Users size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{hubTasks.length} tâche(s) hub / équipe</span>}
       </div>
-
-      {/* Hub tasks (créées via l'API unifiée) */}
-      {hubTasks.length > 0 && (
-        <div style={{ marginTop: '16px' }}>
-          <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Users size={12} /> Tâches d'équipe / hub
-          </div>
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-            {hubTasks.map((t: any) => (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', fontSize: '13px', background: 'white' }}>
-                {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
-                <span style={{ flex: 1, fontWeight: 600, color: '#1e293b' }}>{t.description}</span>
-                <span style={{ fontSize: 11, color: '#64748b' }}>{t.username}</span>
-                {t.echeance && <span style={{ fontSize: 11, color: '#94a3b8' }}>{new Date(t.echeance).toLocaleDateString('fr-FR')}</span>}
-                {statusBadge(t.statut || 'a_faire')}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* AddTaskModal */}
       {showAddModal && (
