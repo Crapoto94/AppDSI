@@ -6,10 +6,10 @@ const setSendMail = (fn) => { sendMailFn = fn; };
 async function getUserDisplayName(username) {
     try {
         const r = await pool.query(
-            'SELECT "displayName" FROM hub.users WHERE LOWER(username) = LOWER($1)',
+            'SELECT displayname FROM hub.users WHERE LOWER(username) = LOWER($1)',
             [username]
         );
-        return r.rows[0]?.displayName || username;
+        return r.rows[0]?.displayname || username;
     } catch (e) {
         return username;
     }
@@ -339,14 +339,14 @@ module.exports = {
         const username = req.user.username;
         try {
             const userRow = await pool.query(
-                'SELECT email, "displayName" FROM hub.users WHERE LOWER(username) = LOWER($1)',
+                'SELECT email, displayname FROM hub.users WHERE LOWER(username) = LOWER($1)',
                 [username]
             );
             const user = userRow.rows[0];
             if (!user?.email) return res.status(400).json({ error: 'Aucune adresse email trouvée pour cet utilisateur' });
             if (!sendMailFn) return res.status(503).json({ error: 'Service mail non configuré' });
 
-            const html = await buildTasksEmail(username, user.displayName || username);
+            const html = await buildTasksEmail(username, user.displayname || username);
             await sendMailFn(user.email, '✅ [Test] Vos tâches du jour — DSI Hub', html);
             res.json({ ok: true, to: user.email });
         } catch (error) {
@@ -361,12 +361,12 @@ module.exports = {
         if (!sendMailFn) return;
         try {
             const { rows: users } = await pool.query(
-                `SELECT username, email, "displayName" FROM hub.users
+                `SELECT username, email, displayname FROM hub.users
                  WHERE task_alert_email = TRUE AND email IS NOT NULL AND email != ''`
             );
             for (const user of users) {
                 try {
-                    const html = await buildTasksEmail(user.username, user.displayName || user.username);
+                    const html = await buildTasksEmail(user.username, user.displayname || user.username);
                     if (html) await sendMailFn(user.email, '✅ Vos tâches du jour — DSI Hub', html);
                 } catch (e) {
                     console.error(`[tasks-alert] Erreur envoi à ${user.username}:`, e.message);
