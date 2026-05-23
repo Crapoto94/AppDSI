@@ -23,105 +23,128 @@ module.exports = {
             const dn = displayName.toLowerCase();
 
             const { rows } = await pool.query(`
-                SELECT
-                    'personal'    AS source,
-                    ut.id,
-                    NULL::integer AS source_id,
-                    'Tâche personnelle' AS source_title,
-                    ut.description,
-                    ut.echeance::text AS echeance,
-                    ut.statut,
-                    ut.username   AS responsable,
-                    ut.created_at
-                FROM hub.user_tasks ut
-                WHERE ut.statut != 'terminé'
-                  AND LOWER(ut.username) = $1
+                SELECT * FROM (
+                    SELECT
+                        'personal'    AS source,
+                        ut.id,
+                        NULL::integer AS source_id,
+                        'Tâche personnelle' AS source_title,
+                        ut.description,
+                        ut.echeance::text AS echeance,
+                        ut.statut,
+                        ut.username   AS responsable,
+                        ut.created_at
+                    FROM hub.user_tasks ut
+                    WHERE ut.statut != 'terminé'
+                      AND LOWER(ut.username) = $1
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT
-                    'transcript'  AS source,
-                    t.id,
-                    t.meeting_id  AS source_id,
-                    m.title       AS source_title,
-                    t.description,
-                    t.deadline    AS echeance,
-                    CASE WHEN t.is_completed = 1 THEN 'terminé' ELSE 'a_faire' END AS statut,
-                    t.assignee    AS responsable,
-                    t.created_at
-                FROM transcript.tasks t
-                JOIN transcript.meetings m ON t.meeting_id = m.id
-                WHERE t.is_completed = 0
-                  AND (LOWER(t.assignee) = $1 OR LOWER(t.assignee) = $2)
+                    SELECT
+                        'transcript'  AS source,
+                        t.id,
+                        t.meeting_id  AS source_id,
+                        m.title       AS source_title,
+                        t.description,
+                        t.deadline    AS echeance,
+                        CASE WHEN t.is_completed = 1 THEN 'terminé' ELSE 'a_faire' END AS statut,
+                        t.assignee    AS responsable,
+                        t.created_at
+                    FROM transcript.tasks t
+                    JOIN transcript.meetings m ON t.meeting_id = m.id
+                    WHERE t.is_completed = 0
+                      AND (LOWER(t.assignee) = $1 OR LOWER(t.assignee) = $2)
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT
-                    'projet'               AS source,
-                    pt.id,
-                    pt.projet_id           AS source_id,
-                    p.titre                AS source_title,
-                    pt.titre               AS description,
-                    pt.date_fin::text      AS echeance,
-                    pt.statut,
-                    pt.responsable_username AS responsable,
-                    pt.date_creation       AS created_at
-                FROM projets.projet_taches pt
-                JOIN projets.projets p ON pt.projet_id = p.id
-                WHERE pt.statut != 'terminé'
-                  AND LOWER(pt.responsable_username) = $1
+                    SELECT
+                        'projet'               AS source,
+                        pt.id,
+                        pt.projet_id           AS source_id,
+                        p.titre                AS source_title,
+                        pt.titre               AS description,
+                        pt.date_fin::text      AS echeance,
+                        pt.statut,
+                        pt.responsable_username AS responsable,
+                        pt.date_creation       AS created_at
+                    FROM projets.projet_taches pt
+                    JOIN projets.projets p ON pt.projet_id = p.id
+                    WHERE pt.statut != 'terminé'
+                      AND LOWER(pt.responsable_username) = $1
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT
-                    'projet_standalone'     AS source,
-                    pts.id,
-                    pts.projet_id           AS source_id,
-                    p.titre                 AS source_title,
-                    pts.tache               AS description,
-                    pts.echeance::text      AS echeance,
-                    pts.statut,
-                    pts.responsable,
-                    pts.created_at
-                FROM projets.projet_taches_standalone pts
-                JOIN projets.projets p ON pts.projet_id = p.id
-                WHERE pts.statut != 'terminé'
-                  AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2)
+                    SELECT
+                        'projet_standalone'     AS source,
+                        pts.id,
+                        pts.projet_id           AS source_id,
+                        p.titre                 AS source_title,
+                        pts.tache               AS description,
+                        pts.echeance::text      AS echeance,
+                        pts.statut,
+                        pts.responsable,
+                        pts.created_at
+                    FROM projets.projet_taches_standalone pts
+                    JOIN projets.projets p ON pts.projet_id = p.id
+                    WHERE pts.statut != 'terminé'
+                      AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2)
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT
-                    'rencontre'            AS source,
-                    rs.id,
-                    rs.rencontre_id        AS source_id,
-                    rb.titre               AS source_title,
-                    rs.action_item         AS description,
-                    rs.date_echeance::text AS echeance,
-                    rs.statut,
-                    rs.responsable,
-                    rs.updated_at          AS created_at
-                FROM hub_rencontres.rencontres_suivi rs
-                JOIN hub_rencontres.rencontres_budgetaires rb ON rs.rencontre_id = rb.id
-                WHERE rs.statut NOT IN ('terminé', 'done')
-                  AND (LOWER(rs.responsable) = $1 OR LOWER(rs.responsable) = $2)
+                    SELECT
+                        'rencontre'            AS source,
+                        rs.id,
+                        rs.rencontre_id        AS source_id,
+                        rb.titre               AS source_title,
+                        rs.action_item         AS description,
+                        rs.date_echeance::text AS echeance,
+                        rs.statut,
+                        rs.responsable,
+                        rs.updated_at          AS created_at
+                    FROM hub_rencontres.rencontres_suivi rs
+                    JOIN hub_rencontres.rencontres_budgetaires rb ON rs.rencontre_id = rb.id
+                    WHERE rs.statut NOT IN ('terminé', 'done')
+                      AND (LOWER(rs.responsable) = $1 OR LOWER(rs.responsable) = $2)
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT
-                    'revue'              AS source,
-                    rt.id,
-                    rt.revue_id          AS source_id,
-                    rv.titre             AS source_title,
-                    rt.titre             AS description,
-                    rt.echeance::text    AS echeance,
-                    rt.statut,
-                    rt.responsable,
-                    rt.created_at
-                FROM hub_rencontres.revue_taches rt
-                JOIN hub_rencontres.revues rv ON rt.revue_id = rv.id
-                WHERE rt.statut != 'terminé'
-                  AND (LOWER(rt.responsable) = $1 OR LOWER(rt.responsable) = $2)
+                    SELECT
+                        'revue'              AS source,
+                        rt.id,
+                        rt.revue_id          AS source_id,
+                        rv.titre             AS source_title,
+                        rt.titre             AS description,
+                        rt.echeance::text    AS echeance,
+                        rt.statut,
+                        rt.responsable,
+                        rt.created_at
+                    FROM hub_rencontres.revue_taches rt
+                    JOIN hub_rencontres.revues rv ON rt.revue_id = rv.id
+                    WHERE rt.statut != 'terminé'
+                      AND (LOWER(rt.responsable) = $1 OR LOWER(rt.responsable) = $2)
 
+                    UNION ALL
+
+                    SELECT
+                        'reunion'            AS source,
+                        (r.id * 10000 + ord.ordinality)::integer AS id,
+                        r.id                 AS source_id,
+                        r.titre              AS source_title,
+                        (item->>'tache')     AS description,
+                        (item->>'echeance')  AS echeance,
+                        COALESCE(item->>'statut', 'a_faire') AS statut,
+                        (item->>'responsable') AS responsable,
+                        r.created_at
+                    FROM hub_rencontres.rencontres_reunions r
+                    CROSS JOIN LATERAL json_array_elements(
+                        CASE WHEN r.liste_taches IS NOT NULL AND r.liste_taches NOT IN ('', '[]')
+                             THEN r.liste_taches::json ELSE '[]'::json END
+                    ) WITH ORDINALITY AS ord(item, ordinality)
+                    WHERE COALESCE(item->>'statut', 'a_faire') NOT IN ('terminee', 'terminé')
+                      AND (LOWER(item->>'responsable') = $1
+                           OR LOWER(item->>'responsable') = $2
+                           OR LOWER(item->>'responsable_username') = $1)
+                ) q
                 ORDER BY
                     CASE WHEN echeance IS NOT NULL AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
                     echeance ASC NULLS LAST,

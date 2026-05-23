@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 
 interface Task {
-  source: 'personal' | 'transcript' | 'projet' | 'projet_standalone' | 'rencontre' | 'revue';
+  source: 'personal' | 'transcript' | 'projet' | 'projet_standalone' | 'rencontre' | 'revue' | 'reunion';
   id: number;
   source_id: number | null;
   source_title: string;
@@ -22,11 +22,12 @@ interface Task {
 
 const SOURCE_META: Record<Task['source'], { label: string; icon: React.ReactNode; color: string; bg: string; urlFn: (id: number | null) => string | null }> = {
   personal:          { label: 'Personnel',    icon: <CheckSquare size={12} />, color: '#475569', bg: '#f1f5f9', urlFn: () => null },
-  transcript:        { label: 'Transcript',   icon: <MessageSquare size={12} />, color: '#7c3aed', bg: '#ede9fe', urlFn: (id) => `/transcriptmanager` },
+  transcript:        { label: 'Transcript',   icon: <MessageSquare size={12} />, color: '#7c3aed', bg: '#ede9fe', urlFn: (_id) => `/transcriptmanager` },
   projet:            { label: 'Projet',       icon: <FolderKanban size={12} />, color: '#2563eb', bg: '#dbeafe', urlFn: (id) => id ? `/projets/${id}` : null },
   projet_standalone: { label: 'Projet',       icon: <FolderKanban size={12} />, color: '#2563eb', bg: '#dbeafe', urlFn: (id) => id ? `/projets/${id}` : null },
-  rencontre:         { label: 'Réunion',      icon: <Users size={12} />,        color: '#d97706', bg: '#fef3c7', urlFn: () => `/rencontres-budgetaires` },
+  rencontre:         { label: 'Réunion BUD',  icon: <Users size={12} />,        color: '#d97706', bg: '#fef3c7', urlFn: () => `/rencontres-budgetaires` },
   revue:             { label: 'Revue',        icon: <RotateCcw size={12} />,    color: '#059669', bg: '#d1fae5', urlFn: () => `/revue-de-projets` },
+  reunion:           { label: 'Réunion',      icon: <Users size={12} />,        color: '#0891b2', bg: '#cffafe', urlFn: () => `/mes-reunions` },
 };
 
 const STATUT_OPTIONS = [
@@ -139,8 +140,10 @@ const MesTaches: React.FC = () => {
   };
 
   const filtered = tasks.filter(t => {
-    if (filterSource !== 'all' && t.source !== filterSource &&
-        !(filterSource === 'projet' && t.source === 'projet_standalone')) return false;
+    if (filterSource !== 'all') {
+      const isProjet = filterSource === 'projet' && (t.source === 'projet' || t.source === 'projet_standalone');
+      if (!isProjet && t.source !== filterSource) return false;
+    }
     if (filterStatut === 'pending' && t.statut === 'terminé') return false;
     if (filterStatut !== 'pending' && filterStatut !== 'all' && t.statut !== filterStatut) return false;
     return true;
@@ -153,7 +156,7 @@ const MesTaches: React.FC = () => {
   const sources: { v: string; l: string }[] = [
     { v: 'all', l: 'Toutes' }, { v: 'personal', l: 'Personnelles' },
     { v: 'transcript', l: 'Transcripts' }, { v: 'projet', l: 'Projets' },
-    { v: 'rencontre', l: 'Réunions' }, { v: 'revue', l: 'Revues' },
+    { v: 'reunion', l: 'Réunions' }, { v: 'rencontre', l: 'Réunions BUD' }, { v: 'revue', l: 'Revues' },
   ];
 
   return (
