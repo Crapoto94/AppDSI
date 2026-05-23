@@ -2173,6 +2173,15 @@ async function setupPgDb() {
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_team ON hub.user_tasks(team_group_id) WHERE team_group_id IS NOT NULL`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS todo_task_id TEXT`); } catch (e) {}
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_todo ON hub.user_tasks(todo_task_id) WHERE todo_task_id IS NOT NULL`); } catch (e) {}
+    try { await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.todo_reunion_task_map (
+            reunion_id  INTEGER NOT NULL,
+            task_idx    INTEGER NOT NULL,
+            username    TEXT    NOT NULL,
+            todo_task_id TEXT   NOT NULL,
+            PRIMARY KEY (reunion_id, task_idx, username)
+        )
+    `); } catch (e) {}
 
     // responsable_username sur les tâches standalone projet (pour matching fiable par username)
     try { await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS responsable_username TEXT DEFAULT ''`); } catch (e) {}

@@ -8,14 +8,27 @@ const setSendMail = (fn) => { sendMailFn = fn; };
 
 // ─── MS TODO HELPERS ─────────────────────────────────────────────────────────
 
-/** Fetch all tasks from a Todo list (auto-paginate, expand linkedResources) */
+/** Fetch all tasks from a Todo list (auto-paginate; tries $expand=linkedResources, falls back without) */
 async function fetchAllTodoTasks(axios, headers, email, listId) {
+    const BASE = `https://graph.microsoft.com/v1.0/users/${email}/todo/lists/${listId}/tasks`;
     const tasks = [];
-    let url = `https://graph.microsoft.com/v1.0/users/${email}/todo/lists/${listId}/tasks?$expand=linkedResources&$top=100`;
-    while (url) {
-        const res = await axios.get(url, { headers });
-        tasks.push(...(res.data.value || []));
-        url = res.data['@odata.nextLink'] || null;
+    try {
+        // Try with $expand first
+        let url = `${BASE}?$expand=linkedResources&$top=100`;
+        while (url) {
+            const res = await axios.get(url, { headers });
+            tasks.push(...(res.data.value || []));
+            url = res.data['@odata.nextLink'] || null;
+        }
+    } catch {
+        // Fallback: fetch without $expand (linkedResources will be missing)
+        tasks.length = 0;
+        let url = `${BASE}?$top=100`;
+        while (url) {
+            const res = await axios.get(url, { headers });
+            tasks.push(...(res.data.value || []));
+            url = res.data['@odata.nextLink'] || null;
+        }
     }
     return tasks;
 }
@@ -680,18 +693,15 @@ module.exports = {
                 return res.status(503).json({ error: 'Impossible d\'obtenir un token Azure AD. Vérifiez la configuration.' });
             }
             const graphHeaders = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
-            const BASE = `https://graph.microsoft.com/v1.0/users/${user.email}/todo/lists`;
+            const LISTS_BASE = `https://graph.microsoft.com/v1.0/users/${user.email}/todo/lists`;
 
             // ── 4. Find or create "DSI Hub" list ─────────────────────────────
             let listId;
             try {
-                const lists = (await axios.get(BASE, { headers: graphHeaders })).data.value || [];
+                const lists = (await axios.get(LISTS_BASE, { headers: graphHeaders })).data.value || [];
                 const found = lists.find(l => l.displayName === 'DSI Hub');
-                if (found) {
-                    listId = found.id;
-                } else {
-                    listId = (await axios.post(BASE, { displayName: 'DSI Hub' }, { headers: graphHeaders })).data.id;
-                }
+                listId = found ? found.id
+                    : (await axios.post(LISTS_BASE, { displayName: 'DSI Hub' }, { headers: graphHeaders })).data.id;
             } catch (e) {
                 const msg = e.response?.data?.error?.message || e.message;
                 if (msg.includes('Authorization_RequestDenied') || msg.includes('Tasks.ReadWrite')) {
@@ -699,14 +709,12 @@ module.exports = {
                 }
                 return res.status(502).json({ error: `Erreur Microsoft Graph: ${msg}` });
             }
-            const TASKS_BASE = `${BASE}/${listId}/tasks`;
+            const TASKS_BASE = `${LISTS_BASE}/${listId}/tasks`;
 
-            // ── 5. Fetch all current Todo tasks with linkedResources ──────────
+            // ── 5. Fetch ALL current Todo tasks (with $expand fallback) ───────
             const todoTasks = await fetchAllTodoTasks(axios, graphHeaders, user.email, listId);
-            // Map: externalId -> todoTask  (for our managed tasks)
-            const byExternalId = {};
-            // Map: todoId -> todoTask  (for quick lookup)
-            const byTodoId = {};
+            const byTodoId = {};      // todoId -> todoTask
+            const byExternalId = {}; // externalId -> todoTask  (if $expand worked)
             for (const t of todoTasks) {
                 byTodoId[t.id] = t;
                 const lr = (t.linkedResources || []).find(r => r.applicationName === 'DSI Hub');
@@ -716,17 +724,20 @@ module.exports = {
             let pushed = 0, updated = 0, imported = 0;
             const un = username.toLowerCase();
 
-            // ── 6. PUSH: hub.user_tasks → Todo ───────────────────────────────
+            // ── 6. Load hub tasks + pre-built set of known todo IDs ───────────
             const { rows: hubTasks } = await pool.query(`
                 SELECT id, description, echeance, statut, context_source, context_title, todo_task_id
-                FROM hub.user_tasks
-                WHERE LOWER(username) = $1 AND statut NOT IN ('terminé','terminee')
+                FROM hub.user_tasks WHERE LOWER(username) = $1
             `, [un]);
+            // knownTodoIds: todo IDs already tracked in hub (prevents re-import)
+            const knownTodoIds = new Set(hubTasks.map(t => t.todo_task_id).filter(Boolean));
 
+            // ── 7. PUSH: hub tasks (non-terminées) → Todo ────────────────────
             for (const task of hubTasks) {
+                if (task.statut === 'terminé' || task.statut === 'terminee') continue;
                 const externalId = `hub_${task.id}`;
 
-                // Build body: include hub notes
+                // Build body from hub notes
                 const { rows: notes } = await pool.query(
                     `SELECT content, type, filename FROM hub.task_notes WHERE source='personal' AND task_id=$1 ORDER BY created_at`,
                     [String(task.id)]
@@ -734,20 +745,19 @@ module.exports = {
                 const bodyLines = [];
                 if (task.context_title) bodyLines.push(`📌 Contexte : ${task.context_title}`);
                 for (const n of notes) {
-                    if (n.type === 'file') bodyLines.push(`📎 ${n.filename || n.content}`);
-                    else bodyLines.push(`💬 ${n.content}`);
+                    bodyLines.push(n.type === 'file' ? `📎 ${n.filename || n.content}` : `💬 ${n.content}`);
                 }
-
                 const payload = buildTodoPayload(task.description, task.statut, task.echeance, bodyLines.join('\n'));
 
-                // Find existing Todo task (by stored todo_task_id, then by linkedResource)
                 const existing = task.todo_task_id ? byTodoId[task.todo_task_id] : byExternalId[externalId];
-
                 if (existing) {
-                    await safeCall(() => axios.patch(`${TASKS_BASE}/${existing.id}`, payload, { headers: graphHeaders }));
-                    // Save todo_task_id if missing
+                    // *** FIX: never reset a task the user completed in Todo ***
+                    if (existing.status !== 'completed') {
+                        await safeCall(() => axios.patch(`${TASKS_BASE}/${existing.id}`, payload, { headers: graphHeaders }));
+                    }
                     if (!task.todo_task_id) {
                         await pool.query('UPDATE hub.user_tasks SET todo_task_id=$1 WHERE id=$2', [existing.id, task.id]);
+                        knownTodoIds.add(existing.id);
                     }
                     updated++;
                 } else {
@@ -758,138 +768,173 @@ module.exports = {
                             { headers: graphHeaders }
                         ));
                         await pool.query('UPDATE hub.user_tasks SET todo_task_id=$1 WHERE id=$2', [created.id, task.id]);
+                        knownTodoIds.add(created.id);
                         pushed++;
-                    } catch { /* skip */ }
+                    } catch { /* skip single task error */ }
                 }
             }
 
-            // ── 7. PUSH: reunion tasks (liste_taches) → Todo ─────────────────
+            // ── 8. PUSH: reunion tasks → Todo ────────────────────────────────
             const { rows: reunions } = await pool.query(`
-                SELECT id, titre, liste_taches
-                FROM hub_rencontres.rencontres_reunions
+                SELECT id, titre, liste_taches FROM hub_rencontres.rencontres_reunions
                 WHERE liste_taches IS NOT NULL AND liste_taches NOT IN ('', '[]')
             `);
+            // Load reunion→todo mapping table
+            let reunionMap = {}; // "reunionId_idx" -> todoTaskId
+            try {
+                const { rows: rm } = await pool.query(
+                    `SELECT reunion_id, task_idx, todo_task_id FROM hub.todo_reunion_task_map WHERE LOWER(username)=$1`,
+                    [un]
+                );
+                for (const r of rm) {
+                    reunionMap[`${r.reunion_id}_${r.task_idx}`] = r.todo_task_id;
+                    knownTodoIds.add(r.todo_task_id);
+                }
+            } catch { /* table not yet created – will be after restart */ }
+
             for (const reunion of reunions) {
                 let taches;
                 try { taches = JSON.parse(reunion.liste_taches || '[]'); } catch { continue; }
                 for (let idx = 0; idx < taches.length; idx++) {
                     const t = taches[idx];
-                    const assignedToMe = t.responsable_username && t.responsable_username.toLowerCase() === un;
-                    if (!assignedToMe) continue;
+                    if (!t.responsable_username || t.responsable_username.toLowerCase() !== un) continue;
                     if (t.statut === 'terminee' || t.statut === 'terminé') continue;
 
-                    const externalId = `reunion_${reunion.id}_${idx}`;
+                    const mapKey = `${reunion.id}_${idx}`;
+                    const existingTodoId = reunionMap[mapKey] || byExternalId[`reunion_${reunion.id}_${idx}`]?.id;
                     const title = `[${reunion.titre || `Réunion #${reunion.id}`}] ${t.tache}`;
-                    const bodyContent = `📋 Réunion : ${reunion.titre || `#${reunion.id}`}`;
-                    const payload = buildTodoPayload(title, t.statut || 'a_faire', t.echeance, bodyContent);
+                    const payload = buildTodoPayload(title, t.statut || 'a_faire', t.echeance,
+                        `📋 Réunion : ${reunion.titre || `#${reunion.id}`}`);
 
-                    if (byExternalId[externalId]) {
-                        await safeCall(() => axios.patch(`${TASKS_BASE}/${byExternalId[externalId].id}`, payload, { headers: graphHeaders }));
+                    if (existingTodoId && byTodoId[existingTodoId]) {
+                        if (byTodoId[existingTodoId].status !== 'completed') {
+                            await safeCall(() => axios.patch(`${TASKS_BASE}/${existingTodoId}`, payload, { headers: graphHeaders }));
+                        }
                         updated++;
                     } else {
                         try {
                             const created = (await axios.post(TASKS_BASE, payload, { headers: graphHeaders })).data;
                             await safeCall(() => axios.post(`${TASKS_BASE}/${created.id}/linkedResources`,
-                                { applicationName: 'DSI Hub', displayName: title, externalId },
+                                { applicationName: 'DSI Hub', displayName: title, externalId: `reunion_${reunion.id}_${idx}` },
                                 { headers: graphHeaders }
                             ));
+                            await safeCall(() => pool.query(
+                                `INSERT INTO hub.todo_reunion_task_map (reunion_id, task_idx, username, todo_task_id)
+                                 VALUES ($1,$2,$3,$4) ON CONFLICT (reunion_id,task_idx,username) DO UPDATE SET todo_task_id=$4`,
+                                [reunion.id, idx, un, created.id]
+                            ));
+                            knownTodoIds.add(created.id);
                             pushed++;
                         } catch { /* skip */ }
                     }
                 }
             }
 
-            // ── 8. PULL: Todo completed → hub terminé ────────────────────────
+            // ── 9. SYNC STATUS BACK: Todo completed → hub terminé ────────────
+            // Hub tasks: use todo_task_id directly (works even without $expand)
+            for (const task of hubTasks) {
+                if (!task.todo_task_id) continue;
+                const todoTask = byTodoId[task.todo_task_id];
+                if (!todoTask || todoTask.status !== 'completed') continue;
+                await pool.query(
+                    `UPDATE hub.user_tasks SET statut='terminé' WHERE id=$1 AND LOWER(username)=$2 AND statut NOT IN ('terminé','terminee')`,
+                    [task.id, un]
+                );
+            }
+            // Reunion tasks: use mapping table
+            for (const [mapKey, todoId] of Object.entries(reunionMap)) {
+                const todoTask = byTodoId[todoId];
+                if (!todoTask || todoTask.status !== 'completed') continue;
+                const [reunionId, taskIdx] = mapKey.split('_').map(Number);
+                try {
+                    const r = await pool.query('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id=$1', [reunionId]);
+                    if (!r.rows[0]) continue;
+                    const taches = JSON.parse(r.rows[0].liste_taches || '[]');
+                    if (taches[taskIdx] && taches[taskIdx].statut !== 'terminee') {
+                        taches[taskIdx].statut = 'terminee';
+                        await pool.query('UPDATE hub_rencontres.rencontres_reunions SET liste_taches=$1 WHERE id=$2',
+                            [JSON.stringify(taches), reunionId]);
+                    }
+                } catch { /* ignore */ }
+            }
+            // Also handle via byExternalId for reunion tasks not yet in mapping table
             for (const [externalId, todoTask] of Object.entries(byExternalId)) {
-                if (todoTask.status !== 'completed') continue;
-
-                if (externalId.startsWith('hub_')) {
-                    const taskId = parseInt(externalId.replace('hub_', ''), 10);
-                    if (!isNaN(taskId)) {
-                        await pool.query(
-                            `UPDATE hub.user_tasks SET statut='terminé' WHERE id=$1 AND LOWER(username)=$2 AND statut NOT IN ('terminé','terminee')`,
-                            [taskId, un]
-                        );
+                if (!externalId.startsWith('reunion_') || todoTask.status !== 'completed') continue;
+                const parts = externalId.split('_');
+                const reunionId = parseInt(parts[1], 10), taskIdx = parseInt(parts[2], 10);
+                if (isNaN(reunionId) || isNaN(taskIdx)) continue;
+                try {
+                    const r = await pool.query('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id=$1', [reunionId]);
+                    if (!r.rows[0]) continue;
+                    const taches = JSON.parse(r.rows[0].liste_taches || '[]');
+                    if (taches[taskIdx] && taches[taskIdx].statut !== 'terminee') {
+                        taches[taskIdx].statut = 'terminee';
+                        await pool.query('UPDATE hub_rencontres.rencontres_reunions SET liste_taches=$1 WHERE id=$2',
+                            [JSON.stringify(taches), reunionId]);
                     }
-                } else if (externalId.startsWith('reunion_')) {
-                    const parts = externalId.split('_');
-                    const reunionId = parseInt(parts[1], 10);
-                    const taskIdx = parseInt(parts[2], 10);
-                    if (!isNaN(reunionId) && !isNaN(taskIdx)) {
-                        const r = await pool.query('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id=$1', [reunionId]);
-                        if (r.rows[0]) {
-                            try {
-                                const taches = JSON.parse(r.rows[0].liste_taches || '[]');
-                                if (taches[taskIdx] && taches[taskIdx].statut !== 'terminee') {
-                                    taches[taskIdx].statut = 'terminee';
-                                    await pool.query('UPDATE hub_rencontres.rencontres_reunions SET liste_taches=$1 WHERE id=$2',
-                                        [JSON.stringify(taches), reunionId]);
-                                }
-                            } catch { /* ignore */ }
-                        }
-                    }
-                }
+                } catch { /* ignore */ }
             }
 
-            // ── 9. PULL: Sync Todo body modifications → hub notes ─────────────
-            // For each managed hub task, if the Todo body has user-written lines, add as note
+            // ── 10. SYNC NOTES: user-written Todo body → hub note ────────────
             for (const task of hubTasks) {
                 if (!task.todo_task_id) continue;
                 const todoTask = byTodoId[task.todo_task_id];
                 if (!todoTask) continue;
                 const rawBody = (todoTask.body?.content || '').trim();
                 if (!rawBody) continue;
-                // User-written lines: lines NOT starting with our known prefixes
-                const userLines = rawBody.split('\n')
-                    .map(l => l.trim())
+                const userLines = rawBody.split('\n').map(l => l.trim())
                     .filter(l => l && !l.startsWith('📌') && !l.startsWith('💬') && !l.startsWith('📎'));
                 if (userLines.length === 0) continue;
                 const userContent = userLines.join('\n');
-                // Avoid re-importing the same content
-                const exists = await pool.query(
-                    `SELECT id FROM hub.task_notes WHERE source='personal' AND task_id=$1 AND content=$2`,
-                    [String(task.id), userContent]
-                );
-                if (exists.rows.length === 0) {
-                    await pool.query(
-                        `INSERT INTO hub.task_notes (source, task_id, content, type, created_by) VALUES ('personal',$1,$2,'comment','todo_sync')`,
+                try {
+                    const ex = await pool.query(
+                        `SELECT id FROM hub.task_notes WHERE source='personal' AND task_id=$1 AND content=$2`,
                         [String(task.id), userContent]
                     );
-                }
+                    if (ex.rows.length === 0) {
+                        await pool.query(
+                            `INSERT INTO hub.task_notes (source,task_id,content,type,created_by) VALUES ('personal',$1,$2,'comment','todo_sync')`,
+                            [String(task.id), userContent]
+                        );
+                    }
+                } catch { /* skip */ }
             }
 
-            // ── 10. IMPORT: Unlinked Todo tasks → hub.user_tasks ─────────────
+            // ── 11. IMPORT: Todo tasks not yet in hub → hub.user_tasks ───────
             for (const todoTask of todoTasks) {
                 if (todoTask.status === 'completed') continue;
+                if (knownTodoIds.has(todoTask.id)) continue; // already tracked
                 const hasOurLink = (todoTask.linkedResources || []).some(r => r.applicationName === 'DSI Hub');
-                if (hasOurLink) continue;
-                // Check if already imported
-                const exists = await pool.query(
-                    'SELECT id FROM hub.user_tasks WHERE todo_task_id=$1 AND LOWER(username)=$2',
-                    [todoTask.id, un]
-                );
-                if (exists.rows.length > 0) continue;
-                // Import
-                const statut = todoTask.status === 'inProgress' ? 'en_cours' : 'a_faire';
-                const insertRes = await pool.query(`
-                    INSERT INTO hub.user_tasks (username, description, statut, context_source, todo_task_id, created_by, created_at)
-                    VALUES ($1,$2,$3,'todo',$4,'todo_sync',NOW()) RETURNING id
-                `, [username, todoTask.title, statut, todoTask.id]);
-                const newId = insertRes.rows[0].id;
-                // If body has content, store as note
-                const body = (todoTask.body?.content || '').trim();
-                if (body) {
-                    await pool.query(
-                        `INSERT INTO hub.task_notes (source, task_id, content, type, created_by) VALUES ('personal',$1,$2,'comment','todo_sync')`,
-                        [String(newId), body]
+                if (hasOurLink) continue; // managed but todo_task_id not set yet – skip for now
+                try {
+                    // Double-check DB in case knownTodoIds is stale
+                    const ex = await pool.query(
+                        'SELECT id FROM hub.user_tasks WHERE todo_task_id=$1 AND LOWER(username)=$2',
+                        [todoTask.id, un]
                     );
-                }
-                // Claim this task with a linkedResource
-                await safeCall(() => axios.post(`${TASKS_BASE}/${todoTask.id}/linkedResources`,
-                    { applicationName: 'DSI Hub', displayName: todoTask.title, externalId: `hub_${newId}` },
-                    { headers: graphHeaders }
-                ));
-                imported++;
+                    if (ex.rows.length > 0) { knownTodoIds.add(todoTask.id); continue; }
+
+                    const statut = todoTask.status === 'inProgress' ? 'en_cours' : 'a_faire';
+                    const ins = await pool.query(`
+                        INSERT INTO hub.user_tasks (username, description, statut, context_source, todo_task_id, created_by, created_at)
+                        VALUES ($1,$2,$3,'todo',$4,'todo_sync',NOW()) RETURNING id
+                    `, [username, todoTask.title, statut, todoTask.id]);
+                    const newId = ins.rows[0].id;
+                    knownTodoIds.add(todoTask.id);
+
+                    const body = (todoTask.body?.content || '').trim();
+                    if (body) {
+                        await pool.query(
+                            `INSERT INTO hub.task_notes (source,task_id,content,type,created_by) VALUES ('personal',$1,$2,'comment','todo_sync')`,
+                            [String(newId), body]
+                        );
+                    }
+                    await safeCall(() => axios.post(`${TASKS_BASE}/${todoTask.id}/linkedResources`,
+                        { applicationName: 'DSI Hub', displayName: todoTask.title, externalId: `hub_${newId}` },
+                        { headers: graphHeaders }
+                    ));
+                    imported++;
+                } catch { /* skip individual import errors */ }
             }
 
             res.json({ ok: true, pushed, updated, imported, email: user.email });
