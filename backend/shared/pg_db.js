@@ -2162,6 +2162,12 @@ async function setupPgDb() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_username ON hub.user_tasks(username)`);
 
+    // responsable_username sur les tâches standalone projet (pour matching fiable par username)
+    try { await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS responsable_username TEXT DEFAULT ''`); } catch (e) {}
+
+    // Préférence d'alerte mail quotidienne (Mes Tâches)
+    try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS task_alert_email BOOLEAN DEFAULT FALSE`); } catch (e) {}
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);

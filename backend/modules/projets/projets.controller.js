@@ -1172,12 +1172,12 @@ const getTachesAgregees = async (req, res) => {
 const ajouterTacheStandalone = async (req, res) => {
     try {
         const { id } = req.params;
-        const { tache, responsable, echeance, statut } = req.body;
+        const { tache, responsable, responsable_username, echeance, statut } = req.body;
         if (!tache || !tache.trim()) return res.status(400).json({ error: 'La tâche est obligatoire' });
 
         const inserted = await pgDb.get(
-            'INSERT INTO projet_taches_standalone (projet_id, tache, responsable, echeance, statut) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-            [id, tache.trim(), responsable || '', echeance || null, statut || 'a_faire']
+            'INSERT INTO projet_taches_standalone (projet_id, tache, responsable, responsable_username, echeance, statut) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+            [id, tache.trim(), responsable || '', responsable_username || '', echeance || null, statut || 'a_faire']
         );
         res.status(201).json(inserted);
     } catch (error) {
@@ -1188,14 +1188,14 @@ const ajouterTacheStandalone = async (req, res) => {
 const updateTacheStandalone = async (req, res) => {
     try {
         const { id, tid } = req.params;
-        const { tache, responsable, echeance, statut } = req.body;
+        const { tache, responsable, responsable_username, echeance, statut } = req.body;
 
         const existing = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1 AND projet_id = $2', [tid, id]);
         if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
 
         await pgDb.run(
-            'UPDATE projet_taches_standalone SET tache = $1, responsable = $2, echeance = $3, statut = $4 WHERE id = $5',
-            [tache || existing.tache, responsable !== undefined ? responsable : existing.responsable, echeance !== undefined ? echeance : existing.echeance, statut || existing.statut, tid]
+            'UPDATE projet_taches_standalone SET tache = $1, responsable = $2, responsable_username = $3, echeance = $4, statut = $5 WHERE id = $6',
+            [tache || existing.tache, responsable !== undefined ? responsable : existing.responsable, responsable_username !== undefined ? responsable_username : (existing.responsable_username || ''), echeance !== undefined ? echeance : existing.echeance, statut || existing.statut, tid]
         );
         const updated = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [tid]);
         res.json(updated);

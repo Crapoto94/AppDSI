@@ -2088,6 +2088,7 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [newTache, setNewTache] = useState('');
   const [newResponsable, setNewResponsable] = useState('');
+  const [newResponsableUsername, setNewResponsableUsername] = useState('');
   const [newEcheance, setNewEcheance] = useState('');
   const [adding, setAdding] = useState(false);
   const [adResults, setAdResults] = useState<ADUser[]>([]);
@@ -2238,9 +2239,9 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
       const r = await fetch(`/api/projets/${projetId}/taches-standalone`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tache: newTache, responsable: newResponsable, echeance: newEcheance || null, statut: 'a_faire' })
+        body: JSON.stringify({ tache: newTache, responsable: newResponsable, responsable_username: newResponsableUsername, echeance: newEcheance || null, statut: 'a_faire' })
       });
-      if (r.ok) { setNewTache(''); setNewResponsable(''); setNewEcheance(''); setAdResults([]); loadTasks(); }
+      if (r.ok) { setNewTache(''); setNewResponsable(''); setNewResponsableUsername(''); setNewEcheance(''); setAdResults([]); loadTasks(); }
       else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
     } catch (e) { alert('Erreur réseau'); }
     finally { setAdding(false); }
@@ -2289,12 +2290,12 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
           </div>
           <div style={{ flex: '1', minWidth: '120px', position: 'relative' }}>
             <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '4px' }}>RESPONSABLE</div>
-            <input type="text" placeholder="Responsable (recherche AD)..." style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} value={newResponsable} onChange={e => { setNewResponsable(e.target.value); searchAD(e.target.value); }} />
+            <input type="text" placeholder="Responsable (recherche AD)..." style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} value={newResponsable} onChange={e => { setNewResponsable(e.target.value); setNewResponsableUsername(''); searchAD(e.target.value); }} />
             {adSearching && <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: '#64748b' }}>...</span>}
             {adResults.length > 0 && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, border: '1px solid #bfdbfe', borderRadius: '4px', background: 'white', maxHeight: '120px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
                 {adResults.map(u => (
-                  <div key={u.username} style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }} onClick={() => { setNewResponsable(u.displayName); setAdResults([]); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
+                  <div key={u.username} style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }} onClick={() => { setNewResponsable(u.displayName); setNewResponsableUsername(u.username); setAdResults([]); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
                     <div style={{ fontWeight: '600' }}>{u.displayName}</div>
                     <div style={{ fontSize: '10px', color: '#64748b' }}>{u.email}</div>
                   </div>

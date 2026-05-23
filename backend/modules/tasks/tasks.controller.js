@@ -1,5 +1,8 @@
 const { pool } = require('../../shared/database');
 
+let sendMailFn = null;
+const setSendMail = (fn) => { sendMailFn = fn; };
+
 async function getUserDisplayName(username) {
     try {
         const r = await pool.query(
@@ -87,7 +90,8 @@ module.exports = {
                     FROM projets.projet_taches_standalone pts
                     JOIN projets.projets p ON pts.projet_id = p.id
                     WHERE pts.statut != 'terminé'
-                      AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2)
+                      AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2
+                           OR LOWER(COALESCE(pts.responsable_username, '')) = $1)
 
                     UNION ALL
 
@@ -192,7 +196,8 @@ module.exports = {
                     SELECT 1 FROM projets.projet_taches_standalone pts
                     WHERE pts.statut != 'terminé'
                       AND pts.echeance IS NOT NULL AND pts.echeance < CURRENT_DATE
-                      AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2)
+                      AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2
+                           OR LOWER(COALESCE(pts.responsable_username, '')) = $1)
 
                     UNION ALL
 
@@ -298,5 +303,168 @@ module.exports = {
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
+    },
+
+    // GET /api/tasks/alert-pref
+    async getAlertPref(req, res) {
+        const username = req.user.username;
+        try {
+            const r = await pool.query(
+                'SELECT task_alert_email FROM hub.users WHERE LOWER(username) = LOWER($1)',
+                [username]
+            );
+            res.json({ enabled: r.rows[0]?.task_alert_email === true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PATCH /api/tasks/alert-pref  { enabled: boolean }
+    async setAlertPref(req, res) {
+        const username = req.user.username;
+        const { enabled } = req.body;
+        try {
+            await pool.query(
+                'UPDATE hub.users SET task_alert_email = $1 WHERE LOWER(username) = LOWER($2)',
+                [!!enabled, username]
+            );
+            res.json({ ok: true, enabled: !!enabled });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // POST /api/tasks/alert-test
+    async sendTestAlert(req, res) {
+        const username = req.user.username;
+        try {
+            const userRow = await pool.query(
+                'SELECT email, "displayName" FROM hub.users WHERE LOWER(username) = LOWER($1)',
+                [username]
+            );
+            const user = userRow.rows[0];
+            if (!user?.email) return res.status(400).json({ error: 'Aucune adresse email trouvée pour cet utilisateur' });
+            if (!sendMailFn) return res.status(503).json({ error: 'Service mail non configuré' });
+
+            const html = await buildTasksEmail(username, user.displayName || username);
+            await sendMailFn(user.email, '✅ [Test] Vos tâches du jour — DSI Hub', html);
+            res.json({ ok: true, to: user.email });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    setSendMail,
+
+    // Called by the daily cron at 8am
+    async sendDailyAlerts() {
+        if (!sendMailFn) return;
+        try {
+            const { rows: users } = await pool.query(
+                `SELECT username, email, "displayName" FROM hub.users
+                 WHERE task_alert_email = TRUE AND email IS NOT NULL AND email != ''`
+            );
+            for (const user of users) {
+                try {
+                    const html = await buildTasksEmail(user.username, user.displayName || user.username);
+                    if (html) await sendMailFn(user.email, '✅ Vos tâches du jour — DSI Hub', html);
+                } catch (e) {
+                    console.error(`[tasks-alert] Erreur envoi à ${user.username}:`, e.message);
+                }
+            }
+            console.log(`[tasks-alert] Alertes envoyées à ${users.length} utilisateur(s)`);
+        } catch (e) {
+            console.error('[tasks-alert] Erreur cron:', e.message);
+        }
     }
 };
+
+// ─── helper : build the tasks email HTML ────────────────────────────────────
+async function buildTasksEmail(username, displayName) {
+    const dn = displayName.toLowerCase();
+    const un = username.toLowerCase();
+
+    const { rows } = await pool.query(`
+        SELECT * FROM (
+            SELECT 'Personnel' AS source, description, echeance::text, statut FROM hub.user_tasks
+            WHERE statut != 'terminé' AND LOWER(username) = $1
+            UNION ALL
+            SELECT 'Transcript', t.description, t.deadline, CASE WHEN t.is_completed=1 THEN 'terminé' ELSE 'a_faire' END
+            FROM transcript.tasks t
+            WHERE t.is_completed = 0 AND (LOWER(t.assignee) = $1 OR LOWER(t.assignee) = $2)
+            UNION ALL
+            SELECT 'Projet', pt.titre, pt.date_fin::text, pt.statut
+            FROM projets.projet_taches pt JOIN projets.projets p ON pt.projet_id = p.id
+            WHERE pt.statut != 'terminé' AND LOWER(pt.responsable_username) = $1
+            UNION ALL
+            SELECT 'Projet', pts.tache, pts.echeance::text, pts.statut
+            FROM projets.projet_taches_standalone pts
+            WHERE pts.statut != 'terminé'
+              AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2
+                   OR LOWER(COALESCE(pts.responsable_username,'')) = $1)
+            UNION ALL
+            SELECT 'Réunion BUD', rs.action_item, rs.date_echeance::text, rs.statut
+            FROM hub_rencontres.rencontres_suivi rs
+            WHERE rs.statut NOT IN ('terminé','done')
+              AND (LOWER(rs.responsable) = $1 OR LOWER(rs.responsable) = $2)
+            UNION ALL
+            SELECT 'Revue', rt.titre, rt.echeance::text, rt.statut
+            FROM hub_rencontres.revue_taches rt
+            WHERE rt.statut != 'terminé'
+              AND (LOWER(rt.responsable) = $1 OR LOWER(rt.responsable) = $2)
+        ) q
+        ORDER BY
+            CASE WHEN echeance IS NOT NULL AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
+            echeance ASC NULLS LAST
+    `, [un, dn]);
+
+    if (rows.length === 0) return null;  // nothing to send
+
+    const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const overdueRows = rows.filter(r => r.echeance && new Date(r.echeance) < new Date(new Date().toDateString()));
+    const upcomingRows = rows.filter(r => !r.echeance || new Date(r.echeance) >= new Date(new Date().toDateString()));
+
+    const rowHtml = (r, bg) => {
+        const isOverdue = r.echeance && new Date(r.echeance) < new Date(new Date().toDateString());
+        const dateStr = r.echeance ? new Date(r.echeance).toLocaleDateString('fr-FR') : '—';
+        return `<tr style="background:${bg}">
+            <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;white-space:nowrap">${r.source}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#1e293b">${r.description}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;white-space:nowrap;color:${isOverdue ? '#dc2626' : '#475569'};font-weight:${isOverdue ? '700' : '400'}">${isOverdue ? '⚠ ' : ''}${dateStr}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:12px">${r.statut === 'a_faire' ? 'À faire' : r.statut === 'en_cours' ? 'En cours' : r.statut}</td>
+        </tr>`;
+    };
+
+    const tableHeader = `<tr style="background:#f8fafc">
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0">Source</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0">Tâche</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0">Échéance</th>
+        <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0">Statut</th>
+    </tr>`;
+
+    let overdueSection = '';
+    if (overdueRows.length > 0) {
+        overdueSection = `<h3 style="margin:24px 0 8px;color:#dc2626;font-size:14px">⚠ En retard (${overdueRows.length})</h3>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+            ${tableHeader}${overdueRows.map((r, i) => rowHtml(r, i % 2 === 0 ? '#fff5f5' : '#fff')).join('')}
+        </table>`;
+    }
+
+    let upcomingSection = '';
+    if (upcomingRows.length > 0) {
+        upcomingSection = `<h3 style="margin:24px 0 8px;color:#1e293b;font-size:14px">📋 À traiter (${upcomingRows.length})</h3>
+        <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+            ${tableHeader}${upcomingRows.map((r, i) => rowHtml(r, i % 2 === 0 ? '#f8fafc' : '#fff')).join('')}
+        </table>`;
+    }
+
+    return `<div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto">
+        <h2 style="color:#1e293b;margin-bottom:4px">Bonjour ${displayName},</h2>
+        <p style="color:#64748b;margin-top:4px">Voici un récapitulatif de vos tâches en cours au <strong>${today}</strong>.</p>
+        ${overdueSection}${upcomingSection}
+        <p style="color:#94a3b8;font-size:12px;margin-top:24px">
+            Vous recevez ce mail car vous avez activé les alertes dans <em>Mes Tâches</em>.
+            Vous pouvez les désactiver à tout moment depuis l'application.
+        </p>
+    </div>`;
+}

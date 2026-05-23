@@ -86,6 +86,14 @@ const MesTaches: React.FC = () => {
   const [newDate, setNewDate]     = useState('');
   const [saving, setSaving]       = useState(false);
 
+  // Alert preference
+  const [alertEnabled, setAlertEnabled] = useState(false);
+  const [alertLoading, setAlertLoading] = useState(false);
+  const [testSending, setTestSending]   = useState(false);
+  const [testMsg, setTestMsg]           = useState<{ ok: boolean; text: string } | null>(null);
+
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
   const fetchTasks = useCallback(async () => {
     setLoading(true);
     try {
@@ -96,7 +104,39 @@ const MesTaches: React.FC = () => {
     finally { setLoading(false); }
   }, [token]);
 
-  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+  const fetchAlertPref = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tasks/alert-pref', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      setAlertEnabled(data.enabled === true);
+    } catch { /* ignore */ }
+  }, [token]);
+
+  const toggleAlert = async () => {
+    setAlertLoading(true);
+    const next = !alertEnabled;
+    try {
+      await fetch('/api/tasks/alert-pref', {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ enabled: next })
+      });
+      setAlertEnabled(next);
+    } finally { setAlertLoading(false); }
+  };
+
+  const sendTest = async () => {
+    setTestSending(true);
+    setTestMsg(null);
+    try {
+      const res = await fetch('/api/tasks/alert-test', { method: 'POST', headers });
+      const data = await res.json();
+      if (res.ok) setTestMsg({ ok: true, text: `Email de test envoyé à ${data.to}` });
+      else setTestMsg({ ok: false, text: data.error || 'Erreur inconnue' });
+    } catch { setTestMsg({ ok: false, text: 'Erreur réseau' }); }
+    finally { setTestSending(false); }
+  };
+
+  useEffect(() => { fetchTasks(); fetchAlertPref(); }, [fetchTasks, fetchAlertPref]);
 
   const updateStatus = async (task: Task, newStatut: string) => {
     const key = `${task.source}-${task.id}`;
@@ -175,7 +215,41 @@ const MesTaches: React.FC = () => {
               Toutes vos tâches assignées, tous modules confondus
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Toggle M'alerter */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+              <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>🔔 M'alerter à 8h</span>
+              <button
+                onClick={toggleAlert}
+                disabled={alertLoading}
+                title={alertEnabled ? 'Désactiver les alertes mail quotidiennes' : 'Recevoir mes tâches par mail chaque matin à 8h'}
+                style={{
+                  width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+                  background: alertEnabled ? '#16a34a' : '#cbd5e1',
+                  transition: 'background 0.2s', position: 'relative', flexShrink: 0
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 3, left: alertEnabled ? 20 : 3,
+                  width: 16, height: 16, borderRadius: '50%', background: 'white',
+                  transition: 'left 0.2s', display: 'block'
+                }} />
+              </button>
+              {alertEnabled && (
+                <button
+                  onClick={sendTest}
+                  disabled={testSending}
+                  title="Envoyer un email de test maintenant"
+                  style={{
+                    padding: '3px 10px', background: '#eff6ff', color: '#2563eb',
+                    border: '1px solid #bfdbfe', borderRadius: 6, cursor: 'pointer',
+                    fontSize: 12, fontWeight: 600
+                  }}
+                >
+                  {testSending ? '...' : 'Tester'}
+                </button>
+              )}
+            </div>
             <button onClick={fetchTasks} disabled={loading} style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
               background: 'white', border: '1px solid #e2e8f0', borderRadius: 8,
@@ -194,6 +268,21 @@ const MesTaches: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Feedback test email */}
+        {testMsg && (
+          <div style={{
+            marginBottom: 16, padding: '10px 16px', borderRadius: 8,
+            background: testMsg.ok ? '#f0fdf4' : '#fef2f2',
+            border: `1px solid ${testMsg.ok ? '#bbf7d0' : '#fecaca'}`,
+            color: testMsg.ok ? '#16a34a' : '#dc2626',
+            fontSize: 13, fontWeight: 600,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+          }}>
+            <span>{testMsg.ok ? '✅' : '❌'} {testMsg.text}</span>
+            <button onClick={() => setTestMsg(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700, fontSize: 16 }}>×</button>
+          </div>
+        )}
 
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 28 }}>

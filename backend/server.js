@@ -19,6 +19,7 @@ const oracleAutomationRouter = require('./routes/oracle-automation.routes');
 const oracleScheduler = require('./modules/oracle/oracle-scheduler');
 const contratsRouter = require('./modules/contrats/contrats.routes');
 const tasksRouter = require('./modules/tasks/tasks.routes');
+const tasksCtrl = require('./modules/tasks/tasks.controller');
 
 const tiersRouter = require('./modules/finance/tiers.routes');
 const contactsRouter = require('./modules/finance/contacts.routes');
@@ -4957,6 +4958,14 @@ app.delete('/api/doctrines/:id', authenticateAdmin, doctrinesController.deleteDo
 const projetsRouter = require('./modules/projets/projets.routes');
 const projetsCtrl = require('./modules/projets/projets.controller');
 projetsCtrl.setSendMail(sendMail);
+
+// ─── Tâches : injection mail + cron 8h ──────────────────────────────────────
+tasksCtrl.setSendMail(sendMail);
+// Tous les jours à 8h00
+cron.schedule('0 8 * * *', () => {
+    console.log('[CRON] Envoi des alertes tâches quotidiennes...');
+    tasksCtrl.sendDailyAlerts().catch(e => console.error('[CRON tasks-alert]', e.message));
+}, { timezone: 'Europe/Paris' });
 
 app.use('/api/projets', projetsRouter);
 
