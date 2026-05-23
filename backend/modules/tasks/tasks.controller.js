@@ -6,6 +6,42 @@ const { randomUUID } = require('crypto');
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
 
+// ─── MS TODO HELPERS ─────────────────────────────────────────────────────────
+
+/** Fetch all tasks from a Todo list (auto-paginate, expand linkedResources) */
+async function fetchAllTodoTasks(axios, headers, email, listId) {
+    const tasks = [];
+    let url = `https://graph.microsoft.com/v1.0/users/${email}/todo/lists/${listId}/tasks?$expand=linkedResources&$top=100`;
+    while (url) {
+        const res = await axios.get(url, { headers });
+        tasks.push(...(res.data.value || []));
+        url = res.data['@odata.nextLink'] || null;
+    }
+    return tasks;
+}
+
+/** Build a Microsoft Todo task payload */
+function buildTodoPayload(title, statut, echeance, bodyContent) {
+    const status = ['terminé', 'terminee', 'completed'].includes(statut)
+        ? 'completed'
+        : statut === 'en_cours' ? 'inProgress' : 'notStarted';
+    const payload = { title, status };
+    if (bodyContent?.trim()) {
+        payload.body = { content: bodyContent.trim(), contentType: 'text' };
+    }
+    if (echeance) {
+        try {
+            payload.dueDateTime = { dateTime: new Date(echeance).toISOString(), timeZone: 'UTC' };
+        } catch { /* ignore bad dates */ }
+    }
+    return payload;
+}
+
+/** Run an axios call silently (swallow errors for non-critical operations) */
+async function safeCall(fn) {
+    try { return await fn(); } catch { /* ignore */ }
+}
+
 const TASK_NOTES_DIR = path.join(__dirname, '..', '..', 'file_task_notes');
 if (!fs.existsSync(TASK_NOTES_DIR)) fs.mkdirSync(TASK_NOTES_DIR, { recursive: true });
 
@@ -608,113 +644,257 @@ module.exports = {
         }
     },
 
-    // POST /api/tasks/todo-sync/run  — push tasks to Microsoft Todo
+    // POST /api/tasks/todo-sync/run  — bidirectional sync with Microsoft Todo
     async runTodoSync(req, res) {
         const username = req.user.username;
         try {
-            // Get Azure config
+            // ── 1. Azure config ──────────────────────────────────────────────
             const { getSqlite } = require('../../shared/database');
             const db = getSqlite();
-            const azureSettings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
-            if (!azureSettings?.is_enabled || !azureSettings?.client_id || !azureSettings?.client_secret || !azureSettings?.tenant_id) {
+            const az = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+            if (!az?.is_enabled || !az?.client_id || !az?.client_secret || !az?.tenant_id) {
                 return res.status(503).json({ error: 'Azure AD non configuré. Contactez l\'administrateur.' });
             }
 
-            // Get user info
+            // ── 2. User info ─────────────────────────────────────────────────
             const userRow = await pool.query(
-                'SELECT email, displayname FROM hub.users WHERE LOWER(username) = LOWER($1)',
-                [username]
+                'SELECT email, displayname FROM hub.users WHERE LOWER(username) = LOWER($1)', [username]
             );
             const user = userRow.rows[0];
             if (!user?.email) return res.status(400).json({ error: 'Email utilisateur introuvable' });
 
-            // Get app-level token (client_credentials)
+            // ── 3. App-level token (client_credentials) ──────────────────────
             const axios = require('axios');
             let accessToken;
             try {
                 const tokenRes = await axios.post(
-                    `https://login.microsoftonline.com/${azureSettings.tenant_id}/oauth2/v2.0/token`,
+                    `https://login.microsoftonline.com/${az.tenant_id}/oauth2/v2.0/token`,
                     new URLSearchParams({
-                        client_id: azureSettings.client_id,
-                        client_secret: azureSettings.client_secret,
-                        grant_type: 'client_credentials',
-                        scope: 'https://graph.microsoft.com/.default'
+                        client_id: az.client_id, client_secret: az.client_secret,
+                        grant_type: 'client_credentials', scope: 'https://graph.microsoft.com/.default'
                     }).toString(),
                     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
                 );
                 accessToken = tokenRes.data.access_token;
-            } catch (e) {
+            } catch {
                 return res.status(503).json({ error: 'Impossible d\'obtenir un token Azure AD. Vérifiez la configuration.' });
             }
-
             const graphHeaders = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+            const BASE = `https://graph.microsoft.com/v1.0/users/${user.email}/todo/lists`;
 
-            // Find or create "DSI Hub" list in user's Todo
+            // ── 4. Find or create "DSI Hub" list ─────────────────────────────
             let listId;
             try {
-                const listsRes = await axios.get(
-                    `https://graph.microsoft.com/v1.0/users/${user.email}/todo/lists`,
-                    { headers: graphHeaders }
-                );
-                const lists = listsRes.data.value || [];
-                const existing = lists.find(l => l.displayName === 'DSI Hub');
-                if (existing) {
-                    listId = existing.id;
+                const lists = (await axios.get(BASE, { headers: graphHeaders })).data.value || [];
+                const found = lists.find(l => l.displayName === 'DSI Hub');
+                if (found) {
+                    listId = found.id;
                 } else {
-                    const createRes = await axios.post(
-                        `https://graph.microsoft.com/v1.0/users/${user.email}/todo/lists`,
-                        { displayName: 'DSI Hub' },
-                        { headers: graphHeaders }
-                    );
-                    listId = createRes.data.id;
+                    listId = (await axios.post(BASE, { displayName: 'DSI Hub' }, { headers: graphHeaders })).data.id;
                 }
             } catch (e) {
-                const errMsg = e.response?.data?.error?.message || e.message;
-                if (errMsg.includes('Authorization_RequestDenied') || errMsg.includes('Tasks.ReadWrite')) {
-                    return res.status(403).json({
-                        error: 'Permission refusée par Azure AD.',
-                        detail: 'La permission applicative Tasks.ReadWrite.All doit être accordée à l\'application Azure dans le portail Azure AD (consentement administrateur).'
-                    });
+                const msg = e.response?.data?.error?.message || e.message;
+                if (msg.includes('Authorization_RequestDenied') || msg.includes('Tasks.ReadWrite')) {
+                    return res.status(403).json({ error: 'Permission refusée par Azure AD.', detail: 'La permission applicative Tasks.ReadWrite.All doit être accordée dans le portail Azure AD (consentement administrateur).' });
                 }
-                return res.status(502).json({ error: `Erreur Microsoft Graph: ${errMsg}` });
+                return res.status(502).json({ error: `Erreur Microsoft Graph: ${msg}` });
+            }
+            const TASKS_BASE = `${BASE}/${listId}/tasks`;
+
+            // ── 5. Fetch all current Todo tasks with linkedResources ──────────
+            const todoTasks = await fetchAllTodoTasks(axios, graphHeaders, user.email, listId);
+            // Map: externalId -> todoTask  (for our managed tasks)
+            const byExternalId = {};
+            // Map: todoId -> todoTask  (for quick lookup)
+            const byTodoId = {};
+            for (const t of todoTasks) {
+                byTodoId[t.id] = t;
+                const lr = (t.linkedResources || []).find(r => r.applicationName === 'DSI Hub');
+                if (lr?.externalId) byExternalId[lr.externalId] = t;
             }
 
-            // Get current tasks for this user
-            const displayName = await getUserDisplayName(username);
+            let pushed = 0, updated = 0, imported = 0;
             const un = username.toLowerCase();
-            const dn = displayName.toLowerCase();
-            const { rows: tasks } = await pool.query(`
-                SELECT description, echeance, statut FROM hub.user_tasks
-                WHERE statut NOT IN ('terminé','terminee') AND LOWER(username) = $1
-                LIMIT 50
+
+            // ── 6. PUSH: hub.user_tasks → Todo ───────────────────────────────
+            const { rows: hubTasks } = await pool.query(`
+                SELECT id, description, echeance, statut, context_source, context_title, todo_task_id
+                FROM hub.user_tasks
+                WHERE LOWER(username) = $1 AND statut NOT IN ('terminé','terminee')
             `, [un]);
 
-            // Push each task to MS Todo
-            let pushed = 0;
-            for (const task of tasks) {
-                try {
-                    const todoTask = {
-                        title: task.description,
-                        status: task.statut === 'en_cours' ? 'inProgress' : 'notStarted',
-                    };
-                    if (task.echeance) {
-                        const d = new Date(task.echeance);
-                        todoTask.dueDateTime = {
-                            dateTime: d.toISOString(),
-                            timeZone: 'Europe/Paris'
-                        };
+            for (const task of hubTasks) {
+                const externalId = `hub_${task.id}`;
+
+                // Build body: include hub notes
+                const { rows: notes } = await pool.query(
+                    `SELECT content, type, filename FROM hub.task_notes WHERE source='personal' AND task_id=$1 ORDER BY created_at`,
+                    [String(task.id)]
+                );
+                const bodyLines = [];
+                if (task.context_title) bodyLines.push(`📌 Contexte : ${task.context_title}`);
+                for (const n of notes) {
+                    if (n.type === 'file') bodyLines.push(`📎 ${n.filename || n.content}`);
+                    else bodyLines.push(`💬 ${n.content}`);
+                }
+
+                const payload = buildTodoPayload(task.description, task.statut, task.echeance, bodyLines.join('\n'));
+
+                // Find existing Todo task (by stored todo_task_id, then by linkedResource)
+                const existing = task.todo_task_id ? byTodoId[task.todo_task_id] : byExternalId[externalId];
+
+                if (existing) {
+                    await safeCall(() => axios.patch(`${TASKS_BASE}/${existing.id}`, payload, { headers: graphHeaders }));
+                    // Save todo_task_id if missing
+                    if (!task.todo_task_id) {
+                        await pool.query('UPDATE hub.user_tasks SET todo_task_id=$1 WHERE id=$2', [existing.id, task.id]);
                     }
-                    await axios.post(
-                        `https://graph.microsoft.com/v1.0/users/${user.email}/todo/lists/${listId}/tasks`,
-                        todoTask,
-                        { headers: graphHeaders }
-                    );
-                    pushed++;
-                } catch (e) { /* skip individual task errors */ }
+                    updated++;
+                } else {
+                    try {
+                        const created = (await axios.post(TASKS_BASE, payload, { headers: graphHeaders })).data;
+                        await safeCall(() => axios.post(`${TASKS_BASE}/${created.id}/linkedResources`,
+                            { applicationName: 'DSI Hub', displayName: task.description, externalId },
+                            { headers: graphHeaders }
+                        ));
+                        await pool.query('UPDATE hub.user_tasks SET todo_task_id=$1 WHERE id=$2', [created.id, task.id]);
+                        pushed++;
+                    } catch { /* skip */ }
+                }
             }
 
-            res.json({ ok: true, pushed, listId, email: user.email });
+            // ── 7. PUSH: reunion tasks (liste_taches) → Todo ─────────────────
+            const { rows: reunions } = await pool.query(`
+                SELECT id, titre, liste_taches
+                FROM hub_rencontres.rencontres_reunions
+                WHERE liste_taches IS NOT NULL AND liste_taches NOT IN ('', '[]')
+            `);
+            for (const reunion of reunions) {
+                let taches;
+                try { taches = JSON.parse(reunion.liste_taches || '[]'); } catch { continue; }
+                for (let idx = 0; idx < taches.length; idx++) {
+                    const t = taches[idx];
+                    const assignedToMe = t.responsable_username && t.responsable_username.toLowerCase() === un;
+                    if (!assignedToMe) continue;
+                    if (t.statut === 'terminee' || t.statut === 'terminé') continue;
+
+                    const externalId = `reunion_${reunion.id}_${idx}`;
+                    const title = `[${reunion.titre || `Réunion #${reunion.id}`}] ${t.tache}`;
+                    const bodyContent = `📋 Réunion : ${reunion.titre || `#${reunion.id}`}`;
+                    const payload = buildTodoPayload(title, t.statut || 'a_faire', t.echeance, bodyContent);
+
+                    if (byExternalId[externalId]) {
+                        await safeCall(() => axios.patch(`${TASKS_BASE}/${byExternalId[externalId].id}`, payload, { headers: graphHeaders }));
+                        updated++;
+                    } else {
+                        try {
+                            const created = (await axios.post(TASKS_BASE, payload, { headers: graphHeaders })).data;
+                            await safeCall(() => axios.post(`${TASKS_BASE}/${created.id}/linkedResources`,
+                                { applicationName: 'DSI Hub', displayName: title, externalId },
+                                { headers: graphHeaders }
+                            ));
+                            pushed++;
+                        } catch { /* skip */ }
+                    }
+                }
+            }
+
+            // ── 8. PULL: Todo completed → hub terminé ────────────────────────
+            for (const [externalId, todoTask] of Object.entries(byExternalId)) {
+                if (todoTask.status !== 'completed') continue;
+
+                if (externalId.startsWith('hub_')) {
+                    const taskId = parseInt(externalId.replace('hub_', ''), 10);
+                    if (!isNaN(taskId)) {
+                        await pool.query(
+                            `UPDATE hub.user_tasks SET statut='terminé' WHERE id=$1 AND LOWER(username)=$2 AND statut NOT IN ('terminé','terminee')`,
+                            [taskId, un]
+                        );
+                    }
+                } else if (externalId.startsWith('reunion_')) {
+                    const parts = externalId.split('_');
+                    const reunionId = parseInt(parts[1], 10);
+                    const taskIdx = parseInt(parts[2], 10);
+                    if (!isNaN(reunionId) && !isNaN(taskIdx)) {
+                        const r = await pool.query('SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id=$1', [reunionId]);
+                        if (r.rows[0]) {
+                            try {
+                                const taches = JSON.parse(r.rows[0].liste_taches || '[]');
+                                if (taches[taskIdx] && taches[taskIdx].statut !== 'terminee') {
+                                    taches[taskIdx].statut = 'terminee';
+                                    await pool.query('UPDATE hub_rencontres.rencontres_reunions SET liste_taches=$1 WHERE id=$2',
+                                        [JSON.stringify(taches), reunionId]);
+                                }
+                            } catch { /* ignore */ }
+                        }
+                    }
+                }
+            }
+
+            // ── 9. PULL: Sync Todo body modifications → hub notes ─────────────
+            // For each managed hub task, if the Todo body has user-written lines, add as note
+            for (const task of hubTasks) {
+                if (!task.todo_task_id) continue;
+                const todoTask = byTodoId[task.todo_task_id];
+                if (!todoTask) continue;
+                const rawBody = (todoTask.body?.content || '').trim();
+                if (!rawBody) continue;
+                // User-written lines: lines NOT starting with our known prefixes
+                const userLines = rawBody.split('\n')
+                    .map(l => l.trim())
+                    .filter(l => l && !l.startsWith('📌') && !l.startsWith('💬') && !l.startsWith('📎'));
+                if (userLines.length === 0) continue;
+                const userContent = userLines.join('\n');
+                // Avoid re-importing the same content
+                const exists = await pool.query(
+                    `SELECT id FROM hub.task_notes WHERE source='personal' AND task_id=$1 AND content=$2`,
+                    [String(task.id), userContent]
+                );
+                if (exists.rows.length === 0) {
+                    await pool.query(
+                        `INSERT INTO hub.task_notes (source, task_id, content, type, created_by) VALUES ('personal',$1,$2,'comment','todo_sync')`,
+                        [String(task.id), userContent]
+                    );
+                }
+            }
+
+            // ── 10. IMPORT: Unlinked Todo tasks → hub.user_tasks ─────────────
+            for (const todoTask of todoTasks) {
+                if (todoTask.status === 'completed') continue;
+                const hasOurLink = (todoTask.linkedResources || []).some(r => r.applicationName === 'DSI Hub');
+                if (hasOurLink) continue;
+                // Check if already imported
+                const exists = await pool.query(
+                    'SELECT id FROM hub.user_tasks WHERE todo_task_id=$1 AND LOWER(username)=$2',
+                    [todoTask.id, un]
+                );
+                if (exists.rows.length > 0) continue;
+                // Import
+                const statut = todoTask.status === 'inProgress' ? 'en_cours' : 'a_faire';
+                const insertRes = await pool.query(`
+                    INSERT INTO hub.user_tasks (username, description, statut, context_source, todo_task_id, created_by, created_at)
+                    VALUES ($1,$2,$3,'todo',$4,'todo_sync',NOW()) RETURNING id
+                `, [username, todoTask.title, statut, todoTask.id]);
+                const newId = insertRes.rows[0].id;
+                // If body has content, store as note
+                const body = (todoTask.body?.content || '').trim();
+                if (body) {
+                    await pool.query(
+                        `INSERT INTO hub.task_notes (source, task_id, content, type, created_by) VALUES ('personal',$1,$2,'comment','todo_sync')`,
+                        [String(newId), body]
+                    );
+                }
+                // Claim this task with a linkedResource
+                await safeCall(() => axios.post(`${TASKS_BASE}/${todoTask.id}/linkedResources`,
+                    { applicationName: 'DSI Hub', displayName: todoTask.title, externalId: `hub_${newId}` },
+                    { headers: graphHeaders }
+                ));
+                imported++;
+            }
+
+            res.json({ ok: true, pushed, updated, imported, email: user.email });
         } catch (error) {
+            console.error('[todo-sync]', error.message);
             res.status(500).json({ error: error.message });
         }
     },

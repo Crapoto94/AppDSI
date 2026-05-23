@@ -308,7 +308,15 @@ const MesTaches: React.FC = () => {
     try {
       const res = await fetch('/api/tasks/todo-sync/run', { method: 'POST', headers: authHeaders });
       const data = await res.json();
-      if (res.ok) setTodoResult({ ok: true, text: `${data.pushed} tâche(s) synchronisée(s) dans la liste "DSI Hub" de Microsoft Todo` });
+      if (res.ok) {
+        const parts = [];
+        if ((data.pushed || 0) > 0) parts.push(`${data.pushed} créée(s) dans Todo`);
+        if ((data.updated || 0) > 0) parts.push(`${data.updated} mise(s) à jour`);
+        if ((data.imported || 0) > 0) parts.push(`${data.imported} importée(s) depuis Todo`);
+        if (parts.length === 0) parts.push('Tout est à jour');
+        setTodoResult({ ok: true, text: parts.join(' · ') });
+        if ((data.imported || 0) > 0) loadTasks(); // refresh if new tasks were imported
+      }
       else setTodoResult({ ok: false, text: data.detail || data.error || 'Erreur inconnue' });
     } catch { setTodoResult({ ok: false, text: 'Erreur réseau' }); }
     finally { setTodoRunning(false); }
