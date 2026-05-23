@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X } from 'lucide-react';
+import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users } from 'lucide-react';
 import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
+import AddTaskModal from '../components/AddTaskModal';
 import { useAuth } from '../contexts/AuthContext';
 
 interface Projet {
@@ -475,7 +476,7 @@ const ProjetDetail: React.FC = () => {
   const renderJournal = () => <JournalTab projetId={projet.id} token={token} onOuvrirDocument={(details) => ouvrirDocument(details, projet.id)} />;
   const renderDocuments = () => <DocumentsTab projetId={projet.id} token={token} documents={projet.documents} onVoirDocument={(url, nom) => setViewerDoc({ url, nom })} />;
   const renderReunions = () => <ReunionsTab projetId={projet.id} token={token} onAjouterReunion={() => setShowCreateReunion(true)} onVoirReunion={(id) => setReunionDetailId(id)} />;
-  const renderTaches = () => <TachesTab projetId={projet.id} token={token} />;
+  const renderTaches = () => <TachesTab projetId={projet.id} projetTitre={projet.titre} token={token} />;
   const renderScore = () => <ScoreTab projetId={projet.id} token={token} />;
   const renderIndicateurs = () => <IndicateursTab projetId={projet.id} token={token} />;
   const lierReunionApresCreation = async (reunion: any) => {
@@ -2081,16 +2082,13 @@ interface ADUser {
 
 const STATUT_CYCLE = ['a_faire', 'en_cours', 'terminee', 'refuse'];
 
-const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunion?: (id: number) => void }> = ({ projetId, token, onVoirReunion }) => {
+const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: string | null; onVoirReunion?: (id: number) => void }> = ({ projetId, projetTitre, token, onVoirReunion }) => {
   const [tasks, setTasks] = useState<any[]>([]);
+  const [hubTasks, setHubTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortField, setSortField] = useState('tache');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [newTache, setNewTache] = useState('');
-  const [newResponsable, setNewResponsable] = useState('');
-  const [newResponsableUsername, setNewResponsableUsername] = useState('');
-  const [newEcheance, setNewEcheance] = useState('');
-  const [adding, setAdding] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
   const [adResults, setAdResults] = useState<ADUser[]>([]);
   const [adSearching, setAdSearching] = useState(false);
   const adSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2118,9 +2116,14 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
   const loadTasks = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`/api/projets/${projetId}/taches-agregees`, { headers: { Authorization: `Bearer ${token}` } });
-      const d = await r.json();
-      if (Array.isArray(d)) setTasks(d);
+      const [r1, r2] = await Promise.all([
+        fetch(`/api/projets/${projetId}/taches-agregees`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/tasks/by-context?source=projet&id=${projetId}`, { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      const d1 = await r1.json();
+      const d2 = await r2.json();
+      if (Array.isArray(d1)) setTasks(d1);
+      if (Array.isArray(d2)) setHubTasks(d2);
     } catch {}
     finally { setLoading(false); }
   }, [projetId, token]);
@@ -2232,19 +2235,11 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
     } catch (e) { console.error(e); alert('Erreur réseau'); }
   };
 
-  const ajouterTache = async () => {
-    if (!newTache.trim()) return;
-    setAdding(true);
-    try {
-      const r = await fetch(`/api/projets/${projetId}/taches-standalone`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tache: newTache, responsable: newResponsable, responsable_username: newResponsableUsername, echeance: newEcheance || null, statut: 'a_faire' })
-      });
-      if (r.ok) { setNewTache(''); setNewResponsable(''); setNewResponsableUsername(''); setNewEcheance(''); setAdResults([]); loadTasks(); }
-      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
-    } catch (e) { alert('Erreur réseau'); }
-    finally { setAdding(false); }
+  const handleTaskCreated = (created: any) => {
+    // Hub tasks created via unified API
+    const toAdd = Array.isArray(created) ? created : [created];
+    setHubTasks(prev => [...prev, ...toAdd]);
+    setShowAddModal(false);
   };
 
   const sortIndicator = (field: string) => {
@@ -2282,37 +2277,10 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
 
   return (
     <div>
-      <div style={{ marginBottom: '16px', padding: '14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: '2', minWidth: '160px' }}>
-            <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '4px' }}>TÂCHE *</div>
-            <input type="text" placeholder="Nouvelle tâche..." style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} value={newTache} onChange={e => setNewTache(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') ajouterTache(); }} />
-          </div>
-          <div style={{ flex: '1', minWidth: '120px', position: 'relative' }}>
-            <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '4px' }}>RESPONSABLE</div>
-            <input type="text" placeholder="Responsable (recherche AD)..." style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} value={newResponsable} onChange={e => { setNewResponsable(e.target.value); setNewResponsableUsername(''); searchAD(e.target.value); }} />
-            {adSearching && <span style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: '#64748b' }}>...</span>}
-            {adResults.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, border: '1px solid #bfdbfe', borderRadius: '4px', background: 'white', maxHeight: '120px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                {adResults.map(u => (
-                  <div key={u.username} style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }} onClick={() => { setNewResponsable(u.displayName); setNewResponsableUsername(u.username); setAdResults([]); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
-                    <div style={{ fontWeight: '600' }}>{u.displayName}</div>
-                    <div style={{ fontSize: '10px', color: '#64748b' }}>{u.email}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div style={{ flex: '1', minWidth: '120px' }}>
-            <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '4px' }}>ÉCHÉANCE</div>
-            <input type="date" style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} value={newEcheance} onChange={e => setNewEcheance(e.target.value)} />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-            <button onClick={ajouterTache} disabled={adding} style={{ padding: '8px 16px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Plus size={16} /> {adding ? '...' : 'Ajouter'}
-            </button>
-          </div>
-        </div>
+      <div style={{ marginBottom: '14px', display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={() => setShowAddModal(true)} style={{ padding: '8px 16px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Plus size={16} /> Ajouter une tâche
+        </button>
       </div>
 
       {loading ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Chargement...</p> : tasks.length === 0 ? (
@@ -2429,8 +2397,42 @@ const TachesTab: React.FC<{ projetId: number; token: string | null; onVoirReunio
       <div style={{ marginTop: '8px', fontSize: '12px', color: '#94a3b8' }}>
         {tasks.filter(t => t.source === 'reunion').length > 0 && <span style={{ marginRight: '16px' }}>📅 {tasks.filter(t => t.source === 'reunion').length} tâche(s) issue(s) des réunions</span>}
         {tasks.filter(t => t.source === 'standalone').length > 0 && <span style={{ marginRight: '16px' }}>📝 {tasks.filter(t => t.source === 'standalone').length} tâche(s) ajoutée(s) manuellement</span>}
-        {tasks.filter(t => t.source === 'revue').length > 0 && <span>📋 {tasks.filter(t => t.source === 'revue').length} tâche(s) issue(s) des revues</span>}
+        {tasks.filter(t => t.source === 'revue').length > 0 && <span style={{ marginRight: '16px' }}>📋 {tasks.filter(t => t.source === 'revue').length} tâche(s) issue(s) des revues</span>}
+        {hubTasks.length > 0 && <span><Users size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{hubTasks.length} tâche(s) hub (incl. équipe)</span>}
       </div>
+
+      {/* Hub tasks (créées via l'API unifiée) */}
+      {hubTasks.length > 0 && (
+        <div style={{ marginTop: '16px' }}>
+          <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Users size={12} /> Tâches d'équipe / hub
+          </div>
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+            {hubTasks.map((t: any) => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', fontSize: '13px', background: 'white' }}>
+                {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
+                <span style={{ flex: 1, fontWeight: 600, color: '#1e293b' }}>{t.description}</span>
+                <span style={{ fontSize: 11, color: '#64748b' }}>{t.username}</span>
+                {t.echeance && <span style={{ fontSize: 11, color: '#94a3b8' }}>{new Date(t.echeance).toLocaleDateString('fr-FR')}</span>}
+                {statusBadge(t.statut || 'a_faire')}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* AddTaskModal */}
+      {showAddModal && (
+        <AddTaskModal
+          token={token}
+          contextSource="projet"
+          contextId={projetId}
+          contextTitle={projetTitre || `Projet #${projetId}`}
+          onCreated={handleTaskCreated}
+          onClose={() => setShowAddModal(false)}
+          title="Ajouter une tâche au projet"
+        />
+      )}
     </div>
   );
 };

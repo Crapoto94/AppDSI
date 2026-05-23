@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Users } from 'lucide-react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
+import AddTaskModal from '../components/AddTaskModal';
 
 interface Projet {
   id: number; code: string; titre: string; statut: string;
@@ -64,6 +66,9 @@ export default function RevueDeProjets() {
   const [loading, setLoading] = useState(true);
   const [error] = useState('');
   const adSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Team task modal for revue
+  const [teamTaskContext, setTeamTaskContext] = useState<{ revueId: number; revueTitre: string; projetTitre?: string } | null>(null);
+  const [hubTasks, setHubTasks] = useState<any[]>([]);
 
   const fetchRevues = useCallback(async () => {
     try {
@@ -92,6 +97,13 @@ export default function RevueDeProjets() {
         const data = await res.json();
         setSelectedRevue(data);
       }
+    } catch { /* ignore */ }
+  }, [token]);
+
+  const fetchHubTasks = useCallback(async (revueId: number) => {
+    try {
+      const res = await fetch(`/api/tasks/by-context?source=revue&id=${revueId}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setHubTasks(await res.json());
     } catch { /* ignore */ }
   }, [token]);
 
@@ -202,6 +214,7 @@ export default function RevueDeProjets() {
 
   const handleSelectRevue = async (revue: Revue) => {
     await fetchRevueDetail(revue.id);
+    fetchHubTasks(revue.id);
   };
 
   const handleAddTache = async (projetId: number) => {
@@ -317,7 +330,7 @@ export default function RevueDeProjets() {
             <div>
               <h1 style={{ margin: 0, fontSize: '22px', fontWeight: '800', color: '#1e293b' }}>📋 Revues de projets</h1>
               {selectedRevue && (
-                <button onClick={() => { setSelectedRevue(null); setCommentaires({}); }} style={{ marginTop: '8px', background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: '600', padding: 0 }}>
+                <button onClick={() => { setSelectedRevue(null); setCommentaires({}); setHubTasks([]); }} style={{ marginTop: '8px', background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: '600', padding: 0 }}>
                   ← Retour à la liste
                 </button>
               )}
@@ -585,6 +598,7 @@ export default function RevueDeProjets() {
                       <input type="text" placeholder="Responsable" value={tacheInput[rp.id]?.responsable ?? ''} onChange={e => setTacheInput(prev => ({ ...prev, [rp.id]: { ...(prev[rp.id] || { titre: '', responsable: '', echeance: '' }), responsable: e.target.value } }))} style={{ flex: '1', minWidth: '100px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px' }} />
                       <input type="date" value={tacheInput[rp.id]?.echeance ?? ''} onChange={e => setTacheInput(prev => ({ ...prev, [rp.id]: { ...(prev[rp.id] || { titre: '', responsable: '', echeance: '' }), echeance: e.target.value } }))} style={{ flex: '1', minWidth: '120px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px' }} />
                       <button onClick={() => handleAddTache(rp.id)} style={{ padding: '8px 14px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', whiteSpace: 'nowrap' }}>+ Ajouter</button>
+                      <button onClick={() => setTeamTaskContext({ revueId: selectedRevue.id, revueTitre: selectedRevue.titre || '', projetTitre: rp.projet_titre })} style={{ padding: '8px 14px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}><Users size={13} /> Équipe</button>
                     </div>
                     {rp.taches && rp.taches.length > 0 && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -607,6 +621,32 @@ export default function RevueDeProjets() {
                   </div>
                 </div>
               ))}
+
+              {hubTasks.length > 0 && (
+                <div style={{ marginTop: '20px', padding: '16px', background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Users size={16} style={{ color: '#2563eb' }} /> Tâches d'équipe
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {hubTasks.map(t => (
+                      <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
+                        <Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} />
+                        <span style={{ color: '#1e293b', fontWeight: '500' }}>{t.description}</span>
+                        {t.context_title && t.context_title.includes('/') && (
+                          <span style={{ color: '#64748b', fontSize: '11px' }}>— {t.context_title.split('/').slice(1).join('/').trim()}</span>
+                        )}
+                        <span style={{ marginLeft: 'auto', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                          {t.echeance && <span style={{ color: '#94a3b8', fontSize: '11px' }}>📅 {new Date(t.echeance + 'T00:00:00').toLocaleDateString('fr-FR')}</span>}
+                          <span style={{ color: '#64748b', fontSize: '11px' }}>👤 {t.username}</span>
+                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: t.statut === 'terminee' || t.statut === 'terminé' ? '#dcfce7' : '#f1f5f9', color: t.statut === 'terminee' || t.statut === 'terminé' ? '#16a34a' : '#64748b' }}>
+                            {t.statut === 'terminee' || t.statut === 'terminé' ? 'Terminée' : t.statut === 'en_cours' ? 'En cours' : 'À faire'}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : revues.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '80px 20px', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
@@ -642,6 +682,22 @@ export default function RevueDeProjets() {
             </div>
           )}
         </div>
+      )}
+
+      {teamTaskContext && (
+        <AddTaskModal
+          token={token || ''}
+          contextSource="revue"
+          contextId={teamTaskContext.revueId}
+          contextTitle={(teamTaskContext.revueTitre || '') + (teamTaskContext.projetTitre ? ' / ' + teamTaskContext.projetTitre : '')}
+          onCreated={(created) => {
+            const arr = Array.isArray(created) ? created : [created];
+            setHubTasks(prev => [...prev, ...arr]);
+            setTeamTaskContext(null);
+          }}
+          onClose={() => setTeamTaskContext(null)}
+          title="Ajouter une tâche d'équipe"
+        />
       )}
     </div>
   );

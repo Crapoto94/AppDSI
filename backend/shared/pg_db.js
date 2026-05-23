@@ -2162,6 +2162,16 @@ async function setupPgDb() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_username ON hub.user_tasks(username)`);
 
+    // ─── Champs unifiés pour tâches d'équipe et contexte multi-modules ──────
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS is_team_task BOOLEAN DEFAULT FALSE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS team_group_id UUID`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS created_by TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS context_source TEXT DEFAULT 'personal'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS context_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS context_title TEXT`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_context ON hub.user_tasks(context_source, context_id)`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_team ON hub.user_tasks(team_group_id) WHERE team_group_id IS NOT NULL`); } catch (e) {}
+
     // responsable_username sur les tâches standalone projet (pour matching fiable par username)
     try { await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS responsable_username TEXT DEFAULT ''`); } catch (e) {}
 

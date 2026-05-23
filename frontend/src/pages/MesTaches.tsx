@@ -8,6 +8,7 @@ import {
   ExternalLink, RefreshCw, Inbox, Plus, X, Trash2, Upload,
   RefreshCcw, Zap
 } from 'lucide-react';
+import AddTaskModal from '../components/AddTaskModal';
 
 interface TaskNote {
   id: number;
@@ -32,6 +33,9 @@ interface Task {
   responsable: string;
   created_at: string;
   note_count: number;
+  is_team_task?: boolean;
+  team_group_id?: string | null;
+  created_by?: string | null;
 }
 
 const SOURCE_META: Record<Task['source'], {
@@ -157,9 +161,6 @@ const MesTaches: React.FC = () => {
 
   // ── Add task modal ───────────────────────────────────────────────────────────
   const [showModal, setShowModal]   = useState(false);
-  const [newDesc, setNewDesc]       = useState('');
-  const [newDate, setNewDate]       = useState('');
-  const [saving, setSaving]         = useState(false);
 
   // ── Alert pref ───────────────────────────────────────────────────────────────
   const [alertEnabled, setAlertEnabled] = useState(false);
@@ -263,18 +264,12 @@ const MesTaches: React.FC = () => {
     setTasks(prev => prev.filter(t => !(t.source === 'personal' && t.id === task.id)));
   };
 
-  const handleCreate = async () => {
-    if (!newDesc.trim()) return;
-    setSaving(true);
-    try {
-      const res = await fetch('/api/tasks', {
-        method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ description: newDesc.trim(), echeance: newDate || null })
-      });
-      const created = await res.json();
-      setTasks(prev => [{ ...created, source: 'personal' as const, note_count: 0 }, ...prev]);
-      setShowModal(false); setNewDesc(''); setNewDate('');
-    } finally { setSaving(false); }
+  const handleCreated = (created: any) => {
+    const toAdd = Array.isArray(created) ? created : [created];
+    setTasks(prev => [
+      ...toAdd.map((t: any) => ({ ...t, source: (t.context_source || 'personal') as Task['source'], note_count: 0 })),
+      ...prev
+    ]);
   };
 
   // ─── Alert ────────────────────────────────────────────────────────────────────
@@ -582,7 +577,14 @@ const MesTaches: React.FC = () => {
                     >
                       {/* Description */}
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: isDone ? '#94a3b8' : '#1e293b', textDecoration: isDone ? 'line-through' : 'none', maxWidth: 340 }}>
-                        {task.description || '—'}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {task.is_team_task && (
+                            <span title="Tâche d'équipe" style={{ color: '#2563eb', flexShrink: 0 }}>
+                              <Users size={13} />
+                            </span>
+                          )}
+                          {task.description || '—'}
+                        </span>
                       </td>
 
                       {/* Source */}
@@ -705,58 +707,14 @@ const MesTaches: React.FC = () => {
         )}
       </main>
 
-      {/* ── Modal Nouvelle tâche ──────────────────────────────────────────── */}
+      {/* ── Modal Nouvelle tâche (unifié avec support équipe) ────────────── */}
       {showModal && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={e => e.target === e.currentTarget && setShowModal(false)}
-        >
-          <div style={{ background: 'white', borderRadius: 16, padding: '32px 28px', width: '100%', maxWidth: 460, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>
-                <Plus size={18} style={{ verticalAlign: 'middle', marginRight: 8, color: 'var(--primary-color)' }} />
-                Nouvelle tâche
-              </h2>
-              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
-                <X size={20} />
-              </button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Description *</label>
-                <textarea
-                  value={newDesc}
-                  onChange={e => setNewDesc(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && e.ctrlKey && handleCreate()}
-                  placeholder="Décrivez la tâche à faire..."
-                  rows={3}
-                  autoFocus
-                  style={{ width: '100%', borderRadius: 8, border: '1px solid #e2e8f0', padding: '10px 12px', fontSize: 14, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
-                  Échéance <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optionnel)</span>
-                </label>
-                <input
-                  type="date"
-                  value={newDate}
-                  onChange={e => setNewDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  style={{ width: '100%', borderRadius: 8, border: '1px solid #e2e8f0', padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-                <button onClick={() => setShowModal(false)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#64748b' }}>
-                  Annuler
-                </button>
-                <button onClick={handleCreate} disabled={!newDesc.trim() || saving} style={{ flex: 2, padding: 10, borderRadius: 8, border: 'none', background: newDesc.trim() ? 'var(--primary-color)' : '#e2e8f0', cursor: newDesc.trim() ? 'pointer' : 'not-allowed', color: newDesc.trim() ? 'white' : '#94a3b8', fontSize: 14, fontWeight: 700 }}>
-                  {saving ? 'Enregistrement...' : 'Ajouter la tâche'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AddTaskModal
+          token={token}
+          contextSource="personal"
+          onCreated={handleCreated}
+          onClose={() => setShowModal(false)}
+        />
       )}
 
       <style>{`

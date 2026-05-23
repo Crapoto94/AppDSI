@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Plus, Send, Upload, Trash2, FileText } from 'lucide-react';
+import { X, Plus, Send, Upload, Trash2, FileText, Users } from 'lucide-react';
 import TranscriptUploadModal from './TranscriptUploadModal';
 import TranscriptViewModal from './TranscriptViewModal';
+import AddTaskModal from './AddTaskModal';
 
 interface Reunion {
   id: number; titre: string; date_reunion: string; annee: number; lieu?: string;
@@ -61,6 +62,10 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [taskAdSearching, setTaskAdSearching] = useState(false);
   const taskAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Hub tasks (via API unifiée + tâches d'équipe)
+  const [hubTasks, setHubTasks] = useState<any[]>([]);
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
+
   const [addTaskAdResults, setAddTaskAdResults] = useState<ADUser[]>([]);
   const [addTaskAdSearching, setAddTaskAdSearching] = useState(false);
   const addTaskAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,11 +75,15 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const fetchReunion = useCallback(async () => {
     if (!reunionId) return;
     try {
-      const res = await fetch(`/api/rencontres-reunions/${reunionId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const [res, hubRes] = await Promise.all([
+        fetch(`/api/rencontres-reunions/${reunionId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`/api/tasks/by-context?source=reunion&id=${reunionId}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      ]);
       const data = await res.json();
       setSelectedReunion(data);
       setDetailReunionData({ description: data.description || '', releve_decision: data.releve_decision || '', liste_taches: data.liste_taches || '' });
       fetchAttachments(reunionId);
+      if (hubRes.ok) setHubTasks(await hubRes.json());
     } catch (e) { console.error(e); }
   }, [reunionId, token]);
 
@@ -511,6 +520,51 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
               </div>
             )}
           </div>
+
+          {/* ── Tâches hub (API unifiée + équipe) ─────────────────────────── */}
+          <div style={{marginTop: '20px', paddingTop: '16px', borderTop: '1px solid #e2e8f0'}}>
+            <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px'}}>
+              <h4 style={{margin: 0, fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 6}}>
+                <Users size={13} /> Tâches hub / équipe ({hubTasks.length})
+              </h4>
+              <button onClick={() => setShowAddTaskModal(true)} style={{padding: '5px 12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '12px', display: 'flex', alignItems: 'center', gap: 4}}>
+                <Plus size={13} /> Ajouter
+              </button>
+            </div>
+            {hubTasks.length === 0 ? (
+              <p style={{fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', margin: 0}}>Aucune tâche hub — utilisez "Ajouter" pour créer une tâche d'équipe liée à cette réunion</p>
+            ) : (
+              <div style={{border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden'}}>
+                {hubTasks.map((t: any) => (
+                  <div key={t.id} style={{display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', fontSize: '12px', background: 'white'}}>
+                    {t.is_team_task && <Users size={12} style={{color: '#2563eb', flexShrink: 0}} title="Tâche d'équipe" />}
+                    <span style={{flex: 1, fontWeight: 600, color: '#1e293b'}}>{t.description}</span>
+                    <span style={{fontSize: 11, color: '#64748b'}}>{t.username}</span>
+                    {t.echeance && <span style={{fontSize: 10, color: '#94a3b8'}}>{new Date(t.echeance).toLocaleDateString('fr-FR')}</span>}
+                    <span style={{padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 600, background: t.statut === 'terminé' ? '#dcfce7' : t.statut === 'en_cours' ? '#dbeafe' : '#f1f5f9', color: t.statut === 'terminé' ? '#16a34a' : t.statut === 'en_cours' ? '#1d4ed8' : '#64748b'}}>
+                      {t.statut === 'terminé' ? 'Terminé' : t.statut === 'en_cours' ? 'En cours' : 'À faire'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {showAddTaskModal && selectedReunion && (
+            <AddTaskModal
+              token={token}
+              contextSource="reunion"
+              contextId={selectedReunion.id}
+              contextTitle={selectedReunion.titre}
+              onCreated={(created) => {
+                const toAdd = Array.isArray(created) ? created : [created];
+                setHubTasks(prev => [...prev, ...toAdd]);
+                setShowAddTaskModal(false);
+              }}
+              onClose={() => setShowAddTaskModal(false)}
+              title="Ajouter une tâche à la réunion"
+            />
+          )}
 
           {/* Demandes */}
           <h4 style={{margin: '0 0 10px', fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', borderTop: '1px solid #e2e8f0', paddingTop: '16px'}}>Demandes ({selectedReunion.demandes?.length || 0})</h4>

@@ -1,6 +1,7 @@
 const { pool } = require('../../shared/database');
 const path = require('path');
 const fs = require('fs');
+const { randomUUID } = require('crypto');
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
@@ -45,15 +46,18 @@ module.exports = {
             const { rows } = await pool.query(`
                 SELECT * FROM (
                     SELECT
-                        'personal'    AS source,
+                        COALESCE(ut.context_source, 'personal') AS source,
                         ut.id,
-                        NULL::integer AS source_id,
-                        'Tâche personnelle' AS source_title,
+                        ut.context_id AS source_id,
+                        COALESCE(ut.context_title, 'Tâche personnelle') AS source_title,
                         ut.description,
                         ut.echeance::text AS echeance,
                         ut.statut,
                         ut.username   AS responsable,
-                        ut.created_at
+                        ut.created_at,
+                        ut.is_team_task,
+                        ut.team_group_id::text AS team_group_id,
+                        ut.created_by
                     FROM hub.user_tasks ut
                     WHERE ut.statut != 'terminé'
                       AND LOWER(ut.username) = $1
@@ -69,7 +73,10 @@ module.exports = {
                         t.deadline    AS echeance,
                         CASE WHEN t.is_completed = 1 THEN 'terminé' ELSE 'a_faire' END AS statut,
                         t.assignee    AS responsable,
-                        t.created_at
+                        t.created_at,
+                        FALSE         AS is_team_task,
+                        NULL          AS team_group_id,
+                        NULL          AS created_by
                     FROM transcript.tasks t
                     JOIN transcript.meetings m ON t.meeting_id = m.id
                     WHERE t.is_completed = 0
@@ -86,7 +93,10 @@ module.exports = {
                         pt.date_fin::text      AS echeance,
                         CASE WHEN pt.statut IN ('terminee','terminée') THEN 'terminé' ELSE pt.statut END AS statut,
                         pt.responsable_username AS responsable,
-                        pt.date_creation       AS created_at
+                        pt.date_creation       AS created_at,
+                        FALSE                  AS is_team_task,
+                        NULL                   AS team_group_id,
+                        NULL                   AS created_by
                     FROM projets.projet_taches pt
                     JOIN projets.projets p ON pt.projet_id = p.id
                     WHERE pt.statut NOT IN ('terminé','terminee','terminée')
@@ -103,7 +113,10 @@ module.exports = {
                         pts.echeance::text      AS echeance,
                         CASE WHEN pts.statut IN ('terminee','terminée') THEN 'terminé' ELSE pts.statut END AS statut,
                         pts.responsable,
-                        pts.created_at
+                        pts.created_at,
+                        FALSE                   AS is_team_task,
+                        NULL                    AS team_group_id,
+                        NULL                    AS created_by
                     FROM projets.projet_taches_standalone pts
                     JOIN projets.projets p ON pts.projet_id = p.id
                     WHERE pts.statut NOT IN ('terminé','terminee','terminée')
@@ -121,7 +134,10 @@ module.exports = {
                         rs.date_echeance::text AS echeance,
                         rs.statut,
                         rs.responsable,
-                        rs.updated_at          AS created_at
+                        rs.updated_at          AS created_at,
+                        FALSE                  AS is_team_task,
+                        NULL                   AS team_group_id,
+                        NULL                   AS created_by
                     FROM hub_rencontres.rencontres_suivi rs
                     JOIN hub_rencontres.rencontres_budgetaires rb ON rs.rencontre_id = rb.id
                     WHERE rs.statut NOT IN ('terminé', 'done')
@@ -138,7 +154,10 @@ module.exports = {
                         rt.echeance::text    AS echeance,
                         rt.statut,
                         rt.responsable,
-                        rt.created_at
+                        rt.created_at,
+                        FALSE                AS is_team_task,
+                        NULL                 AS team_group_id,
+                        NULL                 AS created_by
                     FROM hub_rencontres.revue_taches rt
                     JOIN hub_rencontres.revues rv ON rt.revue_id = rv.id
                     WHERE rt.statut != 'terminé'
@@ -155,7 +174,10 @@ module.exports = {
                         (item->>'echeance')  AS echeance,
                         COALESCE(item->>'statut', 'a_faire') AS statut,
                         (item->>'responsable') AS responsable,
-                        r.created_at
+                        r.created_at,
+                        FALSE                AS is_team_task,
+                        NULL                 AS team_group_id,
+                        NULL                 AS created_by
                     FROM hub_rencontres.rencontres_reunions r
                     CROSS JOIN LATERAL json_array_elements(
                         CASE WHEN r.liste_taches IS NOT NULL AND r.liste_taches NOT IN ('', '[]')
@@ -256,18 +278,99 @@ module.exports = {
         }
     },
 
-    // POST /api/tasks  { description, echeance }
+    // POST /api/tasks  — unified creation (personal, context, team)
+    // Body: { description, echeance?, context_source?, context_id?, context_title?,
+    //         is_team_task?, assignees?: string[], service_code?: string }
     async createTask(req, res) {
-        const username = req.user.username;
-        const { description, echeance } = req.body;
+        const creator = req.user.username;
+        const {
+            description, echeance,
+            context_source = 'personal', context_id = null, context_title = null,
+            is_team_task = false, assignees = [], service_code = null
+        } = req.body;
         if (!description?.trim()) return res.status(400).json({ error: 'Description requise' });
         try {
+            let targets = []; // array of usernames to assign to
+
+            if (is_team_task) {
+                if (service_code) {
+                    // Assign to all active users in this service
+                    const { rows: svcUsers } = await pool.query(
+                        `SELECT username FROM hub.users
+                         WHERE LOWER(COALESCE(service_code,'')) = LOWER($1)
+                           AND is_approved = 1 AND username IS NOT NULL`,
+                        [service_code]
+                    );
+                    targets = svcUsers.map(u => u.username);
+                } else if (assignees.length > 0) {
+                    targets = assignees;
+                }
+                // If no targets found, fall back to creator
+                if (targets.length === 0) targets = [creator];
+            } else {
+                // Single-user: use first assignee if provided, else creator
+                targets = assignees.length > 0 ? [assignees[0]] : [creator];
+            }
+
+            const teamGroupId = is_team_task && targets.length > 1 ? randomUUID() : null;
+
+            const created = [];
+            for (const uname of targets) {
+                const { rows } = await pool.query(
+                    `INSERT INTO hub.user_tasks
+                       (username, description, echeance, statut,
+                        is_team_task, team_group_id, created_by,
+                        context_source, context_id, context_title)
+                     VALUES ($1,$2,$3,'a_faire',$4,$5,$6,$7,$8,$9)
+                     RETURNING *`,
+                    [uname, description.trim(), echeance || null,
+                     is_team_task, teamGroupId, creator,
+                     context_source, context_id, context_title]
+                );
+                created.push(rows[0]);
+            }
+            // Return single row for personal tasks, array for team
+            res.status(201).json(created.length === 1 ? created[0] : created);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/tasks/services — list of services for team task assignment
+    async getServices(req, res) {
+        try {
+            const { rows } = await pool.query(`
+                SELECT service_code, COUNT(*) AS user_count
+                FROM hub.users
+                WHERE service_code IS NOT NULL AND service_code != ''
+                  AND is_approved = 1
+                GROUP BY service_code
+                ORDER BY service_code
+            `);
+            res.json(rows);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/tasks/by-context?source=X&id=Y — tasks for a module context
+    async getTasksByContext(req, res) {
+        const { source, id } = req.query;
+        if (!source || !id) return res.status(400).json({ error: 'source et id requis' });
+        try {
             const { rows } = await pool.query(
-                `INSERT INTO hub.user_tasks (username, description, echeance, statut)
-                 VALUES ($1, $2, $3, 'a_faire') RETURNING *`,
-                [username, description.trim(), echeance || null]
+                `SELECT ut.*, tn_count.cnt AS note_count
+                 FROM hub.user_tasks ut
+                 LEFT JOIN (
+                     SELECT task_id::integer AS tid, COUNT(*) AS cnt
+                     FROM hub.task_notes WHERE source = 'personal'
+                     GROUP BY task_id
+                 ) tn_count ON tn_count.tid = ut.id
+                 WHERE ut.context_source = $1 AND ut.context_id = $2
+                 ORDER BY ut.created_at ASC`,
+                [source, parseInt(id)]
             );
-            res.json(rows[0]);
+            res.json(rows);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
