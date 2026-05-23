@@ -24,9 +24,10 @@ interface TileProps {
   orphan_invoices?: number;
   pending_requests?: number;
   warning_count?: number;
+  info_count?: number;
 }
 
-const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status = 'active', is_authorized = true, is_public = false, isAdmin = false, orphan_orders, orphan_invoices, pending_requests, warning_count }) => {
+const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status = 'active', is_authorized = true, is_public = false, isAdmin = false, orphan_orders, orphan_invoices, pending_requests, warning_count, info_count }) => {
   // Dynamically get icon from lucide-react
   // @ts-expect-error Lucide icons dynamically loaded
   const IconComponent = Icons[icon.charAt(0).toUpperCase() + icon.slice(1)] || Icons.Box;
@@ -108,6 +109,29 @@ const Tile: React.FC<TileProps> = ({ id, title, icon, description, links, status
           zIndex: 30
         }}>
           {warning_count}
+        </div>
+      )}
+      {(info_count ?? 0) > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: (pending_requests ?? 0) > 0 && (warning_count ?? 0) > 0 ? '74px' : (pending_requests ?? 0) > 0 || (warning_count ?? 0) > 0 ? '42px' : '10px',
+          right: '10px',
+          background: '#3b82f6',
+          color: 'white',
+          borderRadius: '50%',
+          minWidth: '24px',
+          height: '24px',
+          fontSize: '12px',
+          fontWeight: 800,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '0 5px',
+          boxShadow: '0 2px 6px rgba(59,130,246,0.4)',
+          border: '2px solid white',
+          zIndex: 30
+        }}>
+          {info_count}
         </div>
       )}
       <h3 className="tile-title">{title}</h3>

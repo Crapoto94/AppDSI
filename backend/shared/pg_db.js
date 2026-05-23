@@ -2182,6 +2182,25 @@ async function setupPgDb() {
     `);
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_email_logs_sent_at ON hub.email_logs(sent_at DESC)`); } catch (e) {}
 
+    // Table de notes génériques pour toutes les tâches (Mes Tâches)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.task_notes (
+        id SERIAL PRIMARY KEY,
+        source TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        content TEXT,
+        type TEXT DEFAULT 'comment',
+        filename TEXT,
+        filepath TEXT,
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_task_notes_src ON hub.task_notes(source, task_id)`); } catch (e) {}
+
+    // Préférence sync Microsoft Todo
+    try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS ms_todo_sync BOOLEAN DEFAULT FALSE`); } catch (e) {}
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);

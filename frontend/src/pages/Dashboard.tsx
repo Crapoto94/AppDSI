@@ -18,6 +18,7 @@ interface TileData {
   links: { label: string; url: string; is_internal: boolean }[];
   pending_requests?: number;
   warning_count?: number;
+  info_count?: number;
 }
 
 const Dashboard: React.FC = () => {
@@ -107,7 +108,7 @@ const Dashboard: React.FC = () => {
           axios.get('/api/consumable/pending-count').catch(() => ({ data: { count: 0 } })),
           axios.get('/api/certificates/renewal-count', { headers }).catch(() => ({ data: { count: 0 } })),
           axios.get('/api/contrats/expiry-count', { headers }).catch(() => ({ data: { expired: 0, soon: 0 } })),
-          axios.get('/api/tasks/count', { headers }).catch(() => ({ data: { count: 0 } }))
+          axios.get('/api/tasks/count', { headers }).catch(() => ({ data: { count: 0, overdue: 0, en_cours: 0, a_faire: 0 } }))
         ]);
 
         const tilesData = await tilesRes.json();
@@ -115,7 +116,9 @@ const Dashboard: React.FC = () => {
         const renewalCount = renewalRes.data.count || 0;
         const contratsExpired = contratsExpiryRes.data.expired || 0;
         const contratsSoon = contratsExpiryRes.data.soon || 0;
-        const tasksOverdue = tasksCountRes.data.count || 0;
+        const tasksOverdue = tasksCountRes.data.overdue ?? tasksCountRes.data.count ?? 0;
+        const tasksEnCours = tasksCountRes.data.en_cours ?? 0;
+        const tasksAFaire  = tasksCountRes.data.a_faire ?? 0;
 
         if (Array.isArray(tilesData)) {
           const updatedTiles = tilesData.map((t: TileData) => {
@@ -127,7 +130,7 @@ const Dashboard: React.FC = () => {
             if (isConsommables) return { ...t, pending_requests: pendingCount };
             if (isCertif) return { ...t, pending_requests: renewalCount };
             if (isContrats) return { ...t, pending_requests: contratsExpired, warning_count: contratsSoon };
-            if (isTaches) return { ...t, pending_requests: tasksOverdue };
+            if (isTaches) return { ...t, pending_requests: tasksOverdue, warning_count: tasksEnCours, info_count: tasksAFaire };
             return t;
           });
           setTiles(updatedTiles);
@@ -200,7 +203,7 @@ const Dashboard: React.FC = () => {
                   }}
                 >
                     <Tile
-                    key={`${tile.id}-${tile.pending_requests || 0}-${tile.warning_count || 0}`}
+                    key={`${tile.id}-${tile.pending_requests || 0}-${tile.warning_count || 0}-${tile.info_count || 0}`}
                     id={tile.id}
                     title={tile.title}
                     icon={tile.icon}
@@ -212,6 +215,7 @@ const Dashboard: React.FC = () => {
                     isAdmin={user?.role === 'admin'}
                     pending_requests={tile.pending_requests || 0}
                     warning_count={tile.warning_count || 0}
+                    info_count={tile.info_count || 0}
                   />
                 </div>
               ))}

@@ -1,7 +1,24 @@
 const { pool } = require('../../shared/database');
+const path = require('path');
+const fs = require('fs');
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
+
+const TASK_NOTES_DIR = path.join(__dirname, '..', '..', 'file_task_notes');
+if (!fs.existsSync(TASK_NOTES_DIR)) fs.mkdirSync(TASK_NOTES_DIR, { recursive: true });
+
+// Status normalization between sources
+// projet/projet_standalone native: 'terminee'  |  Mes Tâches: 'terminé'
+const normalizeStatutOut = (statut) => {
+    if (!statut) return 'a_faire';
+    if (statut === 'terminee' || statut === 'terminée') return 'terminé';
+    return statut;
+};
+const normalizeStatutIn = (statut, source) => {
+    if ((source === 'projet' || source === 'projet_standalone') && statut === 'terminé') return 'terminee';
+    return statut;
+};
 
 async function getUserDisplayName(username) {
     try {
@@ -67,12 +84,12 @@ module.exports = {
                         p.titre                AS source_title,
                         pt.titre               AS description,
                         pt.date_fin::text      AS echeance,
-                        pt.statut,
+                        CASE WHEN pt.statut IN ('terminee','terminée') THEN 'terminé' ELSE pt.statut END AS statut,
                         pt.responsable_username AS responsable,
                         pt.date_creation       AS created_at
                     FROM projets.projet_taches pt
                     JOIN projets.projets p ON pt.projet_id = p.id
-                    WHERE pt.statut != 'terminé'
+                    WHERE pt.statut NOT IN ('terminé','terminee','terminée')
                       AND LOWER(pt.responsable_username) = $1
 
                     UNION ALL
@@ -84,12 +101,12 @@ module.exports = {
                         p.titre                 AS source_title,
                         pts.tache               AS description,
                         pts.echeance::text      AS echeance,
-                        pts.statut,
+                        CASE WHEN pts.statut IN ('terminee','terminée') THEN 'terminé' ELSE pts.statut END AS statut,
                         pts.responsable,
                         pts.created_at
                     FROM projets.projet_taches_standalone pts
                     JOIN projets.projets p ON pts.projet_id = p.id
-                    WHERE pts.statut != 'terminé'
+                    WHERE pts.statut NOT IN ('terminé','terminee','terminée')
                       AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2
                            OR LOWER(COALESCE(pts.responsable_username, '')) = $1)
 
@@ -155,14 +172,30 @@ module.exports = {
                     created_at DESC
             `, [un, dn]);
 
-            res.json(rows);
+            // Enrich with note counts from hub.task_notes
+            const taskIds = rows.map(r => `${r.source}:${r.id}`);
+            let noteCountMap = {};
+            if (taskIds.length > 0) {
+                try {
+                    const noteRows = await pool.query(
+                        `SELECT source || ':' || task_id AS key, COUNT(*) AS cnt
+                         FROM hub.task_notes
+                         WHERE (source, task_id) IN (${rows.map((r, i) => `($${i*2+1}, $${i*2+2})`).join(',')})
+                         GROUP BY source, task_id`,
+                        rows.flatMap(r => [r.source, String(r.id)])
+                    );
+                    for (const nr of noteRows.rows) noteCountMap[nr.key] = parseInt(nr.cnt);
+                } catch (e) { /* ignore - table may not exist yet */ }
+            }
+
+            res.json(rows.map(r => ({ ...r, note_count: noteCountMap[`${r.source}:${r.id}`] || 0 })));
         } catch (error) {
             console.error('[tasks] getMyTasks error:', error);
             res.status(500).json({ error: error.message });
         }
     },
 
-    // GET /api/tasks/count — badge dashboard (tâches en retard)
+    // GET /api/tasks/count — badge dashboard
     async getMyTasksCount(req, res) {
         const username = req.user.username;
         try {
@@ -171,53 +204,55 @@ module.exports = {
             const dn = displayName.toLowerCase();
 
             const { rows } = await pool.query(`
-                SELECT COUNT(*) AS count FROM (
-                    SELECT 1 FROM hub.user_tasks ut
-                    WHERE ut.statut != 'terminé'
-                      AND ut.echeance IS NOT NULL AND ut.echeance < CURRENT_DATE
-                      AND LOWER(ut.username) = $1
+                SELECT
+                    COUNT(*) FILTER (WHERE echeance IS NOT NULL AND echeance < CURRENT_DATE) AS overdue,
+                    COUNT(*) FILTER (WHERE statut = 'en_cours') AS en_cours,
+                    COUNT(*) FILTER (WHERE statut = 'a_faire' AND (echeance IS NULL OR echeance >= CURRENT_DATE)) AS a_faire
+                FROM (
+                    SELECT statut, echeance FROM hub.user_tasks
+                    WHERE statut NOT IN ('terminé','terminee') AND LOWER(username) = $1
 
                     UNION ALL
 
-                    SELECT 1 FROM transcript.tasks t
-                    WHERE t.is_completed = 0
-                      AND t.deadline IS NOT NULL AND t.deadline::date < CURRENT_DATE
-                      AND (LOWER(t.assignee) = $1 OR LOWER(t.assignee) = $2)
+                    SELECT CASE WHEN is_completed=1 THEN 'terminé' ELSE 'a_faire' END, deadline::date
+                    FROM transcript.tasks
+                    WHERE is_completed = 0 AND (LOWER(assignee) = $1 OR LOWER(assignee) = $2)
 
                     UNION ALL
 
-                    SELECT 1 FROM projets.projet_taches pt
-                    WHERE pt.statut != 'terminé'
-                      AND pt.date_fin IS NOT NULL AND pt.date_fin < CURRENT_DATE
-                      AND LOWER(pt.responsable_username) = $1
+                    SELECT statut, date_fin FROM projets.projet_taches
+                    WHERE statut NOT IN ('terminé','terminee','terminée') AND LOWER(responsable_username) = $1
 
                     UNION ALL
 
-                    SELECT 1 FROM projets.projet_taches_standalone pts
-                    WHERE pts.statut != 'terminé'
-                      AND pts.echeance IS NOT NULL AND pts.echeance < CURRENT_DATE
-                      AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2
-                           OR LOWER(COALESCE(pts.responsable_username, '')) = $1)
+                    SELECT statut, echeance FROM projets.projet_taches_standalone
+                    WHERE statut NOT IN ('terminé','terminee','terminée')
+                      AND (LOWER(responsable) = $1 OR LOWER(responsable) = $2
+                           OR LOWER(COALESCE(responsable_username,'')) = $1)
 
                     UNION ALL
 
-                    SELECT 1 FROM hub_rencontres.rencontres_suivi rs
-                    WHERE rs.statut NOT IN ('terminé', 'done')
-                      AND rs.date_echeance IS NOT NULL AND rs.date_echeance < CURRENT_DATE
-                      AND (LOWER(rs.responsable) = $1 OR LOWER(rs.responsable) = $2)
+                    SELECT statut, date_echeance FROM hub_rencontres.rencontres_suivi
+                    WHERE statut NOT IN ('terminé','done')
+                      AND (LOWER(responsable) = $1 OR LOWER(responsable) = $2)
 
                     UNION ALL
 
-                    SELECT 1 FROM hub_rencontres.revue_taches rt
-                    WHERE rt.statut != 'terminé'
-                      AND rt.echeance IS NOT NULL AND rt.echeance < CURRENT_DATE
-                      AND (LOWER(rt.responsable) = $1 OR LOWER(rt.responsable) = $2)
-                ) overdue
+                    SELECT statut, echeance FROM hub_rencontres.revue_taches
+                    WHERE statut != 'terminé'
+                      AND (LOWER(responsable) = $1 OR LOWER(responsable) = $2)
+                ) all_tasks
             `, [un, dn]);
 
-            res.json({ count: Number(rows[0].count) });
+            const r = rows[0];
+            res.json({
+                count: Number(r.overdue),   // backward compat (overdue = red badge)
+                overdue: Number(r.overdue),
+                en_cours: Number(r.en_cours),
+                a_faire: Number(r.a_faire)
+            });
         } catch (error) {
-            res.status(500).json({ count: 0 });
+            res.status(500).json({ count: 0, overdue: 0, en_cours: 0, a_faire: 0 });
         }
     },
 
@@ -244,6 +279,7 @@ module.exports = {
         const { statut } = req.body;
         if (!statut) return res.status(400).json({ error: 'statut requis' });
         try {
+            const dbStatut = normalizeStatutIn(statut, source);
             switch (source) {
                 case 'personal':
                     await pool.query(
@@ -260,13 +296,13 @@ module.exports = {
                 case 'projet':
                     await pool.query(
                         'UPDATE projets.projet_taches SET statut = $1 WHERE id = $2',
-                        [statut, id]
+                        [dbStatut, id]
                     );
                     break;
                 case 'projet_standalone':
                     await pool.query(
                         'UPDATE projets.projet_taches_standalone SET statut = $1 WHERE id = $2',
-                        [statut, id]
+                        [dbStatut, id]
                     );
                     break;
                 case 'rencontre':
@@ -299,11 +335,95 @@ module.exports = {
                 'DELETE FROM hub.user_tasks WHERE id = $1 AND LOWER(username) = LOWER($2)',
                 [id, username]
             );
+            // cleanup notes
+            await pool.query('DELETE FROM hub.task_notes WHERE source = $1 AND task_id = $2', ['personal', String(id)]);
             res.json({ ok: true });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
     },
+
+    // ─── NOTES ──────────────────────────────────────────────────────────────────
+
+    // GET /api/tasks/:source/:id/notes
+    async getTaskNotes(req, res) {
+        const { source, id } = req.params;
+        try {
+            const { rows } = await pool.query(
+                `SELECT * FROM hub.task_notes WHERE source=$1 AND task_id=$2 ORDER BY created_at ASC`,
+                [source, String(id)]
+            );
+            res.json(rows);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // POST /api/tasks/:source/:id/notes  { content }
+    async addTaskNote(req, res) {
+        const { source, id } = req.params;
+        const { content } = req.body;
+        const username = req.user.username;
+        if (!content?.trim()) return res.status(400).json({ error: 'Contenu requis' });
+        try {
+            const { rows } = await pool.query(
+                `INSERT INTO hub.task_notes (source, task_id, content, type, created_by) VALUES ($1,$2,$3,'comment',$4) RETURNING *`,
+                [source, String(id), content.trim(), username]
+            );
+            res.status(201).json(rows[0]);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // POST /api/tasks/:source/:id/notes/file  (multipart)
+    async addTaskNoteFile(req, res) {
+        const { source, id } = req.params;
+        const username = req.user.username;
+        if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
+        try {
+            const { rows } = await pool.query(
+                `INSERT INTO hub.task_notes (source, task_id, content, type, filename, filepath, created_by)
+                 VALUES ($1,$2,$3,'file',$4,$5,$6) RETURNING *`,
+                [source, String(id), req.file.originalname, req.file.originalname, req.file.filename, username]
+            );
+            res.status(201).json(rows[0]);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/tasks/:source/:id/notes/:noteId/file
+    async downloadTaskNoteFile(req, res) {
+        const { noteId } = req.params;
+        try {
+            const { rows } = await pool.query('SELECT * FROM hub.task_notes WHERE id=$1 AND type=$2', [noteId, 'file']);
+            if (!rows[0]) return res.status(404).json({ error: 'Fichier non trouvé' });
+            const filePath = path.join(TASK_NOTES_DIR, rows[0].filepath);
+            if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Fichier manquant sur le disque' });
+            res.download(filePath, rows[0].filename || rows[0].content || 'fichier');
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // DELETE /api/tasks/:source/:id/notes/:noteId
+    async deleteTaskNote(req, res) {
+        const { noteId } = req.params;
+        try {
+            const { rows } = await pool.query('SELECT * FROM hub.task_notes WHERE id=$1', [noteId]);
+            if (rows[0]?.type === 'file' && rows[0]?.filepath) {
+                const fp = path.join(TASK_NOTES_DIR, rows[0].filepath);
+                if (fs.existsSync(fp)) fs.unlinkSync(fp);
+            }
+            await pool.query('DELETE FROM hub.task_notes WHERE id=$1', [noteId]);
+            res.json({ ok: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ─── ALERT PREF ─────────────────────────────────────────────────────────────
 
     // GET /api/tasks/alert-pref
     async getAlertPref(req, res) {
@@ -347,8 +467,150 @@ module.exports = {
             if (!sendMailFn) return res.status(503).json({ error: 'Service mail non configuré' });
 
             const html = await buildTasksEmail(username, user.displayname || username);
-            await sendMailFn(user.email, '✅ [Test] Vos tâches du jour — DSI Hub', html, [], 'task_alert');
+            await sendMailFn(user.email, '✅ [Test] Vos tâches du jour — DSI Hub', html || '<p>Aucune tâche active.</p>', [], 'task_alert');
             res.json({ ok: true, to: user.email });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ─── MS TODO SYNC ────────────────────────────────────────────────────────────
+
+    // GET /api/tasks/todo-sync
+    async getTodoSyncPref(req, res) {
+        const username = req.user.username;
+        try {
+            const r = await pool.query(
+                'SELECT ms_todo_sync FROM hub.users WHERE LOWER(username) = LOWER($1)',
+                [username]
+            );
+            res.json({ enabled: r.rows[0]?.ms_todo_sync === true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PATCH /api/tasks/todo-sync  { enabled: boolean }
+    async setTodoSyncPref(req, res) {
+        const username = req.user.username;
+        const { enabled } = req.body;
+        try {
+            await pool.query(
+                'UPDATE hub.users SET ms_todo_sync = $1 WHERE LOWER(username) = LOWER($2)',
+                [!!enabled, username]
+            );
+            res.json({ ok: true, enabled: !!enabled });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // POST /api/tasks/todo-sync/run  — push tasks to Microsoft Todo
+    async runTodoSync(req, res) {
+        const username = req.user.username;
+        try {
+            // Get Azure config
+            const { getSqlite } = require('../../shared/database');
+            const db = getSqlite();
+            const azureSettings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+            if (!azureSettings?.is_enabled || !azureSettings?.client_id || !azureSettings?.client_secret || !azureSettings?.tenant_id) {
+                return res.status(503).json({ error: 'Azure AD non configuré. Contactez l\'administrateur.' });
+            }
+
+            // Get user info
+            const userRow = await pool.query(
+                'SELECT email, displayname FROM hub.users WHERE LOWER(username) = LOWER($1)',
+                [username]
+            );
+            const user = userRow.rows[0];
+            if (!user?.email) return res.status(400).json({ error: 'Email utilisateur introuvable' });
+
+            // Get app-level token (client_credentials)
+            const axios = require('axios');
+            let accessToken;
+            try {
+                const tokenRes = await axios.post(
+                    `https://login.microsoftonline.com/${azureSettings.tenant_id}/oauth2/v2.0/token`,
+                    new URLSearchParams({
+                        client_id: azureSettings.client_id,
+                        client_secret: azureSettings.client_secret,
+                        grant_type: 'client_credentials',
+                        scope: 'https://graph.microsoft.com/.default'
+                    }).toString(),
+                    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+                );
+                accessToken = tokenRes.data.access_token;
+            } catch (e) {
+                return res.status(503).json({ error: 'Impossible d\'obtenir un token Azure AD. Vérifiez la configuration.' });
+            }
+
+            const graphHeaders = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+
+            // Find or create "DSI Hub" list in user's Todo
+            let listId;
+            try {
+                const listsRes = await axios.get(
+                    `https://graph.microsoft.com/v1.0/users/${user.email}/todo/lists`,
+                    { headers: graphHeaders }
+                );
+                const lists = listsRes.data.value || [];
+                const existing = lists.find(l => l.displayName === 'DSI Hub');
+                if (existing) {
+                    listId = existing.id;
+                } else {
+                    const createRes = await axios.post(
+                        `https://graph.microsoft.com/v1.0/users/${user.email}/todo/lists`,
+                        { displayName: 'DSI Hub' },
+                        { headers: graphHeaders }
+                    );
+                    listId = createRes.data.id;
+                }
+            } catch (e) {
+                const errMsg = e.response?.data?.error?.message || e.message;
+                if (errMsg.includes('Authorization_RequestDenied') || errMsg.includes('Tasks.ReadWrite')) {
+                    return res.status(403).json({
+                        error: 'Permission refusée par Azure AD.',
+                        detail: 'La permission applicative Tasks.ReadWrite.All doit être accordée à l\'application Azure dans le portail Azure AD (consentement administrateur).'
+                    });
+                }
+                return res.status(502).json({ error: `Erreur Microsoft Graph: ${errMsg}` });
+            }
+
+            // Get current tasks for this user
+            const displayName = await getUserDisplayName(username);
+            const un = username.toLowerCase();
+            const dn = displayName.toLowerCase();
+            const { rows: tasks } = await pool.query(`
+                SELECT description, echeance, statut FROM hub.user_tasks
+                WHERE statut NOT IN ('terminé','terminee') AND LOWER(username) = $1
+                LIMIT 50
+            `, [un]);
+
+            // Push each task to MS Todo
+            let pushed = 0;
+            for (const task of tasks) {
+                try {
+                    const todoTask = {
+                        title: task.description,
+                        status: task.statut === 'en_cours' ? 'inProgress' : 'notStarted',
+                    };
+                    if (task.echeance) {
+                        const d = new Date(task.echeance);
+                        todoTask.dueDateTime = {
+                            dateTime: d.toISOString(),
+                            timeZone: 'Europe/Paris'
+                        };
+                    }
+                    await axios.post(
+                        `https://graph.microsoft.com/v1.0/users/${user.email}/todo/lists/${listId}/tasks`,
+                        todoTask,
+                        { headers: graphHeaders }
+                    );
+                    pushed++;
+                } catch (e) { /* skip individual task errors */ }
+            }
+
+            res.json({ ok: true, pushed, listId, email: user.email });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -395,11 +657,11 @@ async function buildTasksEmail(username, displayName) {
             UNION ALL
             SELECT 'Projet', pt.titre, pt.date_fin::text, pt.statut
             FROM projets.projet_taches pt JOIN projets.projets p ON pt.projet_id = p.id
-            WHERE pt.statut != 'terminé' AND LOWER(pt.responsable_username) = $1
+            WHERE pt.statut NOT IN ('terminé','terminee','terminée') AND LOWER(pt.responsable_username) = $1
             UNION ALL
             SELECT 'Projet', pts.tache, pts.echeance::text, pts.statut
             FROM projets.projet_taches_standalone pts
-            WHERE pts.statut != 'terminé'
+            WHERE pts.statut NOT IN ('terminé','terminee','terminée')
               AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2
                    OR LOWER(COALESCE(pts.responsable_username,'')) = $1)
             UNION ALL
@@ -418,7 +680,7 @@ async function buildTasksEmail(username, displayName) {
             echeance ASC NULLS LAST
     `, [un, dn]);
 
-    if (rows.length === 0) return null;  // nothing to send
+    if (rows.length === 0) return null;
 
     const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     const overdueRows = rows.filter(r => r.echeance && new Date(r.echeance) < new Date(new Date().toDateString()));
