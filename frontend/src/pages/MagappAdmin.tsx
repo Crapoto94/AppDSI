@@ -188,7 +188,7 @@ const MagappAdmin: React.FC = () => {
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [ticketCounts, setTicketCounts] = useState<Record<number, number>>({});
+  const [ticketCounts, setTicketCounts] = useState<Record<number, { incident_count: number; request_count: number; total: number }>>({});
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
   const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
@@ -313,10 +313,14 @@ const MagappAdmin: React.FC = () => {
       });
       if (response.ok) {
         const data = await response.json();
-        const countMap: Record<number, number> = {};
+        const countMap: Record<number, { incident_count: number; request_count: number; total: number }> = {};
         data.forEach((item: any) => {
           if (item.software_id) {
-            countMap[item.software_id] = item.ticket_count;
+            countMap[item.software_id] = {
+              incident_count: item.incident_count || 0,
+              request_count: item.request_count || 0,
+              total: item.ticket_count || 0
+            };
           }
         });
         setTicketCounts(countMap);
@@ -1000,10 +1004,19 @@ const MagappAdmin: React.FC = () => {
                                 📋 {app.contract_count}
                               </span>
                             )}
-                            {ticketCounts[app.id] !== undefined && ticketCounts[app.id] > 0 && (
-                              <span title={`${ticketCounts[app.id]} ticket(s) ouvert(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fee2e2', color: '#991b1b', fontSize: '0.72rem', fontWeight: 700 }}>
-                                🎫 {ticketCounts[app.id]}
-                              </span>
+                            {ticketCounts[app.id] !== undefined && ticketCounts[app.id].total > 0 && (
+                              <>
+                                {ticketCounts[app.id].incident_count > 0 && (
+                                  <span title={`${ticketCounts[app.id].incident_count} incident(s) ouvert(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fee2e2', color: '#991b1b', fontSize: '0.72rem', fontWeight: 700 }}>
+                                    ! {ticketCounts[app.id].incident_count}
+                                  </span>
+                                )}
+                                {ticketCounts[app.id].request_count > 0 && (
+                                  <span title={`${ticketCounts[app.id].request_count} demande(s) ouvert(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fef3c7', color: '#92400e', fontSize: '0.72rem', fontWeight: 700 }}>
+                                    + {ticketCounts[app.id].request_count}
+                                  </span>
+                                )}
+                              </>
                             )}
                             {app.dsi_only ? (
                               <span title="Application réservée à la DSI" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#1e293b', color: 'white', fontSize: '0.72rem', fontWeight: 700 }}>
