@@ -374,13 +374,20 @@ export default function TicketList({
 
                   {/* Statut */}
                   <td style={tdStyle}>
-                    <span style={{
-                      display: 'inline-block', padding: '3px 10px', borderRadius: 20,
-                      fontSize: 12, fontWeight: 600,
-                      background: (STATUS_COLORS[t.status?.id] || '#64748b') + '20',
-                      color: STATUS_COLORS[t.status?.id] || '#64748b'
-                    }}>
+                    <span
+                      title={t.status?.id === 4 && t.waiting_reason ? `Motif : ${t.waiting_reason}` : undefined}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '3px 10px', borderRadius: 20,
+                        fontSize: 12, fontWeight: 600,
+                        background: (STATUS_COLORS[t.status?.id] || '#64748b') + '20',
+                        color: STATUS_COLORS[t.status?.id] || '#64748b',
+                        cursor: t.status?.id === 4 && t.waiting_reason ? 'help' : 'default',
+                      }}>
                       {STATUS_NAMES[t.status?.id] || t.status?.label || 'Inconnu'}
+                      {t.status?.id === 4 && t.waiting_reason && (
+                        <span style={{ fontSize: 11, opacity: 0.75 }}>💬</span>
+                      )}
                     </span>
                   </td>
 

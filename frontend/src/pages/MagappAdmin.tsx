@@ -200,6 +200,11 @@ const MagappAdmin: React.FC = () => {
   const [filterContracts, setFilterContracts] = useState<'all' | 'with' | 'without'>('all');
   const [filterDsi, setFilterDsi] = useState<'all' | 'dsi' | 'other'>('all');
 
+  // Modal tickets par logiciel
+  const [ticketModal, setTicketModal] = useState<{ appId: number; appName: string; type: '1' | '2' } | null>(null);
+  const [ticketModalData, setTicketModalData] = useState<any[]>([]);
+  const [ticketModalLoading, setTicketModalLoading] = useState(false);
+
   // User tracking states
   const [appUsers, setAppUsers] = useState<AppUser[]>([]);
   const [adSearchQuery, setAdSearchQuery] = useState('');
@@ -326,6 +331,24 @@ const MagappAdmin: React.FC = () => {
         setTicketCounts(countMap);
       }
     } catch (e) { console.error('[MagappAdmin] Erreur fetchTicketCounts:', e); }
+  };
+
+  const openTicketModal = async (appId: number, appName: string, type: '1' | '2') => {
+    setTicketModal({ appId, appName, type });
+    setTicketModalData([]);
+    setTicketModalLoading(true);
+    try {
+      const res = await fetch(
+        `/api/tickets?software_id=${appId}&type=${type}&status_in=1,2,3,4&limit=50`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const json = await res.json();
+      setTicketModalData(json.data || []);
+    } catch (e) {
+      console.error('Erreur chargement tickets:', e);
+    } finally {
+      setTicketModalLoading(false);
+    }
   };
 
   const fetchLibrary = async () => {
@@ -981,6 +1004,29 @@ const MagappAdmin: React.FC = () => {
                 <div className="apps-grid-v2">
                   {filteredApps.map(app => (
                     <div key={app.id} className={`app-card-v2 ${app.present_magapp === 'oui' ? 'is-published' : ''}`}>
+                      {/* Ticket badges — top-right corner, clickable */}
+                      {ticketCounts[app.id] !== undefined && ticketCounts[app.id].total > 0 && (
+                        <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', gap: 4, zIndex: 2 }}>
+                          {ticketCounts[app.id].incident_count > 0 && (
+                            <button
+                              onClick={e => { e.stopPropagation(); openTicketModal(app.id, app.name, '1'); }}
+                              title={`${ticketCounts[app.id].incident_count} incident(s) ouvert(s) — cliquer pour voir`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 20, background: '#fee2e2', color: '#991b1b', fontSize: '0.7rem', fontWeight: 700, boxShadow: '0 1px 3px rgba(0,0,0,0.12)', border: 'none', cursor: 'pointer' }}
+                            >
+                              ⚠ {ticketCounts[app.id].incident_count}
+                            </button>
+                          )}
+                          {ticketCounts[app.id].request_count > 0 && (
+                            <button
+                              onClick={e => { e.stopPropagation(); openTicketModal(app.id, app.name, '2'); }}
+                              title={`${ticketCounts[app.id].request_count} demande(s) ouvert(s) — cliquer pour voir`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 20, background: '#fef3c7', color: '#92400e', fontSize: '0.7rem', fontWeight: 700, boxShadow: '0 1px 3px rgba(0,0,0,0.12)', border: 'none', cursor: 'pointer' }}
+                            >
+                              + {ticketCounts[app.id].request_count}
+                            </button>
+                          )}
+                        </div>
+                      )}
                       <div className="app-card-inner-v2">
                         <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} />
                         <div className="app-details-v2">
@@ -1003,20 +1049,6 @@ const MagappAdmin: React.FC = () => {
                               <span title={`${app.contract_count} contrat(s) dans le module Contrats`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fef3c7', color: '#92400e', fontSize: '0.72rem', fontWeight: 700 }}>
                                 📋 {app.contract_count}
                               </span>
-                            )}
-                            {ticketCounts[app.id] !== undefined && ticketCounts[app.id].total > 0 && (
-                              <>
-                                {ticketCounts[app.id].incident_count > 0 && (
-                                  <span title={`${ticketCounts[app.id].incident_count} incident(s) ouvert(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fee2e2', color: '#991b1b', fontSize: '0.72rem', fontWeight: 700 }}>
-                                    ! {ticketCounts[app.id].incident_count}
-                                  </span>
-                                )}
-                                {ticketCounts[app.id].request_count > 0 && (
-                                  <span title={`${ticketCounts[app.id].request_count} demande(s) ouvert(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fef3c7', color: '#92400e', fontSize: '0.72rem', fontWeight: 700 }}>
-                                    + {ticketCounts[app.id].request_count}
-                                  </span>
-                                )}
-                              </>
                             )}
                             {app.dsi_only ? (
                               <span title="Application réservée à la DSI" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#1e293b', color: 'white', fontSize: '0.72rem', fontWeight: 700 }}>
@@ -1389,6 +1421,91 @@ const MagappAdmin: React.FC = () => {
                       }}>
                         <Save size={18} /> {editingApp ? 'Enregistrer les modifications' : 'Créer l\'application'}
                       </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal tickets par logiciel */}
+              {ticketModal && (
+                <div
+                  style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
+                  onClick={() => setTicketModal(null)}
+                >
+                  <div
+                    style={{ background: '#fff', borderRadius: 16, width: 680, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {/* Header */}
+                    <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#6366f1', marginBottom: 4 }}>
+                          {ticketModal.appName}
+                        </div>
+                        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {ticketModal.type === '1'
+                            ? <><span style={{ background: '#fee2e2', color: '#991b1b', padding: '2px 10px', borderRadius: 20, fontSize: 12 }}>⚠ Incidents ouverts</span></>
+                            : <><span style={{ background: '#fef3c7', color: '#92400e', padding: '2px 10px', borderRadius: 20, fontSize: 12 }}>+ Demandes ouvertes</span></>
+                          }
+                        </h3>
+                      </div>
+                      <button
+                        onClick={() => setTicketModal(null)}
+                        style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', fontSize: 16, color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {/* Body */}
+                    <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px' }}>
+                      {ticketModalLoading ? (
+                        <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Chargement...</div>
+                      ) : ticketModalData.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun ticket trouvé</div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {ticketModalData.map((t: any) => (
+                            <a
+                              key={t.id}
+                              href={`/tickets/${t.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 10, border: '1px solid #e2e8f0', textDecoration: 'none', background: '#f8fafc', transition: 'background 0.1s' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#eef2ff')}
+                              onMouseLeave={e => (e.currentTarget.style.background = '#f8fafc')}
+                            >
+                              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#6366f1', fontSize: 13, flexShrink: 0 }}>
+                                #{t.id}
+                              </span>
+                              <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {t.title}
+                              </span>
+                              <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>
+                                {t.requester?.name || ''}
+                              </span>
+                              <span style={{
+                                fontSize: 11, fontWeight: 600, flexShrink: 0,
+                                padding: '2px 8px', borderRadius: 12,
+                                background: t.status?.id === 4 ? '#fff7ed' : t.status?.id >= 5 ? '#f0fdf4' : '#eef2ff',
+                                color: t.status?.id === 4 ? '#c2410c' : t.status?.id >= 5 ? '#166534' : '#4338ca',
+                              }}>
+                                {t.status?.label || `#${t.status?.id}`}
+                              </span>
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {/* Footer */}
+                    <div style={{ padding: '12px 24px', borderTop: '1px solid #e2e8f0', flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                      <a
+                        href={`/tickets?software_id=${ticketModal.appId}&type=${ticketModal.type}&status_in=1,2,3,4`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: 13, color: '#6366f1', fontWeight: 600, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+                      >
+                        Voir dans le module tickets →
+                      </a>
                     </div>
                   </div>
                 </div>

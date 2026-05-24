@@ -61,9 +61,11 @@ export default function TicketsDashboard() {
   const [categories, setCategories] = useState<any[]>([]);
   const [activeCategory, setActiveCategory] = useState<number | null>(null);
   const [activeSubcategory, setActiveSubcategory] = useState<number | null>(null);
+  const [softwares, setSoftwares] = useState<{ id: number; name: string }[]>([]);
+  const [activeSoftware, setActiveSoftware] = useState<number | null>(null);
   const limit = 50;
 
-  const loadData = useCallback(async (filter?: string | null, userFilter?: string | null, pageNum?: number, searchValue: string = search, categoryId?: number | null, subcategoryId?: number | null) => {
+  const loadData = useCallback(async (filter?: string | null, userFilter?: string | null, pageNum?: number, searchValue: string = search, categoryId?: number | null, subcategoryId?: number | null, softwareId?: number | null) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -87,6 +89,9 @@ export default function TicketsDashboard() {
       if (subcategoryId) {
         params.subcategory_id = String(subcategoryId);
       }
+      if (softwareId) {
+        params.software_id = String(softwareId);
+      }
       params.sort = sortKey;
       params.order = sortDir;
       const qs = new URLSearchParams(params).toString();
@@ -106,7 +111,7 @@ export default function TicketsDashboard() {
     }
   }, [page, search, sortKey, sortDir]);
 
-  useEffect(() => { loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory); }, []);
+  useEffect(() => { loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware); }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -121,6 +126,19 @@ export default function TicketsDashboard() {
     if (!token) return;
     axios.get('/api/tickets/admin/categories', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setCategories(r.data || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    axios.get('/api/tickets/ticket-stats', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        const list = (r.data || [])
+          .filter((x: any) => x.software_id && x.software_name)
+          .map((x: any) => ({ id: x.software_id, name: x.software_name }));
+        setSoftwares(list);
+      })
       .catch(() => {});
   }, []);
 
@@ -142,14 +160,20 @@ export default function TicketsDashboard() {
 
   useEffect(() => {
     showResolvedRef.current = showResolved;
-    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }, [showResolved]);
 
   function handleCategoryFilter(categoryId: number | null, subcategoryId: number | null) {
     setActiveCategory(categoryId);
     setActiveSubcategory(subcategoryId);
     setPage(1);
-    loadData(activeFilter, activeUserFilter, 1, search, categoryId, subcategoryId);
+    loadData(activeFilter, activeUserFilter, 1, search, categoryId, subcategoryId, activeSoftware);
+  }
+
+  function handleSoftwareFilter(softwareId: number | null) {
+    setActiveSoftware(softwareId);
+    setPage(1);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, softwareId);
   }
 
   useEffect(() => { loadKpiHistory(kpiDays); }, [kpiDays]);
@@ -159,11 +183,11 @@ export default function TicketsDashboard() {
     if (activeFilter === key) {
       setActiveFilter(null);
       setPage(1);
-      loadData(null, activeUserFilter, 1);
+      loadData(null, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
     } else {
       setActiveFilter(key);
       setPage(1);
-      loadData(key, activeUserFilter, 1);
+      loadData(key, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
     }
   }
 
@@ -171,39 +195,40 @@ export default function TicketsDashboard() {
     if (activeUserFilter === key) {
       setActiveUserFilter(null);
       setPage(1);
-      loadData(activeFilter, null, 1);
+      loadData(activeFilter, null, 1, search, activeCategory, activeSubcategory, activeSoftware);
     } else {
       setActiveUserFilter(key);
       setPage(1);
-      loadData(activeFilter, key, 1);
+      loadData(activeFilter, key, 1, search, activeCategory, activeSubcategory, activeSoftware);
     }
   }
 
   function goToPage(p: number) {
     if (p < 1 || p > totalPages) return;
     setPage(p);
-    loadData(activeFilter, activeUserFilter, p);
+    loadData(activeFilter, activeUserFilter, p, search, activeCategory, activeSubcategory, activeSoftware);
   }
 
   function showAll() {
     setActiveFilter(null);
     setActiveUserFilter(null);
     setSearch('');
+    setActiveSoftware(null);
     setPage(1);
-    loadData(null, null, 1, '');
+    loadData(null, null, 1, '', activeCategory, activeSubcategory, null);
   }
 
   function handleSort(key: string, dir: 'asc' | 'desc') {
     setSortKey(key);
     setSortDir(dir);
     setPage(1);
-    loadData(activeFilter, activeUserFilter, 1);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }
 
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
     setPage(1);
-    loadData(activeFilter, activeUserFilter, 1, search);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }
 
   const getKpiValue = (key: string) =>
@@ -522,7 +547,7 @@ export default function TicketsDashboard() {
             }}>{getUserCount(key)}</span>
           </button>
         ))}
-        <button onClick={() => { const newVal = !showResolved; showResolvedRef.current = newVal; setShowResolved(newVal); setActiveFilter(null); setActiveUserFilter(null); setPage(1); loadData(null, null, 1); }}
+        <button onClick={() => { const newVal = !showResolved; showResolvedRef.current = newVal; setShowResolved(newVal); setActiveFilter(null); setActiveUserFilter(null); setPage(1); loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -533,7 +558,7 @@ export default function TicketsDashboard() {
           {showResolved ? '🙈 Masquer résolus' : '👁️ Voir résolus'}
         </button>
         {['superadmin', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
-          <button onClick={() => { const newVal = !showRejected; showRejectedRef.current = newVal; setShowRejected(newVal); setActiveFilter(null); setActiveUserFilter(null); setPage(1); loadData(null, null, 1); }}
+          <button onClick={() => { const newVal = !showRejected; showRejectedRef.current = newVal; setShowRejected(newVal); setActiveFilter(null); setActiveUserFilter(null); setPage(1); loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -546,56 +571,78 @@ export default function TicketsDashboard() {
         )}
       </div>
 
-      {categories.length > 0 && (
-        <div style={{marginBottom:16,display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
-          <div style={{fontSize:13,fontWeight:600,color:'#64748b'}}>Catégorie :</div>
-          <select
-            value={activeCategory || ''}
-            onChange={e => {
-              const catId = e.target.value ? parseInt(e.target.value) : null;
-              handleCategoryFilter(catId, null);
-            }}
-            style={{
-              padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:6,
-              background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500,
-              color:activeCategory ? '#6366f1' : '#64748b'
-            }}>
-            <option value="">Toutes les catégories</option>
-            {categories.map(cat => (
-              <option key={cat.id} value={cat.id}>{cat.name}</option>
-            ))}
-          </select>
-          {activeCategory && (
+      <div style={{ marginBottom: 16, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        {categories.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>Catégorie :</span>
             <select
-              value={activeSubcategory || ''}
+              value={activeCategory || ''}
               onChange={e => {
-                const subcatId = e.target.value ? parseInt(e.target.value) : null;
-                handleCategoryFilter(activeCategory, subcatId);
+                const catId = e.target.value ? parseInt(e.target.value) : null;
+                handleCategoryFilter(catId, null);
               }}
               style={{
-                padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:6,
-                background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500,
-                color:activeSubcategory ? '#7c3aed' : '#64748b'
+                padding: '7px 12px', border: `1px solid ${activeCategory ? '#6366f1' : '#e2e8f0'}`, borderRadius: 6,
+                background: activeCategory ? '#eef2ff' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                color: activeCategory ? '#4f46e5' : '#64748b', outline: 'none'
               }}>
-              <option value="">Toutes les sous-catégories</option>
-              {categories.find(c => c.id === activeCategory)?.children?.map((subcat: any) => (
-                <option key={subcat.id} value={subcat.id}>{subcat.name}</option>
+              <option value="">Toutes</option>
+              {categories.map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </select>
-          )}
-          {(activeCategory || activeSubcategory) && (
-            <button
-              onClick={() => handleCategoryFilter(null, null)}
+            {activeCategory && (
+              <select
+                value={activeSubcategory || ''}
+                onChange={e => {
+                  const subcatId = e.target.value ? parseInt(e.target.value) : null;
+                  handleCategoryFilter(activeCategory, subcatId);
+                }}
+                style={{
+                  padding: '7px 12px', border: `1px solid ${activeSubcategory ? '#7c3aed' : '#e2e8f0'}`, borderRadius: 6,
+                  background: activeSubcategory ? '#faf5ff' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                  color: activeSubcategory ? '#7c3aed' : '#64748b', outline: 'none'
+                }}>
+                <option value="">Toutes les sous-catégories</option>
+                {categories.find(c => c.id === activeCategory)?.children?.map((subcat: any) => (
+                  <option key={subcat.id} value={subcat.id}>{subcat.name}</option>
+                ))}
+              </select>
+            )}
+            {(activeCategory || activeSubcategory) && (
+              <button onClick={() => handleCategoryFilter(null, null)}
+                style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
+                ✕
+              </button>
+            )}
+          </div>
+        )}
+
+        {softwares.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>💾 Logiciel :</span>
+            <select
+              value={activeSoftware || ''}
+              onChange={e => handleSoftwareFilter(e.target.value ? parseInt(e.target.value) : null)}
               style={{
-                padding:'6px 12px',border:'1px solid #e2e8f0',borderRadius:6,
-                background:'#fef2f2',color:'#ef4444',cursor:'pointer',
-                fontSize:12,fontWeight:500
+                padding: '7px 12px', border: `1px solid ${activeSoftware ? '#0891b2' : '#e2e8f0'}`, borderRadius: 6,
+                background: activeSoftware ? '#f0f9ff' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                color: activeSoftware ? '#0369a1' : '#64748b', outline: 'none'
               }}>
-              ✕ Effacer
-            </button>
-          )}
-        </div>
-      )}
+              <option value="">Tous les logiciels</option>
+              {softwares.map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            {activeSoftware && (
+              <button onClick={() => handleSoftwareFilter(null)}
+                style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
+                ✕
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <form className="search-bar" style={{flex:1,maxWidth:500,marginBottom:0}} onSubmit={runSearch}>
@@ -634,7 +681,7 @@ export default function TicketsDashboard() {
           totalPages={totalPages}
           page={page}
           onPageChange={goToPage}
-          onRefresh={() => loadData(activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory)}
+          onRefresh={() => loadData(activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory, activeSoftware)}
         />
       )}
 

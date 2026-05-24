@@ -807,11 +807,22 @@ export default function TicketDetail() {
             <h4 style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 12px 0' }}>Informations</h4>
             <div style={{ display: 'grid', gap: 10 }}>
               <div><span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Statut</span>
-                <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, marginTop: 2,
-                  background: (STATUS_COLORS[ticket.status?.id] || '#64748b') + '20',
-                  color: STATUS_COLORS[ticket.status?.id] || '#64748b' }}>
+                <span
+                  title={ticket.status?.id === 4 && ticket.waiting_reason ? `Motif : ${ticket.waiting_reason}` : undefined}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, marginTop: 2,
+                    background: (STATUS_COLORS[ticket.status?.id] || '#64748b') + '20',
+                    color: STATUS_COLORS[ticket.status?.id] || '#64748b',
+                    cursor: ticket.status?.id === 4 && ticket.waiting_reason ? 'help' : 'default' }}>
                   {STATUS_NAMES[ticket.status?.id] || 'Inconnu'}
+                  {ticket.status?.id === 4 && ticket.waiting_reason && (
+                    <span style={{ fontSize: 11, opacity: 0.75 }}>💬</span>
+                  )}
                 </span>
+                {ticket.status?.id === 4 && ticket.waiting_reason && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, padding: '4px 8px', lineHeight: 1.4 }}>
+                    {ticket.waiting_reason}
+                  </div>
+                )}
               </div>
               <div>
                 <span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Priorité</span>
@@ -1107,7 +1118,13 @@ export default function TicketDetail() {
                       {new Date(h.created_at).toLocaleString('fr-FR')}
                     </div>
                   )}
-                  {h.comment && <div style={{ color: '#64748b', marginTop: 2 }}>{h.comment}</div>}
+                  {h.comment && h.action === 'status_changed' && h.new_value === '4' ? (
+                    <div style={{ marginTop: 4, fontSize: 11, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 8px', lineHeight: 1.4 }}>
+                      💬 <strong>Motif :</strong> {h.comment}
+                    </div>
+                  ) : h.comment ? (
+                    <div style={{ color: '#64748b', marginTop: 2, fontSize: 11 }}>{h.comment}</div>
+                  ) : null}
                 </div>
               ))}
               {history.length === 0 && <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Aucun événement</div>}
@@ -1232,8 +1249,21 @@ export default function TicketDetail() {
             {/* Statut */}
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Statut</label>
-              <div style={{ marginTop: 4, display: 'inline-block', padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#eef2ff', color: '#4338ca' }}>
-                {ticket.status?.label || 'Inconnu'}
+              <div style={{ marginTop: 4 }}>
+                <span
+                  title={ticket.status?.id === 4 && ticket.waiting_reason ? `Motif : ${ticket.waiting_reason}` : undefined}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                    background: ticket.status?.id === 4 ? '#fff7ed' : '#eef2ff',
+                    color: ticket.status?.id === 4 ? '#c2410c' : '#4338ca',
+                    cursor: ticket.status?.id === 4 && ticket.waiting_reason ? 'help' : 'default' }}>
+                  {ticket.status?.label || 'Inconnu'}
+                  {ticket.status?.id === 4 && ticket.waiting_reason && <span style={{ fontSize: 11 }}>💬</span>}
+                </span>
+                {ticket.status?.id === 4 && ticket.waiting_reason && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, padding: '5px 8px', lineHeight: 1.4 }}>
+                    {ticket.waiting_reason}
+                  </div>
+                )}
               </div>
             </div>
 

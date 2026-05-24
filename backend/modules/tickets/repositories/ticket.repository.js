@@ -15,7 +15,10 @@ const BASE_SELECT = `
            tsc.name as subcategory_name,
             (SELECT COUNT(*) FROM hub_tickets.observers o WHERE o.ticket_id = t.glpi_id AND o.is_active = 1) as observer_count,
            (SELECT COUNT(*) FROM hub_tickets.ticket_history h WHERE h.ticket_id = t.glpi_id) as history_count,
-           (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count
+           (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count,
+           (SELECT h2.comment FROM hub_tickets.ticket_history h2
+            WHERE h2.ticket_id = t.glpi_id AND h2.action = 'status_changed' AND h2.new_value = '4'
+            ORDER BY h2.created_at DESC LIMIT 1) as waiting_reason
     FROM hub_tickets.tickets t
     LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id
     LEFT JOIN hub_tickets.technician_profiles tp ON ta.technician_id = tp.user_id
@@ -99,6 +102,10 @@ module.exports = {
         if (filters.subcategory_id) {
             conditions.push(`t.subcategory_id = $${idx++}`);
             params.push(parseInt(filters.subcategory_id));
+        }
+        if (filters.software_id) {
+            conditions.push(`t.software_id = $${idx++}`);
+            params.push(parseInt(filters.software_id));
         }
         if (filters.favorites && user) {
             conditions.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_favorites WHERE user_id = $${idx++})`);

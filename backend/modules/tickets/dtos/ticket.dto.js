@@ -73,6 +73,7 @@ module.exports = {
             date_solved: ticket.date_solved,
             date_closed: ticket.date_closed,
             active_days: computeActiveDays(ticket),
+            waiting_reason: ticket.waiting_reason || null,
         };
     },
 
@@ -110,6 +111,7 @@ module.exports = {
             subcategory_id: ticket.subcategory_id || null,
             subcategory_name: ticket.subcategory_name || null,
             active_days: computeActiveDays(ticket),
+            waiting_reason: ticket.waiting_reason || null,
         };
     },
 
