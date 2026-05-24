@@ -49,9 +49,16 @@ export default function TicketCreate() {
   }
 
   useEffect(() => {
-    if (!softwareSearch.trim()) { setSoftwareResults([]); return; }
-    const filtered = apps.filter(app => app.name.toLowerCase().includes(softwareSearch.toLowerCase()));
-    setSoftwareResults(filtered);
+    // Fonction pour normaliser (supprimer accents et minuscules)
+    const normalize = (str: string) => str.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const searchNorm = normalize(softwareSearch);
+
+    if (searchNorm.trim()) {
+      const filtered = apps.filter(app => normalize(app.name).includes(searchNorm));
+      setSoftwareResults(filtered);
+    } else {
+      setSoftwareResults(apps);
+    }
   }, [softwareSearch, apps]);
 
   useEffect(() => {
@@ -234,8 +241,8 @@ export default function TicketCreate() {
                   <button onClick={clearSoftware} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>✕</button>
                 )}
               </div>
-              {softwareResults.length > 0 && (
-                <div style={{ marginTop: 4, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', position: 'absolute', width: '100%', background: '#fff', zIndex: 10, maxHeight: 300, overflowY: 'auto' }}>
+              {!selectedSoftware && softwareResults.length > 0 && (
+                <div style={{ marginTop: 4, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', position: 'absolute', width: '100%', background: '#fff', zIndex: 10, maxHeight: 300, overflowY: 'auto', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                   {softwareResults.map(app => (
                     <div key={app.id} onClick={() => selectSoftware(app)}
                       style={{
@@ -251,7 +258,7 @@ export default function TicketCreate() {
                   ))}
                 </div>
               )}
-              {softwareSearch.length > 0 && softwareResults.length === 0 && (
+              {!selectedSoftware && softwareSearch.trim().length > 0 && softwareResults.length === 0 && (
                 <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Aucun logiciel trouvé</div>
               )}
               {selectedSoftware && (
