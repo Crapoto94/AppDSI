@@ -23,6 +23,9 @@ export default function TicketCreate() {
   const [categories, setCategories] = useState<any[]>([]);
   const [apps, setApps] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [softwareSearch, setSoftwareSearch] = useState('');
+  const [softwareResults, setSoftwareResults] = useState<any[]>([]);
+  const [selectedSoftware, setSelectedSoftware] = useState<any>(null);
 
   useEffect(() => {
     loadCategoriesAndApps();
@@ -37,13 +40,19 @@ export default function TicketCreate() {
         axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
       ]);
       setCategories(catRes.data || []);
-      setApps((appRes.data || []).filter((a: any) => a.is_active));
+      setApps((appRes.data || []).filter((a: any) => a.present_magapp === 'oui'));
     } catch (e) {
       console.error('Failed to load categories/apps:', e);
     } finally {
       setLoadingData(false);
     }
   }
+
+  useEffect(() => {
+    if (!softwareSearch.trim()) { setSoftwareResults([]); return; }
+    const filtered = apps.filter(app => app.name.toLowerCase().includes(softwareSearch.toLowerCase()));
+    setSoftwareResults(filtered);
+  }, [softwareSearch, apps]);
 
   useEffect(() => {
     if (!observerSearch || observerSearch.length < 2) { setObserverResults([]); return; }
@@ -71,6 +80,20 @@ export default function TicketCreate() {
 
   function removeObserver(userId: number) {
     setObservers(prev => prev.filter(o => o.id !== userId));
+  }
+
+  function selectSoftware(app: any) {
+    setSelectedSoftware(app);
+    setSoftwareSearch(app.name);
+    setSoftwareResults([]);
+    setForm(f => ({ ...f, software_id: app.id.toString() }));
+  }
+
+  function clearSoftware() {
+    setSelectedSoftware(null);
+    setSoftwareSearch('');
+    setSoftwareResults([]);
+    setForm(f => ({ ...f, software_id: '' }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -201,14 +224,42 @@ export default function TicketCreate() {
 
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Logiciel / Métier</label>
-            <select value={form.software_id} onChange={e => setForm(f => ({ ...f, software_id: e.target.value }))}
-              disabled={loadingData}
-              style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fff', cursor: loadingData ? 'not-allowed' : 'pointer' }}>
-              <option value="">— Sélectionnez un logiciel (optionnel) —</option>
-              {apps.map(app => (
-                <option key={app.id} value={app.id}>{app.name}</option>
-              ))}
-            </select>
+            <div style={{ position: 'relative' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input value={softwareSearch} onChange={e => setSoftwareSearch(e.target.value)}
+                  placeholder="Rechercher un logiciel..."
+                  disabled={loadingData}
+                  style={{ flex: 1, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', cursor: loadingData ? 'not-allowed' : 'text' }} />
+                {selectedSoftware && (
+                  <button onClick={clearSoftware} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>✕</button>
+                )}
+              </div>
+              {softwareResults.length > 0 && (
+                <div style={{ marginTop: 4, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', position: 'absolute', width: '100%', background: '#fff', zIndex: 10, maxHeight: 300, overflowY: 'auto' }}>
+                  {softwareResults.map(app => (
+                    <div key={app.id} onClick={() => selectSoftware(app)}
+                      style={{
+                        padding: '10px 12px', cursor: 'pointer', fontSize: 13,
+                        borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        transition: 'background 0.1s'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                      onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+                      <span style={{ fontWeight: 500, color: '#1e293b' }}>{app.name}</span>
+                      <span style={{ color: '#6366f1', fontSize: 12 }}>+</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {softwareSearch.length > 0 && softwareResults.length === 0 && (
+                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Aucun logiciel trouvé</div>
+              )}
+              {selectedSoftware && (
+                <div style={{ marginTop: 8, padding: '8px 12px', background: '#e0e7ff', border: '1px solid #c7d2fe', borderRadius: 6, fontSize: 13, color: '#4f46e5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>✓ {selectedSoftware.name}</span>
+                </div>
+              )}
+            </div>
           </div>
 
           <div>

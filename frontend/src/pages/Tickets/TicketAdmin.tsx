@@ -114,7 +114,7 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
     try {
       const token = localStorage.getItem('token');
       const res = await axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } });
-      setApps((res.data || []).filter((a: any) => a.is_active));
+      setApps((res.data || []).filter((a: any) => a.present_magapp === 'oui'));
     } catch (e) {
       console.error('Failed to load apps:', e);
     } finally {
