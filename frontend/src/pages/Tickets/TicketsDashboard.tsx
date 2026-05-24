@@ -51,6 +51,8 @@ export default function TicketsDashboard() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [showRejected, setShowRejected] = useState(false);
   const showRejectedRef = useRef(false);
+  const [showResolved, setShowResolved] = useState(false);
+  const showResolvedRef = useRef(false);
   const [kpiHistory, setKpiHistory] = useState<any[]>([]);
   const [kpiDays, setKpiDays] = useState(30);
   const [kpiActionLoading, setKpiActionLoading] = useState<string | null>(null);
@@ -63,8 +65,10 @@ export default function TicketsDashboard() {
       const params: Record<string, string> = { limit: String(limit), page: String(pageNum || page) };
       if (filter && KPI_FILTERS[filter]?.params) {
         Object.assign(params, KPI_FILTERS[filter].params);
-      } else if (!showRejectedRef.current) {
-        params.status_in = '1,2,3,4,5,6,7';
+      } else if (!showRejectedRef.current && !showResolvedRef.current) {
+        params.status_in = '1,2,3,4';
+      } else if (!showRejectedRef.current && showResolvedRef.current) {
+        params.status_in = '1,2,3,4,5,6';
       }
       if (userFilter && USER_FILTERS[userFilter]) {
         Object.assign(params, USER_FILTERS[userFilter].getParams());
@@ -114,6 +118,11 @@ export default function TicketsDashboard() {
       .then(r => setDailyMetrics(r.data))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    showResolvedRef.current = showResolved;
+    loadData(activeFilter, activeUserFilter, 1);
+  }, [showResolved]);
 
   useEffect(() => { loadKpiHistory(kpiDays); }, [kpiDays]);
   useEffect(() => { loadDailyMetrics(); }, []);
@@ -478,6 +487,16 @@ export default function TicketsDashboard() {
             }}>{getUserCount(key)}</span>
           </button>
         ))}
+        <button onClick={() => { const newVal = !showResolved; showResolvedRef.current = newVal; setShowResolved(newVal); setActiveFilter(null); setActiveUserFilter(null); setPage(1); loadData(null, null, 1); }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
+            fontSize: 13, fontWeight: 500, marginLeft: 8,
+            background: showResolved ? '#f0fdf4' : '#f1f5f9',
+            color: showResolved ? '#15803d' : '#475569'
+          }}>
+          {showResolved ? '🙈 Masquer résolus' : '👁️ Voir résolus'}
+        </button>
         {['superadmin', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
           <button onClick={() => { const newVal = !showRejected; showRejectedRef.current = newVal; setShowRejected(newVal); setActiveFilter(null); setActiveUserFilter(null); setPage(1); loadData(null, null, 1); }}
             style={{
