@@ -192,7 +192,9 @@
       "Bash(curl -s *)",
       "Bash(sqlite3 \"C:\\\\dev\\\\AppDSI\\\\backend\\\\data\\\\database.sqlite\" \"SELECT username, role FROM hub.users LIMIT 10;\")",
       "Bash(psql \"postgresql://localhost/hub\" -c \"SELECT username, role FROM hub.users WHERE username = 'machevalier';\")",
-      "mcp__Claude_in_Chrome__form_input"
+      "mcp__Claude_in_Chrome__form_input",
+      "Bash(awk '{print $2}')",
+      "Bash(curl -i \"http://localhost:3001/api/tickets/stats/tickets-by-software\")"
     ]
   }
 }

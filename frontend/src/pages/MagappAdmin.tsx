@@ -308,7 +308,7 @@ const MagappAdmin: React.FC = () => {
 
   const fetchTicketCounts = async () => {
     try {
-      const response = await fetch('/api/tickets/stats/tickets-by-software', {
+      const response = await fetch('/api/tickets/ticket-stats', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.ok) {
