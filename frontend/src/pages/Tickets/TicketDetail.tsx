@@ -80,6 +80,10 @@ export default function TicketDetail() {
   const [observerResults, setObserverResults] = useState<any[]>([]);
   const [observerSearching, setObserverSearching] = useState(false);
 
+  // Panels latéraux
+  const [showJournalPanel, setShowJournalPanel] = useState(false);
+  const [showGroupePanel, setShowGroupePanel] = useState(false);
+
   // Edition des informations
   const [editingInfo, setEditingInfo] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
@@ -587,7 +591,7 @@ export default function TicketDetail() {
         </div>
 
         {/* ── BODY ── */}
-        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 272px', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '2fr 1fr', overflow: 'hidden' }}>
 
           {/* ── LEFT PANE ── */}
           <div style={{ overflowY: 'auto', padding: '0 20px 20px', borderRight: '1px solid #f4f4f5' }}>
@@ -729,17 +733,50 @@ export default function TicketDetail() {
           {/* ── RIGHT SIDEBAR ── */}
           <div style={{ overflowY: 'auto', padding: '0 14px 20px' }}>
 
-            {/* Edit toggle */}
-            <div style={{ padding: '12px 0 8px', borderBottom: '1px solid #f4f4f5', display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+            {/* Sidebar top bar: Edit + Groupe + Journal */}
+            <div style={{ padding: '10px 0 8px', borderBottom: '1px solid #f4f4f5', display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+              {/* Groupe button */}
+              <button onClick={() => { setShowGroupePanel(v => !v); setShowJournalPanel(false); }}
+                style={{
+                  padding: '3px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                  border: showGroupePanel ? '1px solid #a5b4fc' : '1px solid #e4e4e7',
+                  background: showGroupePanel ? '#eef2ff' : 'transparent',
+                  color: showGroupePanel ? '#4f46e5' : '#71717a',
+                  display: 'flex', alignItems: 'center', gap: 4
+                }}>
+                🔗 Groupe
+                {ticketGroup && (
+                  <span style={{ background: '#6366f1', color: '#fff', borderRadius: 10, fontSize: 9, padding: '0 4px', lineHeight: '14px' }}>
+                    {ticketGroup.members?.length || ''}
+                  </span>
+                )}
+              </button>
+              {/* Journal button */}
+              <button onClick={() => { setShowJournalPanel(v => !v); setShowGroupePanel(false); }}
+                style={{
+                  padding: '3px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                  border: showJournalPanel ? '1px solid #a5b4fc' : '1px solid #e4e4e7',
+                  background: showJournalPanel ? '#eef2ff' : 'transparent',
+                  color: showJournalPanel ? '#4f46e5' : '#71717a',
+                  display: 'flex', alignItems: 'center', gap: 4
+                }}>
+                📋 Journal
+                {history.length > 0 && (
+                  <span style={{ background: '#a1a1aa', color: '#fff', borderRadius: 10, fontSize: 9, padding: '0 4px', lineHeight: '14px' }}>
+                    {history.length}
+                  </span>
+                )}
+              </button>
+              <div style={{ flex: 1 }} />
               {!editingInfo ? (
                 <button onClick={() => { setEditingInfo(true); setEditForm({ priority: ticket.priority?.id || ticket.priority, impact: ticket.impact?.id || ticket.impact, category_id: ticket.category_id, subcategory_id: ticket.subcategory_id, software_id: ticket.software_id }); }}
-                  style={{ padding: '4px 10px', background: 'transparent', border: '1px solid #e4e4e7', borderRadius: 6, color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                  style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #e4e4e7', borderRadius: 6, color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
                   ✏️ Éditer
                 </button>
               ) : (
                 <>
-                  <button onClick={saveInfo} style={{ padding: '4px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>✓ Enregistrer</button>
-                  <button onClick={() => setEditingInfo(false)} style={{ padding: '4px 10px', background: 'transparent', border: '1px solid #e4e4e7', color: '#ef4444', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>✕</button>
+                  <button onClick={saveInfo} style={{ padding: '3px 9px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>✓</button>
+                  <button onClick={() => setEditingInfo(false)} style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #e4e4e7', color: '#ef4444', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>✕</button>
                 </>
               )}
             </div>
@@ -943,107 +980,131 @@ export default function TicketDetail() {
               )}
             </div>
 
-            {/* GROUPE */}
-            {ticketGroup && (
-              <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-                  <span style={SL}>🔗 Groupe</span>
-                  <button onClick={dissolveGroup} disabled={groupActionLoading}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 10, padding: 0 }}>Dissoudre</button>
-                </div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 6 }}>{ticketGroup.name}</div>
-                <div style={{ background: '#eef2ff', borderRadius: 5, padding: '4px 8px', marginBottom: 8, fontSize: 11, color: '#4f46e5' }}>ℹ️ Actions propagées à tous les membres.</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
-                  {ticketGroup.members?.map((m: any) => {
-                    const isCurrent = String(m.ticket_id) === String(id);
-                    return (
-                      <div key={m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 7px', borderRadius: 5, background: isCurrent ? '#eef2ff' : '#f9f9fb', border: `1px solid ${isCurrent ? '#c7d2fe' : '#f4f4f5'}` }}>
-                        <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#6366f1', minWidth: 34 }}>#{m.ticket_id}</span>
-                        <span style={{ flex: 1, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#3f3f46' }}>{m.title}</span>
-                        {!isCurrent && <button onClick={() => window.location.href = `/tickets/${m.ticket_id}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontSize: 11, padding: '0 2px' }}>→</button>}
-                        {!isCurrent && <button onClick={() => removeFromGroup(m.ticket_id)} disabled={groupActionLoading} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 12, padding: '0 2px' }}>✕</button>}
-                      </div>
-                    );
-                  })}
-                </div>
-                {showAddToGroup ? (
-                  <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
-                    <input type="number" value={addTicketId} onChange={e => setAddTicketId(e.target.value)} placeholder="N° ticket" autoFocus
-                      style={{ flex: 1, padding: '4px 7px', border: '1px solid #6366f1', borderRadius: 5, fontSize: 12 }}
-                      onKeyDown={e => { if (e.key === 'Enter') addToGroup(); if (e.key === 'Escape') { setShowAddToGroup(false); setAddTicketId(''); }}} />
-                    <button onClick={addToGroup} disabled={groupActionLoading || !addTicketId} style={{ padding: '4px 10px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+</button>
-                    <button onClick={() => { setShowAddToGroup(false); setAddTicketId(''); }} style={{ padding: '4px 8px', background: '#f4f4f5', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 12 }}>✕</button>
-                  </div>
-                ) : (
-                  <button onClick={() => setShowAddToGroup(true)}
-                    style={{ width: '100%', padding: '5px 0', border: '1px dashed #c7d2fe', borderRadius: 5, background: 'transparent', color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>
-                    + Ajouter un ticket
-                  </button>
-                )}
-                {!ticketGroup.problem_ticket_id ? (
-                  <button onClick={() => setShowProblemModal(true)}
-                    style={{ width: '100%', marginTop: 8, padding: '6px 0', border: '1px solid #7c3aed', borderRadius: 6, background: '#faf5ff', color: '#7c3aed', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                    ⚠️ Transformer en Problème
-                  </button>
-                ) : (
-                  <div style={{ marginTop: 8, padding: '6px 10px', background: '#faf5ff', borderRadius: 6, border: '1px solid #d8b4fe', textAlign: 'center' }}>
-                    <span style={{ fontSize: 11, color: '#7c3aed' }}>⚠️ Problème lié : </span>
-                    <a href={`/tickets/${ticketGroup.problem_ticket_id}`} style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', textDecoration: 'none' }}>#{ticketGroup.problem_ticket_id}</a>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* JOURNAL */}
-            <div style={{ padding: '10px 0 20px' }}>
-              <span style={SL}>Journal</span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {history.map((h: any, i: number) => (
-                  <div key={h.id || i} style={{ fontSize: 11, color: '#71717a', borderLeft: '2px solid #f4f4f5', paddingLeft: 8 }}>
-                    <div style={{ fontWeight: 500, color: '#3f3f46', lineHeight: 1.3 }}>
-                      {h.action === 'created' && '🎫 Créé'}
-                      {h.action === 'status_changed' && `🔄 → ${STATUS_NAMES[parseInt(h.new_value)] || h.new_value}`}
-                      {h.action === 'assigned' && '👤 Assigné'}
-                      {h.action === 'assigned_group' && '👥 Groupe assigné'}
-                      {h.action === 'comment_added' && '💬 Commentaire'}
-                      {h.action === 'comment_sent_to_requester' && '✉️ Envoyé demandeur'}
-                      {h.action === 'task_created' && '📋 Tâche créée'}
-                      {h.action === 'task_status_changed' && '📋 Statut tâche'}
-                      {h.action === 'sla_breached' && '⚠️ SLA dépassé'}
-                      {h.action === 'vip_set' && '⭐ VIP'}
-                      {h.action === 'vip_unset' && '☆ Retiré VIP'}
-                      {h.action === 'deleted' && '🗑️ Supprimé'}
-                      {h.action === 'grouped' && '🔗 Ajouté groupe'}
-                      {h.action === 'ungrouped' && '🔓 Retiré groupe'}
-                      {h.action === 'problem_created' && `⚠️ Problème #${h.new_value}`}
-                      {h.action === 'comment_propagated' && '💬 Propagé'}
-                      {h.action === 'solved' && '✅ Résolu'}
-                      {h.action === 'updated' && `✏️ ${h.field_name || 'Modifié'}`}
-                      {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated'].includes(h.action) && h.action}
-                    </div>
-                    {h.created_at && (
-                      <div style={{ fontSize: 10, color: '#a1a1aa', marginTop: 1 }}>
-                        {h.user_name && <span>{h.user_name} · </span>}
-                        {new Date(h.created_at).toLocaleString('fr-FR')}
-                      </div>
-                    )}
-                    {h.comment && h.action === 'status_changed' && h.new_value === '4' ? (
-                      <div style={{ marginTop: 3, fontSize: 10, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 6px', lineHeight: 1.4 }}>
-                        💬 <strong>Motif :</strong> {h.comment}
-                      </div>
-                    ) : h.comment ? (
-                      <div style={{ color: '#71717a', marginTop: 2, fontSize: 10 }}>{h.comment}</div>
-                    ) : null}
-                  </div>
-                ))}
-                {history.length === 0 && <div style={{ color: '#a1a1aa', fontStyle: 'italic', fontSize: 11 }}>Aucun événement</div>}
-              </div>
-            </div>
 
           </div>
           {/* end right sidebar */}
         </div>
         {/* end body grid */}
+
+        {/* ── PANEL : GROUPE ── */}
+        {showGroupePanel && (
+          <div style={{ position: 'fixed', top: 80, right: 0, width: 340, height: 'calc(100vh - 80px)', background: '#fff', borderLeft: '1px solid #e4e4e7', boxShadow: '-4px 0 16px rgba(0,0,0,0.06)', zIndex: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Panel header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 12px', borderBottom: '1px solid #f4f4f5', flexShrink: 0 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#18181b' }}>🔗 Groupe de tickets</span>
+              <button onClick={() => setShowGroupePanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
+              {ticketGroup ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{ticketGroup.name}</span>
+                    <button onClick={dissolveGroup} disabled={groupActionLoading}
+                      style={{ background: 'none', border: '1px solid #fecaca', borderRadius: 5, cursor: 'pointer', color: '#ef4444', fontSize: 11, padding: '2px 8px' }}>
+                      Dissoudre
+                    </button>
+                  </div>
+                  <div style={{ background: '#eef2ff', borderRadius: 6, padding: '6px 10px', marginBottom: 12, fontSize: 12, color: '#4f46e5' }}>
+                    ℹ️ Les actions sur ce ticket se propagent à tous les membres.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 12 }}>
+                    {ticketGroup.members?.map((m: any) => {
+                      const isCurrent = String(m.ticket_id) === String(id);
+                      return (
+                        <div key={m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 9px', borderRadius: 6, background: isCurrent ? '#eef2ff' : '#f9f9fb', border: `1px solid ${isCurrent ? '#c7d2fe' : '#f4f4f5'}` }}>
+                          <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#6366f1', minWidth: 38 }}>#{m.ticket_id}</span>
+                          <span style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#3f3f46' }}>{m.title}</span>
+                          {!isCurrent && <button onClick={() => window.location.href = `/tickets/${m.ticket_id}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontSize: 12, padding: '0 2px' }}>→</button>}
+                          {!isCurrent && <button onClick={() => removeFromGroup(m.ticket_id)} disabled={groupActionLoading} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 13, padding: '0 2px' }}>✕</button>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {showAddToGroup ? (
+                    <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
+                      <input type="number" value={addTicketId} onChange={e => setAddTicketId(e.target.value)} placeholder="N° ticket" autoFocus
+                        style={{ flex: 1, padding: '6px 9px', border: '1px solid #6366f1', borderRadius: 6, fontSize: 13 }}
+                        onKeyDown={e => { if (e.key === 'Enter') addToGroup(); if (e.key === 'Escape') { setShowAddToGroup(false); setAddTicketId(''); }}} />
+                      <button onClick={addToGroup} disabled={groupActionLoading || !addTicketId} style={{ padding: '6px 12px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>+</button>
+                      <button onClick={() => { setShowAddToGroup(false); setAddTicketId(''); }} style={{ padding: '6px 9px', background: '#f4f4f5', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>✕</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setShowAddToGroup(true)}
+                      style={{ width: '100%', padding: '7px 0', border: '1px dashed #c7d2fe', borderRadius: 6, background: 'transparent', color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 500, marginBottom: 10 }}>
+                      + Ajouter un ticket
+                    </button>
+                  )}
+                  {!ticketGroup.problem_ticket_id ? (
+                    <button onClick={() => setShowProblemModal(true)}
+                      style={{ width: '100%', padding: '8px 0', border: '1px solid #7c3aed', borderRadius: 7, background: '#faf5ff', color: '#7c3aed', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                      ⚠️ Transformer en Problème
+                    </button>
+                  ) : (
+                    <div style={{ padding: '8px 12px', background: '#faf5ff', borderRadius: 7, border: '1px solid #d8b4fe', textAlign: 'center' }}>
+                      <span style={{ fontSize: 12, color: '#7c3aed' }}>⚠️ Problème lié : </span>
+                      <a href={`/tickets/${ticketGroup.problem_ticket_id}`} style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', textDecoration: 'none' }}>#{ticketGroup.problem_ticket_id}</a>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ color: '#a1a1aa', fontSize: 13, fontStyle: 'italic', paddingTop: 8 }}>Ce ticket n'appartient à aucun groupe.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── PANEL : JOURNAL ── */}
+        {showJournalPanel && (
+          <div style={{ position: 'fixed', top: 80, right: 0, width: 340, height: 'calc(100vh - 80px)', background: '#fff', borderLeft: '1px solid #e4e4e7', boxShadow: '-4px 0 16px rgba(0,0,0,0.06)', zIndex: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 12px', borderBottom: '1px solid #f4f4f5', flexShrink: 0 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#18181b' }}>📋 Journal des événements</span>
+              <button onClick={() => setShowJournalPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {history.map((h: any, i: number) => (
+                  <div key={h.id || i} style={{ fontSize: 12, color: '#71717a', borderLeft: '2px solid #f4f4f5', paddingLeft: 10 }}>
+                    <div style={{ fontWeight: 500, color: '#3f3f46', lineHeight: 1.3 }}>
+                      {h.action === 'created' && '🎫 Ticket créé'}
+                      {h.action === 'status_changed' && `🔄 Statut → ${STATUS_NAMES[parseInt(h.new_value)] || h.new_value}`}
+                      {h.action === 'assigned' && '👤 Assigné'}
+                      {h.action === 'assigned_group' && '👥 Groupe assigné'}
+                      {h.action === 'comment_added' && '💬 Commentaire ajouté'}
+                      {h.action === 'comment_sent_to_requester' && '✉️ Envoyé au demandeur'}
+                      {h.action === 'task_created' && '📋 Tâche créée'}
+                      {h.action === 'task_status_changed' && '📋 Statut tâche mis à jour'}
+                      {h.action === 'sla_breached' && '⚠️ Dépassement SLA'}
+                      {h.action === 'vip_set' && '⭐ Marqué VIP'}
+                      {h.action === 'vip_unset' && '☆ Retiré VIP'}
+                      {h.action === 'deleted' && '🗑️ Supprimé'}
+                      {h.action === 'grouped' && '🔗 Ajouté à un groupe'}
+                      {h.action === 'ungrouped' && '🔓 Retiré du groupe'}
+                      {h.action === 'problem_created' && `⚠️ Problème #${h.new_value} créé`}
+                      {h.action === 'comment_propagated' && '💬 Commentaire propagé (groupe)'}
+                      {h.action === 'solved' && '✅ Ticket résolu'}
+                      {h.action === 'updated' && `✏️ ${h.field_name || 'Champ modifié'}`}
+                      {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated'].includes(h.action) && h.action}
+                    </div>
+                    {h.created_at && (
+                      <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 2 }}>
+                        {h.user_name && <span>{h.user_name} · </span>}
+                        {new Date(h.created_at).toLocaleString('fr-FR')}
+                      </div>
+                    )}
+                    {h.comment && h.action === 'status_changed' && h.new_value === '4' ? (
+                      <div style={{ marginTop: 4, fontSize: 11, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 8px', lineHeight: 1.4 }}>
+                        💬 <strong>Motif :</strong> {h.comment}
+                      </div>
+                    ) : h.comment ? (
+                      <div style={{ color: '#71717a', marginTop: 2, fontSize: 11 }}>{h.comment}</div>
+                    ) : null}
+                  </div>
+                ))}
+                {history.length === 0 && <div style={{ color: '#a1a1aa', fontStyle: 'italic', fontSize: 12 }}>Aucun événement</div>}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── BOTTOM REPLY BAR ── */}
         <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff', padding: '10px 20px' }}>
