@@ -653,12 +653,19 @@ export default function TicketDetail() {
                   border: '1px solid',
                   borderColor: c.is_private ? '#fde68a' : '#e2e8f0'
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>
-                      {c.author_name || 'Inconnu'}
-                      {c.is_private ? <span style={{ color: '#d97706', marginLeft: 6, fontSize: 11 }}>🔒 Interne</span> : null}
-                    </span>
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>
+                        {c.author_name || 'Inconnu'}
+                        {c.is_private ? <span style={{ color: '#d97706', marginLeft: 6, fontSize: 11 }}>🔒 Interne</span> : null}
+                      </span>
+                      {c.author_email && (
+                        <span style={{ fontSize: 11, color: '#6366f1' }}>
+                          {c.author_email}
+                        </span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap' }}>
                       {c.date_creation ? new Date(c.date_creation).toLocaleString('fr-FR') : ''}
                     </span>
                   </div>

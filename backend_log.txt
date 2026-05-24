@@ -1,0 +1,2748 @@
+[DIAGNOSTIC] Write test SUCCESS in C:\dev\AppDSI\backend\magapp_img
+[DEBUG] Registering Frizbi and RH Log routes...
+[DEBUG] Registering POST /api/admin/frizbi-settings
+[SCHEDULED SYNC] Initialisation du cron...
+[SCHEDULED SYNC] Cron job enregistré
+[KPI HISTORY] Cron snapshot quotidien enregistré (23h55)
+[O365 AUTO-SYNC] Cron job registered (every 30 min)
+[EMAIL-AUTO CRON] Cron job registered (every minute)
+[TICKETS CRON] SLA check registered
+[TICKETS CRON] Notification queue registered
+Colonnes table users: id, username, password, role, last_activity, service_code, service_complement, is_approved, email, displayName
+[PG POOL] Nouvelle connexion établie
+[PERMISSIONS] Loaded 71 entries from DB
+[PG POOL] Nouvelle connexion établie
+[Finance] Synchronisation montants terminée.
+[PG DB] Copie hub.users → magapp.users effectuée
+[PG DB] oracle_links migration skipped: SQLITE_ERROR: no such table: gf.oracle_links
+[PG DB] oracle.operations already has 101 rows, skipping import
+[PG DB] gf_oracle_tiers table created or already exists
+[PG DB] Created idx_hotline_overrides_unique with periode
+[PG DB] hub_tickets migration skip: there is no unique or exclusion constraint matching the ON CONFLICT specification
+[PG DB] hub_tickets seed data inserted
+[PG DB] Schema and tables initialized successfully
+[Migration] Aucun doublon trouvé dans oracle.operations
+[Migration] UNIQUE constraint added on oracle.operations (LIBELLE, Section, exercice)
+[MIGRATION] 15/15 utilisateurs SQLite → magapp.users
+Backend server running on http://0.0.0.0:3001
+[DEBUG LOGIN] Received request on /api/login
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /api/auth/me
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[JWT] User machevalier verified for /
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[JWT] User machevalier verified for /dashboard/kpi-history
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/kpi-backfill
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:20:00.371Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[DEBUG LOGIN] Received request on /api/login
+[DEBUG LOGIN] AD enabled: 1
+[DEBUG LOGIN] Calling authenticateAD for machevalier...
+[AD Auth Debug] Attempting technical bind with DN: CN=testo,OU=IRS,OU=IVRY,DC=ivry,DC=local (Host: ivry.local)
+[AD Auth Debug] Technical bind success. Searching for user: machevalier (Host: ivry.local)
+[AD Auth Debug] User found: CN=CHEVALIER Marc,OU=DSI,OU=Utilisateurs W10,OU=IVRY,DC=ivry,DC=local (Host: ivry.local)
+[AD Auth Debug] Attempting user bind for DN: CN=CHEVALIER Marc,OU=DSI,OU=Utilisateurs W10,OU=IVRY,DC=ivry,DC=local (Host: ivry.local)
+[DEBUG LOGIN] authenticateAD result: SUCCESS
+[DEBUG LOGIN] Generating token for user machevalier (source: hub, role: admin)
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[JWT] User machevalier verified for /renewal-count
+[Consommables] Pending count from DB: [ { count: '2' } ]
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[JWT] User machevalier verified for /expiry-count
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[JWT] User machevalier verified for /count
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[Consommables] Pending count from DB: [ { count: '2' } ]
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[JWT] User machevalier verified for /renewal-count
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[JWT] User machevalier verified for /expiry-count
+[JWT] User machevalier verified for /count
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[JWT] User machevalier verified for /api/user-tile-order
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/user-tile-order
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[JWT] User machevalier verified for /api/users
+[JWT] User machevalier verified for /sync-logs
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[JWT] User machevalier verified for /api/users
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[JWT] User machevalier verified for /sync-logs
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /categories
+[JWT] User machevalier verified for /categories
+[JWT] User machevalier verified for /technicians
+[JWT] User machevalier verified for /role-permissions
+[JWT] User machevalier verified for /role-permissions
+[JWT] User machevalier verified for /technicians
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /categories
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[JWT] User machevalier verified for /categories
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /categories
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /categories
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /technicians
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /categories
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: admin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /categories
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:21:00.836Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User machevalier verified for /technicians
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[JWT] User machevalier verified for /technicians/ad-search
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[DEBUG LOGIN] Received request on /api/login
+[JWT] User admin verified for /api/todos
+[JWT] User admin verified for /api/backlog
+[JWT] User admin verified for /api/todos
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User admin verified for /api/backlog
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User admin verified for /api/auth/me
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[Consommables] Pending count from DB: [ { count: '2' } ]
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[JWT] User admin verified for /renewal-count
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[JWT] User admin verified for /expiry-count
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[JWT] User admin verified for /count
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[JWT] User admin verified for /api/todos
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[JWT] User admin verified for /api/backlog
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/auth/me
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[JWT] User admin verified for /renewal-count
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[Consommables] Pending count from DB: [ { count: '2' } ]
+[JWT] User admin verified for /expiry-count
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[JWT] User admin verified for /count
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[JWT] User admin verified for /api/user-tile-order
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /api/user-tile-order
+[JWT] User admin verified for /api/todos
+[JWT] User admin verified for /api/backlog
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[JWT] User admin verified for /api/users
+[JWT] User admin verified for /sync-logs
+[JWT] User admin verified for /api/backlog
+[JWT] User admin verified for /api/admin/access-requests
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[JWT] User admin verified for /api/todos
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[JWT] User admin verified for /api/users
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[JWT] User admin verified for /sync-logs
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[JWT] User admin verified for /api/admin/access-requests
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /api/users
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:22:00.330Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User admin verified for /categories
+[JWT] User admin verified for /categories
+[JWT] User admin verified for /technicians
+[JWT] User admin verified for /technicians/1/role
+[JWT] User admin verified for /technicians
+[JWT] User admin verified for /technicians/7/role
+[JWT] User admin verified for /technicians
+[JWT] User admin verified for /technicians/3/role
+[JWT] User admin verified for /technicians
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:23:00.876Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User admin verified for /settings
+[JWT] User admin verified for /sync-logs
+[JWT] User admin verified for /scheduled-syncs
+[JWT] User admin verified for /sync-logs
+[JWT] User admin verified for /settings
+[JWT] User admin verified for /sync-logs
+[JWT] User admin verified for /scheduled-syncs
+[JWT] User admin verified for /sync-logs
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:24:00.341Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:25:00.838Z
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:26:00.304Z
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:27:00.853Z
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[Consommables] Pending count from DB: [ { count: '2' } ]
+[JWT] User machevalier verified for /renewal-count
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[JWT] User machevalier verified for /expiry-count
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /count
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[Consommables] Pending count from DB: [ { count: '2' } ]
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[JWT] User machevalier verified for /api/auth/me
+[Consommables] Pending count from DB: [ { count: '2' } ]
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] No user identified from token
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = false
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = false
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = false
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = false
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = false
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = false
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = false
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = false
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = false
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] No user identified from token
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = false
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = false
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = false
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = false
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = false
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = false
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = false
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = false
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = false
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/user-tile-order
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:28:00.233Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:29:00.616Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:30:00.091Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[O365 AUTO-SYNC] Done: 0 synced, 1 errors
+[PG POOL] Nouvelle connexion établie
+[MAIL] Préparation envoi pour MaChevalier@ivry94.fr. Sujet: DSI Hub - Ticket #43964 créé : test de tickets MCH. Pièces jointes: 1
+[MAIL] Envoi via SMTP: relay-eu-west-1.prod.hydra.sophos.com:587 pour MaChevalier@ivry94.fr
+[MAIL] Envoi SMTP réussi pour MaChevalier@ivry94.fr
+[NOTIFICATION-QUEUE] Sent to MaChevalier@ivry94.fr: DSI Hub - Ticket #43964 créé : test de tickets MCH
+[MAIL] Préparation envoi pour MaChevalier@ivry94.fr. Sujet: DSI Hub - Ticket #43964 vous a été assigné. Pièces jointes: 1
+[MAIL] Envoi via SMTP: relay-eu-west-1.prod.hydra.sophos.com:587 pour MaChevalier@ivry94.fr
+[MAIL] Envoi SMTP réussi pour MaChevalier@ivry94.fr
+[NOTIFICATION-QUEUE] Sent to MaChevalier@ivry94.fr: DSI Hub - Ticket #43964 vous a été assigné
+[MAIL] Préparation envoi pour dgaultier@ivry94.fr. Sujet: DSI Hub - Ticket #43964 vous a été assigné. Pièces jointes: 1
+[MAIL] Envoi via SMTP: relay-eu-west-1.prod.hydra.sophos.com:587 pour dgaultier@ivry94.fr
+[MAIL] Envoi SMTP réussi pour dgaultier@ivry94.fr
+[NOTIFICATION-QUEUE] Sent to dgaultier@ivry94.fr: DSI Hub - Ticket #43964 vous a été assigné
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:31:00.613Z
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:32:00.114Z
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:33:00.692Z
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:34:00.194Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:35:00.724Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:36:00.117Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:37:00.626Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:38:00.978Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:39:00.502Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:40:00.053Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:41:00.426Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:42:00.038Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:43:00.485Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:44:00.902Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:45:00.256Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:46:00.596Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:47:00.970Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:48:00.201Z
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:49:00.459Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:50:00.883Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /dashboard/kpi-history
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:51:00.312Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /dashboard/kpi-history
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:52:00.812Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:53:00.346Z
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /dashboard/kpi-history
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /43964/assign
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /43964/status
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[PG POOL] Nouvelle connexion établie
+[MAIL] Préparation envoi pour MaChevalier@ivry94.fr. Sujet: DSI Hub - Ticket #43964 vous a été assigné. Pièces jointes: 1
+[MAIL] Envoi via SMTP: relay-eu-west-1.prod.hydra.sophos.com:587 pour MaChevalier@ivry94.fr
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:54:00.845Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[MAIL] Envoi SMTP réussi pour MaChevalier@ivry94.fr
+[NOTIFICATION-QUEUE] Sent to MaChevalier@ivry94.fr: DSI Hub - Ticket #43964 vous a été assigné
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:55:00.279Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:56:00.797Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:57:00.211Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/todos
+[JWT] User admin verified for /api/backlog
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User admin verified for /api/auth/me
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[JWT] User admin verified for /api/todos
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /api/backlog
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[JWT] User admin verified for /api/auth/me
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /settings
+[JWT] User admin verified for /sync-logs
+[JWT] User admin verified for /scheduled-syncs
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:58:00.615Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User machevalier verified for /43945
+[JWT] User machevalier verified for /43945/comments
+[JWT] User machevalier verified for /43945/history
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43945/observers
+[JWT] User machevalier verified for /by-ticket/43945
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /43945
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /43945/comments
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /43945/observers
+[JWT] User machevalier verified for /by-ticket/43945
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43945/history
+[JWT] User machevalier verified for /requester/kvoise%40ivry94.fr
+[JWT] User machevalier verified for /requester/kvoise%40ivry94.fr
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /dashboard/kpi-history
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[JWT] User machevalier verified for /
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /43958
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /by-ticket/43958
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /43958
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[JWT] User machevalier verified for /by-ticket/43958
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User admin verified for /api/admin/access-requests
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T17:59:00.075Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User machevalier verified for /43958
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /by-ticket/43958
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /by-ticket/43958
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /43958
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T18:00:00.542Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[O365 AUTO-SYNC] Done: 0 synced, 1 errors
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T18:01:00.912Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User admin verified for /api/todos
+[JWT] User admin verified for /api/backlog
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User admin verified for /api/auth/me
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[JWT] User admin verified for /api/todos
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User admin verified for /api/backlog
+[JWT] User admin verified for /api/auth/me
+[JWT] User admin verified for /settings
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /scheduled-syncs
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User admin verified for /sync-logs
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T18:02:00.272Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User admin verified for /api/todos
+[JWT] User admin verified for /api/backlog
+[JWT] User admin verified for /api/auth/me
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/todos
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /settings
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User admin verified for /scheduled-syncs
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[JWT] User admin verified for /api/backlog
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[JWT] User admin verified for /api/auth/me
+[JWT] User admin verified for /sync-logs
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/todos
+[JWT] User admin verified for /api/backlog
+[JWT] User admin verified for /api/auth/me
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User admin verified for /api/todos
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[JWT] User admin verified for /api/backlog
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[JWT] User admin verified for /api/admin/access-requests
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /settings
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/auth/me
+[JWT] User admin verified for /scheduled-syncs
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[JWT] User admin verified for /sync-logs
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T18:03:00.812Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User admin verified for /api/todos
+[JWT] User admin verified for /api/backlog
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User admin verified for /api/auth/me
+[JWT] User admin verified for /api/todos
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User admin verified for /settings
+[DEBUG TILES] Identified user: admin (ID: 7, Role: superadmin)
+[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User admin verified for /scheduled-syncs
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = true
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = true
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = true
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = true
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = true
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = true
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = true
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = true
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = true
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = true
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = true
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /api/backlog
+[JWT] User admin verified for /api/auth/me
+[JWT] User admin verified for /sync-logs
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T18:04:00.278Z
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T18:05:00.726Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User machevalier verified for /43958
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /by-ticket/43958
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /by-ticket/43958
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43958
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /api/admin/access-requests
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /43958
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /by-ticket/43958
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /43958
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /by-ticket/43958
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /43958
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /by-ticket/43958
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /43958
+[JWT] User machevalier verified for /43958/history
+[JWT] User machevalier verified for /43958/observers
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /by-ticket/43958
+[JWT] User machevalier verified for /43958/comments
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[JWT] User machevalier verified for /requester/emaugeais%40ivry94.fr
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[SCHEDULED SYNC] Cron déclenché à 2026-05-24T18:06:00.169Z
+[SCHEDULED SYNC] Vérification: 0 syncs dus
+[JWT] User machevalier verified for /43941
+[JWT] User machevalier verified for /43941/comments
+[JWT] User machevalier verified for /43941/history
+[JWT] User machevalier verified for /by-ticket/43941
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43941/observers
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /43941
+[JWT] User machevalier verified for /43941/comments
+[PG POOL] Nouvelle connexion établie
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /by-ticket/43941
+[JWT] User machevalier verified for /43941/history
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /43941/observers
+[JWT] User machevalier verified for /requester/clorenzo%40ivry94.fr
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /requester/clorenzo%40ivry94.fr
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /dashboard/kpi-history
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /my-role
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /43937
+[JWT] User machevalier verified for /43937/comments
+[JWT] User machevalier verified for /43937/history
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43937/observers
+[JWT] User machevalier verified for /by-ticket/43937
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /43937
+[JWT] User machevalier verified for /43937/history
+[JWT] User machevalier verified for /43937/observers
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /43937/comments
+[JWT] User machevalier verified for /requester/vmarques%40ivry94.fr
+[JWT] User machevalier verified for /api/auth/me
+[PG POOL] Nouvelle connexion établie
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /by-ticket/43937
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[JWT] User machevalier verified for /requester/vmarques%40ivry94.fr
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[JWT] User machevalier verified for /
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[JWT] User machevalier verified for /dashboard/kpi-history
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[JWT] User machevalier verified for /api/todos
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[JWT] User machevalier verified for /my-role
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[JWT] User machevalier verified for /dashboard/kpi-history
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /api/auth/me
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[JWT] User machevalier verified for /dashboard/stats
+[JWT] User machevalier verified for /
+[JWT] User admin verified for /api/admin/access-requests
+[JWT] User machevalier verified for /43938
+[JWT] User machevalier verified for /43938/comments
+[JWT] User machevalier verified for /43938/history
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /43938/observers
+[JWT] User machevalier verified for /by-ticket/43938
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /43938
+[JWT] User machevalier verified for /43938/history
+[JWT] User machevalier verified for /43938/observers
+[JWT] User machevalier verified for /by-context
+[JWT] User machevalier verified for /by-ticket/43938
+[JWT] User machevalier verified for /43938/comments
+[JWT] User machevalier verified for /glpi-url
+[JWT] User machevalier verified for /requester/pasaph%40ivry94.fr
+[JWT] User machevalier verified for /api/auth/me
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[JWT] User machevalier verified for /api/todos
+[JWT] User machevalier verified for /api/backlog
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[JWT] User machevalier verified for /requester/pasaph%40ivry94.fr
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true
+[DEBUG TILES] Identified user: machevalier (ID: 77, Role: user)
+[DEBUG TILES] Found 6 authorized tiles for machevalier (IDs: 20,24,29,30,31,32)
+[DEBUG TILES] Checking tile 29 (Gestion des Consommables): is_authorized = true
+[DEBUG TILES] Checking tile 6 (Calendrier DSI): is_authorized = false
+[DEBUG TILES] Checking tile 26 (Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 25 (Transcript Manager): is_authorized = true
+[DEBUG TILES] Checking tile 23 (Mes Réunions): is_authorized = true
+[DEBUG TILES] Checking tile 24 (Mes projets): is_authorized = true
+[DEBUG TILES] Checking tile 4 (Gestion des Commandes): is_authorized = true
+[DEBUG TILES] Checking tile 11 (Cartographie Applicative): is_authorized = true
+[DEBUG TILES] Checking tile 20 (Studio RH): is_authorized = true
+[DEBUG TILES] Checking tile 22 (Rencontres Budgétaires): is_authorized = false
+[DEBUG TILES] Checking tile 3 (Gestion Budgétaire): is_authorized = false
+[DEBUG TILES] Checking tile 19 (Gestion Télécom): is_authorized = false
+[DEBUG TILES] Checking tile 7 (Suivi des Certificats): is_authorized = false
+[DEBUG TILES] Checking tile 21 (Magasin d'Apps): is_authorized = false
+[DEBUG TILES] Checking tile 1 (Gestion des Contrats): is_authorized = false
+[DEBUG TILES] Checking tile 5 (Supervision): is_authorized = false
+[DEBUG TILES] Checking tile 10 (Ticket GLPI): is_authorized = false
+[DEBUG TILES] Checking tile 27 (Manager Calendrier): is_authorized = false
+[DEBUG TILES] Checking tile 28 (Gestion copieurs): is_authorized = false
+[DEBUG TILES] Checking tile 31 (Mes Tâches): is_authorized = true
+[DEBUG TILES] Checking tile 32 (Support IT): is_authorized = true

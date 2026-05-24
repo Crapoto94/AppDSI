@@ -1,0 +1,54 @@
+(node:32660) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:32660) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+[JWT ERROR] Verification failed for /renewal-count: jwt malformed
+[JWT ERROR] Verification failed for /expiry-count: jwt malformed
+[JWT ERROR] Verification failed for /count: jwt malformed
+[JWT ERROR] Verification failed for /renewal-count: jwt malformed
+[JWT ERROR] Verification failed for /expiry-count: jwt malformed
+[JWT ERROR] Verification failed for /count: jwt malformed
+[JWT ERROR] Verification failed for /api/user-tile-order: jwt malformed
+[JWT ERROR] Verification failed for /api/user-tile-order: jwt malformed
+[O365 AUTO-SYNC] Error syncing "Calendrier" (dsia@ivry94.fr): Maximum number of redirects exceeded
+(node:32660) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[O365 AUTO-SYNC] Error syncing "Calendrier" (dsia@ivry94.fr): Maximum number of redirects exceeded
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /settings: jwt malformed
+[JWT ERROR] Verification failed for /scheduled-syncs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed
+[JWT ERROR] Verification failed for /sync-logs: jwt malformed

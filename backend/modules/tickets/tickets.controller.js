@@ -448,6 +448,15 @@ module.exports = {
         }
     },
 
+    async getDailyMetrics(req, res) {
+        try {
+            const metrics = await ticketService.getDailyMetrics();
+            res.json(metrics);
+        } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    },
+
     async getKpiHistory(req, res) {
         try {
             const days = Math.min(parseInt(req.query.days) || 30, 365);

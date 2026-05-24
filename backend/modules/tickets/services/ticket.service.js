@@ -187,4 +187,8 @@ module.exports = {
         console.log(`[KPI HISTORY] Rétro-calcul : ${count} snapshots générés sur ${days} jours`);
         return count;
     },
+
+    async getDailyMetrics() {
+        return ticketRepo.getDailyMetricsWithRollingAverage();
+    },
 };

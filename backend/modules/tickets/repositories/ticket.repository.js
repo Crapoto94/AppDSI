@@ -427,4 +427,83 @@ module.exports = {
         `, [days]);
         return res.rowCount;
     },
+
+    async getDailyMetricsWithRollingAverage() {
+        // Get metrics for today and the last 60 days
+        const result = await pgDb.get(`
+            WITH today_created AS (
+                SELECT COUNT(*) as count
+                FROM hub_tickets.tickets
+                WHERE DATE(date_creation) = CURRENT_DATE
+                  AND status != 8
+            ),
+            today_moved_to_progress AS (
+                SELECT COUNT(DISTINCT ticket_id) as count
+                FROM hub_tickets.ticket_history
+                WHERE DATE(created_at) = CURRENT_DATE
+                  AND action = 'status_changed'
+                  AND new_value = '3'
+            ),
+            today_moved_to_waiting AS (
+                SELECT COUNT(DISTINCT ticket_id) as count
+                FROM hub_tickets.ticket_history
+                WHERE DATE(created_at) = CURRENT_DATE
+                  AND action = 'status_changed'
+                  AND new_value IN ('4','5')
+            ),
+            today_resolved AS (
+                SELECT COUNT(DISTINCT ticket_id) as count
+                FROM hub_tickets.ticket_history
+                WHERE DATE(created_at) = CURRENT_DATE
+                  AND action = 'status_changed'
+                  AND new_value = '6'
+            ),
+            today_closed AS (
+                SELECT COUNT(DISTINCT ticket_id) as count
+                FROM hub_tickets.ticket_history
+                WHERE DATE(created_at) = CURRENT_DATE
+                  AND action = 'status_changed'
+                  AND new_value = '7'
+            ),
+            -- Business days for rolling average calculation (weekdays only, no holidays for now)
+            business_days AS (
+                SELECT ds::date as calc_date
+                FROM generate_series(
+                    (CURRENT_DATE - 60)::timestamp,
+                    (CURRENT_DATE)::timestamp,
+                    '1 day'::interval
+                ) ds
+                WHERE EXTRACT(DOW FROM ds) NOT IN (0, 6) -- Exclude Sunday (0) and Saturday (6)
+            ),
+            rolling_stats AS (
+                SELECT
+                    COALESCE(AVG(COALESCE(kh.open, 0))::integer, 0) as avg_open_60d,
+                    COALESCE(AVG(COALESCE(kh.in_progress, 0))::integer, 0) as avg_in_progress_60d,
+                    COALESCE(AVG(COALESCE(kh.waiting, 0))::integer, 0) as avg_waiting_60d,
+                    COALESCE(AVG(COALESCE(kh.resolved, 0))::integer, 0) as avg_resolved_60d,
+                    COUNT(*) as biz_days_count
+                FROM business_days bd
+                LEFT JOIN hub_tickets.kpi_history kh ON kh.snapshot_date = bd.calc_date
+            )
+            SELECT
+                COALESCE(tcp.count, 0) as today_created,
+                COALESCE(tmp.count, 0) as today_in_progress,
+                COALESCE(tmw.count, 0) as today_waiting,
+                COALESCE(tr.count, 0) as today_resolved,
+                COALESCE(tc.count, 0) as today_closed,
+                rs.avg_open_60d,
+                rs.avg_in_progress_60d,
+                rs.avg_waiting_60d,
+                rs.avg_resolved_60d,
+                rs.biz_days_count
+            FROM (SELECT 1) x
+            LEFT JOIN today_created tcp ON true
+            LEFT JOIN today_moved_to_progress tmp ON true
+            LEFT JOIN today_moved_to_waiting tmw ON true
+            LEFT JOIN today_resolved tr ON true
+            LEFT JOIN today_closed tc ON true
+            LEFT JOIN rolling_stats rs ON true
+        `);
+        return result;
+    },
 };

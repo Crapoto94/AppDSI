@@ -41,6 +41,7 @@ export default function TicketsDashboard() {
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
+  const [dailyMetrics, setDailyMetrics] = useState<any>(null);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [activeUserFilter, setActiveUserFilter] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -106,7 +107,16 @@ export default function TicketsDashboard() {
       .catch(() => {});
   }, []);
 
+  const loadDailyMetrics = useCallback(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    axios.get('/api/tickets/dashboard/daily-metrics', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setDailyMetrics(r.data))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => { loadKpiHistory(kpiDays); }, [kpiDays]);
+  useEffect(() => { loadDailyMetrics(); }, []);
 
   function handleFilterClick(key: string) {
     if (activeFilter === key) {
@@ -322,43 +332,31 @@ export default function TicketsDashboard() {
 
         return (
           <div style={{ marginBottom: 24 }}>
-            {/* Barre période + admin */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-              {isAdmin && (
-                <>
-                  <button disabled={!!kpiActionLoading} onClick={async () => {
-                    setKpiActionLoading('snapshot');
-                    try {
-                      const token = localStorage.getItem('token');
-                      await axios.post('/api/tickets/dashboard/kpi-snapshot/run', {}, { headers: { Authorization: `Bearer ${token}` } });
-                      loadKpiHistory(kpiDays);
-                    } catch { /**/ } finally { setKpiActionLoading(null); }
-                  }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#475569', opacity: kpiActionLoading ? 0.5 : 1 }}>
-                    {kpiActionLoading === 'snapshot' ? '⏳' : '📸'} Snapshot
-                  </button>
-                  <button disabled={!!kpiActionLoading} onClick={async () => {
-                    setKpiActionLoading('backfill');
-                    try {
-                      const token = localStorage.getItem('token');
-                      await axios.post(`/api/tickets/dashboard/kpi-backfill?days=${kpiDays}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-                      loadKpiHistory(kpiDays);
-                    } catch { /**/ } finally { setKpiActionLoading(null); }
-                  }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#7c3aed', opacity: kpiActionLoading ? 0.5 : 1 }}>
-                    {kpiActionLoading === 'backfill' ? '⏳' : '🔄'} Rétro-calculer
-                  </button>
-                </>
-              )}
-              <div style={{ display: 'flex', gap: 0, background: '#f1f5f9', borderRadius: 7, padding: 2 }}>
-                {[7, 30, 90].map(d => (
-                  <button key={d} onClick={() => setKpiDays(d)} style={{
-                    padding: '4px 10px', border: 'none', borderRadius: 5, cursor: 'pointer',
-                    fontSize: 11, fontWeight: 500,
-                    background: kpiDays === d ? '#6366f1' : 'transparent',
-                    color: kpiDays === d ? '#fff' : '#64748b',
-                  }}>{d}j</button>
-                ))}
+            {/* Barre admin actions */}
+            {isAdmin && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                <button disabled={!!kpiActionLoading} onClick={async () => {
+                  setKpiActionLoading('snapshot');
+                  try {
+                    const token = localStorage.getItem('token');
+                    await axios.post('/api/tickets/dashboard/kpi-snapshot/run', {}, { headers: { Authorization: `Bearer ${token}` } });
+                    loadKpiHistory(kpiDays);
+                  } catch { /**/ } finally { setKpiActionLoading(null); }
+                }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#475569', opacity: kpiActionLoading ? 0.5 : 1 }}>
+                  {kpiActionLoading === 'snapshot' ? '⏳' : '📸'} Snapshot
+                </button>
+                <button disabled={!!kpiActionLoading} onClick={async () => {
+                  setKpiActionLoading('backfill');
+                  try {
+                    const token = localStorage.getItem('token');
+                    await axios.post(`/api/tickets/dashboard/kpi-backfill?days=${kpiDays}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+                    loadKpiHistory(kpiDays);
+                  } catch { /**/ } finally { setKpiActionLoading(null); }
+                }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#7c3aed', opacity: kpiActionLoading ? 0.5 : 1 }}>
+                  {kpiActionLoading === 'backfill' ? '⏳' : '🔄'} Rétro-calculer
+                </button>
               </div>
-            </div>
+            )}
 
             {/* Grille de cartes */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(148px, 1fr))', gap: 10 }}>
@@ -395,6 +393,28 @@ export default function TicketsDashboard() {
                     </div>
                     {/* Valeur */}
                     <div style={{ fontSize: 24, fontWeight: 700, color: card.color, lineHeight: 1.1 }}>{card.value}</div>
+                    {/* Daily metrics */}
+                    {dailyMetrics && (card.key === 'open' || card.key === 'in_progress' || card.key === 'waiting' || card.key === 'resolved') && (() => {
+                      const dayKey = card.key === 'open' ? 'today_created'
+                                   : card.key === 'in_progress' ? 'today_in_progress'
+                                   : card.key === 'waiting' ? 'today_waiting'
+                                   : card.key === 'resolved' ? 'today_resolved' : null;
+                      const avgKey = card.key === 'open' ? 'avg_open_60d'
+                                   : card.key === 'in_progress' ? 'avg_in_progress_60d'
+                                   : card.key === 'waiting' ? 'avg_waiting_60d'
+                                   : card.key === 'resolved' ? 'avg_resolved_60d' : null;
+                      const todayVal = dayKey ? dailyMetrics[dayKey] || 0 : 0;
+                      const avgVal = avgKey ? dailyMetrics[avgKey] || 0 : 0;
+                      const diff = todayVal - avgVal;
+                      const diffPct = avgVal > 0 ? Math.round((diff / avgVal) * 100) : 0;
+                      const diffColor = diff === 0 ? '#94a3b8' : (card.goodDown ? (diff < 0 ? '#22c55e' : '#ef4444') : (diff > 0 ? '#22c55e' : '#ef4444'));
+                      return (
+                        <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
+                          <div>{todayVal} auj. | moy 60j: {avgVal}</div>
+                          <div style={{ color: diffColor, fontWeight: 600 }}>{diff > 0 ? '+' : ''}{diff} ({diffPct > 0 ? '+' : ''}{diffPct}%)</div>
+                        </div>
+                      );
+                    })()}
                     {/* Sous-info */}
                     {card.sub && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.sub}</div>}
                     {/* Sparkline */}
