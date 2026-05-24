@@ -453,6 +453,27 @@ export default function TicketDetail() {
               </a>
             )}
           </h1>
+          {(ticket.category_name || ticket.subcategory_name || ticket.software_name) && (
+            <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {(ticket.category_name || ticket.subcategory_name) && (
+                <div style={{ fontSize: 12, color: '#64748b' }}>
+                  {ticket.category_name && <span style={{ fontWeight: 600 }}>{ticket.category_name}</span>}
+                  {ticket.category_name && ticket.subcategory_name && <span> / </span>}
+                  {ticket.subcategory_name && <span style={{ fontWeight: 600 }}>{ticket.subcategory_name}</span>}
+                </div>
+              )}
+              {ticket.software_name && (
+                <span style={{
+                  display: 'inline-block', padding: '3px 10px', borderRadius: 20,
+                  fontSize: 12, fontWeight: 500,
+                  background: '#e0e7ff',
+                  color: '#4f46e5'
+                }}>
+                  💾 {ticket.software_name}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => setShowTaskModal(true)}

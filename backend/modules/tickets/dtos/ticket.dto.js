@@ -43,6 +43,11 @@ module.exports = {
             type_label: TYPE_NAMES[ticket.type] || TYPE_NAMES[String(ticket.type)] || ticket.type,
             category: ticket.category,
             category_id: ticket.category_id,
+            category_name: ticket.category_name || null,
+            subcategory_id: ticket.subcategory_id || null,
+            subcategory_name: ticket.subcategory_name || null,
+            software_id: ticket.software_id || null,
+            software_name: ticket.software_name || null,
             requester: {
                 name: ticket.requester_name,
                 email: ticket.requester_email_22
