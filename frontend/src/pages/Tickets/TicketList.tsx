@@ -169,18 +169,24 @@ export default function TicketList({
   tickets,
   loading,
   onRefresh,
+  sortKey,
+  sortDir,
+  onSort,
 }: {
   tickets: any[];
   loading: boolean;
   onRefresh?: () => void;
+  sortKey?: string;
+  sortDir?: 'asc' | 'desc';
+  onSort?: (key: string, dir: 'asc' | 'desc') => void;
 }) {
   const { user } = useAuth();
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const localSortKey = sortKey ?? null;
+  const localSortDir = sortDir ?? 'asc' as SortDir;
 
   const isSupervisor = ['superviseur', 'supervisor', 'admin', 'superadmin'].includes(user?.role?.toLowerCase() || '');
 
@@ -228,27 +234,18 @@ export default function TicketList({
   }
 
   function handleSort(key: string) {
-    if (sortKey === key) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortKey(key);
-      setSortDir('asc');
+    if (onSort) {
+      // Si onSort est fourni, l'utiliser pour le tri serveur
+      if (localSortKey === key) {
+        onSort(key, localSortDir === 'asc' ? 'desc' : 'asc');
+      } else {
+        onSort(key, 'asc');
+      }
     }
   }
 
-  const sortedTickets = sortKey
-    ? [...tickets].sort((a, b) => {
-        const va = SORT_FIELDS[sortKey]?.(a);
-        const vb = SORT_FIELDS[sortKey]?.(b);
-        if (va == null && vb == null) return 0;
-        if (va == null) return 1;
-        if (vb == null) return -1;
-        const cmp = typeof va === 'string'
-          ? va.localeCompare(vb, 'fr', { sensitivity: 'base' })
-          : va - vb;
-        return sortDir === 'asc' ? cmp : -cmp;
-      })
-    : tickets;
+  // Utiliser les tickets reçus (supposément déjà triés par le serveur)
+  const sortedTickets = tickets;
 
   const allSelected = tickets.length > 0 && selectedIds.size === tickets.length;
   const someSelected = selectedIds.size > 0 && !allSelected;
@@ -283,8 +280,8 @@ export default function TicketList({
                 { key: 'technician', label: 'Technicien', align: 'left'   },
                 { key: 'date',       label: 'Date',       align: 'center' },
               ] as const).map(col => {
-                const active = sortKey === col.key;
-                const icon = active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+                const active = localSortKey === col.key;
+                const icon = active ? (localSortDir === 'asc' ? ' ↑' : ' ↓') : '';
                 return (
                   <th
                     key={col.key}

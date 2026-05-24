@@ -53,6 +53,8 @@ export default function TicketsDashboard() {
   const showRejectedRef = useRef(false);
   const [showResolved, setShowResolved] = useState(false);
   const showResolvedRef = useRef(false);
+  const [sortKey, setSortKey] = useState('date_creation');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [kpiHistory, setKpiHistory] = useState<any[]>([]);
   const [kpiDays, setKpiDays] = useState(30);
   const [kpiActionLoading, setKpiActionLoading] = useState<string | null>(null);
@@ -76,6 +78,8 @@ export default function TicketsDashboard() {
       if (searchValue.trim()) {
         params.search = searchValue.trim();
       }
+      params.sort = sortKey;
+      params.order = sortDir;
       const qs = new URLSearchParams(params).toString();
       const [ticketsRes, statsRes] = await Promise.all([
         axios.get(`/api/tickets?${qs}`, { headers: { Authorization: `Bearer ${token}` } }),
@@ -91,7 +95,7 @@ export default function TicketsDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, search, sortKey, sortDir]);
 
   useEffect(() => { loadData(activeFilter, activeUserFilter, 1); }, []);
 
@@ -163,6 +167,13 @@ export default function TicketsDashboard() {
     setSearch('');
     setPage(1);
     loadData(null, null, 1, '');
+  }
+
+  function handleSort(key: string, dir: 'asc' | 'desc') {
+    setSortKey(key);
+    setSortDir(dir);
+    setPage(1);
+    loadData(activeFilter, activeUserFilter, 1);
   }
 
   function runSearch(e: React.FormEvent) {
@@ -529,7 +540,7 @@ export default function TicketsDashboard() {
       </div>
 
       {viewMode === 'table' ? (
-        <TicketList tickets={tickets} loading={loading} />
+        <TicketList tickets={tickets} loading={loading} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       ) : (
         <TicketKanban
           tickets={tickets}
