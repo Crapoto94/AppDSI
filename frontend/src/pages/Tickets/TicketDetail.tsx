@@ -466,213 +466,213 @@ export default function TicketDetail() {
 
   const transitions = VALID_TRANSITIONS[ticket.status?.id] || [];
 
+  function getInitials(name: string) {
+    if (!name) return '?';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return (parts[0][0] || '?').toUpperCase();
+    return ((parts[0][0] || '') + (parts[parts.length - 1][0] || '')).toUpperCase();
+  }
+  function avatarColor(name: string) {
+    const palette = ['#6366f1','#8b5cf6','#ec4899','#14b8a6','#f59e0b','#10b981','#3b82f6','#f97316'];
+    if (!name) return palette[0];
+    let h = 0; for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+    return palette[Math.abs(h) % palette.length];
+  }
+
+  const SL: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 };
+
   return (
     <>
       <Header />
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px', fontFamily: 'system-ui, sans-serif' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-        <div>
-          <a href="/tickets" style={{ color: '#6366f1', textDecoration: 'none', fontSize: 14, display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 12 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+      <div style={{
+        display: 'flex', flexDirection: 'column',
+        height: 'calc(100vh - 80px)',
+        background: '#fafaf9',
+        fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif',
+        overflow: 'hidden', fontSize: 13, color: '#18181b'
+      }}>
+
+        {/* ── TOPBAR ── */}
+        <div style={{
+          height: 46, flexShrink: 0,
+          borderBottom: '1px solid #f4f4f5', background: '#fff',
+          display: 'flex', alignItems: 'center', padding: '0 20px', gap: 8
+        }}>
+          <a href="/tickets" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#71717a', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
             Retour
           </a>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontFamily: 'monospace', color: '#6366f1', fontSize: 16 }}>#{ticket.id}</span>
-            {ticket.is_vip && (
-              <span title="Ticket VIP" style={{
-                fontSize: 12, fontWeight: 700, color: '#92400e',
-                background: '#fef3c7', border: '1px solid #fde68a',
-                padding: '2px 8px', borderRadius: 12, display: 'inline-flex', alignItems: 'center', gap: 4
-              }}>⭐ VIP</span>
-            )}
-            {ticket.title}
-            {glpiTicketUrl && (
-              <a href={`${glpiTicketUrl}${ticket.id}`} target="_blank" rel="noopener noreferrer"
-                title="Ouvrir dans GLPI"
-                style={{ fontSize: 12, color: '#94a3b8', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                GLPI
-              </a>
-            )}
-          </h1>
-          {(ticket.category_name || ticket.subcategory_name || ticket.software_name) && (
-            <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {(ticket.category_name || ticket.subcategory_name) && (
-                <div style={{ fontSize: 12, color: '#64748b' }}>
-                  {ticket.category_name && <span style={{ fontWeight: 600 }}>{ticket.category_name}</span>}
-                  {ticket.category_name && ticket.subcategory_name && <span> / </span>}
-                  {ticket.subcategory_name && <span style={{ fontWeight: 600 }}>{ticket.subcategory_name}</span>}
-                </div>
-              )}
-              {ticket.software_name && (
-                <span style={{
-                  display: 'inline-block', padding: '3px 10px', borderRadius: 20,
-                  fontSize: 12, fontWeight: 500,
-                  background: '#e0e7ff',
-                  color: '#4f46e5'
-                }}>
-                  💾 {ticket.software_name}
-                </span>
-              )}
-            </div>
+          <span style={{ color: '#d4d4d8', fontSize: 16 }}>·</span>
+          <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: '#6366f1' }}>#{ticket.id}</span>
+          {glpiTicketUrl && (
+            <a href={`${glpiTicketUrl}${ticket.id}`} target="_blank" rel="noopener noreferrer"
+              title="Ouvrir dans GLPI"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#a1a1aa', textDecoration: 'none', padding: '2px 6px', border: '1px solid #e4e4e7', borderRadius: 5 }}>
+              GLPI
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
           )}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowTaskModal(true)}
-            style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
-            📋 Tâche
-          </button>
-          <button onClick={openAssignModal} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>Assigner</button>
+          <div style={{ flex: 1 }} />
           <button onClick={handleToggleVip}
             title={ticket.is_vip ? 'Retirer le statut VIP' : 'Marquer comme VIP'}
-            style={{
-              padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              border: ticket.is_vip ? '1px solid #fde68a' : '1px solid #e2e8f0',
-              background: ticket.is_vip ? '#fef3c7' : '#fff',
-              color: ticket.is_vip ? '#92400e' : '#64748b'
-            }}>
+            style={{ padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, border: ticket.is_vip ? '1px solid #fde68a' : '1px solid #e4e4e7', background: ticket.is_vip ? '#fef3c7' : 'transparent', color: ticket.is_vip ? '#92400e' : '#71717a' }}>
             {ticket.is_vip ? '⭐ VIP' : '☆ VIP'}
           </button>
-        </div>
-      </div>
-
-      {/* Workflow buttons */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-        {transitions.map(t => (
-          <button key={t.to} onClick={() => handleStatusChange(t.to)}
-            style={{
-              padding: '8px 20px', border: 'none', borderRadius: 8, cursor: 'pointer',
-              fontWeight: 600, fontSize: 13, color: '#fff', background: t.color,
-              transition: 'opacity 0.15s'
-            }}>
-            {t.label}
+          <button onClick={() => loadTicket()} title="Rafraîchir"
+            style={{ padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 14, border: '1px solid #e4e4e7', background: 'transparent', color: '#71717a' }}>↻</button>
+          <button onClick={openAssignModal}
+            style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #e4e4e7', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500, color: '#18181b' }}>
+            Assigner
           </button>
-        ))}
-      </div>
+          <button onClick={() => setShowTaskModal(true)}
+            style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #e4e4e7', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500, color: '#18181b' }}>
+            📋 Tâche
+          </button>
+        </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 24 }}>
-        {/* Main content */}
-        <div style={{ minWidth: 0 }}>
-          {/* Description */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', color: '#374151' }}>Description</h3>
-            {ticket.content
-              ? <div
-                  className="ticket-html-content"
-                  style={{ fontSize: 14, color: '#475569', lineHeight: 1.6 }}
-                  dangerouslySetInnerHTML={{ __html: decodeHtml(ticket.content) }}
-                />
-              : <p style={{ fontSize: 14, color: '#94a3b8', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
-            }
+        {/* ── TITLE AREA ── */}
+        <div style={{ flexShrink: 0, padding: '14px 20px 12px', borderBottom: '1px solid #f4f4f5', background: '#fff' }}>
+          <h1 style={{ fontSize: 18, fontWeight: 700, color: '#18181b', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', lineHeight: 1.3 }}>
+            {ticket.is_vip && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', padding: '2px 7px', borderRadius: 10 }}>⭐ VIP</span>
+            )}
+            {ticket.title}
+          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+              background: (STATUS_COLORS[ticket.status?.id] || '#64748b') + '18',
+              color: STATUS_COLORS[ticket.status?.id] || '#64748b',
+              cursor: ticket.status?.id === 4 && ticket.waiting_reason ? 'help' : 'default'
+            }} title={ticket.status?.id === 4 && ticket.waiting_reason ? `Motif : ${ticket.waiting_reason}` : undefined}>
+              {ticket.status?.label || 'Inconnu'}
+              {ticket.status?.id === 4 && ticket.waiting_reason && <span style={{ fontSize: 10, opacity: 0.75 }}>💬</span>}
+            </span>
+            <span style={{
+              display: 'inline-block', padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+              background: (PRIORITY_COLORS[ticket.priority?.id] || '#64748b') + '18',
+              color: PRIORITY_COLORS[ticket.priority?.id] || '#64748b'
+            }}>
+              {ticket.priority?.label || 'Normale'}
+            </span>
+            <span style={{
+              display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+              background: String(ticket.type) === '3' ? '#ede9fe' : String(ticket.type) === '2' ? '#e0f2fe' : '#fef3c7',
+              color: String(ticket.type) === '3' ? '#7c3aed' : String(ticket.type) === '2' ? '#0369a1' : '#92400e'
+            }}>
+              {ticket.type_label || 'Incident'}
+            </span>
+            {(ticket.category_name || ticket.software_name) && (
+              <>
+                <span style={{ color: '#d4d4d8' }}>·</span>
+                <span style={{ fontSize: 12, color: '#71717a' }}>
+                  {ticket.category_name}
+                  {ticket.subcategory_name && ` / ${ticket.subcategory_name}`}
+                  {ticket.software_name && `${ticket.category_name ? ' · ' : ''}💾 ${ticket.software_name}`}
+                </span>
+              </>
+            )}
           </div>
+          {transitions.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+              {transitions.map(t => (
+                <button key={t.to} onClick={() => handleStatusChange(t.to)}
+                  style={{ padding: '5px 14px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 12, color: '#fff', background: t.color }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-          {/* Ticket Problème — sections spécifiques */}
-          {String(ticket.type) === '3' && (
-            <div style={{ background: '#faf5ff', border: '2px solid #d8b4fe', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                <span style={{ fontSize: 18 }}>⚠️</span>
-                <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: '#7c3aed' }}>Ticket Problème</h3>
-                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: '#ede9fe', color: '#7c3aed', fontWeight: 600 }}>PROBLÈME</span>
-              </div>
-              <div style={{ display: 'grid', gap: 16 }}>
-                <div>
-                  <h4 style={{ fontSize: 13, fontWeight: 600, color: '#6d28d9', margin: '0 0 8px' }}>Méthode de résolution</h4>
-                  {ticket.resolution_method ? (
-                    <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.6, margin: 0, background: '#fff', padding: '12px 16px', borderRadius: 8, border: '1px solid #ddd6fe', whiteSpace: 'pre-wrap' }}>
-                      {ticket.resolution_method}
-                    </p>
-                  ) : (
-                    <p style={{ fontSize: 13, color: '#94a3b8', margin: 0, fontStyle: 'italic' }}>Méthode de résolution non définie</p>
+        {/* ── BODY ── */}
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 272px', overflow: 'hidden' }}>
+
+          {/* ── LEFT PANE ── */}
+          <div style={{ overflowY: 'auto', padding: '0 20px 20px', borderRight: '1px solid #f4f4f5' }}>
+
+            {/* DESCRIPTION */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Description</span>
+              {ticket.content
+                ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: decodeHtml(ticket.content) }} />
+                : <p style={{ fontSize: 13, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
+              }
+            </div>
+
+            {/* PROBLÈME */}
+            {String(ticket.type) === '3' && (
+              <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Ticket Problème</span>
+                <div style={{ background: '#faf5ff', border: '1px solid #ddd6fe', borderRadius: 8, padding: 14 }}>
+                  <h4 style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', margin: '0 0 6px' }}>Méthode de résolution</h4>
+                  {ticket.resolution_method
+                    ? <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{ticket.resolution_method}</p>
+                    : <p style={{ fontSize: 12, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Non définie</p>
+                  }
+                  {ticket.knowledge_article && (
+                    <div style={{ marginTop: 12 }}>
+                      <h4 style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', margin: '0 0 6px' }}>Article de connaissance</h4>
+                      <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{ticket.knowledge_article}</p>
+                    </div>
                   )}
                 </div>
-                {ticket.knowledge_article && (
-                  <div>
-                    <h4 style={{ fontSize: 13, fontWeight: 600, color: '#6d28d9', margin: '0 0 8px' }}>Article de connaissance</h4>
-                    <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.6, background: '#fff', padding: '12px 16px', borderRadius: 8, border: '1px solid #ddd6fe', whiteSpace: 'pre-wrap' }}>
-                      {ticket.knowledge_article}
-                    </div>
-                  </div>
-                )}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Solution */}
-          {ticket.solution && (
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', color: '#15803d', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                Solution
-              </h3>
-              <div style={{ fontSize: 14, color: '#166534', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: decodeHtml(ticket.solution) }} />
-            </div>
-          )}
-
-          {/* Activité = Tâches + Commentaires */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 16px 0', color: '#374151', display: 'flex', alignItems: 'center', gap: 8 }}>
-              Activité
-              {ticketTasks.length > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 600, background: '#fef3c7', color: '#d97706', padding: '2px 8px', borderRadius: 8 }}>
-                  {ticketTasks.length} tâche{ticketTasks.length > 1 ? 's' : ''}
-                </span>
-              )}
-              {comments.length > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 600, background: '#e0e7ff', color: '#4f46e5', padding: '2px 8px', borderRadius: 8 }}>
-                  {comments.length} commentaire{comments.length > 1 ? 's' : ''}
-                </span>
-              )}
-            </h3>
-
-            {/* ── Tâches liées au ticket ── */}
-            {ticketTasks.length > 0 && (
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
-                  📋 Tâches
+            {/* SOLUTION */}
+            {ticket.solution && (
+              <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Solution</span>
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: decodeHtml(ticket.solution) }} />
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              </div>
+            )}
+
+
+            {/* TÂCHES */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0 8px' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Tâches{ticketTasks.length > 0 ? ` (${ticketTasks.length})` : ''}
+                </span>
+                <button onClick={() => setShowTaskModal(true)}
+                  style={{ padding: '3px 10px', border: '1px dashed #c7d2fe', borderRadius: 6, background: 'transparent', color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>
+                  + Ajouter
+                </button>
+              </div>
+              {ticketTasks.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {ticketTasks.map((task: any) => {
                     const statut = task.statut || 'a_faire';
-                    const statutCfg = statut === 'terminé'
-                      ? { label: '✓ Terminé', bg: '#f0fdf4', border: '#bbf7d0', color: '#15803d', next: 'a_faire' }
-                      : statut === 'en_cours'
-                      ? { label: '⟳ En cours', bg: '#eff6ff', border: '#bfdbfe', color: '#1d4ed8', next: 'terminé' }
-                      : { label: '○ À faire', bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', next: 'en_cours' };
+                    const done = statut === 'terminé';
+                    const inprog = statut === 'en_cours';
                     return (
                       <div key={task.id} style={{
                         display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '10px 14px', borderRadius: 8,
-                        background: statut === 'terminé' ? '#f0fdf4' : '#f8fafc',
-                        border: `1px solid ${statut === 'terminé' ? '#bbf7d0' : '#e2e8f0'}`,
-                        opacity: statut === 'terminé' ? 0.75 : 1,
+                        padding: '8px 12px', borderRadius: 7,
+                        background: done ? '#f0fdf4' : '#fff',
+                        border: `1px solid ${done ? '#bbf7d0' : '#f4f4f5'}`,
+                        opacity: done ? 0.75 : 1
                       }}>
-                        {/* Status toggle button */}
-                        <button
-                          onClick={() => handleTaskStatusCycle(task.id, statut)}
-                          title={`Passer à : ${statutCfg.next === 'en_cours' ? 'En cours' : statutCfg.next === 'terminé' ? 'Terminé' : 'À faire'}`}
+                        <button onClick={() => handleTaskStatusCycle(task.id, statut)}
                           style={{
-                            flexShrink: 0, padding: '3px 10px', borderRadius: 6, border: `1px solid ${statutCfg.border}`,
-                            background: statutCfg.bg, color: statutCfg.color, fontSize: 11, fontWeight: 600,
-                            cursor: 'pointer', whiteSpace: 'nowrap'
+                            flexShrink: 0, width: 18, height: 18, borderRadius: '50%',
+                            border: `2px solid ${done ? '#22c55e' : inprog ? '#3b82f6' : '#d4d4d8'}`,
+                            background: done ? '#22c55e' : inprog ? '#dbeafe' : 'transparent',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            padding: 0, color: '#fff', fontSize: 9
                           }}>
-                          {statutCfg.label}
+                          {done ? '✓' : inprog ? '⟳' : ''}
                         </button>
-                        {/* Description */}
-                        <span style={{
-                          flex: 1, fontSize: 13, color: statut === 'terminé' ? '#94a3b8' : '#374151',
-                          textDecoration: statut === 'terminé' ? 'line-through' : 'none',
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                        }}>
+                        <span style={{ flex: 1, fontSize: 13, color: done ? '#94a3b8' : '#18181b', textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {task.description}
                         </span>
-                        {/* Assigné à */}
-                        <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>
-                          {task.username}
-                        </span>
-                        {/* Échéance */}
+                        {task.username && <span style={{ fontSize: 11, color: '#a1a1aa', flexShrink: 0 }}>{task.username}</span>}
                         {task.echeance && (
-                          <span style={{ fontSize: 11, color: new Date(task.echeance) < new Date() && statut !== 'terminé' ? '#ef4444' : '#94a3b8', flexShrink: 0 }}>
+                          <span style={{ fontSize: 11, color: new Date(task.echeance) < new Date() && !done ? '#ef4444' : '#a1a1aa', flexShrink: 0 }}>
                             📅 {new Date(task.echeance).toLocaleDateString('fr-FR')}
                           </span>
                         )}
@@ -680,597 +680,411 @@ export default function TicketDetail() {
                     );
                   })}
                 </div>
-              </div>
-            )}
-
-            {/* Bouton créer une tâche */}
-            <div style={{ marginBottom: 16 }}>
-              <button
-                onClick={() => setShowTaskModal(true)}
-                style={{
-                  padding: '7px 16px', border: '1px dashed #c7d2fe', borderRadius: 8,
-                  background: 'transparent', color: '#6366f1', cursor: 'pointer', fontSize: 13, fontWeight: 500,
-                  display: 'flex', alignItems: 'center', gap: 6
-                }}>
-                + Ajouter une tâche
-              </button>
+              ) : (
+                <p style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic', margin: '0 0 4px' }}>Aucune tâche</p>
+              )}
             </div>
 
-            {/* ── Séparateur si tâches ET commentaires ── */}
-            {ticketTasks.length > 0 && comments.length > 0 && (
-              <div style={{ borderTop: '1px solid #f1f5f9', marginBottom: 16, paddingTop: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', paddingTop: 12 }}>
-                  💬 Commentaires
-                </div>
+            {/* ACTIVITÉ */}
+            <div>
+              <div style={{ padding: '16px 0 8px' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Activité{comments.length > 0 ? ` (${comments.length})` : ''}
+                </span>
               </div>
-            )}
-
-            {/* ── Commentaires ── */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              {comments.map((c: any, i: number) => (
-                <div key={c.id || i} style={{
-                  padding: 12, borderRadius: 8,
-                  background: c.is_private ? '#fef3c7' : '#f8fafc',
-                  border: '1px solid',
-                  borderColor: c.is_private ? '#fde68a' : '#e2e8f0'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>
-                        {c.author_name || 'Inconnu'}
-                        {c.is_private ? <span style={{ color: '#d97706', marginLeft: 6, fontSize: 11 }}>🔒 Interne</span> : null}
-                      </span>
-                      {c.author_email && (
-                        <span style={{ fontSize: 11, color: '#6366f1' }}>
-                          {c.author_email}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {comments.map((c: any, i: number) => (
+                  <div key={c.id || i} style={{ display: 'flex', gap: 10 }}>
+                    <div style={{
+                      flexShrink: 0, width: 28, height: 28, borderRadius: '50%',
+                      background: avatarColor(c.author_name || ''),
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, color: '#fff'
+                    }}>{getInitials(c.author_name || '')}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#18181b' }}>{c.author_name || 'Inconnu'}</span>
+                        {c.is_private && <span style={{ fontSize: 10, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: 8, fontWeight: 600 }}>🔒 Interne</span>}
+                        <span style={{ fontSize: 11, color: '#a1a1aa', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+                          {c.date_creation ? new Date(c.date_creation).toLocaleString('fr-FR') : ''}
                         </span>
-                      )}
+                      </div>
+                      <div style={{
+                        fontSize: 13, color: '#3f3f46', lineHeight: 1.5,
+                        background: c.is_private ? '#fffbeb' : '#f9f9fb',
+                        border: `1px solid ${c.is_private ? '#fde68a' : '#f4f4f5'}`,
+                        borderRadius: 8, padding: '8px 12px'
+                      }} dangerouslySetInnerHTML={{ __html: decodeHtml(c.content) }} />
                     </div>
-                    <span style={{ fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap' }}>
-                      {c.date_creation ? new Date(c.date_creation).toLocaleString('fr-FR') : ''}
-                    </span>
                   </div>
-                  <div style={{ margin: 0, fontSize: 13, color: '#475569', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: decodeHtml(c.content) }} />
-                </div>
-              ))}
-            </div>
-
-            {/* Add comment */}
-            <div>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
-                <ReactQuill
-                  value={newComment}
-                  onChange={setNewComment}
-                  placeholder="Ajouter un commentaire..."
-                  modules={{
-                    toolbar: [
-                      ['bold', 'italic', 'underline'],
-                      [{ list: 'ordered' }, { list: 'bullet' }],
-                      ['link'],
-                      ['clean']
-                    ]
-                  }}
-                  style={{ fontFamily: 'inherit', fontSize: 13 }}
-                />
-              </div>
-              {commentFile && (
-                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b', background: '#f8fafc', padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                  <span>📎 {commentFile.name}</span>
-                  <button onClick={() => setCommentFile(null)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0, fontSize: 14, lineHeight: 1 }}>✕</button>
-                </div>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, color: '#64748b', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={commentPrivate} onChange={e => setCommentPrivate(e.target.checked)} />
-                    Commentaire interne
-                  </label>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    title="Joindre un fichier"
-                    style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
-                    📎 Fichier
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    style={{ display: 'none' }}
-                    onChange={e => setCommentFile(e.target.files?.[0] || null)}
-                    accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt"
-                  />
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {ticket.requester?.email && !commentPrivate && (
-                    <button
-                      onClick={handleSendToUser}
-                      disabled={isCommentEmpty(newComment) || sendingToUser}
-                      title={`Envoyer par email à ${ticket.requester.email}`}
-                      style={{ padding: '8px 16px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: isCommentEmpty(newComment) || sendingToUser ? 0.5 : 1 }}>
-                      {sendingToUser ? 'Envoi...' : '✉️ Enregistrer et envoyer au demandeur'}
-                    </button>
-                  )}
-                  <button onClick={handleAddComment} disabled={isCommentEmpty(newComment)}
-                    style={{ padding: '8px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', opacity: isCommentEmpty(newComment) ? 0.5 : 1 }}>
-                    Enregistrer
-                  </button>
-                </div>
+                ))}
+                {comments.length === 0 && <p style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic', margin: 0 }}>Aucun commentaire</p>}
               </div>
             </div>
           </div>
-        </div>
+          {/* end left pane */}
 
-        {/* Sidebar */}
-        <div>
-          {/* Status card */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 12px 0' }}>Informations</h4>
-            <div style={{ display: 'grid', gap: 10 }}>
-              <div><span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Statut</span>
-                <span
-                  title={ticket.status?.id === 4 && ticket.waiting_reason ? `Motif : ${ticket.waiting_reason}` : undefined}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, marginTop: 2,
-                    background: (STATUS_COLORS[ticket.status?.id] || '#64748b') + '20',
-                    color: STATUS_COLORS[ticket.status?.id] || '#64748b',
-                    cursor: ticket.status?.id === 4 && ticket.waiting_reason ? 'help' : 'default' }}>
-                  {STATUS_NAMES[ticket.status?.id] || 'Inconnu'}
-                  {ticket.status?.id === 4 && ticket.waiting_reason && (
-                    <span style={{ fontSize: 11, opacity: 0.75 }}>💬</span>
-                  )}
-                </span>
-                {ticket.status?.id === 4 && ticket.waiting_reason && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, padding: '4px 8px', lineHeight: 1.4 }}>
-                    {ticket.waiting_reason}
-                  </div>
-                )}
-              </div>
-              <div>
-                <span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Priorité</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-                  <div style={{ display: 'flex', gap: 3 }}>
-                    {[1,2,3,4].map(i => {
-                      const activeDots = Math.max(0, Math.min(4, (ticket.priority?.id || 3) - 1));
-                      const color = PRIORITY_COLORS[ticket.priority?.id] || '#64748b';
-                      return <div key={i} style={{ width: 9, height: 9, borderRadius: '50%', background: i <= activeDots ? color : '#e2e8f0' }} />;
-                    })}
-                  </div>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: PRIORITY_COLORS[ticket.priority?.id] || '#64748b' }}>
-                    {PRIORITY_LABELS[ticket.priority?.id] || ticket.priority?.label || 'Normale'}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Impact</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                  {ticket.impact?.id && IMPACT_INFO[ticket.impact.id] ? (
-                    <>
-                      <span style={{ fontSize: 15 }}>{IMPACT_INFO[ticket.impact.id].icon}</span>
-                      <span style={{ fontSize: 13, color: '#1e293b' }}>{IMPACT_INFO[ticket.impact.id].label}</span>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 13, color: '#94a3b8' }}>—</span>
-                  )}
-                </div>
-              </div>
-              <div><span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Type</span>
-                <span style={{
-                  fontSize: 14, fontWeight: String(ticket.type) === '3' ? 700 : 400,
-                  color: String(ticket.type) === '3' ? '#7c3aed' : '#1e293b'
-                }}>
-                  {ticket.type_label || (String(ticket.type) === '2' ? 'Demande' : String(ticket.type) === '3' ? 'Problème' : 'Incident')}
-                </span>
-              </div>
-              <div><span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Demandeur</span>
-                <span style={{ fontSize: 14, color: '#1e293b' }}>{ticket.requester?.name || 'Anonyme'}</span>
-                {ticket.requester?.email && (
-                  <div style={{ fontSize: 12, color: '#6366f1', marginTop: 2 }}>
-                    <a href={`mailto:${ticket.requester.email}`} style={{ color: '#6366f1', textDecoration: 'none' }}>
-                      {ticket.requester.email}
-                    </a>
-                  </div>
-                )}
-                {ticket.requester?.email && requesterTickets && (
-                  <div>
-                    <span onClick={() => setShowRequesterTickets(!showRequesterTickets)}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, cursor: requesterTickets.count > 0 ? 'pointer' : 'default',
-                        padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
-                        background: requesterTickets.count > 0 ? '#fef2f2' : '#f0fdf4',
-                        color: requesterTickets.count > 0 ? '#dc2626' : '#16a34a'
-                      }}>
-                      {requesterTickets.count > 0 ? '🔴' : '🟢'} {requesterTickets.count} ticket(s)
-                    </span>
-                    {showRequesterTickets && requesterTickets.tickets.length > 0 && (
-                      <div style={{ marginTop: 8, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
-                        {requesterTickets.tickets.map((t: any) => (
-                          <div key={t.id}
-                            onClick={() => window.location.href = `/tickets/${t.id}`}
-                            style={{
-                              padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9',
-                              fontSize: 12, display: 'flex', alignItems: 'center', gap: 6,
-                              transition: 'background 0.1s'
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                            onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                            <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#6366f1' }}>#{t.id}</span>
-                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#1e293b' }}>{t.title}</span>
-                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: '#eff6ff', color: '#3b82f6' }}>
-                              {t.status_label || `#${t.status?.id}`}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div><span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Créé le</span>
-                <span style={{ fontSize: 14, color: '#1e293b' }}>{ticket.date_creation ? new Date(ticket.date_creation).toLocaleString('fr-FR') : ''}</span>
-              </div>
 
-              {ticket.active_days != null && (
-                <div>
-                  <span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Temps actif</span>
-                  <span style={{
-                    fontSize: 14, fontWeight: 600,
-                    color: ticket.active_days > 7 ? '#dc2626' : ticket.active_days > 3 ? '#f59e0b' : '#16a34a'
-                  }}>
-                    {ticket.active_days > 1
-                      ? `${Math.round(ticket.active_days)} jours`
-                      : ticket.active_days === 1
-                        ? '1 jour'
-                        : '< 1 jour'}
-                  </span>
-                </div>
-              )}
 
-              {/* Observateurs */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, color: '#94a3b8', display: 'block' }}>Observateurs ({observers.length})</span>
-                  <button onClick={() => setShowAddObserver(!showAddObserver)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontSize: 12, fontWeight: 600, padding: 0 }}>
-                    + Ajouter
-                  </button>
-                </div>
-                {observers.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {observers.map(o => (
-                      <div key={o.user_id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                        <span style={{ color: '#1e293b', flex: 1 }}>{o.name || o.login}</span>
-                        {o.email && <span style={{ fontSize: 11, color: '#6366f1' }}>{o.email}</span>}
-                        <span onClick={() => handleRemoveObserver(o.user_id)}
-                          style={{ cursor: 'pointer', color: '#94a3b8', fontSize: 14, lineHeight: 1 }} title="Retirer">×</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {showAddObserver && (
-                  <div style={{ marginTop: 8 }}>
-                    <input value={observerSearch} onChange={e => setObserverSearch(e.target.value)}
-                      placeholder="Rechercher un utilisateur..."
-                      style={{ width: '100%', padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
-                    {observerSearching && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Recherche...</div>}
-                    {observerResults.length > 0 && (
-                      <div style={{ marginTop: 4, border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'hidden' }}>
-                        {observerResults.filter(u => !observers.some(o => o.user_id === u.id)).map(u => (
-                          <div key={u.id} onClick={() => handleAddObserver(u)}
-                            style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>{u.name}</span>
-                            <span style={{ color: '#6366f1', fontSize: 11 }}>{u.email}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {observerSearch.length >= 2 && observerResults.length === 0 && !observerSearching && (
-                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Aucun utilisateur trouvé</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          {/* ── RIGHT SIDEBAR ── */}
+          <div style={{ overflowY: 'auto', padding: '0 14px 20px' }}>
 
-          {/* ── Groupe de tickets ───────────────────────────────── */}
-          {ticketGroup && (
-            <div style={{ background: '#fff', border: '2px solid #e0e7ff', borderRadius: 12, padding: 18, marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <h4 style={{ fontSize: 13, fontWeight: 700, color: '#4f46e5', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  🔗 Groupe
-                </h4>
-                <button
-                  onClick={dissolveGroup}
-                  disabled={groupActionLoading}
-                  title="Dissoudre le groupe"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12, padding: '2px 6px' }}>
-                  Dissoudre
-                </button>
-              </div>
-
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 10 }}>
-                {ticketGroup.name}
-              </div>
-
-              {/* Avertissement propagation */}
-              <div style={{ background: '#eef2ff', borderRadius: 6, padding: '6px 10px', marginBottom: 12, fontSize: 12, color: '#4f46e5' }}>
-                ℹ️ Les actions sur ce ticket se propagent à tous les membres du groupe.
-              </div>
-
-              {/* Liste des membres */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-                {ticketGroup.members?.map((m: any) => {
-                  const isCurrent = String(m.ticket_id) === String(id);
-                  return (
-                    <div key={m.ticket_id} style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '6px 8px', borderRadius: 6,
-                      background: isCurrent ? '#eef2ff' : '#f8fafc',
-                      border: '1px solid', borderColor: isCurrent ? '#c7d2fe' : '#e2e8f0'
-                    }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: isCurrent ? '#4f46e5' : '#6366f1', minWidth: 44 }}>
-                        #{m.ticket_id}
-                      </span>
-                      <span style={{
-                        flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        color: isCurrent ? '#374151' : '#64748b'
-                      }}>
-                        {m.title}
-                      </span>
-                      {!isCurrent && (
-                        <button
-                          onClick={() => window.location.href = `/tickets/${m.ticket_id}`}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontSize: 11, padding: '1px 4px' }}>
-                          →
-                        </button>
-                      )}
-                      {!isCurrent && (
-                        <button
-                          onClick={() => removeFromGroup(m.ticket_id)}
-                          disabled={groupActionLoading}
-                          title="Retirer du groupe"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 13, padding: '1px 4px', lineHeight: 1 }}>
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Ajouter un ticket */}
-              {showAddToGroup ? (
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                  <input
-                    type="number"
-                    value={addTicketId}
-                    onChange={e => setAddTicketId(e.target.value)}
-                    placeholder="N° ticket"
-                    autoFocus
-                    style={{ flex: 1, padding: '6px 10px', border: '1.5px solid #6366f1', borderRadius: 6, fontSize: 13 }}
-                    onKeyDown={e => { if (e.key === 'Enter') addToGroup(); if (e.key === 'Escape') { setShowAddToGroup(false); setAddTicketId(''); } }}
-                  />
-                  <button onClick={addToGroup} disabled={groupActionLoading || !addTicketId}
-                    style={{ padding: '6px 12px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                    +
-                  </button>
-                  <button onClick={() => { setShowAddToGroup(false); setAddTicketId(''); }}
-                    style={{ padding: '6px 10px', background: '#f1f5f9', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
-                    ✕
-                  </button>
-                </div>
-              ) : (
-                <button onClick={() => setShowAddToGroup(true)}
-                  style={{ width: '100%', padding: '6px 0', border: '1px dashed #c7d2fe', borderRadius: 6, background: 'transparent', color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>
-                  + Ajouter un ticket
-                </button>
-              )}
-
-              {/* Transformer en problème */}
-              {!ticketGroup.problem_ticket_id ? (
-                <button onClick={() => setShowProblemModal(true)}
-                  style={{ width: '100%', marginTop: 10, padding: '8px 0', border: '1px solid #7c3aed', borderRadius: 8, background: '#faf5ff', color: '#7c3aed', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                  ⚠️ Transformer en Problème
+            {/* Edit toggle */}
+            <div style={{ padding: '12px 0 8px', borderBottom: '1px solid #f4f4f5', display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+              {!editingInfo ? (
+                <button onClick={() => { setEditingInfo(true); setEditForm({ priority: ticket.priority?.id || ticket.priority, impact: ticket.impact?.id || ticket.impact, category_id: ticket.category_id, subcategory_id: ticket.subcategory_id, software_id: ticket.software_id }); }}
+                  style={{ padding: '4px 10px', background: 'transparent', border: '1px solid #e4e4e7', borderRadius: 6, color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                  ✏️ Éditer
                 </button>
               ) : (
-                <div style={{ marginTop: 10, padding: '8px 12px', background: '#faf5ff', borderRadius: 8, border: '1px solid #d8b4fe', textAlign: 'center' }}>
-                  <span style={{ fontSize: 12, color: '#7c3aed' }}>⚠️ Problème lié : </span>
-                  <a href={`/tickets/${ticketGroup.problem_ticket_id}`}
-                    style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', textDecoration: 'none' }}>
-                    #{ticketGroup.problem_ticket_id}
-                  </a>
+                <>
+                  <button onClick={saveInfo} style={{ padding: '4px 10px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>✓ Enregistrer</button>
+                  <button onClick={() => setEditingInfo(false)} style={{ padding: '4px 10px', background: 'transparent', border: '1px solid #e4e4e7', color: '#ef4444', borderRadius: 6, cursor: 'pointer', fontSize: 11 }}>✕</button>
+                </>
+              )}
+            </div>
+
+            {/* STATUT */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <span style={SL}>Statut</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: (STATUS_COLORS[ticket.status?.id] || '#64748b') + '18', color: STATUS_COLORS[ticket.status?.id] || '#64748b', cursor: ticket.status?.id === 4 && ticket.waiting_reason ? 'help' : 'default' }}
+                title={ticket.status?.id === 4 && ticket.waiting_reason ? `Motif : ${ticket.waiting_reason}` : undefined}>
+                {ticket.status?.label || 'Inconnu'}
+                {ticket.status?.id === 4 && ticket.waiting_reason && <span style={{ fontSize: 10 }}>💬</span>}
+              </span>
+              {ticket.status?.id === 4 && ticket.waiting_reason && (
+                <div style={{ marginTop: 5, fontSize: 11, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 5, padding: '4px 8px', lineHeight: 1.4 }}>
+                  {ticket.waiting_reason}
                 </div>
               )}
             </div>
-          )}
 
-          {/* Journal des événements — audit log uniquement (sans commentaires) */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
-            <h4 style={{ fontSize: 12, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 12px 0' }}>
-              Journal des événements
-            </h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflow: 'auto' }}>
-              {history.map((h: any, i: number) => (
-                <div key={h.id || i} style={{ fontSize: 12, color: '#64748b', borderLeft: '2px solid #e2e8f0', paddingLeft: 10 }}>
-                  <div style={{ fontWeight: 500, color: '#374151' }}>
-                    {h.action === 'created' && '🎫 Ticket créé'}
-                    {h.action === 'status_changed' && `🔄 Statut → ${STATUS_NAMES[parseInt(h.new_value)] || h.new_value}`}
-                    {h.action === 'assigned' && '👤 Ticket assigné'}
-                    {h.action === 'assigned_group' && '👥 Groupe assigné'}
-                    {h.action === 'comment_added' && '💬 Commentaire ajouté'}
-                    {h.action === 'comment_sent_to_requester' && '✉️ Commentaire envoyé au demandeur'}
-                    {h.action === 'task_created' && '📋 Tâche créée'}
-                    {h.action === 'task_status_changed' && '📋 Statut tâche mis à jour'}
-                    {h.action === 'sla_breached' && '⚠️ Dépassement SLA'}
-                    {h.action === 'vip_set' && '⭐ Marqué VIP'}
-                    {h.action === 'vip_unset' && '☆ Retiré VIP'}
-                    {h.action === 'deleted' && '🗑️ Supprimé'}
-                    {h.action === 'grouped' && '🔗 Ajouté à un groupe'}
-                    {h.action === 'ungrouped' && '🔓 Retiré du groupe'}
-                    {h.action === 'problem_created' && `⚠️ Problème #${h.new_value} créé`}
-                    {h.action === 'comment_propagated' && '💬 Commentaire propagé (groupe)'}
-                    {h.action === 'solved' && '✅ Ticket résolu'}
-                    {h.action === 'updated' && `✏️ ${h.field_name || 'Champ modifié'}`}
-                    {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated'].includes(h.action) && h.action}
-                  </div>
-                  {h.created_at && (
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                      {h.user_name && <span>{h.user_name} · </span>}
-                      {new Date(h.created_at).toLocaleString('fr-FR')}
-                    </div>
-                  )}
-                  {h.comment && h.action === 'status_changed' && h.new_value === '4' ? (
-                    <div style={{ marginTop: 4, fontSize: 11, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 8px', lineHeight: 1.4 }}>
-                      💬 <strong>Motif :</strong> {h.comment}
-                    </div>
-                  ) : h.comment ? (
-                    <div style={{ color: '#64748b', marginTop: 2, fontSize: 11 }}>{h.comment}</div>
-                  ) : null}
-                </div>
-              ))}
-              {history.length === 0 && <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Aucun événement</div>}
-            </div>
-          </div>
-        </div>
-
-        {/* ─── Sidebar: Informations ─── */}
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, height: 'fit-content', position: 'sticky', top: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: '#374151' }}>Informations</h4>
-            {!editingInfo ? (
-              <button onClick={() => { setEditingInfo(true); setEditForm({ priority: ticket.priority?.id || ticket.priority, impact: ticket.impact?.id || ticket.impact, category_id: ticket.category_id, subcategory_id: ticket.subcategory_id, software_id: ticket.software_id }); }}
-                style={{ padding: '4px 8px', background: '#f1f5f9', border: 'none', borderRadius: 6, color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                ✏️ Éditer
-              </button>
-            ) : (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={saveInfo} style={{ padding: '4px 8px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✓</button>
-                <button onClick={() => setEditingInfo(false)} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✕</button>
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* Catégorie */}
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Catégorie</label>
+            {/* PRIORITÉ */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <span style={SL}>Priorité</span>
               {editingInfo ? (
-                <select value={editForm.category_id || ''} onChange={e => setEditForm({...editForm, category_id: e.target.value ? parseInt(e.target.value) : null, subcategory_id: null})}
-                  style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
-                  <option value="">— Non défini —</option>
-                  {categories.filter(c => !c.parent_id).map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
+                <select value={editForm.priority || 3} onChange={e => setEditForm({...editForm, priority: parseInt(e.target.value)})}
+                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
+                  <option value={2}>Basse</option><option value={3}>Normale</option><option value={4}>Haute</option><option value={5}>Très haute</option>
                 </select>
               ) : (
-                <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.category_name || '—'}</div>
+                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: (PRIORITY_COLORS[ticket.priority?.id] || '#64748b') + '18', color: PRIORITY_COLORS[ticket.priority?.id] || '#64748b' }}>
+                  {ticket.priority?.label || 'Normale'}
+                </span>
               )}
             </div>
 
-            {/* Sous-catégorie */}
-            {editForm.category_id || ticket.subcategory_id ? (
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Sous-catégorie</label>
+            {/* IMPACT */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <span style={SL}>Impact</span>
+              {editingInfo ? (
+                <select value={editForm.impact || 2} onChange={e => setEditForm({...editForm, impact: parseInt(e.target.value)})}
+                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
+                  <option value={2}>1 utilisateur</option><option value={3}>Groupe de travail</option><option value={4}>Service / Direction</option><option value={5}>Global</option>
+                </select>
+              ) : (
+                <span style={{ fontSize: 12, color: '#3f3f46' }}>
+                  {ticket.impact?.id && IMPACT_INFO[ticket.impact.id] ? `${IMPACT_INFO[ticket.impact.id].icon} ${IMPACT_INFO[ticket.impact.id].label}` : '—'}
+                </span>
+              )}
+            </div>
+
+            {/* TYPE */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <span style={SL}>Type</span>
+              <span style={{ fontSize: 12, fontWeight: 500, color: String(ticket.type) === '3' ? '#7c3aed' : '#3f3f46' }}>{ticket.type_label || '—'}</span>
+            </div>
+
+            {/* ASSIGNÉ */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <span style={SL}>Assigné</span>
+              {ticket.technician_name ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(ticket.technician_name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(ticket.technician_name)}</div>
+                  <span style={{ fontSize: 12, color: '#18181b' }}>{ticket.technician_name}</span>
+                </div>
+              ) : (
+                <span style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Non assigné</span>
+              )}
+            </div>
+
+            {/* CATÉGORIE */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <span style={SL}>Catégorie</span>
+              {editingInfo ? (
+                <select value={editForm.category_id || ''} onChange={e => setEditForm({...editForm, category_id: e.target.value ? parseInt(e.target.value) : null, subcategory_id: null})}
+                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
+                  <option value="">— Non défini —</option>
+                  {categories.filter(c => !c.parent_id).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              ) : (
+                <span style={{ fontSize: 12, color: '#3f3f46' }}>{ticket.category_name || '—'}</span>
+              )}
+            </div>
+
+            {/* SOUS-CATÉGORIE */}
+            {(editForm.category_id || ticket.subcategory_id) ? (
+              <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+                <span style={SL}>Sous-catégorie</span>
                 {editingInfo ? (
                   <select value={editForm.subcategory_id || ''} onChange={e => setEditForm({...editForm, subcategory_id: e.target.value ? parseInt(e.target.value) : null})}
                     disabled={!editForm.category_id}
-                    style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff', opacity: !editForm.category_id ? 0.6 : 1 }}>
+                    style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', opacity: !editForm.category_id ? 0.5 : 1 }}>
                     <option value="">— Non défini —</option>
-                    {categories.filter(c => c.parent_id === parseInt(editForm.category_id || '0')).map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
+                    {categories.filter(c => c.parent_id === parseInt(editForm.category_id || '0')).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 ) : (
-                  <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.subcategory_name || '—'}</div>
+                  <span style={{ fontSize: 12, color: '#3f3f46' }}>{ticket.subcategory_name || '—'}</span>
                 )}
               </div>
             ) : null}
 
-            {/* Logiciel */}
-            {editForm.category_id && categories.find(c => c.id === parseInt(editForm.category_id || '0'))?.name.toLowerCase().includes('logiciel') ? (
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Logiciel</label>
+            {/* LOGICIEL */}
+            {(editForm.software_id || ticket.software_id || (editingInfo && editForm.category_id && categories.find(c => c.id === parseInt(editForm.category_id || '0'))?.name.toLowerCase().includes('logiciel'))) ? (
+              <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+                <span style={SL}>Logiciel</span>
                 {editingInfo ? (
                   <select value={editForm.software_id || ''} onChange={e => setEditForm({...editForm, software_id: e.target.value ? parseInt(e.target.value) : null})}
-                    style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
+                    style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
                     <option value="">— Non défini —</option>
-                    {apps.map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
+                    {apps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 ) : (
-                  <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.software_name || '—'}</div>
+                  <span style={{ fontSize: 12, color: '#3f3f46' }}>{ticket.software_name || '—'}</span>
                 )}
-              </div>
-            ) : ticket.software_id ? (
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Logiciel</label>
-                <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.software_name || '—'}</div>
               </div>
             ) : null}
 
-            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12 }} />
-
-            {/* Priorité */}
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Priorité</label>
-              {editingInfo ? (
-                <select value={editForm.priority || 3} onChange={e => setEditForm({...editForm, priority: parseInt(e.target.value)})}
-                  style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
-                  <option value={2}>Basse</option>
-                  <option value={3}>Normale</option>
-                  <option value={4}>Haute</option>
-                  <option value={5}>Très haute</option>
-                </select>
-              ) : (
-                <div style={{ marginTop: 4, display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: ticket.priority?.id === 5 ? '#fee2e2' : ticket.priority?.id === 4 ? '#fef3c7' : '#f0fdf4', color: ticket.priority?.id === 5 ? '#991b1b' : ticket.priority?.id === 4 ? '#92400e' : '#166534' }}>
-                  {ticket.priority?.label || 'Normale'}
+            {/* DEMANDEUR */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <span style={SL}>Demandeur</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: ticket.requester?.email ? 4 : 0 }}>
+                <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(ticket.requester?.name || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(ticket.requester?.name || '')}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#18181b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester?.name || 'Anonyme'}</div>
+                  {ticket.requester?.email && (
+                    <a href={`mailto:${ticket.requester.email}`} style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester.email}</a>
+                  )}
+                </div>
+              </div>
+              {ticket.requester?.email && requesterTickets && (
+                <div>
+                  <span onClick={() => setShowRequesterTickets(!showRequesterTickets)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: requesterTickets.count > 0 ? 'pointer' : 'default', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: requesterTickets.count > 0 ? '#fef2f2' : '#f0fdf4', color: requesterTickets.count > 0 ? '#dc2626' : '#16a34a' }}>
+                    {requesterTickets.count > 0 ? '🔴' : '🟢'} {requesterTickets.count} ticket(s)
+                  </span>
+                  {showRequesterTickets && requesterTickets.tickets.length > 0 && (
+                    <div style={{ marginTop: 5, border: '1px solid #f4f4f5', borderRadius: 6, overflow: 'hidden' }}>
+                      {requesterTickets.tickets.map((t: any) => (
+                        <div key={t.id} onClick={() => window.location.href = `/tickets/${t.id}`}
+                          style={{ padding: '5px 8px', cursor: 'pointer', borderBottom: '1px solid #f9f9fb', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#f9f9fb'}
+                          onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#6366f1', flexShrink: 0 }}>#{t.id}</span>
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#18181b' }}>{t.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Impact */}
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Impact</label>
-              {editingInfo ? (
-                <select value={editForm.impact || 2} onChange={e => setEditForm({...editForm, impact: parseInt(e.target.value)})}
-                  style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
-                  <option value={2}>1 utilisateur</option>
-                  <option value={3}>Groupe de travail</option>
-                  <option value={4}>Service / Direction</option>
-                  <option value={5}>Global</option>
-                </select>
-              ) : (
-                <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.impact?.label || '—'}</div>
+            {/* CRÉÉ LE */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <span style={SL}>Créé le</span>
+              <span style={{ fontSize: 12, color: '#3f3f46' }}>{ticket.date_creation ? new Date(ticket.date_creation).toLocaleString('fr-FR') : '—'}</span>
+              {ticket.active_days != null && (
+                <div style={{ marginTop: 4 }}>
+                  <span style={{ fontSize: 10, color: '#a1a1aa' }}>Temps actif : </span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: ticket.active_days > 7 ? '#dc2626' : ticket.active_days > 3 ? '#f59e0b' : '#16a34a' }}>
+                    {ticket.active_days > 1 ? `${Math.round(ticket.active_days)} jours` : ticket.active_days === 1 ? '1 jour' : '< 1 jour'}
+                  </span>
+                </div>
               )}
             </div>
 
-            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12 }} />
+            {/* OBSERVATEURS */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                <span style={SL}>Observateurs ({observers.length})</span>
+                <button onClick={() => setShowAddObserver(!showAddObserver)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontSize: 11, fontWeight: 600, padding: 0 }}>+ Ajouter</button>
+              </div>
+              {observers.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {observers.map(o => (
+                    <div key={o.user_id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                      <span style={{ color: '#3f3f46', flex: 1 }}>{o.name || o.login}</span>
+                      <span onClick={() => handleRemoveObserver(o.user_id)} style={{ cursor: 'pointer', color: '#a1a1aa', fontSize: 14 }}>×</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {showAddObserver && (
+                <div style={{ marginTop: 6 }}>
+                  <input value={observerSearch} onChange={e => setObserverSearch(e.target.value)} placeholder="Rechercher..."
+                    style={{ width: '100%', padding: '5px 8px', border: '1px solid #e4e4e7', borderRadius: 5, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                  {observerSearching && <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 3 }}>Recherche...</div>}
+                  {observerResults.length > 0 && (
+                    <div style={{ marginTop: 3, border: '1px solid #f4f4f5', borderRadius: 5, overflow: 'hidden' }}>
+                      {observerResults.filter(u => !observers.some(o => o.user_id === u.id)).map(u => (
+                        <div key={u.id} onClick={() => handleAddObserver(u)}
+                          style={{ padding: '5px 8px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f9f9fb', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>{u.name}</span><span style={{ color: '#6366f1', fontSize: 10 }}>{u.email}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {observerSearch.length >= 2 && observerResults.length === 0 && !observerSearching && (
+                    <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 3 }}>Aucun utilisateur trouvé</div>
+                  )}
+                </div>
+              )}
+            </div>
 
-            {/* Statut */}
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Statut</label>
-              <div style={{ marginTop: 4 }}>
-                <span
-                  title={ticket.status?.id === 4 && ticket.waiting_reason ? `Motif : ${ticket.waiting_reason}` : undefined}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                    background: ticket.status?.id === 4 ? '#fff7ed' : '#eef2ff',
-                    color: ticket.status?.id === 4 ? '#c2410c' : '#4338ca',
-                    cursor: ticket.status?.id === 4 && ticket.waiting_reason ? 'help' : 'default' }}>
-                  {ticket.status?.label || 'Inconnu'}
-                  {ticket.status?.id === 4 && ticket.waiting_reason && <span style={{ fontSize: 11 }}>💬</span>}
-                </span>
-                {ticket.status?.id === 4 && ticket.waiting_reason && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, padding: '5px 8px', lineHeight: 1.4 }}>
-                    {ticket.waiting_reason}
+            {/* GROUPE */}
+            {ticketGroup && (
+              <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={SL}>🔗 Groupe</span>
+                  <button onClick={dissolveGroup} disabled={groupActionLoading}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 10, padding: 0 }}>Dissoudre</button>
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 6 }}>{ticketGroup.name}</div>
+                <div style={{ background: '#eef2ff', borderRadius: 5, padding: '4px 8px', marginBottom: 8, fontSize: 11, color: '#4f46e5' }}>ℹ️ Actions propagées à tous les membres.</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+                  {ticketGroup.members?.map((m: any) => {
+                    const isCurrent = String(m.ticket_id) === String(id);
+                    return (
+                      <div key={m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 7px', borderRadius: 5, background: isCurrent ? '#eef2ff' : '#f9f9fb', border: `1px solid ${isCurrent ? '#c7d2fe' : '#f4f4f5'}` }}>
+                        <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#6366f1', minWidth: 34 }}>#{m.ticket_id}</span>
+                        <span style={{ flex: 1, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#3f3f46' }}>{m.title}</span>
+                        {!isCurrent && <button onClick={() => window.location.href = `/tickets/${m.ticket_id}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontSize: 11, padding: '0 2px' }}>→</button>}
+                        {!isCurrent && <button onClick={() => removeFromGroup(m.ticket_id)} disabled={groupActionLoading} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 12, padding: '0 2px' }}>✕</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+                {showAddToGroup ? (
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                    <input type="number" value={addTicketId} onChange={e => setAddTicketId(e.target.value)} placeholder="N° ticket" autoFocus
+                      style={{ flex: 1, padding: '4px 7px', border: '1px solid #6366f1', borderRadius: 5, fontSize: 12 }}
+                      onKeyDown={e => { if (e.key === 'Enter') addToGroup(); if (e.key === 'Escape') { setShowAddToGroup(false); setAddTicketId(''); }}} />
+                    <button onClick={addToGroup} disabled={groupActionLoading || !addTicketId} style={{ padding: '4px 10px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+</button>
+                    <button onClick={() => { setShowAddToGroup(false); setAddTicketId(''); }} style={{ padding: '4px 8px', background: '#f4f4f5', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 12 }}>✕</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowAddToGroup(true)}
+                    style={{ width: '100%', padding: '5px 0', border: '1px dashed #c7d2fe', borderRadius: 5, background: 'transparent', color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>
+                    + Ajouter un ticket
+                  </button>
+                )}
+                {!ticketGroup.problem_ticket_id ? (
+                  <button onClick={() => setShowProblemModal(true)}
+                    style={{ width: '100%', marginTop: 8, padding: '6px 0', border: '1px solid #7c3aed', borderRadius: 6, background: '#faf5ff', color: '#7c3aed', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                    ⚠️ Transformer en Problème
+                  </button>
+                ) : (
+                  <div style={{ marginTop: 8, padding: '6px 10px', background: '#faf5ff', borderRadius: 6, border: '1px solid #d8b4fe', textAlign: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#7c3aed' }}>⚠️ Problème lié : </span>
+                    <a href={`/tickets/${ticketGroup.problem_ticket_id}`} style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', textDecoration: 'none' }}>#{ticketGroup.problem_ticket_id}</a>
                   </div>
                 )}
               </div>
+            )}
+
+            {/* JOURNAL */}
+            <div style={{ padding: '10px 0 20px' }}>
+              <span style={SL}>Journal</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {history.map((h: any, i: number) => (
+                  <div key={h.id || i} style={{ fontSize: 11, color: '#71717a', borderLeft: '2px solid #f4f4f5', paddingLeft: 8 }}>
+                    <div style={{ fontWeight: 500, color: '#3f3f46', lineHeight: 1.3 }}>
+                      {h.action === 'created' && '🎫 Créé'}
+                      {h.action === 'status_changed' && `🔄 → ${STATUS_NAMES[parseInt(h.new_value)] || h.new_value}`}
+                      {h.action === 'assigned' && '👤 Assigné'}
+                      {h.action === 'assigned_group' && '👥 Groupe assigné'}
+                      {h.action === 'comment_added' && '💬 Commentaire'}
+                      {h.action === 'comment_sent_to_requester' && '✉️ Envoyé demandeur'}
+                      {h.action === 'task_created' && '📋 Tâche créée'}
+                      {h.action === 'task_status_changed' && '📋 Statut tâche'}
+                      {h.action === 'sla_breached' && '⚠️ SLA dépassé'}
+                      {h.action === 'vip_set' && '⭐ VIP'}
+                      {h.action === 'vip_unset' && '☆ Retiré VIP'}
+                      {h.action === 'deleted' && '🗑️ Supprimé'}
+                      {h.action === 'grouped' && '🔗 Ajouté groupe'}
+                      {h.action === 'ungrouped' && '🔓 Retiré groupe'}
+                      {h.action === 'problem_created' && `⚠️ Problème #${h.new_value}`}
+                      {h.action === 'comment_propagated' && '💬 Propagé'}
+                      {h.action === 'solved' && '✅ Résolu'}
+                      {h.action === 'updated' && `✏️ ${h.field_name || 'Modifié'}`}
+                      {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated'].includes(h.action) && h.action}
+                    </div>
+                    {h.created_at && (
+                      <div style={{ fontSize: 10, color: '#a1a1aa', marginTop: 1 }}>
+                        {h.user_name && <span>{h.user_name} · </span>}
+                        {new Date(h.created_at).toLocaleString('fr-FR')}
+                      </div>
+                    )}
+                    {h.comment && h.action === 'status_changed' && h.new_value === '4' ? (
+                      <div style={{ marginTop: 3, fontSize: 10, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 6px', lineHeight: 1.4 }}>
+                        💬 <strong>Motif :</strong> {h.comment}
+                      </div>
+                    ) : h.comment ? (
+                      <div style={{ color: '#71717a', marginTop: 2, fontSize: 10 }}>{h.comment}</div>
+                    ) : null}
+                  </div>
+                ))}
+                {history.length === 0 && <div style={{ color: '#a1a1aa', fontStyle: 'italic', fontSize: 11 }}>Aucun événement</div>}
+              </div>
             </div>
 
-            {/* Type */}
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Type</label>
-              <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.type_label || '—'}</div>
+          </div>
+          {/* end right sidebar */}
+        </div>
+        {/* end body grid */}
+
+        {/* ── BOTTOM REPLY BAR ── */}
+        <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff', padding: '10px 20px' }}>
+          <div style={{ border: '1px solid #e4e4e7', borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
+            <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire..."
+              modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
+              style={{ fontFamily: 'inherit', fontSize: 13 }}
+            />
+          </div>
+          {commentFile && (
+            <div style={{ marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#71717a', background: '#f9f9fb', padding: '3px 8px', borderRadius: 5, border: '1px solid #f4f4f5' }}>
+              <span>📎 {commentFile.name}</span>
+              <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, color: '#71717a', cursor: 'pointer' }}>
+                <input type="checkbox" checked={commentPrivate} onChange={e => setCommentPrivate(e.target.checked)} />
+                Commentaire interne
+              </label>
+              <button onClick={() => fileInputRef.current?.click()} title="Joindre un fichier"
+                style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
+                📎 Fichier
+              </button>
+              <input ref={fileInputRef} type="file" style={{ display: 'none' }}
+                onChange={e => setCommentFile(e.target.files?.[0] || null)}
+                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
+            </div>
+            <div style={{ display: 'flex', gap: 7 }}>
+              {ticket.requester?.email && !commentPrivate && (
+                <button onClick={handleSendToUser} disabled={isCommentEmpty(newComment) || sendingToUser}
+                  title={`Envoyer par email à ${ticket.requester.email}`}
+                  style={{ padding: '6px 14px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: isCommentEmpty(newComment) || sendingToUser ? 0.5 : 1 }}>
+                  {sendingToUser ? 'Envoi...' : '✉️ Enregistrer & envoyer'}
+                </button>
+              )}
+              <button onClick={handleAddComment} disabled={isCommentEmpty(newComment)}
+                style={{ padding: '6px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: isCommentEmpty(newComment) ? 0.5 : 1 }}>
+                Enregistrer
+              </button>
             </div>
           </div>
         </div>
@@ -1397,7 +1211,6 @@ export default function TicketDetail() {
           </div>
         </div>
       )}
-    </div>
     </>
   );
 }
