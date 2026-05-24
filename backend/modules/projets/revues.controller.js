@@ -1,5 +1,6 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
+const { isSuperAdmin } = require('../../shared/middleware');
 
 async function estPMO(username) {
     try {
@@ -287,7 +288,7 @@ module.exports = {
     deleteOne: async (req, res) => {
         try {
             const { id } = req.params;
-            const isAdmin = req.user && req.user.role === 'admin';
+            const isAdmin = isSuperAdmin(req.user);
             const isPMO = await estPMO(req.user.username);
             if (!isAdmin && !isPMO) {
                 return res.status(403).json({ error: 'Accès refusé' });

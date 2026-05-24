@@ -722,7 +722,8 @@ async function setupDb() {
 
     // --- AUTO-RÉPARATION ---
     try {
-        await db.run("UPDATE users SET is_approved = 1, role = 'admin' WHERE LOWER(username) = 'admin'");
+        await db.run("UPDATE users SET role = 'superadmin' WHERE role = 'admin'");
+        await db.run("UPDATE users SET is_approved = 1, role = 'superadmin' WHERE LOWER(username) = 'admin'");
     } catch (e) {}
 
     // Nettoyer les droits explicites sur les tuiles publiques

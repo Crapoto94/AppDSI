@@ -38,6 +38,7 @@ async function setupDb() {
             service_code TEXT,
             service_complement TEXT,
             email TEXT,
+            displayName TEXT,
             last_activity DATETIME
         );
 
@@ -817,6 +818,35 @@ async function setupDb() {
         }
     } catch (e) {}
 
+    // Migration: Créer la tuile Support IT (Tickets) si elle n'existe pas
+    try {
+        const existingTile = await db.get("SELECT id FROM tiles WHERE title = 'Support IT'");
+        if (!existingTile) {
+            const maxOrder = await db.get("SELECT MAX(sort_order) as max FROM tiles");
+            const result = await db.run(
+                "INSERT INTO tiles (title, icon, description, status, sort_order, is_public) VALUES (?, ?, ?, ?, ?, ?)",
+                ['Support IT', 'Ticket', 'Gestion des incidents et demandes de service', 'active', (maxOrder?.max || 999) + 1, 1]
+            );
+            const tileId = result.lastID;
+            const links = [
+                ['Voir les tickets', '/tickets', 1],
+                ['Nouveau ticket', '/tickets/new', 1],
+                ['Administration des tickets', '/admin/tickets', 1],
+            ];
+            for (const [label, url, isInternal] of links) {
+                try {
+                    const existingLink = await db.get("SELECT id FROM tile_links WHERE tile_id = ? AND url = ?", [tileId, url]);
+                    if (!existingLink) {
+                        await db.run("INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)", [tileId, label, url, isInternal]);
+                    }
+                } catch (e2) {}
+            }
+            console.log('[DB Migration] Tuile Support IT créée');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur création tuile Support IT:', e.message);
+    }
+
     try {
         const result = await db.all("PRAGMA table_info(tiles)");
         const hasIsPublicColumn = result.some(col => col.name === 'is_public');
@@ -915,7 +945,9 @@ async function setupDb() {
     } catch (e) {}
 
     try {
-        await db.run("UPDATE users SET is_approved = 1, role = 'admin' WHERE LOWER(username) = 'admin'");
+        // Migrate old 'admin' role → 'superadmin' (the new 'admin' role is a limited admin)
+        await db.run("UPDATE users SET role = 'superadmin' WHERE role = 'admin'");
+        await db.run("UPDATE users SET is_approved = 1, role = 'superadmin' WHERE LOWER(username) = 'admin'");
     } catch (e) {}
 
     return db;

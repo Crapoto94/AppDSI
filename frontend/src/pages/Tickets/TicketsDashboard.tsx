@@ -1,0 +1,529 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import axios from 'axios';
+import Header from '../../components/Header';
+import TicketList from './TicketList';
+import TicketKanban from './TicketKanban';
+import { useAuth } from '../../contexts/AuthContext';
+import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
+
+const KPI_FILTERS: Record<string, { label: string; params?: Record<string, string> }> = {
+  open:      { label: 'Ouverts',    params: { status_in: '1,2,3' } },
+  in_progress: { label: 'En cours', params: { status_in: '3' } },
+  waiting:   { label: 'En attente', params: { status_in: '4,5' } },
+  critical:  { label: 'Critiques',  params: { status_in: '1,2,3', priority: '5' } },
+  resolved:  { label: 'Résolus',    params: { status_in: '6' } },
+};
+
+const USER_FILTERS: Record<string, { label: string; icon?: string; getParams: () => Record<string, string> }> = {
+  my:       { label: 'Mes tickets assignés', getParams: () => { const u = JSON.parse(localStorage.getItem('user') || '{}'); return { my_username: u.username, status_in: '1,2,3,4,5' }; } },
+  my_req:   { label: 'Mes tickets',          getParams: () => { const u = JSON.parse(localStorage.getItem('user') || '{}'); return { requester_email: u.email }; } },
+  vip:      { label: 'VIP', icon: '⭐',      getParams: () => ({ vip: '1' }) },
+};
+
+const ROLE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  superadmin:   { label: 'Super Admin',   color: '#dc2626', bg: '#fef2f2' },
+  superadmins:  { label: 'Super Admin',   color: '#dc2626', bg: '#fef2f2' },
+  admin:        { label: 'Admin',         color: '#ea580c', bg: '#fff7ed' },
+  superviseur:  { label: 'Superviseur',   color: '#7c3aed', bg: '#faf5ff' },
+  supervisor:   { label: 'Superviseur',   color: '#7c3aed', bg: '#faf5ff' },
+  technicien:   { label: 'Technicien',    color: '#1d4ed8', bg: '#eff6ff' },
+  technicienne: { label: 'Technicien',    color: '#1d4ed8', bg: '#eff6ff' },
+  technician:   { label: 'Technicien',    color: '#1d4ed8', bg: '#eff6ff' },
+  tech:         { label: 'Technicien',    color: '#1d4ed8', bg: '#eff6ff' },
+  readonly:     { label: 'Lecture seule', color: '#64748b', bg: '#f1f5f9' },
+  user:         { label: 'Utilisateur',   color: '#0284c7', bg: '#e0f2fe' },
+};
+
+export default function TicketsDashboard() {
+  const { user } = useAuth();
+  const [resolvedRole, setResolvedRole] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<any>(null);
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [activeUserFilter, setActiveUserFilter] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState('');
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [showRejected, setShowRejected] = useState(false);
+  const showRejectedRef = useRef(false);
+  const [kpiHistory, setKpiHistory] = useState<any[]>([]);
+  const [kpiDays, setKpiDays] = useState(30);
+  const [kpiActionLoading, setKpiActionLoading] = useState<string | null>(null);
+  const limit = 50;
+
+  const loadData = useCallback(async (filter?: string | null, userFilter?: string | null, pageNum?: number, searchValue: string = search) => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const params: Record<string, string> = { limit: String(limit), page: String(pageNum || page) };
+      if (filter && KPI_FILTERS[filter]?.params) {
+        Object.assign(params, KPI_FILTERS[filter].params);
+      } else if (!showRejectedRef.current) {
+        params.status_in = '1,2,3,4,5,6,7';
+      }
+      if (userFilter && USER_FILTERS[userFilter]) {
+        Object.assign(params, USER_FILTERS[userFilter].getParams());
+      }
+      if (searchValue.trim()) {
+        params.search = searchValue.trim();
+      }
+      const qs = new URLSearchParams(params).toString();
+      const [ticketsRes, statsRes] = await Promise.all([
+        axios.get(`/api/tickets?${qs}`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('/api/tickets/dashboard/stats', { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      setTickets(ticketsRes.data.data || []);
+      setTotal(ticketsRes.data.pagination?.total || 0);
+      setTotalPages(ticketsRes.data.pagination?.totalPages || 1);
+      setStats(statsRes.data);
+    } catch (e: any) {
+      console.error('Failed to load tickets:', e);
+      if (e.response?.data?.message) alert('Erreur serveur: ' + e.response.data.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search]);
+
+  useEffect(() => { loadData(activeFilter, activeUserFilter, 1); }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    axios.get('/api/tickets/my-role', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setResolvedRole(r.data.role))
+      .catch(() => {});
+  }, []);
+
+  const loadKpiHistory = useCallback((days: number) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    axios.get(`/api/tickets/dashboard/kpi-history?days=${days}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setKpiHistory(r.data || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { loadKpiHistory(kpiDays); }, [kpiDays]);
+
+  function handleFilterClick(key: string) {
+    if (activeFilter === key) {
+      setActiveFilter(null);
+      setPage(1);
+      loadData(null, activeUserFilter, 1);
+    } else {
+      setActiveFilter(key);
+      setPage(1);
+      loadData(key, activeUserFilter, 1);
+    }
+  }
+
+  function handleUserFilterClick(key: string) {
+    if (activeUserFilter === key) {
+      setActiveUserFilter(null);
+      setPage(1);
+      loadData(activeFilter, null, 1);
+    } else {
+      setActiveUserFilter(key);
+      setPage(1);
+      loadData(activeFilter, key, 1);
+    }
+  }
+
+  function goToPage(p: number) {
+    if (p < 1 || p > totalPages) return;
+    setPage(p);
+    loadData(activeFilter, activeUserFilter, p);
+  }
+
+  function showAll() {
+    setActiveFilter(null);
+    setActiveUserFilter(null);
+    setSearch('');
+    setPage(1);
+    loadData(null, null, 1, '');
+  }
+
+  function runSearch(e: React.FormEvent) {
+    e.preventDefault();
+    setPage(1);
+    loadData(activeFilter, activeUserFilter, 1, search);
+  }
+
+  const getKpiValue = (key: string) =>
+    key === 'open' ? stats?.open :
+    key === 'in_progress' ? stats?.in_progress :
+    key === 'waiting' ? stats?.waiting :
+    key === 'critical' ? stats?.critical_open :
+    stats?.resolved;
+
+  const getTypeCounts = (key: string) => {
+    const prefix = key === 'critical' ? 'critical' : key;
+    return {
+      incident: stats?.[`${prefix}_incident`] || 0,
+      request: stats?.[`${prefix}_request`] || 0,
+    };
+  };
+
+  function formatDuration(seconds: number) {
+    if (!seconds || seconds <= 0) return '0j';
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    if (days > 0) return `${days}j ${hours}h`;
+    return `${hours}h`;
+  }
+
+  const getUserCount = (key: string) => {
+    if (key === 'my') return stats?.user_counts?.assigned_to_me || 0;
+    if (key === 'my_req') return stats?.user_counts?.requested_by_me || 0;
+    if (key === 'vip') return stats?.user_counts?.vip || 0;
+    return 0;
+  };
+
+  const style = document.createElement('style');
+  style.textContent = `
+    .tickets-dash { padding: 24px 12px; max-width: 100%; margin: 0 auto; font-family: system-ui, sans-serif; }
+    .tickets-dash h1 { font-size: 24px; font-weight: 700; margin: 0 0 4px 0; display: flex; align-items: center; gap: 12px; }
+    .tickets-dash .subtitle { color: #64748b; margin: 0 0 24px 0; font-size: 14px; }
+    .tickets-dash .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .tickets-dash .view-tabs { display: flex; gap: 4px; background: #f1f5f9; padding: 3px; border-radius: 8px; }
+    .tickets-dash .view-tab { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; background: transparent; color: #475569; }
+    .tickets-dash .view-tab.active { background: #fff; color: #1e293b; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .tickets-dash .btn-new { background: #6366f1; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+    .tickets-dash .btn-new:hover { background: #4f46e5; }
+    .tickets-dash .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .tickets-dash .stat-card { background: #fff; border-radius: 12px; padding: 16px; border: 1px solid #e2e8f0; }
+    .tickets-dash .stat-card .label { font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+    .tickets-dash .stat-card .value { font-size: 28px; font-weight: 700; color: #1e293b; margin-top: 4px; }
+    .tickets-dash .stat-card .value.red { color: #ef4444; }
+    .tickets-dash .stat-card .value.amber { color: #f59e0b; }
+    .tickets-dash .stat-card .value.green { color: #22c55e; }
+    .tickets-dash .search-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+    .tickets-dash .search-bar input { flex: 1; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; outline: none; }
+    .tickets-dash .search-bar input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
+    .tickets-dash .pagination { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 20px 0; }
+    .tickets-dash .pagination button { padding: 8px 14px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; cursor: pointer; font-size: 13px; font-weight: 500; color: #475569; }
+    .tickets-dash .pagination button:hover:not(:disabled) { background: #f1f5f9; border-color: #6366f1; color: #6366f1; }
+    .tickets-dash .pagination button:disabled { opacity: 0.4; cursor: default; }
+    .tickets-dash .pagination button.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+    .tickets-dash .pagination .info { font-size: 13px; color: #64748b; }
+  `;
+  document.head.appendChild(style);
+
+  return (
+    <>
+      <Header />
+      <div className="tickets-dash">
+      <div className="header">
+        <div>
+          <h1>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Support IT
+            {(resolvedRole ?? user?.role) && (() => {
+              const roleKey = (resolvedRole ?? user?.role ?? '').toLowerCase().trim();
+              const cfg = ROLE_LABELS[roleKey] || { label: resolvedRole ?? user?.role, color: '#64748b', bg: '#f1f5f9' };
+              return (
+                <span style={{
+                  fontSize: 12, fontWeight: 600, marginLeft: 10,
+                  padding: '3px 10px', borderRadius: 20,
+                  background: cfg.bg, color: cfg.color,
+                  verticalAlign: 'middle', letterSpacing: '0.2px'
+                }}>
+                  {cfg.label}
+                </span>
+              );
+            })()}
+            <span style={{fontSize:14,fontWeight:400,color:'#64748b',marginLeft:8}}>
+              {total} tickets · {stats && `${stats.open || 0} ouverts`}
+            </span>
+          </h1>
+          <p className="subtitle">Gestion des incidents et demandes de service</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <a href="/tickets/new" className="btn-new">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Nouveau ticket
+          </a>
+          {['superadmin', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+            <button onClick={async () => {
+              setSyncLoading(true);
+              try {
+                const token = localStorage.getItem('token');
+                const res = await axios.post('/api/tickets/admin/sync-glpi', {}, { headers: { Authorization: `Bearer ${token}` } });
+                alert(res.data?.message || 'Synchronisation terminée');
+                loadData(activeFilter, activeUserFilter, page);
+              } catch (e: any) {
+                alert(e.response?.data?.message || 'Erreur de synchronisation');
+              } finally {
+                setSyncLoading(false);
+              }
+            }} disabled={syncLoading}
+              style={{
+                padding: '10px 20px', border: '1px solid #7c3aed', borderRadius: 8,
+                background: syncLoading ? '#f5f3ff' : '#fff', color: '#7c3aed',
+                cursor: syncLoading ? 'default' : 'pointer', fontWeight: 600, fontSize: 14,
+                display: 'inline-flex', alignItems: 'center', gap: 6, opacity: syncLoading ? 0.7 : 1
+              }}>
+              {syncLoading ? '⏳' : '🔄'} Récupérer GLPI
+            </button>
+          )}
+        </div>
+      </div>
+
+      {activeFilter && (
+        <div style={{marginBottom:12,fontSize:13,display:'flex',alignItems:'center',gap:8}}>
+          <span style={{color:'#64748b'}}>Filtre :</span>
+          <span style={{fontWeight:600,color:'#1e293b'}}>{KPI_FILTERS[activeFilter]?.label || activeFilter}</span>
+          <span style={{color:'#94a3b8',fontSize:12}}>({total} tickets)</span>
+          <button onClick={() => handleFilterClick(activeFilter)} style={{padding:'2px 10px',border:'1px solid #e2e8f0',borderRadius:6,background:'#fff',cursor:'pointer',fontSize:12,color:'#ef4444'}}>✕ Effacer</button>
+        </div>
+      )}
+      {/* ── Ligne unique de KPI avec sparklines ── */}
+      {(() => {
+        const isAdmin = ['superadmin','admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase());
+
+        // Config unifiée : statuts + temps dans le même tableau
+        const cards = [
+          { key: 'open',         label: 'Ouverts',          color: '#6366f1', filterKey: 'open' as string|null,
+            value: stats?.open || 0, histKey: 'open',
+            sub: `${getTypeCounts('open').incident} inc · ${getTypeCounts('open').request} dem`,
+            goodDown: true },
+          { key: 'in_progress',  label: 'En cours',         color: '#f59e0b', filterKey: 'in_progress',
+            value: stats?.in_progress || 0, histKey: 'in_progress',
+            sub: `${getTypeCounts('in_progress').incident} inc · ${getTypeCounts('in_progress').request} dem`,
+            goodDown: true },
+          { key: 'waiting',      label: 'En attente',       color: '#f97316', filterKey: 'waiting',
+            value: stats?.waiting || 0, histKey: 'waiting',
+            sub: `${getTypeCounts('waiting').incident} inc · ${getTypeCounts('waiting').request} dem`,
+            goodDown: true },
+          { key: 'critical',     label: 'Critiques',        color: '#ef4444', filterKey: 'critical',
+            value: stats?.critical_open || 0, histKey: 'critical_open',
+            sub: `${getTypeCounts('critical').incident} inc · ${getTypeCounts('critical').request} dem`,
+            goodDown: true },
+          { key: 'resolved',     label: 'Résolus',          color: '#22c55e', filterKey: 'resolved',
+            value: stats?.resolved || 0, histKey: 'resolved',
+            sub: `${getTypeCounts('resolved').incident} inc · ${getTypeCounts('resolved').request} dem`,
+            goodDown: false },
+          { key: 'problems',     label: 'Problèmes',        color: '#7c3aed', filterKey: null,
+            value: stats?.problems || 0, histKey: 'problems', sub: '', goodDown: true },
+          { key: 'age',          label: 'Âge moy. ouverts', color: '#f97316', filterKey: null,
+            value: (stats?.avg_age_open_seconds > 0) ? formatDuration(stats.avg_age_open_seconds) : '-',
+            histKey: 'avg_age_open_seconds', sub: 'depuis création', goodDown: true, isTime: true },
+          { key: 'wait_time',    label: 'Attente moy.',     color: '#f59e0b', filterKey: null,
+            value: (stats?.avg_waiting_seconds_active > 0) ? formatDuration(stats.avg_waiting_seconds_active) : '-',
+            histKey: 'avg_waiting_seconds_active', sub: 'tickets actifs', goodDown: true, isTime: true },
+          { key: 'resolve_time', label: 'Tps actif résolus',color: '#0891b2', filterKey: null,
+            value: (stats?.avg_active_seconds_resolved_week > 0) ? formatDuration(stats.avg_active_seconds_resolved_week) : '-',
+            histKey: 'avg_active_seconds_week',
+            sub: `${stats?.resolved_week_count || 0} cette semaine`, goodDown: false, isTime: true },
+        ];
+
+        return (
+          <div style={{ marginBottom: 24 }}>
+            {/* Barre période + admin */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+              {isAdmin && (
+                <>
+                  <button disabled={!!kpiActionLoading} onClick={async () => {
+                    setKpiActionLoading('snapshot');
+                    try {
+                      const token = localStorage.getItem('token');
+                      await axios.post('/api/tickets/dashboard/kpi-snapshot/run', {}, { headers: { Authorization: `Bearer ${token}` } });
+                      loadKpiHistory(kpiDays);
+                    } catch { /**/ } finally { setKpiActionLoading(null); }
+                  }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#475569', opacity: kpiActionLoading ? 0.5 : 1 }}>
+                    {kpiActionLoading === 'snapshot' ? '⏳' : '📸'} Snapshot
+                  </button>
+                  <button disabled={!!kpiActionLoading} onClick={async () => {
+                    setKpiActionLoading('backfill');
+                    try {
+                      const token = localStorage.getItem('token');
+                      await axios.post(`/api/tickets/dashboard/kpi-backfill?days=${kpiDays}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+                      loadKpiHistory(kpiDays);
+                    } catch { /**/ } finally { setKpiActionLoading(null); }
+                  }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#7c3aed', opacity: kpiActionLoading ? 0.5 : 1 }}>
+                    {kpiActionLoading === 'backfill' ? '⏳' : '🔄'} Rétro-calculer
+                  </button>
+                </>
+              )}
+              <div style={{ display: 'flex', gap: 0, background: '#f1f5f9', borderRadius: 7, padding: 2 }}>
+                {[7, 30, 90].map(d => (
+                  <button key={d} onClick={() => setKpiDays(d)} style={{
+                    padding: '4px 10px', border: 'none', borderRadius: 5, cursor: 'pointer',
+                    fontSize: 11, fontWeight: 500,
+                    background: kpiDays === d ? '#6366f1' : 'transparent',
+                    color: kpiDays === d ? '#fff' : '#64748b',
+                  }}>{d}j</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Grille de cartes */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(148px, 1fr))', gap: 10 }}>
+              {cards.map(card => {
+                const sparkData = kpiHistory.map(r => ({ v: r[card.histKey] || 0, d: new Date(r.snapshot_date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) }));
+                const first = sparkData[0]?.v ?? 0;
+                const last  = sparkData[sparkData.length - 1]?.v ?? 0;
+                const delta = last - first;
+                const deltaPct = first > 0 ? Math.round(Math.abs(delta) / first * 100) : 0;
+                const trendColor = delta === 0 ? '#94a3b8'
+                  : (card.goodDown ? (delta < 0 ? '#22c55e' : '#ef4444')
+                                   : (delta > 0 ? '#22c55e' : '#ef4444'));
+                const trendIcon = delta === 0 ? '→' : delta > 0 ? '↑' : '↓';
+                const isActive = card.filterKey && activeFilter === card.filterKey;
+
+                return (
+                  <div key={card.key}
+                    onClick={card.filterKey ? () => handleFilterClick(card.filterKey as string) : undefined}
+                    style={{
+                      background: '#fff', border: `1px solid ${isActive ? card.color : '#e2e8f0'}`,
+                      borderRadius: 12, padding: '12px 14px',
+                      cursor: card.filterKey ? 'pointer' : 'default',
+                      boxShadow: isActive ? `0 0 0 2px ${card.color}33` : 'none',
+                      display: 'flex', flexDirection: 'column', gap: 0,
+                    }}>
+                    {/* En-tête label + trend */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{card.label}</span>
+                      {sparkData.length > 1 && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: trendColor }}>
+                          {trendIcon}{deltaPct > 0 ? ` ${deltaPct}%` : ''}
+                        </span>
+                      )}
+                    </div>
+                    {/* Valeur */}
+                    <div style={{ fontSize: 24, fontWeight: 700, color: card.color, lineHeight: 1.1 }}>{card.value}</div>
+                    {/* Sous-info */}
+                    {card.sub && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.sub}</div>}
+                    {/* Sparkline */}
+                    <div style={{ marginTop: 8, marginLeft: -6, marginRight: -6 }}>
+                      <ResponsiveContainer width="100%" height={38}>
+                        <LineChart data={sparkData.length >= 2 ? sparkData : [{ v: 0, d: '' }, { v: 0, d: '' }]}
+                          margin={{ top: 2, right: 4, left: 4, bottom: 2 }}>
+                          <Tooltip
+                            contentStyle={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, border: `1px solid ${card.color}44`, background: '#fff' }}
+                            formatter={(v: any) => [card.isTime ? formatDuration(v) : v, card.label]}
+                            labelFormatter={(l: any) => l}
+                          />
+                          <Line type="monotone" dataKey="v" stroke={card.color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button onClick={showAll}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
+            fontSize: 13, fontWeight: 500,
+            background: !activeFilter && !activeUserFilter && !search ? '#6366f1' : '#f1f5f9',
+            color: !activeFilter && !activeUserFilter && !search ? '#fff' : '#475569'
+          }}>
+          Tous
+          <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10, background: 'rgba(255,255,255,0.35)', color: 'inherit' }}>{stats?.total || 0}</span>
+        </button>
+        {Object.entries(USER_FILTERS).map(([key, cfg]) => (
+          <button key={key} onClick={() => handleUserFilterClick(key)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
+              fontSize: 13, fontWeight: 500,
+              background: activeUserFilter === key ? (key === 'vip' ? '#fef3c7' : '#6366f1') : '#f1f5f9',
+              color: activeUserFilter === key ? (key === 'vip' ? '#92400e' : '#fff') : '#475569',
+              borderWidth: key === 'vip' && activeUserFilter === key ? 1 : 0,
+              borderStyle: 'solid',
+              borderColor: key === 'vip' ? '#fde68a' : 'transparent'
+            }}>
+            {cfg.icon ? (
+              <span style={{ fontSize: 14 }}>{cfg.icon}</span>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              </svg>
+            )}
+            {cfg.label}
+            <span style={{
+              fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 10,
+              background: activeUserFilter === key ? 'rgba(255,255,255,0.35)' : '#fff',
+              color: 'inherit'
+            }}>{getUserCount(key)}</span>
+          </button>
+        ))}
+        {['superadmin', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+          <button onClick={() => { const newVal = !showRejected; showRejectedRef.current = newVal; setShowRejected(newVal); setActiveFilter(null); setActiveUserFilter(null); setPage(1); loadData(null, null, 1); }}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
+              fontSize: 13, fontWeight: 500, marginLeft: 8,
+              background: showRejected ? '#fef2f2' : '#f1f5f9',
+              color: showRejected ? '#dc2626' : '#475569'
+            }}>
+            {showRejected ? '🙈 Masquer les rejetés' : '👁️ Voir les rejetés'}
+          </button>
+        )}
+      </div>
+
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <form className="search-bar" style={{flex:1,maxWidth:500,marginBottom:0}} onSubmit={runSearch}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un ticket par titre ou contenu..." />
+          <button type="submit" style={{padding:'10px 14px',border:'1px solid #e2e8f0',borderRadius:8,background:'#fff',cursor:'pointer',fontWeight:600,color:'#475569'}}>Rechercher</button>
+        </form>
+        <div className="view-tabs">
+          <button className={`view-tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            Tableau
+          </button>
+          <button className={`view-tab ${viewMode === 'kanban' ? 'active' : ''}`} onClick={() => setViewMode('kanban')}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+            Kanban
+          </button>
+        </div>
+      </div>
+
+      {viewMode === 'table' ? (
+        <TicketList tickets={tickets} loading={loading} />
+      ) : (
+        <TicketKanban
+          tickets={tickets}
+          loading={loading}
+          total={total}
+          totalPages={totalPages}
+          page={page}
+          onPageChange={goToPage}
+          onRefresh={() => loadData(activeFilter, activeUserFilter, page)}
+        />
+      )}
+
+      <div className="pagination">
+        <button disabled={page <= 1} onClick={() => goToPage(page - 1)}>←</button>
+        {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+          let p: number;
+          if (totalPages <= 7) {
+            p = i + 1;
+          } else if (page <= 4) {
+            p = i + 1;
+          } else if (page >= totalPages - 3) {
+            p = totalPages - 6 + i;
+          } else {
+            p = page - 3 + i;
+          }
+          return (
+            <button key={p} className={page === p ? 'active' : ''} onClick={() => goToPage(p)}>{p}</button>
+          );
+        })}
+        <button disabled={page >= totalPages} onClick={() => goToPage(page + 1)}>→</button>
+        <span className="info">{total} tickets · page {page}/{totalPages}</span>
+      </div>
+    </div>
+    </>
+  );
+}

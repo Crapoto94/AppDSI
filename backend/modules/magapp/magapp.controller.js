@@ -1,5 +1,6 @@
 const { getSqlite, pgDb, pool } = require('../../shared/database');
 const { flattenLDAPEntry, decodeLDAPString } = require('../../shared/utils');
+const { isAdminLike } = require('../../shared/middleware');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
@@ -88,7 +89,7 @@ const MagAppController = {
                 ORDER BY a.name ASC
             `);
             // Hide DSI-only apps for non-admin users (admin = global admin OR user with magapp tile)
-            let isMagappAdmin = req.user && (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin');
+            let isMagappAdmin = isAdminLike(req.user);
             if (!isMagappAdmin && req.user && req.user.id) {
                 try {
                     const db = getSqlite();
@@ -554,7 +555,7 @@ const MagAppController = {
                 try {
                     const db = getSqlite();
                     if (req.user) {
-                        if (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub') {
+                        if (isAdminLike(req.user)) {
                             isSpecialUser = true;
                             console.log(`[MAGAPP SETTINGS] User ${req.user.username} is ADMIN (bypass)`);
                         } else {
@@ -577,7 +578,7 @@ const MagAppController = {
                         if (identifier) {
                             const user = await db.get('SELECT id, role, username FROM users WHERE LOWER(username) = ?', [identifier]);
                             if (user) {
-                                if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+                                if (isAdminLike(user)) {
                                     isSpecialUser = true;
                                 } else {
                                     const tileLink = await db.get(`SELECT 1 FROM user_tiles ut JOIN tile_links tl ON ut.tile_id = tl.tile_id WHERE ut.user_id = ? AND tl.url = '/admin/magapp'`, [user.id]);
@@ -915,7 +916,7 @@ const MagAppController = {
             let isAdmin = false;
             console.log(`[MAGAPP DOCS] Fetching docs for app ${id}. User: ${req.user ? req.user.username : 'NULL'}`);
             if (req.user) {
-                if (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub') {
+                if (isAdminLike(req.user)) {
                     isAdmin = true;
                 } else {
                     try {

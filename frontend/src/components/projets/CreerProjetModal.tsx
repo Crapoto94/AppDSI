@@ -17,7 +17,8 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
   const [form, setForm] = useState({
     titre: '', description: '', niveau_projet: 'standard',
     service_pilote: '', commanditaire_username: '', chef_projet_username: '',
-    date_debut_prevue: '', date_fin_prevue: '', priorite: 0
+    date_debut_prevue: '', date_fin_prevue: '', priorite: 0,
+    is_mini_projet: false
   });
   const [servicesAssocies, setServicesAssocies] = useState<string[]>([]);
   const [nouveauService, setNouveauService] = useState('');
@@ -137,6 +138,12 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
           <div>
             <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px', display: 'block' }}>Description</label>
             <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', resize: 'vertical' }} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+            <input type="checkbox" id="is_mini_projet" checked={form.is_mini_projet} onChange={e => setForm({ ...form, is_mini_projet: e.target.checked })} style={{ cursor: 'pointer' }} />
+            <label htmlFor="is_mini_projet" style={{ fontSize: '13px', fontWeight: '600', color: '#16a34a', cursor: 'pointer' }}>
+              🌱 Mini-projet <span style={{ fontSize: '12px', fontWeight: '400', color: '#64748b' }}>(sans planning Gantt, ni étapes de workflow, ni comités)</span>
+            </label>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>

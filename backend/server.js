@@ -8,7 +8,7 @@ const bcrypt = require('bcryptjs');
 const { setupDb, pgDb, pool, setupPgDb } = require('./shared/database');
 const { logMouchard, flattenLDAPEntry, decodeLDAPString, excelDateToISO } = require('./shared/utils');
 const { SECRET_KEY, PORT, FOLDERS } = require('./shared/config');
-const { authenticateJWT, authenticateAdmin, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl } = require('./shared/middleware');
+const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl, isSuperAdmin, isAdminLike } = require('./shared/middleware');
 const magappRouter = require('./modules/magapp/magapp.routes');
 const rhRouter = require('./modules/rh/rh.routes');
 const financeRouter = require('./modules/finance/finance.routes');
@@ -436,35 +436,40 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         
         // Priorité selon la source du JWT
         if (req.user.source === 'magapp') {
-            user = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement FROM magapp.users WHERE username = $1', [req.user.username]);
+            user = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement, displayname AS "displayName" FROM magapp.users WHERE username = $1', [req.user.username]);
             user = user.rows[0] || null;
             if (user) source = 'magapp';
         } else {
             // Fallback: SQLite pour les utilisateurs purement Hub (admin, etc.)
-            user = await db.get('SELECT id, username, role, is_approved, service_code, service_complement FROM users WHERE username = ?', [req.user.username]);
+            user = await db.get('SELECT id, username, role, is_approved, email, service_code, service_complement, displayName FROM users WHERE username = ?', [req.user.username]);
             if (user) source = 'sqlite';
         }
 
         if (!user) return res.status(404).json({ message: 'Utilisateur non trouvé' });
+
+        // Fallback email: si la DB n'a pas l'email, utiliser celui du JWT (ex. email venant de l'AD)
+        if (!user.email && req.user.email) {
+            user.email = req.user.email;
+        }
 
         // Check manager status for all users
         try {
             const userInHub = await pgDb.get('SELECT id FROM hub.users WHERE username = $1', [user.username]);
             if (userInHub) {
                 const manager = await pgDb.get('SELECT 1 FROM hub.calendrier_managers WHERE user_id = $1', [userInHub.id]);
-                user.est_manager = !!(manager || (user.role === 'admin'));
+                user.est_manager = !!(manager || isAdminLike(user));
             } else {
-                user.est_manager = user.role === 'admin';
+                user.est_manager = isAdminLike(user);
             }
         } catch (e) {
             console.error('[Auth] Error checking manager status:', e);
-            user.est_manager = user.role === 'admin';
+            user.est_manager = isAdminLike(user);
         }
 
         // Force l'approbation pour les admins
-        if (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub' || user.username.toLowerCase() === 'machevalier') {
+        if (isAdminLike(user) || user.username.toLowerCase() === 'machevalier') {
             user.is_approved = 1;
-            user.authorized_urls = ['*'];
+            user.authorized_urls = ['*'];  // both admin and superadmin get full access
         } else {
             // Build authorized URLs
             const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions', '/portefeuille-projets', '/revue-de-projets', '/projets', '/transcriptmanager']); // Default allowed routes
@@ -2814,6 +2819,13 @@ setupDb().then(async database => {
     const userCols = await db.all("PRAGMA table_info(users)");
     console.log('Colonnes table users:', userCols.map(c => c.name).join(', '));
 
+    // Ajout colonne displayName sur users (migration silencieuse)
+    try { await db.run('ALTER TABLE users ADD COLUMN displayName TEXT'); } catch (e) { /* colonne déjà présente */ }
+    // Ajout email sur users si absent (db.js n'a pas cette colonne)
+    try { await db.run('ALTER TABLE users ADD COLUMN email TEXT'); } catch (e) { /* colonne déjà présente */ }
+    // Renseigner displayName depuis le nom AD si null (pour les comptes existants)
+    try { await db.run(`UPDATE users SET displayName = username WHERE displayName IS NULL OR displayName = ''`); } catch (e) { }
+
     // Ajout physique du champ montant utilisé
     try {
         await db.run('ALTER TABLE operations ADD COLUMN used_amount REAL DEFAULT 0');
@@ -3235,7 +3247,7 @@ app.get('/api/magapp/my-demandes', async (req, res) => {
 app.get('/api/mes-reunions', authenticateJWT, async (req, res) => {
     try {
         const username = req.user.username;
-        const isAdmin = req.user?.role === 'admin';
+        const isAdmin = isSuperAdmin(req.user);
         const emailLocal = username.toLowerCase();
 
         console.log(`[Mes Réunions] username=${username}, isAdmin=${isAdmin}`);
@@ -3624,7 +3636,8 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
             console.log(`[DEBUG LOGIN] Password match result: ${isMatch}`);
             if (isMatch) {
                 // Règle de sécurité : Les admins sont TOUJOURS approuvés
-                const isApproved = (user.role === 'admin' || user.username.toLowerCase() === 'admin' || user.username.toLowerCase() === 'adminhub') ? 1 : user.is_approved;
+                const isApproved = isAdminLike(user) ? 1 : user.is_approved;
+                const userEmail = user.email && user.email.trim() ? user.email : `${user.username.toLowerCase()}@ivry94.fr`;
 
                 const accessToken = jwt.sign({
                     id: user.id,
@@ -3632,7 +3645,9 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                     role: user.role,
                     is_approved: isApproved,
                     service_code: user.service_code,
-                    service_complement: user.service_complement
+                    service_complement: user.service_complement,
+                    email: userEmail,
+                    source: 'hub'
                 }, SECRET_KEY);
 
                 return res.json({
@@ -3640,10 +3655,12 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                     user: {
                         id: user.id,
                         username: user.username,
+                        displayName: user.displayName || null,
                         role: user.role,
                         is_approved: isApproved,
                         service_code: user.service_code,
-                        service_complement: user.service_complement
+                        service_complement: user.service_complement,
+                        email: userEmail
                     },
                     redirect: redirect || ''
                 });
@@ -3696,9 +3713,9 @@ app.get('/api/tiles', async (req, res) => {
 
         if (user) {
             console.log(`[DEBUG TILES] Identified user: ${user.username} (ID: ${user.id}, Role: ${user.role})`);
-            if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+            if (isAdminLike(user)) {
                 tiles.forEach(t => authorizedTileIds.add(t.id));
-                console.log('[DEBUG TILES] User is ADMIN, all tiles authorized');
+                console.log('[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized');
             } else {
                 const userTiles = await db.all('SELECT tile_id FROM user_tiles WHERE user_id = ?', [user.id]);
                 console.log(`[DEBUG TILES] Found ${userTiles.length} authorized tiles for ${user.username} (IDs: ${userTiles.map(ut => ut.tile_id).join(',')})`);
@@ -3712,7 +3729,7 @@ app.get('/api/tiles', async (req, res) => {
             // A tile is authorized if it's public AND user is logged in, OR if user has explicit access, OR if user is admin
             tile.is_authorized = false;
             if (user) {
-                if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+                if (isAdminLike(user)) {
                     tile.is_authorized = true;
                 } else if (tile.is_public) {
                     tile.is_authorized = true;
@@ -3742,7 +3759,7 @@ app.get('/api/tiles-auth', authenticateJWT, async (req, res) => {
         const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
 
         let authorizedTileIds = new Set();
-        if (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub') {
+        if (isAdminLike(req.user)) {
             tiles.forEach(t => authorizedTileIds.add(t.id));
         } else {
             const userTiles = await db.all('SELECT tile_id FROM user_tiles WHERE user_id = ?', [req.user.id]);
@@ -4813,6 +4830,17 @@ cron.schedule('* * * * *', () => {
 });
 console.log('[SCHEDULED SYNC] Cron job enregistré');
 
+// KPI daily snapshot — tous les jours à 23h55
+cron.schedule('55 23 * * *', async () => {
+    try {
+        const ticketService = require('./modules/tickets/services/ticket.service');
+        await ticketService.saveDailyKpiSnapshot();
+    } catch (e) {
+        console.error('[KPI HISTORY] Erreur snapshot quotidien:', e.message);
+    }
+}, { timezone: 'Europe/Paris' });
+console.log('[KPI HISTORY] Cron snapshot quotidien enregistré (23h55)');
+
 
 
 // ============================================
@@ -4988,6 +5016,45 @@ cron.schedule('0 8 * * *', () => {
 }, { timezone: 'Europe/Paris' });
 
 app.use('/api/projets', projetsRouter);
+
+// ============================================
+// TICKETS - Module ITSM
+// ============================================
+const ticketsRouter = require('./modules/tickets/tickets.routes');
+const ticketsAdminRouter = require('./modules/tickets/tickets-admin.routes');
+const ticketsCtrl = require('./modules/tickets/tickets.controller');
+const notificationService = require('./modules/tickets/services/notification.service');
+const slaService = require('./modules/tickets/services/sla.service');
+
+const ticketGroupsRouter = require('./modules/tickets/ticket-groups.routes');
+ticketsCtrl.setSendMail(sendMail);
+app.use('/api/tickets/groups', ticketGroupsRouter);
+app.use('/api/tickets', ticketsRouter);
+app.use('/api/tickets/admin', ticketsAdminRouter);
+
+// Charger les permissions tickets depuis la DB au démarrage
+const { loadPermissionsFromDb } = require('./modules/tickets/middleware/ticket-permissions');
+loadPermissionsFromDb().catch(e => console.error('[TICKETS] loadPermissions failed:', e.message));
+
+// Cron: Vérification SLA toutes les minutes
+cron.schedule('* * * * *', async () => {
+    try {
+        await slaService.checkSLAs();
+    } catch (e) {
+        console.error('[CRON SLA]', e.message);
+    }
+});
+console.log('[TICKETS CRON] SLA check registered');
+
+// Cron: Traitement file d'attente notifications toutes les 30s
+cron.schedule('*/30 * * * * *', async () => {
+    try {
+        await notificationService.processQueue(sendMail);
+    } catch (e) {
+        console.error('[CRON NOTIF]', e.message);
+    }
+});
+console.log('[TICKETS CRON] Notification queue registered');
 
 // Helper for flexible column lookup across different naming conventions
 function findVal(obj, keys) {

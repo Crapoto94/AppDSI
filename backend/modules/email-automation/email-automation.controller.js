@@ -336,10 +336,11 @@ const EmailAutomationExtra = {
     getTaskAlertUsers: async (req, res) => {
         try {
             const { rows } = await pool.query(
-                `SELECT username, displayname, email
-                 FROM hub.users
-                 WHERE task_alert_email = TRUE
-                 ORDER BY displayname, username`
+                `SELECT p.username, u.displayname, u.email
+                 FROM hub.user_prefs p
+                 LEFT JOIN hub.users u ON LOWER(u.username) = p.username
+                 WHERE p.task_alert_email = TRUE
+                 ORDER BY u.displayname, p.username`
             );
             res.json(rows);
         } catch (err) {
@@ -351,7 +352,9 @@ const EmailAutomationExtra = {
     disableTaskAlert: async (req, res) => {
         try {
             await pool.query(
-                'UPDATE hub.users SET task_alert_email = FALSE WHERE LOWER(username) = LOWER($1)',
+                `INSERT INTO hub.user_prefs (username, task_alert_email, updated_at)
+                 VALUES (LOWER($1), FALSE, NOW())
+                 ON CONFLICT (username) DO UPDATE SET task_alert_email = FALSE, updated_at = NOW()`,
                 [req.params.username]
             );
             res.json({ ok: true });

@@ -15,6 +15,8 @@ router.get('/sync-observers-status', authenticateGLPIControl, glpiController.get
 router.post('/sync-observers-cancel', authenticateGLPIControl, glpiController.cancelObserversSync);
 router.get('/sync-followups-status', authenticateGLPIControl, glpiController.getFollowupsStatus);
 router.post('/sync-followups-cancel', authenticateGLPIControl, glpiController.cancelFollowupsSync);
+router.get('/sync-descriptions-status', authenticateGLPIControl, glpiController.getDescriptionsStatus);
+router.post('/sync-descriptions-cancel', authenticateGLPIControl, glpiController.cancelDescriptionsSync);
 
 // Tickets Operations
 router.get('/tickets-count', authenticateGLPIControl, glpiController.getTicketsCount);
@@ -30,6 +32,7 @@ router.post('/sync-observers', authenticateInternalOrAdmin, glpiController.syncO
 router.post('/sync-observers-recent', authenticateInternalOrAdmin, glpiController.syncObservers); // Reuse syncObservers or specific logic if needed
 router.post('/sync-followups', authenticateInternalOrAdmin, glpiController.syncFollowups);
 router.post('/sync-followups-recent', authenticateInternalOrAdmin, glpiController.syncFollowups); // Reuse syncFollowups
+router.post('/sync-descriptions', authenticateInternalOrAdmin, glpiController.syncDescriptions);
 
 // Profiles & Logs
 router.get('/my-profile', authenticateGLPIControl, glpiController.getMyProfile);

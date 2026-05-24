@@ -45,7 +45,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 let updatedUser = await res.json();
                 
                 // Sécurité : Forcer l'approbation si admin
-                if (updatedUser.role === 'admin' || updatedUser.username?.toLowerCase() === 'admin') {
+                if (['admin', 'superadmin'].includes(updatedUser.role) || updatedUser.username?.toLowerCase() === 'admin') {
                     updatedUser.is_approved = 1;
                 }
 
@@ -72,7 +72,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     let parsedUser = JSON.parse(storedUser);
                     
                     // Sécurité : Forcer l'approbation si admin au chargement
-                    if (parsedUser.role === 'admin' || parsedUser.username?.toLowerCase() === 'admin') {
+                    if (['admin', 'superadmin'].includes(parsedUser.role) || parsedUser.username?.toLowerCase() === 'admin') {
                         parsedUser.is_approved = 1;
                     }
 
@@ -93,7 +93,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const login = (newToken: string, newUser: User) => {
         // Sécurité : Forcer l'approbation si admin lors du login
-        if (newUser.role === 'admin' || newUser.username?.toLowerCase() === 'admin') {
+        if (['admin', 'superadmin'].includes(newUser.role) || newUser.username?.toLowerCase() === 'admin') {
             newUser.is_approved = 1;
         }
         

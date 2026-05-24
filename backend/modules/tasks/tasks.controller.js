@@ -1,4 +1,4 @@
-const { pool } = require('../../shared/database');
+const { pool, pgDb } = require('../../shared/database');
 const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
@@ -44,7 +44,9 @@ function buildTodoPayload(title, statut, echeance, bodyContent) {
     }
     if (echeance) {
         try {
-            payload.dueDateTime = { dateTime: new Date(echeance).toISOString(), timeZone: 'UTC' };
+            // Use noon UTC so the date never shifts ±1 day due to local timezone offsets
+            const datePart = String(echeance).split('T')[0].split(' ')[0]; // YYYY-MM-DD
+            payload.dueDateTime = { dateTime: `${datePart}T12:00:00.000`, timeZone: 'UTC' };
         } catch { /* ignore bad dates */ }
     }
     return payload;
@@ -53,6 +55,22 @@ function buildTodoPayload(title, statut, echeance, bodyContent) {
 /** Run an axios call silently (swallow errors for non-critical operations) */
 async function safeCall(fn) {
     try { return await fn(); } catch { /* ignore */ }
+}
+
+/** Strip HTML tags and decode entities from a Todo body (contentType:'html') */
+function stripHtml(html) {
+    return html
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .split('\n').map(l => l.trim()).filter(Boolean).join('\n');
 }
 
 const TASK_NOTES_DIR = path.join(__dirname, '..', '..', 'file_task_notes');
@@ -432,6 +450,19 @@ module.exports = {
         if (!statut) return res.status(400).json({ error: 'statut requis' });
         try {
             const dbStatut = normalizeStatutIn(statut, source);
+
+            // For personal tasks linked to a ticket, fetch context before update
+            let taskContext = null;
+            if (source === 'personal') {
+                const { rows } = await pool.query(
+                    'SELECT context_source, context_id, description FROM hub.user_tasks WHERE id = $1',
+                    [id]
+                );
+                if (rows.length > 0) {
+                    taskContext = rows[0];
+                }
+            }
+
             switch (source) {
                 case 'personal':
                     await pool.query(
@@ -472,6 +503,25 @@ module.exports = {
                 default:
                     return res.status(400).json({ error: 'Source inconnue' });
             }
+
+            // If the task is linked to a ticket, log the status change in ticket history
+            if (taskContext && taskContext.context_source === 'ticket' && taskContext.context_id) {
+                const statutLabels = { 'a_faire': 'À faire', 'en_cours': 'En cours', 'terminé': 'Terminé' };
+                const newLabel = statutLabels[statut] || statut;
+                const description = taskContext.description || '';
+                try {
+                    await pgDb.run(
+                        `INSERT INTO hub_tickets.ticket_history
+                            (ticket_id, user_id, action, field_name, old_value, new_value, comment)
+                         VALUES ($1, $2, 'task_status_changed', 'statut', $3, $4, $5)`,
+                        [taskContext.context_id, req.user?.id || null, null, statut,
+                         `Tâche "${description.substring(0, 100)}" → ${newLabel}`]
+                    );
+                } catch (e) {
+                    console.error('[HISTORY] updateTaskStatus log failed:', e.message);
+                }
+            }
+
             res.json({ ok: true });
         } catch (error) {
             res.status(500).json({ error: error.message });
@@ -579,10 +629,10 @@ module.exports = {
 
     // GET /api/tasks/alert-pref
     async getAlertPref(req, res) {
-        const username = req.user.username;
+        const username = req.user.username.toLowerCase();
         try {
             const r = await pool.query(
-                'SELECT task_alert_email FROM hub.users WHERE LOWER(username) = LOWER($1)',
+                'SELECT task_alert_email FROM hub.user_prefs WHERE username = $1',
                 [username]
             );
             res.json({ enabled: r.rows[0]?.task_alert_email === true });
@@ -593,12 +643,14 @@ module.exports = {
 
     // PATCH /api/tasks/alert-pref  { enabled: boolean }
     async setAlertPref(req, res) {
-        const username = req.user.username;
+        const username = req.user.username.toLowerCase();
         const { enabled } = req.body;
         try {
             await pool.query(
-                'UPDATE hub.users SET task_alert_email = $1 WHERE LOWER(username) = LOWER($2)',
-                [!!enabled, username]
+                `INSERT INTO hub.user_prefs (username, task_alert_email, updated_at)
+                 VALUES ($1, $2, NOW())
+                 ON CONFLICT (username) DO UPDATE SET task_alert_email = EXCLUDED.task_alert_email, updated_at = NOW()`,
+                [username, !!enabled]
             );
             res.json({ ok: true, enabled: !!enabled });
         } catch (error) {
@@ -630,10 +682,10 @@ module.exports = {
 
     // GET /api/tasks/todo-sync
     async getTodoSyncPref(req, res) {
-        const username = req.user.username;
+        const username = req.user.username.toLowerCase();
         try {
             const r = await pool.query(
-                'SELECT ms_todo_sync FROM hub.users WHERE LOWER(username) = LOWER($1)',
+                'SELECT ms_todo_sync FROM hub.user_prefs WHERE username = $1',
                 [username]
             );
             res.json({ enabled: r.rows[0]?.ms_todo_sync === true });
@@ -644,12 +696,14 @@ module.exports = {
 
     // PATCH /api/tasks/todo-sync  { enabled: boolean }
     async setTodoSyncPref(req, res) {
-        const username = req.user.username;
+        const username = req.user.username.toLowerCase();
         const { enabled } = req.body;
         try {
             await pool.query(
-                'UPDATE hub.users SET ms_todo_sync = $1 WHERE LOWER(username) = LOWER($2)',
-                [!!enabled, username]
+                `INSERT INTO hub.user_prefs (username, ms_todo_sync, updated_at)
+                 VALUES ($1, $2, NOW())
+                 ON CONFLICT (username) DO UPDATE SET ms_todo_sync = EXCLUDED.ms_todo_sync, updated_at = NOW()`,
+                [username, !!enabled]
             );
             res.json({ ok: true, enabled: !!enabled });
         } catch (error) {
@@ -673,8 +727,23 @@ module.exports = {
             const userRow = await pool.query(
                 'SELECT email, displayname FROM hub.users WHERE LOWER(username) = LOWER($1)', [username]
             );
-            const user = userRow.rows[0];
-            if (!user?.email) return res.status(400).json({ error: 'Email utilisateur introuvable' });
+            const userDbRow = userRow.rows[0];
+            // Fallback email : hub.users → JWT → magapp.users → username@ivry94.fr
+            let userEmail = userDbRow?.email || req.user?.email || null;
+            if (!userEmail) {
+                try {
+                    const magappRow = await pool.query(
+                        'SELECT email FROM magapp.users WHERE LOWER(username) = LOWER($1)', [username]
+                    );
+                    userEmail = magappRow.rows[0]?.email || null;
+                } catch {}
+            }
+            if (!userEmail) {
+                // Construire l'email depuis le username si le domaine est connu
+                userEmail = `${username.toLowerCase()}@ivry94.fr`;
+            }
+            const user = { email: userEmail, displayname: userDbRow?.displayname || username };
+            if (!user.email) return res.status(400).json({ error: 'Email utilisateur introuvable' });
 
             // ── 3. App-level token (client_credentials) ──────────────────────
             const axios = require('axios');
@@ -732,27 +801,34 @@ module.exports = {
             // knownTodoIds: todo IDs already tracked in hub (prevents re-import)
             const knownTodoIds = new Set(hubTasks.map(t => t.todo_task_id).filter(Boolean));
 
-            // ── 7. PUSH: hub tasks (non-terminées) → Todo ────────────────────
+            // ── 7. PUSH: hub tasks → Todo (including hub-terminated → Todo completed) ──
             for (const task of hubTasks) {
-                if (task.statut === 'terminé' || task.statut === 'terminee') continue;
+                const isTerminated = task.statut === 'terminé' || task.statut === 'terminee';
                 const externalId = `hub_${task.id}`;
-
-                // Build body from hub notes
-                const { rows: notes } = await pool.query(
-                    `SELECT content, type, filename FROM hub.task_notes WHERE source='personal' AND task_id=$1 ORDER BY created_at`,
-                    [String(task.id)]
-                );
-                const bodyLines = [];
-                if (task.context_title) bodyLines.push(`📌 Contexte : ${task.context_title}`);
-                for (const n of notes) {
-                    bodyLines.push(n.type === 'file' ? `📎 ${n.filename || n.content}` : `💬 ${n.content}`);
-                }
-                const payload = buildTodoPayload(task.description, task.statut, task.echeance, bodyLines.join('\n'));
-
                 const existing = task.todo_task_id ? byTodoId[task.todo_task_id] : byExternalId[externalId];
+
                 if (existing) {
-                    // *** FIX: never reset a task the user completed in Todo ***
-                    if (existing.status !== 'completed') {
+                    if (isTerminated) {
+                        // Push completion to Todo if not already done
+                        if (existing.status !== 'completed') {
+                            await safeCall(() => axios.patch(
+                                `${TASKS_BASE}/${existing.id}`,
+                                { status: 'completed' },
+                                { headers: graphHeaders }
+                            ));
+                        }
+                    } else if (existing.status !== 'completed') {
+                        // Sync non-terminated task details
+                        const { rows: notes } = await pool.query(
+                            `SELECT content, type, filename FROM hub.task_notes WHERE source='personal' AND task_id=$1 ORDER BY created_at`,
+                            [String(task.id)]
+                        );
+                        const bodyLines = [];
+                        if (task.context_title) bodyLines.push(`📌 Contexte : ${task.context_title}`);
+                        for (const n of notes) {
+                            bodyLines.push(n.type === 'file' ? `📎 ${n.filename || n.content}` : `💬 ${n.content}`);
+                        }
+                        const payload = buildTodoPayload(task.description, task.statut, task.echeance, bodyLines.join('\n'));
                         await safeCall(() => axios.patch(`${TASKS_BASE}/${existing.id}`, payload, { headers: graphHeaders }));
                     }
                     if (!task.todo_task_id) {
@@ -760,8 +836,19 @@ module.exports = {
                         knownTodoIds.add(existing.id);
                     }
                     updated++;
-                } else {
+                } else if (!isTerminated) {
+                    // Only create new Todo tasks for non-terminated hub tasks
                     try {
+                        const { rows: notes } = await pool.query(
+                            `SELECT content, type, filename FROM hub.task_notes WHERE source='personal' AND task_id=$1 ORDER BY created_at`,
+                            [String(task.id)]
+                        );
+                        const bodyLines = [];
+                        if (task.context_title) bodyLines.push(`📌 Contexte : ${task.context_title}`);
+                        for (const n of notes) {
+                            bodyLines.push(n.type === 'file' ? `📎 ${n.filename || n.content}` : `💬 ${n.content}`);
+                        }
+                        const payload = buildTodoPayload(task.description, task.statut, task.echeance, bodyLines.join('\n'));
                         const created = (await axios.post(TASKS_BASE, payload, { headers: graphHeaders })).data;
                         await safeCall(() => axios.post(`${TASKS_BASE}/${created.id}/linkedResources`,
                             { applicationName: 'DSI Hub', displayName: task.description, externalId },
@@ -876,25 +963,38 @@ module.exports = {
             }
 
             // ── 10. SYNC NOTES: user-written Todo body → hub note ────────────
+            // Uses pre-fetched byTodoId (before step-7 PATCHes) so captures notes
+            // written by user in Todo before this sync. Strips HTML (contentType:'html').
             for (const task of hubTasks) {
                 if (!task.todo_task_id) continue;
                 const todoTask = byTodoId[task.todo_task_id];
                 if (!todoTask) continue;
                 const rawBody = (todoTask.body?.content || '').trim();
                 if (!rawBody) continue;
-                const userLines = rawBody.split('\n').map(l => l.trim())
+                // Strip HTML tags if body is HTML-encoded (common from Todo mobile/desktop app)
+                const cleanBody = todoTask.body?.contentType === 'html' ? stripHtml(rawBody) : rawBody;
+                const userLines = cleanBody.split(/\r?\n/).map(l => l.trim())
                     .filter(l => l && !l.startsWith('📌') && !l.startsWith('💬') && !l.startsWith('📎'));
                 if (userLines.length === 0) continue;
                 const userContent = userLines.join('\n');
                 try {
+                    // Upsert: keep one 'todo_sync' comment per task; update if body changed
                     const ex = await pool.query(
-                        `SELECT id FROM hub.task_notes WHERE source='personal' AND task_id=$1 AND content=$2`,
-                        [String(task.id), userContent]
+                        `SELECT id, content FROM hub.task_notes
+                         WHERE source='personal' AND task_id=$1 AND created_by='todo_sync' AND type='comment'
+                         LIMIT 1`,
+                        [String(task.id)]
                     );
                     if (ex.rows.length === 0) {
                         await pool.query(
-                            `INSERT INTO hub.task_notes (source,task_id,content,type,created_by) VALUES ('personal',$1,$2,'comment','todo_sync')`,
+                            `INSERT INTO hub.task_notes (source,task_id,content,type,created_by)
+                             VALUES ('personal',$1,$2,'comment','todo_sync')`,
                             [String(task.id), userContent]
+                        );
+                    } else if (ex.rows[0].content !== userContent) {
+                        await pool.query(
+                            `UPDATE hub.task_notes SET content=$1, created_at=NOW() WHERE id=$2`,
+                            [userContent, ex.rows[0].id]
                         );
                     }
                 } catch { /* skip */ }
@@ -922,12 +1022,16 @@ module.exports = {
                     const newId = ins.rows[0].id;
                     knownTodoIds.add(todoTask.id);
 
-                    const body = (todoTask.body?.content || '').trim();
-                    if (body) {
-                        await pool.query(
-                            `INSERT INTO hub.task_notes (source,task_id,content,type,created_by) VALUES ('personal',$1,$2,'comment','todo_sync')`,
-                            [String(newId), body]
-                        );
+                    const rawImportBody = (todoTask.body?.content || '').trim();
+                    if (rawImportBody) {
+                        const cleanImportBody = todoTask.body?.contentType === 'html'
+                            ? stripHtml(rawImportBody) : rawImportBody;
+                        if (cleanImportBody) {
+                            await pool.query(
+                                `INSERT INTO hub.task_notes (source,task_id,content,type,created_by) VALUES ('personal',$1,$2,'comment','todo_sync')`,
+                                [String(newId), cleanImportBody]
+                            );
+                        }
                     }
                     await safeCall(() => axios.post(`${TASKS_BASE}/${todoTask.id}/linkedResources`,
                         { applicationName: 'DSI Hub', displayName: todoTask.title, externalId: `hub_${newId}` },
@@ -951,8 +1055,10 @@ module.exports = {
         if (!sendMailFn) return;
         try {
             const { rows: users } = await pool.query(
-                `SELECT username, email, displayname FROM hub.users
-                 WHERE task_alert_email = TRUE AND email IS NOT NULL AND email != ''`
+                `SELECT p.username, u.email, u.displayname
+                 FROM hub.user_prefs p
+                 LEFT JOIN hub.users u ON LOWER(u.username) = p.username
+                 WHERE p.task_alert_email = TRUE AND u.email IS NOT NULL AND u.email != ''`
             );
             for (const user of users) {
                 try {

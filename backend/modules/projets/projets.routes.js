@@ -184,4 +184,17 @@ router.post('/:id/applications', authenticateJWT, ctrl.ajouterApplication);
 router.delete('/:id/applications/:appId', authenticateJWT, ctrl.supprimerApplication);
 router.get('/:id/compteurs', authenticateJWT, ctrl.getCompteurs);
 
+// ============================================
+// MINI-PROJET
+// ============================================
+router.patch('/:id/toggle-mini', authenticateJWT, ctrl.toggleMiniProjet);
+
+// ============================================
+// PMO AGENTS
+// ============================================
+router.get('/pmo/agents', authenticateJWT, ctrl.getPmoAgents);
+router.post('/pmo/agents', authenticateJWT, ctrl.addPmoAgent);
+router.delete('/pmo/agents/:assignmentId', authenticateJWT, ctrl.removePmoAgent);
+router.get('/pmo/org-units', authenticateJWT, ctrl.getOrgUnits);
+
 module.exports = router;

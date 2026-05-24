@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { pgDb, getSqlite } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
+const { isSuperAdmin } = require('../../shared/middleware');
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
@@ -17,6 +18,52 @@ async function estPMO(username) {
         const user = await db.get('SELECT u.id FROM user_tiles ut JOIN users u ON u.id = ut.user_id WHERE ut.tile_id = 24 AND u.username = ?', [username]);
         return !!user;
     } catch { return false; }
+}
+
+// Retourne tous les usernames d'agents assignés à un PMO (direct + unités org)
+async function getPmoAgentUsernames(pmoUsername) {
+    try {
+        const assignments = await pgDb.all(
+            `SELECT agent_username, service_code, secteur_code, direction_code FROM projets.pmo_assignments WHERE LOWER(pmo_username) = LOWER($1)`,
+            [pmoUsername]
+        );
+        const usernames = new Set();
+        const db = getSqlite();
+        for (const a of assignments) {
+            if (a.agent_username) usernames.add(a.agent_username.toLowerCase());
+            if ((a.service_code || a.secteur_code || a.direction_code) && db) {
+                let rows = [];
+                if (a.service_code) {
+                    rows = await db.all('SELECT username FROM users WHERE LOWER(service_code) = LOWER(?)', [a.service_code]);
+                } else if (a.secteur_code) {
+                    // Get services in this secteur from oracle, then match users
+                    try {
+                        const services = await pgDb.all(
+                            `SELECT DISTINCT "SERVICE" as service_code FROM oracle.rh_siim_organigramme WHERE "SECTEUR" = $1`,
+                            [a.secteur_code]
+                        );
+                        for (const svc of services) {
+                            const users = await db.all('SELECT username FROM users WHERE LOWER(service_code) = LOWER(?)', [svc.service_code]);
+                            rows = rows.concat(users);
+                        }
+                    } catch {}
+                } else if (a.direction_code) {
+                    try {
+                        const services = await pgDb.all(
+                            `SELECT DISTINCT "SERVICE" as service_code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1`,
+                            [a.direction_code]
+                        );
+                        for (const svc of services) {
+                            const users = await db.all('SELECT username FROM users WHERE LOWER(service_code) = LOWER(?)', [svc.service_code]);
+                            rows = rows.concat(users);
+                        }
+                    } catch {}
+                }
+                for (const r of rows) if (r.username) usernames.add(r.username.toLowerCase());
+            }
+        }
+        return Array.from(usernames);
+    } catch { return []; }
 }
 
 async function genererCodeProjet() {
@@ -156,16 +203,16 @@ function getStatutLabel(statut) {
 
 const getAll = async (req, res) => {
     try {
-        const { statut, service_pilote, niveau, priorite, chef_projet, q, tri } = req.query;
+        const { statut, service_pilote, niveau, priorite, chef_projet, q, tri, pmo_view } = req.query;
         const username = req.user.username;
-        const isAdmin = req.user.role === 'admin';
+        const isAdmin = isSuperAdmin(req.user);
         const isPMO = await estPMO(username);
 
         let conditions = [];
         let params = [];
         let paramIdx = 1;
 
-        if (!isAdmin && !isPMO) {
+        if (!isAdmin && (!isPMO || pmo_view === 'mine')) {
             conditions.push(`(
                 LOWER(p.created_by_username) = LOWER($${paramIdx++})
                 OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($${paramIdx-1}))
@@ -177,6 +224,24 @@ const getAll = async (req, res) => {
                 OR LOWER(p.dpo_username) = LOWER($${paramIdx-1})
             )`);
             params.push(username);
+        } else if (isPMO && pmo_view === 'agents') {
+            const agentUsernames = await getPmoAgentUsernames(username);
+            if (agentUsernames.length === 0) {
+                conditions.push('1=0');
+            } else {
+                conditions.push(`(
+                    LOWER(p.created_by_username) = ANY($${paramIdx})
+                    OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = ANY($${paramIdx}))
+                    OR EXISTS (SELECT 1 FROM projet_visibilite pv WHERE pv.projet_id = p.id AND LOWER(pv.username) = ANY($${paramIdx}))
+                    OR LOWER(p.commanditaire_username) = ANY($${paramIdx})
+                    OR LOWER(p.chef_projet_username) = ANY($${paramIdx})
+                    OR LOWER(p.responsable_dsi_username) = ANY($${paramIdx})
+                    OR LOWER(p.representant_metier_username) = ANY($${paramIdx})
+                    OR LOWER(p.dpo_username) = ANY($${paramIdx})
+                )`);
+                params.push(agentUsernames);
+                paramIdx++;
+            }
         }
 
         if (statut) { conditions.push(`p.statut = $${paramIdx++}`); params.push(statut); }
@@ -310,7 +375,7 @@ const create = async (req, res) => {
             representant_metier_username, dpo_username,
             date_debut_prevue, date_fin_prevue, priorite, meteo,
             equipe, parties_prenantes, pour_info,
-            projet_parent_id, app_ids
+            projet_parent_id, app_ids, is_mini_projet
         } = req.body;
         const username = req.user.username;
 
@@ -325,15 +390,16 @@ const create = async (req, res) => {
                 commanditaire_username, chef_projet_username, responsable_dsi_username,
                 representant_metier_username, dpo_username,
                 date_debut_prevue, date_fin_prevue, priorite, meteo,
-                created_by_username, modified_by_username, projet_parent_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $16)
+                created_by_username, modified_by_username, projet_parent_id, is_mini_projet)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $16, $17)
         `, [code, titre, description || '', niveau_projet || 'standard', service_pilote,
             commanditaire_username || null, chef_projet_username || null, responsable_dsi_username || null,
             representant_metier_username || null, dpo_username || null,
             date_debut_prevue || null, date_fin_prevue || null, priorite || 0,
             meteo || 'neutre',
             username,
-            projet_parent_id || null]);
+            projet_parent_id || null,
+            is_mini_projet ? true : false]);
 
         const projetId = result.lastID;
 
@@ -365,6 +431,31 @@ const create = async (req, res) => {
         }
         if (Array.isArray(pour_info)) {
             for (const pi of pour_info) await addRole(projetId, pi, 'pour_info');
+        }
+
+        // Auto-créer comité "Équipe Projets" avec les membres de l'équipe
+        if (Array.isArray(equipe) && equipe.length > 0) {
+            const comiteResult = await pgDb.run(
+                `INSERT INTO projet_comites (projet_id, nom, role) VALUES ($1, $2, $3)`,
+                [projetId, 'Équipe Projets', 'comite_pilotage']
+            );
+            const comiteId = comiteResult.lastID;
+            for (const membreUsername of equipe) {
+                if (!membreUsername) continue;
+                // Try to get display info from AD/users
+                let nom = membreUsername, prenom = '', email = '';
+                try {
+                    const db = getSqlite();
+                    if (db) {
+                        const u = await db.get('SELECT username, email FROM users WHERE LOWER(username) = LOWER(?)', [membreUsername]);
+                        if (u) { email = u.email || ''; }
+                    }
+                } catch {}
+                await pgDb.run(
+                    `INSERT INTO projet_comites_membres (comite_id, nom, ad_username, email) VALUES ($1, $2, $3, $4)`,
+                    [comiteId, nom, membreUsername, email || null]
+                );
+            }
         }
 
         await ajouterJournal(projetId, 'creation', `Projet ${code} créé`, { titre, service_pilote }, username);
@@ -459,7 +550,7 @@ const remove = async (req, res) => {
     try {
         const { id } = req.params;
         const username = req.user.username;
-        const isAdmin = req.user.role === 'admin';
+        const isAdmin = isSuperAdmin(req.user);
         const isPMO = await estPMO(username);
         if (!isAdmin && !isPMO) return res.status(403).json({ error: 'Accès refusé' });
 
@@ -2429,6 +2520,104 @@ const getCompteurs = async (req, res) => {
     }
 };
 
+// ============================================
+// MINI-PROJET
+// ============================================
+
+const toggleMiniProjet = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const username = req.user.username;
+        const isAdmin = isSuperAdmin(req.user);
+        const isPMO = await estPMO(username);
+        const projet = await pgDb.get('SELECT * FROM projets WHERE id = $1', [id]);
+        if (!projet) return res.status(404).json({ error: 'Projet non trouvé' });
+        const canToggle = isAdmin || isPMO || projet.chef_projet_username === username || projet.created_by_username === username;
+        if (!canToggle) return res.status(403).json({ error: 'Accès refusé' });
+        const newVal = !projet.is_mini_projet;
+        await pgDb.run(`UPDATE projets SET is_mini_projet = $1, date_modification = CURRENT_TIMESTAMP WHERE id = $2`, [newVal, id]);
+        await ajouterJournal(id, 'modification', `Projet ${newVal ? 'converti en mini-projet' : 'reconverti en projet standard'}`, null, username);
+        res.json({ is_mini_projet: newVal });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// ============================================
+// PMO AGENTS
+// ============================================
+
+const getPmoAgents = async (req, res) => {
+    try {
+        const pmoUsername = req.query.pmo_username || req.user.username;
+        const assignments = await pgDb.all(
+            `SELECT * FROM projets.pmo_assignments WHERE LOWER(pmo_username) = LOWER($1) ORDER BY created_at DESC`,
+            [pmoUsername]
+        );
+        res.json(assignments);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const addPmoAgent = async (req, res) => {
+    try {
+        const pmoUsername = req.query.pmo_username || req.user.username;
+        const { agent_username, service_code, secteur_code, direction_code } = req.body;
+        if (!agent_username && !service_code && !secteur_code && !direction_code) {
+            return res.status(400).json({ error: 'Au moins un type d\'assignation requis' });
+        }
+        const result = await pgDb.run(
+            `INSERT INTO projets.pmo_assignments (pmo_username, agent_username, service_code, secteur_code, direction_code) VALUES ($1, $2, $3, $4, $5)`,
+            [pmoUsername, agent_username || null, service_code || null, secteur_code || null, direction_code || null]
+        );
+        res.status(201).json({ id: result.lastID, message: 'Agent assigné' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const removePmoAgent = async (req, res) => {
+    try {
+        const { assignmentId } = req.params;
+        await pgDb.run(`DELETE FROM projets.pmo_assignments WHERE id = $1`, [assignmentId]);
+        res.json({ message: 'Assignation supprimée' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const getOrgUnits = async (req, res) => {
+    try {
+        const rows = await pgDb.all(`
+            SELECT
+                "DIRECTION" as direction_code, "DIRECTION_L" as direction_label,
+                "SERVICE" as service_code, "SERVICE_L" as service_label,
+                "SECTEUR" as secteur_code, "SECTEUR_L" as secteur_label
+            FROM oracle.rh_siim_organigramme
+            WHERE "DIRECTION" IS NOT NULL AND "DIRECTION" != ''
+            ORDER BY "DIRECTION_L", "SERVICE_L", "SECTEUR_L"
+        `);
+        // Build deduplicated hierarchy
+        const directions = new Map(), services = new Map(), secteurs = new Map();
+        for (const r of rows) {
+            if (r.direction_code && !directions.has(r.direction_code))
+                directions.set(r.direction_code, { code: r.direction_code, label: r.direction_label || r.direction_code });
+            if (r.service_code && !services.has(r.service_code))
+                services.set(r.service_code, { code: r.service_code, label: r.service_label || r.service_code, direction_code: r.direction_code });
+            if (r.secteur_code && !secteurs.has(r.secteur_code))
+                secteurs.set(r.secteur_code, { code: r.secteur_code, label: r.secteur_label || r.secteur_code, service_code: r.service_code });
+        }
+        res.json({
+            directions: Array.from(directions.values()),
+            services: Array.from(services.values()),
+            secteurs: Array.from(secteurs.values())
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     setSendMail,
     getAll, getMesProjets, getById, create, update, remove,
@@ -2454,5 +2643,7 @@ module.exports = {
     ajouterMembreComite, supprimerMembreComite,
     getEtapes, toggleEtape,
     getApplications, ajouterApplication, supprimerApplication, searchApps,
-    getCompteurs
+    getCompteurs,
+    toggleMiniProjet,
+    getPmoAgents, addPmoAgent, removePmoAgent, getOrgUnits
 };

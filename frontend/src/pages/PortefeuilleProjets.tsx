@@ -4,6 +4,7 @@ import { FolderOpen, Plus, Search } from 'lucide-react';
 import Header from '../components/Header';
 import CreerProjetModal from '../components/projets/CreerProjetModal';
 import { useAuth } from '../contexts/AuthContext';
+import { isSuperAdmin, isAdminLike } from '../utils/roles';
 
 interface Projet {
   id: number; code: string; titre: string; statut: string;
@@ -15,6 +16,7 @@ interface Projet {
   chef_projet_display_name?: string;
   user_est_intervenant?: boolean;
   projet_parent_id?: number; app_names?: string;
+  is_mini_projet?: boolean;
 }
 
 interface Stats {
@@ -57,7 +59,9 @@ const PortefeuilleProjets: React.FC = () => {
   const [favoris, setFavoris] = useState<number[]>([]);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [showPmoModal, setShowPmoModal] = useState(false);
-  const isPMO = user?.est_pmo || user?.role === 'admin';
+  const [pmoView, setPmoView] = useState<'' | 'mine' | 'agents'>('');
+  const [showAgentsModal, setShowAgentsModal] = useState(false);
+  const isPMO = user?.est_pmo || isAdminLike(user);
 
   const fetchProjets = useCallback(async () => {
     try {
@@ -69,6 +73,7 @@ const PortefeuilleProjets: React.FC = () => {
       if (filtreChefProjet) params.set('chef_projet', filtreChefProjet);
       if (recherche) params.set('q', recherche);
       if (sortColumn) params.set('tri', sortColumn);
+      if (pmoView) params.set('pmo_view', pmoView);
 
       const url = `/api/projets?${params.toString()}`;
 
@@ -85,7 +90,7 @@ const PortefeuilleProjets: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [token, filtreStatut, filtreService, filtreNiveau, filtreChefProjet, recherche, sortColumn]);
+  }, [token, filtreStatut, filtreService, filtreNiveau, filtreChefProjet, recherche, sortColumn, pmoView]);
 
   const fetchFavoris = useCallback(async () => {
     try {
@@ -284,10 +289,26 @@ const PortefeuilleProjets: React.FC = () => {
               📋 Revue de projets
             </button>
           )}
-          {user?.role === 'admin' && (
+          {isSuperAdmin(user) && (
             <button onClick={() => setShowPmoModal(true)} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
               👥 Gestion des PMO
             </button>
+          )}
+          {user?.est_pmo && (
+            <button onClick={() => setShowAgentsModal(true)} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              🧑‍🤝‍🧑 Mes agents
+            </button>
+          )}
+          {user?.est_pmo && (
+            <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '3px', gap: '2px' }}>
+              {([['', '📁 Tous'], ['mine', '🙋 Mes projets'], ['agents', '👥 Mes agents']] as [string, string][]).map(([val, label]) => (
+                <button key={val} onClick={() => setPmoView(val as '' | 'mine' | 'agents')} style={{
+                  padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600',
+                  background: pmoView === val ? 'white' : 'transparent', color: pmoView === val ? '#2563eb' : '#64748b',
+                  boxShadow: pmoView === val ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                }}>{label}</button>
+              ))}
+            </div>
           )}
         </div>
 
@@ -343,9 +364,12 @@ const PortefeuilleProjets: React.FC = () => {
                             onMouseEnter={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fef3c7' : '#f8fafc')}
                             onMouseLeave={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fffbeb' : 'transparent')}>
                             <td style={{ padding: '12px 16px' }}>
-                              <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', paddingLeft: isChild ? '20px' : '0' }}>
+                              <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', paddingLeft: isChild ? '20px' : '0', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                 {isChild && <span style={{ marginRight: '6px', color: '#94a3b8' }}>↳</span>}
                                 {p.titre}
+                                {p.is_mini_projet && (
+                                  <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0' }}>mini</span>
+                                )}
                               </div>
                               <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}{!isChild && p.projet_parent_id && projetParentTitles[p.id] ? ` · parent: ${projetParentTitles[p.id]}` : ''}</div>
                               {p.app_names && <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>📱 {p.app_names}</div>}
@@ -417,6 +441,11 @@ const PortefeuilleProjets: React.FC = () => {
       {/* Modale Gestion des PMO */}
       {showPmoModal && (
         <GestionPmoModal token={token} onClose={() => setShowPmoModal(false)} />
+      )}
+
+      {/* Modale Mes Agents (pour PMO) */}
+      {showAgentsModal && (
+        <MesAgentsModal token={token} onClose={() => setShowAgentsModal(false)} />
       )}
     </div>
   );
@@ -617,6 +646,191 @@ const GestionPmoModal: React.FC<GestionPmoModalProps> = ({ token, onClose }) => 
                 <button onClick={() => togglePmo(u.username, false)} style={{ padding: '4px 10px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Retirer</button>
               </div>
             ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface MesAgentsModalProps { token: string | null; onClose: () => void; }
+const MesAgentsModal: React.FC<MesAgentsModalProps> = ({ token, onClose }) => {
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [orgUnits, setOrgUnits] = useState<{ directions: any[]; services: any[]; secteurs: any[] }>({ directions: [], services: [], secteurs: [] });
+  const [tab, setTab] = useState<'direct' | 'org'>('direct');
+  const [adQuery, setAdQuery] = useState('');
+  const [adResults, setAdResults] = useState<any[]>([]);
+  const [adSearching, setAdSearching] = useState(false);
+  const [selectedOrgType, setSelectedOrgType] = useState<'service' | 'secteur' | 'direction'>('service');
+  const [selectedOrgCode, setSelectedOrgCode] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([
+      fetch('/api/projets/pmo/agents', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(d => { if (Array.isArray(d)) setAssignments(d); }).catch(() => {}),
+      fetch('/api/projets/pmo/org-units', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(d => { if (d?.directions) setOrgUnits(d); }).catch(() => {})
+    ]);
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  useEffect(() => {
+    if (!adQuery.trim()) { setAdResults([]); return; }
+    const timer = setTimeout(async () => {
+      setAdSearching(true);
+      try {
+        const r = await fetch(`/api/ad/search?q=${encodeURIComponent(adQuery.trim())}`, { headers: { Authorization: `Bearer ${token}` } });
+        const data = await r.json();
+        setAdResults(Array.isArray(data) ? data : []);
+      } catch { setAdResults([]); } finally { setAdSearching(false); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [adQuery, token]);
+
+  const addDirect = async (username: string) => {
+    setSaving(true);
+    try {
+      await fetch('/api/projets/pmo/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ agent_username: username })
+      });
+      setAdQuery(''); setAdResults([]);
+      await fetchAll();
+    } catch {} finally { setSaving(false); }
+  };
+
+  const addOrg = async () => {
+    if (!selectedOrgCode) return;
+    setSaving(true);
+    try {
+      const body: any = {};
+      if (selectedOrgType === 'service') body.service_code = selectedOrgCode;
+      else if (selectedOrgType === 'secteur') body.secteur_code = selectedOrgCode;
+      else body.direction_code = selectedOrgCode;
+      await fetch('/api/projets/pmo/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body)
+      });
+      setSelectedOrgCode('');
+      await fetchAll();
+    } catch {} finally { setSaving(false); }
+  };
+
+  const remove = async (id: number) => {
+    await fetch(`/api/projets/pmo/agents/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    await fetchAll();
+  };
+
+  const directAssignments = assignments.filter(a => a.agent_username && !a.service_code && !a.secteur_code && !a.direction_code);
+  const orgAssignments = assignments.filter(a => a.service_code || a.secteur_code || a.direction_code);
+
+  const getOrgLabel = (a: any) => {
+    if (a.service_code) {
+      const s = orgUnits.services.find(x => x.code === a.service_code);
+      return `Service : ${s?.label || a.service_code}`;
+    }
+    if (a.secteur_code) {
+      const s = orgUnits.secteurs.find(x => x.code === a.secteur_code);
+      return `Secteur : ${s?.label || a.secteur_code}`;
+    }
+    if (a.direction_code) {
+      const d = orgUnits.directions.find(x => x.code === a.direction_code);
+      return `Direction : ${d?.label || a.direction_code}`;
+    }
+    return '—';
+  };
+
+  const orgOptions = selectedOrgType === 'service' ? orgUnits.services
+    : selectedOrgType === 'secteur' ? orgUnits.secteurs
+    : orgUnits.directions;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: 'white', borderRadius: '16px', width: '95%', maxWidth: '600px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>🧑‍🤝‍🧑 Mes agents</h2>
+          <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '2px', borderBottom: '2px solid #e2e8f0', padding: '0 24px' }}>
+          {[['direct', '👤 Agents directs'], ['org', '🏢 Unités org.']].map(([k, l]) => (
+            <button key={k} onClick={() => setTab(k as 'direct' | 'org')} style={{
+              padding: '10px 18px', border: 'none', borderBottom: tab === k ? '2px solid #2563eb' : '2px solid transparent',
+              background: tab === k ? '#eff6ff' : 'transparent', cursor: 'pointer', fontWeight: tab === k ? '700' : '500',
+              color: tab === k ? '#2563eb' : '#64748b', fontSize: '13px', marginBottom: '-2px'
+            }}>{l}</button>
+          ))}
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {loading ? <p style={{ color: '#94a3b8', textAlign: 'center' }}>Chargement...</p> : (
+            <>
+              {tab === 'direct' && (
+                <>
+                  <div style={{ marginBottom: '16px', position: 'relative' }}>
+                    <input value={adQuery} onChange={e => setAdQuery(e.target.value)} placeholder="Rechercher un agent AD..."
+                      style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} />
+                    {adSearching && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8' }}>...</span>}
+                    {adResults.length > 0 && (
+                      <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', marginTop: '4px', zIndex: 10, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                        {adResults.map((u: any) => (
+                          <div key={u.username} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                            <span style={{ fontSize: '13px', color: '#1e293b' }}>{u.displayName || u.username} <span style={{ color: '#94a3b8' }}>({u.username})</span></span>
+                            <button onClick={() => addDirect(u.username)} disabled={saving}
+                              style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Ajouter</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: '700', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase' }}>Agents désignés ({directAssignments.length})</div>
+                  {directAssignments.length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun agent direct.</p>
+                  ) : directAssignments.map((a: any) => (
+                    <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                      <span style={{ fontSize: '13px', color: '#1e293b' }}>{a.agent_username}</span>
+                      <button onClick={() => remove(a.id)} style={{ padding: '4px 10px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Retirer</button>
+                    </div>
+                  ))}
+                </>
+              )}
+              {tab === 'org' && (
+                <>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                    <select value={selectedOrgType} onChange={e => { setSelectedOrgType(e.target.value as any); setSelectedOrgCode(''); }}
+                      style={{ padding: '8px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
+                      <option value="service">Service</option>
+                      <option value="secteur">Secteur</option>
+                      <option value="direction">Direction</option>
+                    </select>
+                    <select value={selectedOrgCode} onChange={e => setSelectedOrgCode(e.target.value)}
+                      style={{ flex: 1, padding: '8px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
+                      <option value="">-- Choisir --</option>
+                      {orgOptions.map((o: any) => <option key={o.code} value={o.code}>{o.label}</option>)}
+                    </select>
+                    <button onClick={addOrg} disabled={!selectedOrgCode || saving}
+                      style={{ padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', opacity: !selectedOrgCode ? 0.5 : 1 }}>Ajouter</button>
+                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: '700', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase' }}>Unités assignées ({orgAssignments.length})</div>
+                  {orgAssignments.length === 0 ? (
+                    <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucune unité organisationnelle.</p>
+                  ) : orgAssignments.map((a: any) => (
+                    <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                      <span style={{ fontSize: '13px', color: '#1e293b' }}>{getOrgLabel(a)}</span>
+                      <button onClick={() => remove(a.id)} style={{ padding: '4px 10px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Retirer</button>
+                    </div>
+                  ))}
+                </>
+              )}
+            </>
           )}
         </div>
       </div>

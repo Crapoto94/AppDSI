@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2 } from 'lucide-react';
+import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2, LayoutGrid } from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
+import { isAdminLike } from '../utils/roles';
 import axios from 'axios';
 
 interface Todo {
@@ -24,6 +26,18 @@ interface BacklogItem {
     path: string;
     size: number;
   }>;
+}
+
+interface TileData {
+  id: number;
+  title: string;
+  icon: string;
+  description: string;
+  sort_order: number;
+  status: string;
+  is_authorized: boolean;
+  is_public: boolean;
+  links: { label: string; url: string; is_internal: boolean }[];
 }
 
 interface HeaderProps {
@@ -56,12 +70,49 @@ const Header: React.FC<HeaderProps> = () => {
   const [backlogItems, setBacklogItems] = useState<BacklogItem[]>([]);
   const [newTodo, setNewTodo] = useState({ task: '', priority: 0 });
   const [isReleasing, setIsReleasing] = useState(false);
+  const [showNavDropdown, setShowNavDropdown] = useState(false);
+  const [navTiles, setNavTiles] = useState<TileData[]>([]);
+  const navDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchChangelog();
     fetchTodos();
-    if (token) fetchBacklog();
+    if (token) {
+      fetchBacklog();
+      fetchNavTiles();
+    }
   }, [token]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (navDropdownRef.current && !navDropdownRef.current.contains(e.target as Node)) {
+        setShowNavDropdown(false);
+      }
+    };
+    if (showNavDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showNavDropdown]);
+
+  const getTileIcon = (iconName: string, size = 18) => {
+    const name = iconName ? iconName.charAt(0).toUpperCase() + iconName.slice(1) : 'Box';
+    // @ts-expect-error dynamic lucide icon
+    const Icon = LucideIcons[name] || LucideIcons.Box;
+    return <Icon size={size} />;
+  };
+
+  const fetchNavTiles = async () => {
+    if (!token) return;
+    try {
+      const res = await axios.get('/api/tiles', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setNavTiles((res.data || []).filter((t: TileData) => t.is_authorized && t.status === 'active'));
+    } catch (err) {
+      console.error("Error fetching nav tiles:", err);
+    }
+  };
 
   const fetchChangelog = async () => {
     try {
@@ -207,11 +258,70 @@ const Header: React.FC<HeaderProps> = () => {
             <div className="user-menu">
               <Link to="/profile" className="user-info-link" title="Mon Profil">
                 <span className="user-name">
-                  {user.username} {user.service_code && <span className="service-badge-header">{user.service_code}</span>}
+                  {user.displayName || user.username}
+                  {user.service_code && <span className="service-badge-header">{user.service_code}</span>}
+                  {user.role === 'superadmin' && <span style={{ marginLeft: '4px', fontSize: '10px', fontWeight: '700', padding: '1px 5px', borderRadius: '3px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', verticalAlign: 'middle' }}>SUPERADMIN</span>}
+                  {user.role === 'admin' && <span style={{ marginLeft: '4px', fontSize: '10px', fontWeight: '700', padding: '1px 5px', borderRadius: '3px', background: '#fef3c7', color: '#d97706', border: '1px solid #fcd34d', verticalAlign: 'middle' }}>ADMIN</span>}
                 </span>
                 <User size={18} />
               </Link>
-              {user.role === 'admin' && (
+              {/* Navigation rapide */}
+              <div ref={navDropdownRef} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setShowNavDropdown(v => !v)}
+                  className={`nav-grid-btn ${showNavDropdown ? 'active' : ''}`}
+                  title="Accès rapide aux modules"
+                >
+                  <LayoutGrid size={20} />
+                </button>
+                {showNavDropdown && navTiles.length > 0 && (
+                  <div className="nav-dropdown">
+                    <div className="nav-dropdown-header">Modules</div>
+                    <div className="nav-dropdown-list">
+                      {navTiles.map(tile => {
+                        const internalLinks = tile.links.filter(l => l.is_internal);
+                        if (internalLinks.length === 0) return null;
+                        const isActive = internalLinks.some(l => location.pathname.startsWith(l.url));
+
+                        if (internalLinks.length === 1) {
+                          return (
+                            <Link
+                              key={tile.id}
+                              to={internalLinks[0].url}
+                              className={`nav-tile-item ${isActive ? 'active' : ''}`}
+                              onClick={() => setShowNavDropdown(false)}
+                            >
+                              <span className="nav-tile-icon">{getTileIcon(tile.icon)}</span>
+                              <span className="nav-tile-title">{tile.title}</span>
+                            </Link>
+                          );
+                        }
+
+                        return (
+                          <div key={tile.id} className={`nav-tile-group ${isActive ? 'group-active' : ''}`}>
+                            <div className="nav-tile-group-header">
+                              <span className="nav-tile-icon">{getTileIcon(tile.icon)}</span>
+                              <span className="nav-tile-title">{tile.title}</span>
+                            </div>
+                            {internalLinks.map((link, idx) => (
+                              <Link
+                                key={idx}
+                                to={link.url}
+                                className={`nav-tile-subitem ${location.pathname.startsWith(link.url) ? 'active' : ''}`}
+                                onClick={() => setShowNavDropdown(false)}
+                              >
+                                {link.label}
+                              </Link>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {isAdminLike(user) && (
                 <Link to="/admin" className={`admin-link ${location.pathname.startsWith('/admin') ? 'active' : ''}`} title="Administration">
                   <Settings size={20} />
                 </Link>
@@ -557,6 +667,138 @@ const Header: React.FC<HeaderProps> = () => {
           background: #f1f5f9;
           color: var(--secondary-color);
         }
+        .nav-grid-btn {
+          background: none;
+          border: none;
+          color: #64748b;
+          cursor: pointer;
+          padding: 8px;
+          border-radius: 8px;
+          transition: all 0.2s;
+          display: flex;
+          align-items: center;
+        }
+        .nav-grid-btn:hover, .nav-grid-btn.active {
+          background: #f1f5f9;
+          color: var(--primary-color);
+        }
+        .nav-dropdown {
+          position: absolute;
+          top: calc(100% + 10px);
+          right: 0;
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.12);
+          min-width: 240px;
+          max-width: 300px;
+          z-index: 3000;
+          overflow: hidden;
+          animation: navDropIn 0.15s ease;
+        }
+        @keyframes navDropIn {
+          from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .nav-dropdown-header {
+          padding: 10px 16px 8px;
+          font-size: 10px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+          color: #94a3b8;
+          border-bottom: 1px solid #f1f5f9;
+        }
+        .nav-dropdown-list {
+          padding: 6px;
+          max-height: 70vh;
+          overflow-y: auto;
+        }
+        .nav-tile-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 9px 12px;
+          border-radius: 8px;
+          text-decoration: none;
+          color: #334155;
+          font-size: 14px;
+          font-weight: 600;
+          transition: all 0.15s;
+        }
+        .nav-tile-item:hover {
+          background: #f8fafc;
+          color: var(--primary-color);
+        }
+        .nav-tile-item.active {
+          background: #eff6ff;
+          color: var(--primary-color);
+        }
+        .nav-tile-item.active::before {
+          content: '';
+          display: block;
+          width: 4px;
+          height: 4px;
+          border-radius: 50%;
+          background: var(--primary-color);
+          flex-shrink: 0;
+        }
+        .nav-tile-icon {
+          width: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          color: #64748b;
+        }
+        .nav-tile-item.active .nav-tile-icon,
+        .nav-tile-item:hover .nav-tile-icon {
+          color: var(--primary-color);
+        }
+        .nav-tile-group.group-active .nav-tile-icon {
+          color: var(--primary-color);
+        }
+        .nav-tile-title {
+          flex: 1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .nav-tile-group {
+          margin-bottom: 2px;
+        }
+        .nav-tile-group.group-active .nav-tile-group-header {
+          color: var(--primary-color);
+        }
+        .nav-tile-group-header {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 12px 4px;
+          font-size: 13px;
+          font-weight: 700;
+          color: #475569;
+        }
+        .nav-tile-subitem {
+          display: block;
+          padding: 6px 12px 6px 46px;
+          border-radius: 6px;
+          text-decoration: none;
+          font-size: 13px;
+          color: #64748b;
+          font-weight: 500;
+          transition: all 0.15s;
+        }
+        .nav-tile-subitem:hover {
+          background: #f8fafc;
+          color: var(--primary-color);
+        }
+        .nav-tile-subitem.active {
+          color: var(--primary-color);
+          font-weight: 700;
+          background: #eff6ff;
+        }
+
         .btn-logout {
           background: none;
           border: none;

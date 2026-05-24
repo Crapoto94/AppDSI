@@ -22,6 +22,7 @@ const DesignationImagesManager: React.FC<DesignationImagesManagerProps> = ({ tok
   const [selectedDesignation, setSelectedDesignation] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [showMissingOnly, setShowMissingOnly] = useState(false);
 
   useEffect(() => {
     loadImages();
@@ -112,13 +113,15 @@ const DesignationImagesManager: React.FC<DesignationImagesManagerProps> = ({ tok
     }
   };
 
-  const filteredImages = images.filter(img =>
-    img.designation.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const unmappedDesignations = designations.filter(d =>
     !images.some(img => img.designation === d)
   );
+
+  const filteredImages = showMissingOnly
+    ? [] // Pas d'images à afficher quand on montre les manquantes
+    : images.filter(img =>
+        img.designation.toLowerCase().includes(searchQuery.toLowerCase())
+      );
 
   return (
     <div>
@@ -203,7 +206,7 @@ const DesignationImagesManager: React.FC<DesignationImagesManagerProps> = ({ tok
           Rechercher des Images
         </h3>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px 180px', gap: 12 }}>
           <input
             type="text"
             placeholder="Exemple: Brother DCP, Canon, HP..."
@@ -226,6 +229,19 @@ const DesignationImagesManager: React.FC<DesignationImagesManagerProps> = ({ tok
           >
             <Search size={16} /> Chercher
           </button>
+          <button
+            onClick={() => setShowMissingOnly(!showMissingOnly)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              background: showMissingOnly ? '#f97316' : '#e2e8f0',
+              color: showMissingOnly ? 'white' : '#64748b',
+              border: 'none', borderRadius: 8,
+              padding: '10px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 14,
+              transition: 'all 0.2s'
+            }}
+          >
+            {showMissingOnly ? '✓ Sans image' : 'Sans image'}
+          </button>
         </div>
 
         <p style={{ marginTop: 12, fontSize: 12, color: '#64748b' }}>
@@ -233,67 +249,104 @@ const DesignationImagesManager: React.FC<DesignationImagesManagerProps> = ({ tok
         </p>
       </div>
 
+      {/* Imprimantes sans image */}
+      {showMissingOnly && unmappedDesignations.length > 0 && (
+        <div style={{
+          background: 'white', borderRadius: 14, border: '2px solid #f97316',
+          padding: 24, marginBottom: 24
+        }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: '#f97316' }}>
+            📋 {unmappedDesignations.length} imprimante{unmappedDesignations.length > 1 ? 's' : ''} sans image
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {unmappedDesignations.map((designation, idx) => (
+              <div key={idx} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 16px', background: '#fef5ed', border: '1px solid #fed7aa',
+                borderRadius: 8
+              }}>
+                <span style={{ color: '#7c2d12', fontWeight: 600, fontSize: 14 }}>
+                  {designation}
+                </span>
+                <button
+                  onClick={() => setSelectedDesignation(designation)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
+                    background: '#f97316', color: 'white', border: 'none', borderRadius: 6,
+                    fontSize: 13, fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                  Ajouter une image
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Liste des Images */}
-      <div style={{
-        background: 'white', borderRadius: 14, border: '1px solid #e2e8f0',
-        overflow: 'hidden'
-      }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ background: 'var(--secondary-color)' }}>
-              <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white' }}>Image</th>
-              <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white' }}>Désignation</th>
-              <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white' }}>Date</th>
-              <th style={{ padding: '14px 20px', textAlign: 'right', fontWeight: 700, color: 'white' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredImages.length === 0 ? (
-              <tr>
-                <td colSpan={4} style={{ padding: '50px 20px', textAlign: 'center', color: '#94a3b8' }}>
-                  Aucune image trouvée
-                </td>
+      {!showMissingOnly && (
+        <div style={{
+          background: 'white', borderRadius: 14, border: '1px solid #e2e8f0',
+          overflow: 'hidden'
+        }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ background: 'var(--secondary-color)' }}>
+                <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white' }}>Image</th>
+                <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white' }}>Désignation</th>
+                <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white' }}>Date</th>
+                <th style={{ padding: '14px 20px', textAlign: 'right', fontWeight: 700, color: 'white' }}>Actions</th>
               </tr>
-            ) : (
-              filteredImages.map((img, idx) => (
-                <tr key={img.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
-                  <td style={{ padding: '12px 20px' }}>
-                    <img
-                      src={img.image_path}
-                      alt={img.designation}
-                      style={{ width: 60, height: 60, objectFit: 'contain', borderRadius: 6 }}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="60" height="60"%3E%3Crect fill="%23e2e8f0" width="60" height="60"/%3E%3C/svg%3E';
-                      }}
-                    />
-                  </td>
-                  <td style={{ padding: '12px 20px', fontWeight: 600, color: '#1e293b' }}>{img.designation}</td>
-                  <td style={{ padding: '12px 20px', color: '#64748b' }}>
-                    {new Date(img.created_at).toLocaleDateString('fr-FR')}
-                  </td>
-                  <td style={{ padding: '12px 20px', textAlign: 'right' }}>
-                    <button
-                      onClick={() => handleDelete(img.id, img.designation)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        padding: '6px 12px', background: '#fff5f5', color: '#dc2626',
-                        border: '1px solid #fecaca', borderRadius: 6, fontSize: 13,
-                        fontWeight: 600, cursor: 'pointer'
-                      }}
-                    >
-                      <Trash2 size={14} /> Supprimer
-                    </button>
+            </thead>
+            <tbody>
+              {filteredImages.length === 0 ? (
+                <tr>
+                  <td colSpan={4} style={{ padding: '50px 20px', textAlign: 'center', color: '#94a3b8' }}>
+                    Aucune image trouvée
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                filteredImages.map((img, idx) => (
+                  <tr key={img.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
+                    <td style={{ padding: '12px 20px' }}>
+                      <img
+                        src={img.image_path}
+                        alt={img.designation}
+                        style={{ width: 60, height: 60, objectFit: 'contain', borderRadius: 6 }}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="60" height="60"%3E%3Crect fill="%23e2e8f0" width="60" height="60"/%3E%3C/svg%3E';
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: '12px 20px', fontWeight: 600, color: '#1e293b' }}>{img.designation}</td>
+                    <td style={{ padding: '12px 20px', color: '#64748b' }}>
+                      {new Date(img.created_at).toLocaleDateString('fr-FR')}
+                    </td>
+                    <td style={{ padding: '12px 20px', textAlign: 'right' }}>
+                      <button
+                        onClick={() => handleDelete(img.id, img.designation)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          padding: '6px 12px', background: '#fff5f5', color: '#dc2626',
+                          border: '1px solid #fecaca', borderRadius: 6, fontSize: 13,
+                          fontWeight: 600, cursor: 'pointer'
+                        }}
+                      >
+                        <Trash2 size={14} /> Supprimer
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
 
-        <div style={{ padding: '12px 20px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: 13, color: '#64748b', fontWeight: 500 }}>
-          {filteredImages.length} image(s) / {designations.length} désignation(s) mappées
+          <div style={{ padding: '12px 20px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: 13, color: '#64748b', fontWeight: 500 }}>
+            {filteredImages.length} image(s) / {designations.length} désignation(s) mappées
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

@@ -11,10 +11,16 @@ import {
 
 const AdminLayout: React.FC = () => {
   const location = useLocation();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [pendingCount, setPendingCount] = useState(0);
+  const isSuperAdmin = user?.role === 'superadmin' || ['admin', 'adminhub'].includes(user?.username?.toLowerCase() || '');
 
   useEffect(() => {
+    if (!token || !isSuperAdmin) {
+      setPendingCount(0);
+      return;
+    }
+
     const fetchPendingCount = async () => {
       try {
         const res = await axios.get('/api/admin/access-requests', {
@@ -22,6 +28,10 @@ const AdminLayout: React.FC = () => {
         });
         setPendingCount(res.data.length);
       } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 403) {
+          setPendingCount(0);
+          return;
+        }
         console.error("Error fetching pending requests count", err);
       }
     };
@@ -29,13 +39,13 @@ const AdminLayout: React.FC = () => {
     fetchPendingCount();
     const interval = setInterval(fetchPendingCount, 30000); // Refresh every 30s
     return () => clearInterval(interval);
-  }, [token]);
+  }, [token, isSuperAdmin]);
 
   const menuItems = [
     { title: "Dashboard", icon: LayoutDashboard, path: "/admin", exact: true },
     { title: "Utilisateurs", icon: Users, path: "/admin/users" },
     { title: "Organisation", icon: Network, path: "/admin/organisation" },
-    { title: "Demandes d'Accès", icon: ShieldCheck, path: "/admin/access-requests", badge: pendingCount },
+    ...(isSuperAdmin ? [{ title: "Demandes d'Acces", icon: ShieldCheck, path: "/admin/access-requests", badge: pendingCount }] : []),
     { title: "Backlog", icon: Inbox, path: "/admin/backlog" },
     { title: "Messages Système", icon: MessageSquare, path: "/admin/messages" },
     { title: "Modèles d'Emails", icon: Mail, path: "/admin/email-templates" },
@@ -48,6 +58,7 @@ const AdminLayout: React.FC = () => {
     { title: "Paramètres", icon: Sliders, path: "/admin/settings" },
     { title: "SMS Frizbi", icon: MessageSquare, path: "/admin/frizbi" },
     { title: "Intelligence Artificielle", icon: MessageSquare, path: "/admin/transcript" },
+    { title: "Tickets", icon: Inbox, path: "/admin/tickets" },
     { title: "Liaison AD", icon: Monitor, path: "/admin/ad" },
     { title: "Azure AD (Entra)", icon: Shield, path: "/admin/azure-ad" },
     { title: "Liaison GLPI", icon: Database, path: "/admin/glpi" },

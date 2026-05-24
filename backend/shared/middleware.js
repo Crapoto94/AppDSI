@@ -2,6 +2,15 @@ const jwt = require('jsonwebtoken');
 const { SECRET_KEY } = require('./config');
 const { getSqlite } = require('./database');
 
+// ─── Role helpers ─────────────────────────────────────────────────────────────
+/** "Superadmin" → sees ALL data, full system access (formerly 'admin') */
+const isSuperAdmin = (user) =>
+    user && (user.role === 'superadmin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub');
+
+/** "Admin or superadmin" → can access /admin menu, but new 'admin' role only sees own data */
+const isAdminLike = (user) =>
+    isSuperAdmin(user) || (user && user.role === 'admin');
+
 /**
  * Middleware to verify JWT token
  */
@@ -20,7 +29,7 @@ const authenticateJWT = (req, res, next) => {
                 return res.status(403).json({ message: 'Session expirée ou invalide' });
             }
             // Ensure admins are always approved
-            if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+            if (isAdminLike(user)) {
                 user.is_approved = 1;
             }
             req.user = user;
@@ -43,7 +52,7 @@ const tryAuthenticateJWT = (req, res, next) => {
         if (token) {
             jwt.verify(token, SECRET_KEY, (err, user) => {
                 if (!err) {
-                    if (user.role === 'admin' || user.username?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'adminhub') {
+                    if (isAdminLike(user)) {
                         user.is_approved = 1;
                     }
                     req.user = user;
@@ -57,14 +66,29 @@ const tryAuthenticateJWT = (req, res, next) => {
 };
 
 /**
- * Middleware for Admin only
+ * Middleware for SuperAdmin only (system management, sees all data)
+ * Accepts: role='superadmin' OR legacy usernames 'admin'/'adminhub'
  */
 const authenticateAdmin = (req, res, next) => {
     authenticateJWT(req, res, () => {
-        if (req.user && (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin')) {
+        if (isSuperAdmin(req.user)) {
             next();
         } else {
-            res.status(403).json({ message: 'Accès refusé : administrateur uniquement' });
+            res.status(403).json({ message: 'Accès refusé : superadministrateur uniquement' });
+        }
+    });
+};
+
+/**
+ * Middleware for Admin UI access (role='admin' OR role='superadmin')
+ * The new 'admin' role can access the /admin menu but only sees own data.
+ */
+const authenticateAdminUI = (req, res, next) => {
+    authenticateJWT(req, res, () => {
+        if (isAdminLike(req.user)) {
+            next();
+        } else {
+            res.status(403).json({ message: 'Accès refusé : rôle admin requis' });
         }
     });
 };
@@ -89,7 +113,7 @@ const authenticateInternalOrAdmin = (req, res, next) => {
  */
 const authenticateAdminOrFinances = (req, res, next) => {
     authenticateJWT(req, res, () => {
-        if (req.user && (req.user.role === 'admin' || req.user.role === 'finances' || req.user.role === 'compta')) {
+        if (req.user && (isSuperAdmin(req.user) || req.user.role === 'finances' || req.user.role === 'compta')) {
             next();
         } else {
             res.status(403).json({ message: 'Accès refusé : administrateur ou finances/compta uniquement' });
@@ -102,16 +126,16 @@ const authenticateAdminOrFinances = (req, res, next) => {
  */
 const authenticateMagappControl = (req, res, next) => {
     authenticateJWT(req, res, async () => {
-        if (req.user && (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin')) {
+        if (isAdminLike(req.user)) {
             return next();
         }
-        
+
         try {
             const db = getSqlite();
             if (req.user && req.user.id && db) {
                 const authorized = await db.get(`
-                    SELECT 1 FROM user_tiles ut 
-                    JOIN tile_links tl ON ut.tile_id = tl.tile_id 
+                    SELECT 1 FROM user_tiles ut
+                    JOIN tile_links tl ON ut.tile_id = tl.tile_id
                     WHERE ut.user_id = ? AND tl.url = '/admin/magapp'
                 `, [req.user.id]);
                 
@@ -134,7 +158,7 @@ const authenticateGLPIControl = (req, res, next) => {
         if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
         
         // Admins ont toujours accès
-        if (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub') {
+        if (isAdminLike(req.user)) {
             return next();
         }
 
@@ -167,7 +191,7 @@ const authenticateGLPIControl = (req, res, next) => {
  */
 const authenticateAdminOrPMO = (req, res, next) => {
     authenticateJWT(req, res, async () => {
-        if (req.user && (req.user.role === 'admin' || req.user.username?.toLowerCase() === 'admin' || req.user.username?.toLowerCase() === 'adminhub')) {
+        if (isAdminLike(req.user)) {
             return next();
         }
         try {
@@ -187,9 +211,12 @@ module.exports = {
     authenticateJWT,
     tryAuthenticateJWT,
     authenticateAdmin,
+    authenticateAdminUI,
     authenticateInternalOrAdmin,
     authenticateAdminOrFinances,
     authenticateAdminOrPMO,
     authenticateMagappControl,
-    authenticateGLPIControl
+    authenticateGLPIControl,
+    isSuperAdmin,
+    isAdminLike,
 };

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { pgDb } = require('../../shared/database');
+const { isSuperAdmin } = require('../../shared/middleware');
 
 // Forward declaration - sendMail will be injected from server.js
 let sendMailFn = null;
@@ -313,7 +314,7 @@ ${tasksHtml}
         try {
             const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [req.params.id]);
             if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
-            const isAdmin = req.user?.role === 'admin';
+            const isAdmin = isSuperAdmin(req.user);
             const isCreator = req.user?.username && reunion.created_by === req.user.username;
             if (!isAdmin && !isCreator) return res.status(403).json({ error: 'Seuls l\'administrateur ou le créateur peuvent supprimer cette réunion' });
 

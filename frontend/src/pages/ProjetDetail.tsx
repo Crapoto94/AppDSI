@@ -6,6 +6,7 @@ import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
 import AddTaskModal from '../components/AddTaskModal';
 import { useAuth } from '../contexts/AuthContext';
+import { isSuperAdmin, isAdminLike } from '../utils/roles';
 
 interface Projet {
   id: number; code: string; titre: string; description: string;
@@ -33,6 +34,7 @@ interface Projet {
   projet_parent_id?: number;
   projet_parent?: { id: number; code: string; titre: string };
   applications?: { id: number; projet_id: number; app_id: number; app_name: string; app_url: string; app_icon: string }[];
+  is_mini_projet?: boolean;
 }
 
 const STATUT_LABELS: Record<string, string> = {
@@ -89,12 +91,13 @@ const ProjetDetail: React.FC = () => {
   const [govForm, setGovForm] = useState({ commanditaire_username: '', commanditaire_display: '', chef_projet_username: '', chef_projet_display: '', chef_projet_metier_username: '', chef_projet_metier_display: '', dpd_requis: false, rssi_requis: false });
   const [editingInfos, setEditingInfos] = useState(false);
 
-  const isAdmin = user?.role === 'admin';
-  const isPMO = user?.est_pmo;
+  const isAdmin = isSuperAdmin(user);
+  const isPMO = user?.est_pmo || isAdminLike(user);
   const isChefProjet = projet?.chef_projet_username === user?.username || projet?.responsable_dsi_username === user?.username || (projet?.roles || []).some(r => r.username === user?.username && r.role === 'chef_projet');
   const peutVoirAdmin = isAdmin || isPMO || isChefProjet;
   const TABS = ALL_TABS.filter(t => {
     if (t.key === 'admin') return peutVoirAdmin;
+    if (projet?.is_mini_projet && ['planning', 'score', 'indicateurs'].includes(t.key)) return false;
     return true;
   });
   const [infosForm, setInfosForm] = useState({ titre: '', description: '', niveau_projet: '', service_pilote: '', priorite: 0, avancement: 0, risque_global: '', satisfaction_metier: 0, date_debut_prevue: '', date_fin_prevue: '', benefices_attendus: '', benefices_realises: '', notes_internes: '' });
@@ -107,6 +110,10 @@ const ProjetDetail: React.FC = () => {
   const [appResults, setAppResults] = useState<any[]>([]);
   const [projetSearch, setProjetSearch] = useState('');
   const [projetResults, setProjetResults] = useState<any[]>([]);
+  const [equipeSearch, setEquipeSearch] = useState('');
+  const [equipeResults, setEquipeResults] = useState<any[]>([]);
+  const [equipeSearching, setEquipeSearching] = useState(false);
+  const equipeSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (projet?.id) {
@@ -272,45 +279,81 @@ const ProjetDetail: React.FC = () => {
       .then(r => r.json()).then(d => { if (Array.isArray(d)) setAppResults(d); }).catch(() => {});
   };
 
+  const searchEquipeMembers = (q: string) => {
+    setEquipeSearch(q);
+    if (equipeSearchTimer.current) clearTimeout(equipeSearchTimer.current);
+    if (q.length < 2) { setEquipeResults([]); return; }
+    setEquipeSearching(true);
+    equipeSearchTimer.current = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
+        const d = await r.json();
+        setEquipeResults(Array.isArray(d) ? d : []);
+      } catch { setEquipeResults([]); }
+      finally { setEquipeSearching(false); }
+    }, 400);
+  };
+
+  const addEquipeMember = async (username: string, displayName: string) => {
+    if (!projet?.id) return;
+    // Éviter les doublons
+    if ((projet.roles || []).some(r => r.username === username && r.role === 'equipe_projet')) return;
+    await fetch(`/api/projets/${projet.id}/roles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ username, role: 'equipe_projet', display_name: displayName })
+    });
+    setEquipeSearch(''); setEquipeResults([]);
+    fetchProjet();
+  };
+
+  const removeEquipeMember = async (roleId: number) => {
+    if (!projet?.id) return;
+    await fetch(`/api/projets/${projet.id}/roles/${roleId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    fetchProjet();
+  };
+
   const renderInfos = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      {/* Fil d'Ariane des étapes */}
-      <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', overflowX: 'auto' }}>
-        {[
-          { key: 'idee', label: 'Idée' },
-          { key: 'demande_initiale', label: 'Demande' },
-          { key: 'etude_dsi', label: 'Étude' },
-          { key: 'arbitrage', label: 'Arbitrage' },
-          { key: 'planification', label: 'Plan' },
-          { key: 'en_cours', label: 'Réalisation' },
-          { key: 'en_recette', label: 'Recette' },
-          { key: 'en_cloture', label: 'Clôture' },
-          { key: 'cloture', label: 'Terminé' },
-        ].map((phase, idx) => {
-          const ordre = ['idee','demande_initiale','etude_dsi','arbitrage','planification','en_cours','en_recette','en_cloture','cloture'];
-          const currentIdx = ordre.indexOf(projet.statut);
-          const phaseIdx = ordre.indexOf(phase.key);
-          const estPassee = phaseIdx < currentIdx;
-          const estCourante = phase.key === projet.statut;
-          return (
-            <div key={phase.key} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <div style={{
-                padding: '4px 12px', borderRadius: '14px', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap',
-                background: estCourante ? '#2563eb' : estPassee ? '#16a34a' : '#f1f5f9',
-                color: estCourante ? 'white' : estPassee ? 'white' : '#94a3b8',
-              }}>
-                {estCourante ? '📍 ' : estPassee ? '✅ ' : ''}{phase.label}
+      {/* Fil d'Ariane des étapes — masqué pour les mini-projets */}
+      {!projet.is_mini_projet && (
+        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', overflowX: 'auto' }}>
+          {[
+            { key: 'idee', label: 'Idée' },
+            { key: 'demande_initiale', label: 'Demande' },
+            { key: 'etude_dsi', label: 'Étude' },
+            { key: 'arbitrage', label: 'Arbitrage' },
+            { key: 'planification', label: 'Plan' },
+            { key: 'en_cours', label: 'Réalisation' },
+            { key: 'en_recette', label: 'Recette' },
+            { key: 'en_cloture', label: 'Clôture' },
+            { key: 'cloture', label: 'Terminé' },
+          ].map((phase, idx) => {
+            const ordre = ['idee','demande_initiale','etude_dsi','arbitrage','planification','en_cours','en_recette','en_cloture','cloture'];
+            const currentIdx = ordre.indexOf(projet.statut);
+            const phaseIdx = ordre.indexOf(phase.key);
+            const estPassee = phaseIdx < currentIdx;
+            const estCourante = phase.key === projet.statut;
+            return (
+              <div key={phase.key} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <div style={{
+                  padding: '4px 12px', borderRadius: '14px', fontSize: '12px', fontWeight: '700', whiteSpace: 'nowrap',
+                  background: estCourante ? '#2563eb' : estPassee ? '#16a34a' : '#f1f5f9',
+                  color: estCourante ? 'white' : estPassee ? 'white' : '#94a3b8',
+                }}>
+                  {estCourante ? '📍 ' : estPassee ? '✅ ' : ''}{phase.label}
+                </div>
+                {idx < 8 && <span style={{ color: estPassee || estCourante ? '#94a3b8' : '#d1d5db', fontSize: '12px' }}>›</span>}
               </div>
-              {idx < 8 && <span style={{ color: estPassee || estCourante ? '#94a3b8' : '#d1d5db', fontSize: '12px' }}>›</span>}
-            </div>
-          );
-        })}
-        {['refuse','suspendu','abandonne'].includes(projet.statut) && (
-          <span style={{ padding: '4px 12px', borderRadius: '14px', fontSize: '12px', fontWeight: '700', background: '#fee2e2', color: '#dc2626' }}>
-            {projet.statut === 'refuse' ? '🚫 Refusé' : projet.statut === 'suspendu' ? '⏸️ Suspendu' : '🗑️ Abandonné'}
-          </span>
-        )}
-      </div>
+            );
+          })}
+          {['refuse','suspendu','abandonne'].includes(projet.statut) && (
+            <span style={{ padding: '4px 12px', borderRadius: '14px', fontSize: '12px', fontWeight: '700', background: '#fee2e2', color: '#dc2626' }}>
+              {projet.statut === 'refuse' ? '🚫 Refusé' : projet.statut === 'suspendu' ? '⏸️ Suspendu' : '🗑️ Abandonné'}
+            </span>
+          )}
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
         {editingInfos ? (
           <>
@@ -392,11 +435,50 @@ const ProjetDetail: React.FC = () => {
             </>
           )}
           <div style={{ marginTop: '12px' }}>
-            <ComitesSection projetId={projet.id} token={token} />
-            {!editingInfos && <PartiesPrenantesSection roles={projet.roles || []} comites={comites} />}
+            {!projet.is_mini_projet && <ComitesSection projetId={projet.id} token={token} />}
+            {!editingInfos && <PartiesPrenantesSection roles={projet.roles || []} comites={projet.is_mini_projet ? [] : comites} />}
           </div>
         </div>
       </div>
+      {editingInfos && (
+        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+          <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>👥 Équipe projet</h3>
+          {(projet.roles || []).filter(r => r.role === 'equipe_projet').length === 0 && (
+            <p style={{ color: '#94a3b8', fontSize: '13px', fontStyle: 'italic', margin: '0 0 8px' }}>Aucun membre</p>
+          )}
+          {(projet.roles || []).filter(r => r.role === 'equipe_projet').map(r => (
+            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
+              <span style={{ color: '#1e293b', fontWeight: '600' }}>{r.display_name || r.username}</span>
+              <button onClick={() => removeEquipeMember(r.id)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px 8px', borderRadius: '4px', fontSize: '13px' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>✕</button>
+            </div>
+          ))}
+          <div style={{ marginTop: '10px', position: 'relative' }}>
+            <input
+              value={equipeSearch}
+              onChange={e => searchEquipeMembers(e.target.value)}
+              placeholder="Ajouter un membre (recherche annuaire)..."
+              style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', boxSizing: 'border-box' }}
+            />
+            {equipeSearching && <div style={{ fontSize: '11px', color: '#94a3b8', padding: '2px 0' }}>Recherche...</div>}
+            {equipeResults.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: '200px', overflowY: 'auto' }}>
+                {equipeResults.map((u: any) => (
+                  <div key={u.username} onClick={() => addEquipeMember(u.username, u.displayName || u.username)}
+                    style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
+                    <span style={{ fontWeight: '600' }}>{u.displayName || u.username}</span>
+                    {u.displayName && <span style={{ color: '#94a3b8', marginLeft: '6px', fontSize: '12px' }}>({u.username})</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {!editingInfos && (projet.description || projet.benefices_attendus || projet.benefices_realises || projet.notes_internes) && (
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
           <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📝 Description & notes</h3>
@@ -516,7 +598,23 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
             <ArrowLeft size={20} />
           </button>
           <div style={{ flex: 1 }}>
-            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#1e293b' }}>{projet.titre}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#1e293b' }}>{projet.titre}</h1>
+              {projet.is_mini_projet && (
+                <span style={{ fontSize: '11px', fontWeight: '600', padding: '2px 8px', borderRadius: '4px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0' }}>mini-projet</span>
+              )}
+              {peutVoirAdmin && !projet.is_mini_projet && (
+                <button onClick={async () => {
+                  try {
+                    const r = await fetch(`/api/projets/${projet.id}/toggle-mini`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } });
+                    if (r.ok) fetchProjet();
+                  } catch {}
+                }} title="Convertir en mini-projet"
+                  style={{ padding: '2px 8px', fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '4px', background: 'white', cursor: 'pointer', color: '#64748b', fontWeight: '600' }}>
+                  ↔ Mini
+                </button>
+              )}
+            </div>
             <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>{projet.code}</span>
               <span style={{ padding: '2px 8px', borderRadius: '5px', fontSize: '11px', fontWeight: '600', background: `${STATUT_COLORS[projet.statut] || '#94a3b8'}20`, color: STATUT_COLORS[projet.statut] || '#94a3b8' }}>{STATUT_LABELS[projet.statut] || projet.statut}</span>
@@ -524,53 +622,65 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => {
-              fetchTransitions();
-              setShowTransitionPicker(!showTransitionPicker);
-              if (!showTransitionPicker) setTransitionStatutCible('');
-            }}
-              style={{ padding: '9px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <ArrowRight size={16} /> Changer le statut
-            </button>
-            {projet?.statut !== 'refuse' && (
-              <button onClick={async () => {
-                if (window.confirm('Êtes-vous sûr de vouloir refuser ce projet ?')) {
-                  try {
-                    const res = await fetch(`/api/projets/${id}/transition`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                      body: JSON.stringify({ statut_cible: 'refuse', commentaire: null })
-                    });
-                    if (res.ok) {
-                      fetchProjet();
-                      fetchTransitions();
+            {projet.is_mini_projet ? (
+              peutVoirAdmin && (
+                <button onClick={async () => {
+                  if (window.confirm('Transformer ce mini-projet en projet standard ? Le planning, les étapes de workflow et les comités seront activés.')) {
+                    try {
+                      const r = await fetch(`/api/projets/${projet.id}/toggle-mini`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}` } });
+                      if (r.ok) fetchProjet();
+                    } catch {}
+                  }
+                }}
+                  style={{ padding: '9px 16px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ArrowRight size={16} /> Transformer en projet
+                </button>
+              )
+            ) : (
+              <>
+                <button onClick={() => {
+                  fetchTransitions();
+                  setShowTransitionPicker(!showTransitionPicker);
+                  if (!showTransitionPicker) setTransitionStatutCible('');
+                }}
+                  style={{ padding: '9px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ArrowRight size={16} /> Changer le statut
+                </button>
+                {projet?.statut !== 'refuse' && (
+                  <button onClick={async () => {
+                    if (window.confirm('Êtes-vous sûr de vouloir refuser ce projet ?')) {
+                      try {
+                        const res = await fetch(`/api/projets/${id}/transition`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ statut_cible: 'refuse', commentaire: null })
+                        });
+                        if (res.ok) { fetchProjet(); fetchTransitions(); }
+                      } catch (e) { console.error(e); }
                     }
-                  } catch (e) { console.error(e); }
-                }
-              }}
-                style={{ padding: '9px 16px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                ✕ Refuser
-              </button>
-            )}
-            {projet?.statut !== 'en_pause' && !['refuse', 'abandonne', 'cloture'].includes(projet?.statut || '') && (
-              <button onClick={async () => {
-                if (window.confirm('Êtes-vous sûr de vouloir mettre ce projet en pause ?')) {
-                  try {
-                    const res = await fetch(`/api/projets/${id}/transition`, {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                      body: JSON.stringify({ statut_cible: 'en_pause', commentaire: null })
-                    });
-                    if (res.ok) {
-                      fetchProjet();
-                      fetchTransitions();
+                  }}
+                    style={{ padding: '9px 16px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    ✕ Refuser
+                  </button>
+                )}
+                {projet?.statut !== 'en_pause' && !['refuse', 'abandonne', 'cloture'].includes(projet?.statut || '') && (
+                  <button onClick={async () => {
+                    if (window.confirm('Êtes-vous sûr de vouloir mettre ce projet en pause ?')) {
+                      try {
+                        const res = await fetch(`/api/projets/${id}/transition`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ statut_cible: 'en_pause', commentaire: null })
+                        });
+                        if (res.ok) { fetchProjet(); fetchTransitions(); }
+                      } catch (e) { console.error(e); }
                     }
-                  } catch (e) { console.error(e); }
-                }
-              }}
-                style={{ padding: '9px 16px', background: '#a855f7', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                ⏸ Mettre en pause
-              </button>
+                  }}
+                    style={{ padding: '9px 16px', background: '#a855f7', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    ⏸ Mettre en pause
+                  </button>
+                )}
+              </>
             )}
           </div>
           {showTransitionPicker && (
@@ -2627,6 +2737,12 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {projet.is_mini_projet && (
+        <div style={{ padding: '10px 16px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0', fontSize: '13px', color: '#16a34a', fontWeight: '600' }}>
+          🌱 Ce projet est un <strong>mini-projet</strong> — les étapes de workflow et les comités ne s'appliquent pas.
+        </div>
+      )}
+      {!projet.is_mini_projet && (
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
         <h3 style={{ margin: '0 0 14px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>📌 Étapes du projet</h3>
         {etapes.length === 0 ? (
@@ -2651,6 +2767,7 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
           {savingEtapes ? 'Enregistrement...' : '💾 Enregistrer les étapes'}
         </button>
       </div>
+      )}
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Parties prenantes ({projet.roles?.length || 0})</h3>

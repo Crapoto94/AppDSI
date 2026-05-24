@@ -1,6 +1,7 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
 const axios = require('axios');
+const { isSuperAdmin } = require('../../shared/middleware');
 const fs = require('fs');
 const path = require('path');
 
@@ -51,7 +52,7 @@ const transcriptController = {
         try {
             const db = pgDb;
             const { username, email, role } = req.user;
-            const isAdmin = role === 'admin' || username?.toLowerCase() === 'admin' || username?.toLowerCase() === 'adminhub';
+            const isAdmin = isSuperAdmin(req.user);
 
             let meetings;
             if (isAdmin) {
@@ -131,7 +132,7 @@ const transcriptController = {
             const db = pgDb;
             const meetingId = req.params.id;
             const { username, email, role } = req.user;
-            const isAdmin = role === 'admin' || username?.toLowerCase() === 'admin' || username?.toLowerCase() === 'adminhub';
+            const isAdmin = isSuperAdmin(req.user);
 
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
@@ -574,7 +575,7 @@ const transcriptController = {
             if (!q || q.trim().length < 2) return res.json([]);
             const db = pgDb;
             const { username, email, role } = req.user;
-            const isAdmin = role === 'admin' || username?.toLowerCase() === 'admin' || username?.toLowerCase() === 'adminhub';
+            const isAdmin = isSuperAdmin(req.user);
             const term = `%${q.trim()}%`;
 
             let rows;

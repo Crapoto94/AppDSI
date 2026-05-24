@@ -25,9 +25,9 @@ let observersSyncProgress = {
 
 let observersSyncCancelled = false;
 
-let followupsSyncProgress = { 
-    active: false, 
-    processed: 0, 
+let followupsSyncProgress = {
+    active: false,
+    processed: 0,
     total: 0,
     startTime: null,
     lastUpdate: null
@@ -35,9 +35,29 @@ let followupsSyncProgress = {
 
 let followupsSyncCancelled = false;
 
+let descriptionsSyncProgress = {
+    active: false,
+    processed: 0,
+    total: 0,
+    startTime: null,
+    lastUpdate: null
+};
+
+let descriptionsSyncCancelled = false;
+
 // Scheduled sync state
 let currentRunningSync = null;
 let syncQueue = [];
+
+// ─── Helper : vérifie si UNE synchro quelconque est déjà active ──────────────
+function isAnySyncActive() {
+    return glpiSyncProgress.active ||
+           observersSyncProgress.active ||
+           followupsSyncProgress.active ||
+           descriptionsSyncProgress.active;
+}
+
+const SYNC_BUSY_MSG = 'Une synchronisation est déjà en cours. Attendez qu\'elle se termine avant d\'en lancer une autre.';
 
 
 const glpiController = {
@@ -63,6 +83,14 @@ const glpiController = {
     cancelFollowupsSync: (req, res) => {
         console.log('[GLPI Followups Cancel] Demande d\'annulation reçue');
         followupsSyncCancelled = true;
+        res.json({ success: true });
+    },
+
+    getDescriptionsStatus: (req, res) => res.json(descriptionsSyncProgress),
+
+    cancelDescriptionsSync: (req, res) => {
+        console.log('[GLPI Descriptions Cancel] Demande d\'annulation reçue');
+        descriptionsSyncCancelled = true;
         res.json({ success: true });
     },
 
@@ -437,6 +465,7 @@ const glpiController = {
     },
 
     syncAllTickets: async (req, res) => {
+        if (isAnySyncActive()) return res.status(409).json({ message: SYNC_BUSY_MSG });
         const triggeredBy = req.user?.username || 'admin';
         glpiSyncCancelled = false;
         glpiSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString(), type: 'full' };
@@ -514,6 +543,7 @@ const glpiController = {
     },
 
     syncObservers: async (req, res) => {
+        if (isAnySyncActive()) return res.status(409).json({ message: SYNC_BUSY_MSG });
         const triggeredBy = req.user?.username || 'admin';
         observersSyncCancelled = false;
         observersSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString() };
@@ -579,6 +609,7 @@ const glpiController = {
     },
 
     syncFollowups: async (req, res) => {
+        if (isAnySyncActive()) return res.status(409).json({ message: SYNC_BUSY_MSG });
         followupsSyncCancelled = false;
         followupsSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString() };
 
@@ -643,13 +674,117 @@ const glpiController = {
         }
     },
 
+    // Sync descriptions (content) via direct GET /Ticket/:id
+    // L'API de recherche GLPI retourne le champ 62 (content) vide ou tronqué.
+    // La seule façon d'obtenir la description complète est d'appeler GET /Ticket/:id.
+    syncDescriptions: async (req, res) => {
+        if (isAnySyncActive()) return res.status(409).json({ message: SYNC_BUSY_MSG });
+        descriptionsSyncCancelled = false;
+        descriptionsSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString() };
+
+        try {
+            const db = getSqlite();
+            const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+            if (!settings || !settings.url) {
+                descriptionsSyncProgress.active = false;
+                return res.status(400).json({ message: 'GLPI non configuré' });
+            }
+
+            const url = glpiController.getApiUrl(settings.url);
+            const commonHeaders = { 'App-Token': settings.app_token?.trim() || '', 'Content-Type': 'application/json' };
+            const authHeader = glpiController.getAuthHeader(settings);
+
+            const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader } });
+            const sessionToken = sessionRes.data?.session_token;
+            if (!sessionToken) throw new Error('Session GLPI échouée');
+
+            // Récupère les tickets sans description dans glpi.tickets ET hub_tickets.tickets
+            const tickets = await pool.query(
+                `SELECT glpi_id FROM glpi.tickets WHERE content IS NULL OR content = '' ORDER BY glpi_id DESC`
+            );
+            const ticketList = tickets.rows;
+            descriptionsSyncProgress.total = ticketList.length;
+
+            if (ticketList.length === 0) {
+                await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+                descriptionsSyncProgress.active = false;
+                return res.json({ success: true, count: 0, message: 'Tous les tickets ont déjà une description.' });
+            }
+
+            const CONCURRENCY = 50;
+            let updated = 0;
+
+            for (let i = 0; i < ticketList.length; i += CONCURRENCY) {
+                if (descriptionsSyncCancelled) {
+                    descriptionsSyncProgress.active = false;
+                    await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+                    return res.status(499).json({ message: 'Annulé' });
+                }
+
+                const batch = ticketList.slice(i, i + CONCURRENCY);
+                const results = await Promise.allSettled(
+                    batch.map(t =>
+                        axios.get(`${url}/Ticket/${t.glpi_id}?session_token=${sessionToken}`, {
+                            headers: commonHeaders,
+                            timeout: 10000
+                        })
+                    )
+                );
+
+                // Collect successful results with content for bulk update
+                const toUpdate = results
+                    .map((r, j) => (r.status === 'fulfilled' && r.value.data?.content)
+                        ? { glpi_id: batch[j].glpi_id, content: r.value.data.content }
+                        : null)
+                    .filter(Boolean);
+
+                if (toUpdate.length > 0) {
+                    // Build parameterised VALUES list: ($1::integer, $2::text), ($3::integer, $4::text), ...
+                    const valuesSql = toUpdate.map((_, k) => `($${k * 2 + 1}::integer, $${k * 2 + 2}::text)`).join(', ');
+                    const params = toUpdate.flatMap(r => [r.glpi_id, r.content]);
+
+                    await pool.query(
+                        `UPDATE glpi.tickets SET content = v.content, last_sync = CURRENT_TIMESTAMP
+                         FROM (VALUES ${valuesSql}) AS v(glpi_id, content)
+                         WHERE glpi.tickets.glpi_id = v.glpi_id`,
+                        params
+                    );
+                    await pool.query(
+                        `UPDATE hub_tickets.tickets SET content = v.content
+                         FROM (VALUES ${valuesSql}) AS v(glpi_id, content)
+                         WHERE hub_tickets.tickets.glpi_id = v.glpi_id
+                           AND (hub_tickets.tickets.content IS NULL OR hub_tickets.tickets.content = '')`,
+                        params
+                    );
+                    updated += toUpdate.length;
+                }
+
+                descriptionsSyncProgress.processed = Math.min(i + CONCURRENCY, ticketList.length);
+                descriptionsSyncProgress.lastUpdate = new Date().toISOString();
+            }
+
+            await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+            descriptionsSyncProgress.active = false;
+            res.json({ success: true, count: updated });
+        } catch (error) {
+            console.error('[GLPI] Sync descriptions error:', error.message);
+            descriptionsSyncProgress.active = false;
+            res.status(500).json({ message: error.message });
+        }
+    },
+
     // Helpers & Background Logic
     runBackgroundSyncRecent: async (triggeredBy) => {
+        if (isAnySyncActive()) {
+            console.log('[BACKGROUND SYNC] Une synchro est déjà en cours, runBackgroundSyncRecent ignoré.');
+            return 0;
+        }
+        glpiSyncProgress = { active: true, processed: 0, total: 50, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString(), type: 'recent' };
         let syncLogId = null;
         try {
             const db = getSqlite();
             const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
-            if (!settings || !settings.url) return 0;
+            if (!settings || !settings.url) { glpiSyncProgress.active = false; return 0; }
 
             const url = glpiController.getApiUrl(settings.url);
             const commonHeaders = { 'App-Token': settings.app_token?.trim() || '', 'Content-Type': 'application/json' };
@@ -687,11 +822,13 @@ const glpiController = {
             }
 
             await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+            glpiSyncProgress.active = false;
             return count;
         } catch (error) {
             if (syncLogId) {
                 await pool.query(`UPDATE glpi.sync_logs SET status = 'error', error_message = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2`, [error.message, syncLogId]);
             }
+            glpiSyncProgress.active = false;
             throw error;
         }
     },
@@ -980,8 +1117,8 @@ const glpiController = {
 
             for (const sync of dueSyncs.rows) {
                 const syncKey = `${sync.sync_type}-${sync.sync_mode}`;
-                if (currentRunningSync && `${currentRunningSync.sync_type}-${currentRunningSync.sync_mode}` === syncKey) {
-                    console.log(`[SCHEDULED SYNC] Déja en cours: ${syncKey}. Ignoré.`);
+                if (isAnySyncActive() || (currentRunningSync && `${currentRunningSync.sync_type}-${currentRunningSync.sync_mode}` === syncKey)) {
+                    console.log(`[SCHEDULED SYNC] Synchro déjà active, ignoré: ${syncKey}`);
                     continue;
                 }
 
@@ -1047,6 +1184,11 @@ const glpiController = {
             console.log(`[SCHEDULED SYNC] Terminé: ${sync_type} - ${sync_mode} (HTTP ${response?.status})`);
         } catch (error) {
             currentRunningSync = null;
+            // 409 = une autre synchro est déjà active, pas une vraie erreur
+            if (error.response?.status === 409) {
+                console.log(`[SCHEDULED SYNC] Ignoré car synchro déjà en cours: ${sync_type} - ${sync_mode}`);
+                return;
+            }
             const errorMsg = error.response ? `HTTP ${error.response.status}: ${error.response.statusText}` : error.message;
             console.error(`[SCHEDULED SYNC] Erreur: ${errorMsg}`);
             await pool.query(

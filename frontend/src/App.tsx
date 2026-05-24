@@ -41,6 +41,10 @@ import AdminBacklog from './pages/AdminBacklog';
 import AdminOrganisation from './pages/AdminOrganisation';
 import WhatsNew from './pages/WhatsNew';
 import Doctrines from './pages/Doctrines';
+import TicketsDashboard from './pages/Tickets/TicketsDashboard';
+import TicketDetail from './pages/Tickets/TicketDetail';
+import TicketCreate from './pages/Tickets/TicketCreate';
+import TicketAdmin from './pages/Tickets/TicketAdmin';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -122,11 +126,15 @@ function App() {
         <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
         <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
 
+        {/* Tickets Routes */}
+        <Route path="/tickets" element={<PrivateRoute path="/tickets"><TicketsDashboard /></PrivateRoute>} />
+        <Route path="/tickets/new" element={<PrivateRoute path="/tickets"><TicketCreate /></PrivateRoute>} />
+        <Route path="/tickets/:id" element={<PrivateRoute path="/tickets"><TicketDetail /></PrivateRoute>} />
         {/* Admin Routes with Sidebar Layout */}
         <Route 
           path="/admin" 
           element={
-            <PrivateRoute allowedRoles={['admin']}>
+            <PrivateRoute allowedRoles={['admin', 'superadmin']}>
               <AdminLayout />
             </PrivateRoute>
           }
@@ -153,6 +161,7 @@ function App() {
           <Route path="backlog" element={<AdminBacklog />} />
           <Route path="o365-mail" element={<O365MailSettings />} />
           <Route path="organisation" element={<AdminOrganisation />} />
+          <Route path="tickets" element={<TicketAdmin />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />

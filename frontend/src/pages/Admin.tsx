@@ -161,9 +161,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [isSyncingRecent, setIsSyncingRecent] = useState(false);
   const [isSyncingObservers, setIsSyncingObservers] = useState(false);
   const [isSyncingFollowups, setIsSyncingFollowups] = useState(false);
+  const [isSyncingDescriptions, setIsSyncingDescriptions] = useState(false);
   const [syncStatus, setSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [observersSyncStatus, setObserversSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [followupsSyncStatus, setFollowupsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
+  const [descriptionsSyncStatus, setDescriptionsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [syncLogs, setSyncLogs] = useState<any[]>([]);
   const [syncLogsPage, setSyncLogsPage] = useState(1);
   const syncLogsPerPage = 10;
@@ -1108,6 +1110,40 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       });
     } catch (e) {
       console.error('Erreur annulation followups:', e);
+    }
+  };
+
+  const handleSyncDescriptions = async () => {
+    if (!window.confirm('Synchroniser les descriptions (content) des tickets sans description ? Cette opération interroge GLPI ticket par ticket.')) return;
+
+    setIsSyncingDescriptions(true);
+    setDescriptionsSyncStatus({ active: true, processed: 0, total: 0 });
+
+    let pollInterval = setInterval(async () => {
+      try {
+        const res = await axios.get('/api/glpi/sync-descriptions-status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setDescriptionsSyncStatus(res.data);
+        if (!res.data.active) clearInterval(pollInterval);
+      } catch (e) {
+        console.error('Erreur polling descriptions:', e);
+      }
+    }, 1500);
+
+    try {
+      const response = await axios.post('/api/glpi/sync-descriptions', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const msg = response.data.message || `${response.data.count} description(s) synchronisée(s).`;
+      alert(`Synchronisation réussie : ${msg}`);
+      fetchSyncLogs();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Erreur lors de la synchronisation des descriptions');
+    } finally {
+      setIsSyncingDescriptions(false);
+      setDescriptionsSyncStatus(prev => ({ ...prev, active: false }));
+      clearInterval(pollInterval);
     }
   };
 
@@ -2074,8 +2110,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             <span className="status-badge pending self-start"><ShieldAlert size={12} /> ATTENTE</span>
                           )}
                           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', marginTop: '4px', maxWidth: '260px' }}>
-                            {user.role === 'admin' ? (
-                              <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.05em', background: '#f3e8ff', color: '#7c3aed', border: '1px solid #c4b5fd' }}>ACCÈS TOTAL</span>
+                            {user.role === 'superadmin' ? (
+                              <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.05em', background: '#f3e8ff', color: '#7c3aed', border: '1px solid #c4b5fd' }}>SUPERADMIN</span>
+                            ) : user.role === 'admin' ? (
+                              <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.05em', background: '#fef3c7', color: '#d97706', border: '1px solid #fcd34d' }}>ADMIN</span>
                             ) : (
                               tiles.filter(t => user.authorized_tiles?.includes(t.id)).map(t => {
                                 const colors: Record<string, { bg: string; color: string; border: string }> = {
@@ -3473,6 +3511,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <span>Trait. Récents</span>
                             </button>
 
+                            <button onClick={handleSyncDescriptions} className="action-tile" disabled={isSyncingDescriptions || !glpiConfig.is_enabled} style={{ background: '#ede9fe', color: '#6d28d9', border: '1px solid #c4b5fd' }}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                <span>{isSyncingDescriptions ? `${descriptionsSyncStatus.processed}/${descriptionsSyncStatus.total}` : 'Descriptions'}</span>
+                            </button>
+
                         </div>
 
                         {observersSyncStatus.active && (
@@ -3501,6 +3544,36 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <div className="progress-stats">
                                     <span>{observersSyncStatus.processed.toLocaleString()} / {observersSyncStatus.total.toLocaleString()}</span>
                                         <button className="btn-cancel-sync" onClick={handleCancelObserversSync}>Annuler</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {descriptionsSyncStatus.active && (
+                            <div className="sync-progress-box" style={{ marginTop: '10px', borderColor: '#7c3aed' }}>
+                                <div className="progress-header">
+                                    <div className="progress-label">
+                                        <span className="progress-spinner">⟳</span>
+                                        Synchronisation descriptions...
+                                    </div>
+                                    <div className="progress-percent">
+                                        {descriptionsSyncStatus.total > 0 ? Math.round((descriptionsSyncStatus.processed / descriptionsSyncStatus.total) * 100) : 0}%
+                                    </div>
+                                </div>
+                                <div className="progress-bar-container">
+                                    <div
+                                        className="progress-bar-fill"
+                                        style={{
+                                            width: `${descriptionsSyncStatus.total > 0 ? (descriptionsSyncStatus.processed / descriptionsSyncStatus.total) * 100 : 0}%`,
+                                            transition: 'width 0.3s ease',
+                                            backgroundColor: '#7c3aed'
+                                        }}
+                                    >
+                                        <div className="progress-bar-shimmer"></div>
+                                    </div>
+                                </div>
+                                <div className="progress-stats">
+                                    <span>{descriptionsSyncStatus.processed.toLocaleString()} / {descriptionsSyncStatus.total.toLocaleString()}</span>
+                                    <button className="btn-cancel-sync" onClick={() => axios.post('/api/glpi/sync-descriptions-cancel', {}, { headers: { Authorization: `Bearer ${token}` } })}>Annuler</button>
                                 </div>
                             </div>
                         )}
@@ -4377,7 +4450,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         .user-cell { display: flex; align-items: center; gap: 16px; }
         .avatar { width: 42px; height: 42px; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); color: #2563eb; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9rem; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.1); border: 1px solid rgba(255,255,255,0.5); }
         .role-badge { padding: 6px 14px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-flex; align-items: center; justify-content: center; }
-        .role-badge.admin { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .role-badge.admin { background: #fef3c7; color: #d97706; border: 1px solid #fcd34d; }
+        .role-badge.superadmin { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
         .role-badge.magapp { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
         .role-badge.finances { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
         .role-badge.compta { background: #fefce8; color: #ca8a04; border: 1px solid #fef08a; }

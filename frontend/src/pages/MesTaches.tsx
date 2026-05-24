@@ -23,7 +23,7 @@ interface TaskNote {
 }
 
 interface Task {
-  source: 'personal' | 'transcript' | 'projet' | 'projet_standalone' | 'rencontre' | 'revue' | 'reunion';
+  source: 'personal' | 'transcript' | 'projet' | 'projet_standalone' | 'rencontre' | 'revue' | 'reunion' | 'todo' | 'ticket';
   id: number;
   source_id: number | null;
   source_title: string;
@@ -52,6 +52,8 @@ const SOURCE_META: Record<Task['source'], {
   rencontre:         { label: 'Réunion BUD',  icon: <Users size={12} />,        color: '#d97706', bg: '#fef3c7', urlFn: () => '/rencontres-budgetaires' },
   revue:             { label: 'Revue',        icon: <RotateCcw size={12} />,    color: '#059669', bg: '#d1fae5', urlFn: () => '/revue-de-projets' },
   reunion:           { label: 'Réunion',      icon: <Users size={12} />,        color: '#0891b2', bg: '#cffafe', urlFn: () => '/mes-reunions' },
+  todo:              { label: 'Microsoft Todo', icon: <Inbox size={12} />,      color: '#2563eb', bg: '#eff6ff', urlFn: () => null },
+  ticket:            { label: 'Ticket',        icon: <Inbox size={12} />,       color: '#6366f1', bg: '#eef2ff',  urlFn: (id) => id ? `/tickets/${id}` : null },
 };
 
 const STATUT_CYCLE = ['a_faire', 'en_cours', 'terminé'] as const;
@@ -73,7 +75,7 @@ function EcheanceBadge({ d }: { d: string | null }) {
 
 function SourceChip({ task }: { task: Task }) {
   const navigate = useNavigate();
-  const meta = SOURCE_META[task.source];
+  const meta = SOURCE_META[task.source] ?? SOURCE_META['personal'];
   const url = meta.urlFn(task.source_id);
   return (
     <button
@@ -204,6 +206,15 @@ const MesTaches: React.FC = () => {
   }, [token]);
 
   useEffect(() => { fetchTasks(); fetchAlertPref(); fetchTodoPref(); }, [fetchTasks, fetchAlertPref, fetchTodoPref]);
+
+  // Auto-sync Todo on mount if toggle is enabled
+  const syncedOnMount = useRef(false);
+  useEffect(() => {
+    if (todoEnabled && !syncedOnMount.current) {
+      syncedOnMount.current = true;
+      runTodoSync();
+    }
+  }, [todoEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Notes loading ────────────────────────────────────────────────────────────
   const loadNotes = async (task: Task) => {
@@ -425,7 +436,7 @@ const MesTaches: React.FC = () => {
   const sources = [
     { v: 'all', l: 'Toutes' }, { v: 'personal', l: 'Personnelles' },
     { v: 'transcript', l: 'Transcripts' }, { v: 'projet', l: 'Projets' },
-    { v: 'reunion', l: 'Réunions' }, { v: 'rencontre', l: 'Réunions BUD' }, { v: 'revue', l: 'Revues' },
+    { v: 'reunion', l: 'Réunions' }, { v: 'rencontre', l: 'Réunions BUD' }, { v: 'revue', l: 'Revues' }, { v: 'ticket', l: 'Tickets' },
   ];
 
   const colTh = (field: string, label: string, align?: string, width?: string | number) => (

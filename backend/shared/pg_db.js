@@ -92,23 +92,44 @@ function convertSqliteToPostgres(sql) {
     return newSql;
 }
 
+function escapePgValue(val) {
+    if (val === null || val === undefined) return 'NULL';
+    if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+    if (typeof val === 'number') return String(val);
+    if (val instanceof Date) return `'${val.toISOString()}'`;
+    const s = String(val).replace(/'/g, "''");
+    return `'${s}'`;
+}
+
+function inlineParams(sql, params) {
+    if (!params || params.length === 0) return sql;
+    return sql.replace(/\$(\d+)/g, (match, num) => {
+        const i = parseInt(num, 10);
+        if (i >= 1 && i <= params.length) return escapePgValue(params[i - 1]);
+        return match;
+    });
+}
+
 const pgDb = {
     all: async (sql, params = []) => {
-        const query = convertSqliteToPostgres(sql);
-        const res = await pool.query(query, params);
+        let query = convertSqliteToPostgres(sql);
+        query = inlineParams(query, params);
+        const res = await pool.query(query);
         return res.rows;
     },
     get: async (sql, params = []) => {
-        const query = convertSqliteToPostgres(sql);
-        const res = await pool.query(query, params);
+        let query = convertSqliteToPostgres(sql);
+        query = inlineParams(query, params);
+        const res = await pool.query(query);
         return res.rows[0];
     },
     run: async (sql, params = []) => {
         let query = convertSqliteToPostgres(sql);
-        if (query.toUpperCase().includes('INSERT') && !query.toUpperCase().includes('INTO HUB.USERS') && !query.toUpperCase().includes('INTO GLPI.')) {
+        if (query.toUpperCase().includes('INSERT') && !query.toUpperCase().includes('INTO HUB.USERS') && !query.toUpperCase().includes('INTO GLPI.') && !query.toUpperCase().includes('INTO HUB_TICKETS.TICKETS') && !query.toUpperCase().includes('INTO HUB_TICKETS.TECHNICIAN_PROFILES') && !query.toUpperCase().includes('INTO HUB_TICKETS.MODULE_CONFIG')) {
             query += ' RETURNING id';
         }
-        const res = await pool.query(query, params);
+        query = inlineParams(query, params);
+        const res = await pool.query(query);
         return {
             lastID: res.rows.length > 0 ? res.rows[0].id : null,
             changes: res.rowCount
@@ -128,6 +149,526 @@ async function setupPgDb() {
     await client.query('CREATE SCHEMA IF NOT EXISTS oracle;');
     await client.query('CREATE SCHEMA IF NOT EXISTS transcript;');
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_contrats;');
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_tickets;');
+
+    // ─── hub — Table utilisateurs (référencée par plusieurs FKs) ─
+    // Initialisation non destructive: hub.users est referencee par plusieurs tables metier.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(255) UNIQUE,
+        password VARCHAR(255),
+        role VARCHAR(50) DEFAULT 'user',
+        displayName VARCHAR(255),
+        email VARCHAR(255),
+        service_code VARCHAR(100),
+        service_complement VARCHAR(255),
+        last_activity VARCHAR(100),
+        is_approved INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // ─── hub_tickets — Tables core (copies de glpi) ──────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.tickets (
+        glpi_id INTEGER PRIMARY KEY,
+        title TEXT,
+        content TEXT,
+        status INTEGER DEFAULT 1,
+        priority INTEGER DEFAULT 3,
+        urgency INTEGER DEFAULT 3,
+        impact INTEGER DEFAULT 3,
+        category TEXT,
+        type TEXT,
+        date_creation TEXT,
+        date_mod TEXT,
+        date_closed TEXT,
+        date_solved TEXT,
+        location TEXT,
+        solution TEXT,
+        source TEXT DEFAULT 'hub',
+        entity TEXT,
+        requester_name TEXT,
+        email_alt TEXT,
+        requester_email_22 TEXT,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    // Ensure glpi_id has a unique constraint (FK requirement for ticket_assignments)
+    try { await client.query('ALTER TABLE hub_tickets.tickets ADD UNIQUE (glpi_id)'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT false'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS total_waiting_seconds DOUBLE PRECISION DEFAULT 0'); } catch (e) {}
+    // Supprimer la FK sur user_id (hub.users est vidée à chaque restart)
+    try { await client.query('ALTER TABLE hub_tickets.ticket_history DROP CONSTRAINT IF EXISTS ticket_history_user_id_fkey'); } catch (e) {}
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_status (
+        id INTEGER PRIMARY KEY,
+        label VARCHAR(255) NOT NULL
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.observers (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        name VARCHAR(255),
+        login VARCHAR(255),
+        email VARCHAR(255),
+        is_active INTEGER DEFAULT 1,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_id, user_id)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_followups (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL,
+        content TEXT,
+        content_hash VARCHAR(32),
+        author_name VARCHAR(255),
+        author_email VARCHAR(255),
+        is_private INTEGER DEFAULT 0,
+        date_creation TIMESTAMP,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_id, content_hash, date_creation)
+      );
+    `);
+
+    // ─── hub_tickets — Tables d'extension ─────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_sequence (
+        last_id INTEGER NOT NULL
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.technician_groups (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.technician_group_members (
+        id SERIAL PRIMARY KEY,
+        group_id INTEGER NOT NULL REFERENCES hub_tickets.technician_groups(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES hub.users(id) ON DELETE CASCADE,
+        UNIQUE(group_id, user_id)
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tgm_group ON hub_tickets.technician_group_members(group_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tgm_user ON hub_tickets.technician_group_members(user_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_assignments (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        technician_id INTEGER REFERENCES hub.users(id) ON DELETE SET NULL,
+        group_id INTEGER REFERENCES hub_tickets.technician_groups(id) ON DELETE SET NULL,
+        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        assigned_by INTEGER REFERENCES hub.users(id),
+        UNIQUE(ticket_id)
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_tech ON hub_tickets.ticket_assignments(technician_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_group ON hub_tickets.ticket_assignments(group_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_categories (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        parent_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE CASCADE,
+        full_path TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tc_parent ON hub_tickets.ticket_categories(parent_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_category_assignments (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        category_id INTEGER NOT NULL REFERENCES hub_tickets.ticket_categories(id) ON DELETE CASCADE,
+        UNIQUE(ticket_id)
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tca_cat ON hub_tickets.ticket_category_assignments(category_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_tags (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        color VARCHAR(7) DEFAULT '#6366f1',
+        is_active BOOLEAN DEFAULT TRUE
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_tag_links (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        tag_id INTEGER NOT NULL REFERENCES hub_tickets.ticket_tags(id) ON DELETE CASCADE,
+        UNIQUE(ticket_id, tag_id)
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ttl_ticket ON hub_tickets.ticket_tag_links(ticket_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_attachments (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mimetype TEXT,
+        file_size INTEGER,
+        file_path TEXT NOT NULL,
+        is_image BOOLEAN DEFAULT FALSE,
+        uploaded_by INTEGER REFERENCES hub.users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_file_ticket ON hub_tickets.ticket_attachments(ticket_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_links (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        linked_ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        link_type VARCHAR(50) NOT NULL CHECK (link_type IN ('parent','child','duplicate','related','blocked_by')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_id, linked_ticket_id, link_type)
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tl_ticket ON hub_tickets.ticket_links(ticket_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_history (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES hub.users(id),
+        action VARCHAR(100) NOT NULL,
+        field_name VARCHAR(100),
+        old_value TEXT,
+        new_value TEXT,
+        comment TEXT,
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_th_ticket ON hub_tickets.ticket_history(ticket_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_th_created ON hub_tickets.ticket_history(created_at DESC)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.sla_calendars (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        timezone VARCHAR(50) DEFAULT 'Europe/Paris',
+        is_default BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.sla_calendar_hours (
+        id SERIAL PRIMARY KEY,
+        calendar_id INTEGER NOT NULL REFERENCES hub_tickets.sla_calendars(id) ON DELETE CASCADE,
+        day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 1 AND 7),
+        start_time TIME NOT NULL,
+        end_time TIME NOT NULL,
+        UNIQUE(calendar_id, day_of_week, start_time)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.sla_holidays (
+        id SERIAL PRIMARY KEY,
+        calendar_id INTEGER NOT NULL REFERENCES hub_tickets.sla_calendars(id) ON DELETE CASCADE,
+        holiday_date DATE NOT NULL,
+        label VARCHAR(255) NOT NULL,
+        UNIQUE(calendar_id, holiday_date)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.sla_definitions (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        calendar_id INTEGER NOT NULL REFERENCES hub_tickets.sla_calendars(id),
+        first_response_min INTEGER,
+        resolution_min INTEGER,
+        escalation_min INTEGER,
+        priority INTEGER,
+        category_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE CASCADE,
+        type VARCHAR(50),
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_sla_def_prio ON hub_tickets.sla_definitions(priority)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_sla (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        sla_definition_id INTEGER NOT NULL REFERENCES hub_tickets.sla_definitions(id),
+        first_response_target TIMESTAMP,
+        resolution_target TIMESTAMP,
+        escalation_target TIMESTAMP,
+        first_response_at TIMESTAMP,
+        resolved_at TIMESTAMP,
+        closed_at TIMESTAMP,
+        sla_status VARCHAR(50) DEFAULT 'ok',
+        pause_count INTEGER DEFAULT 0,
+        total_paused_minutes INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_id)
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ts_status ON hub_tickets.ticket_sla(sla_status)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_sla_pauses (
+        id SERIAL PRIMARY KEY,
+        sla_id INTEGER NOT NULL REFERENCES hub_tickets.ticket_sla(id) ON DELETE CASCADE,
+        paused_at TIMESTAMP NOT NULL,
+        resumed_at TIMESTAMP,
+        reason VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.sla_escalation_rules (
+        id SERIAL PRIMARY KEY,
+        sla_definition_id INTEGER NOT NULL REFERENCES hub_tickets.sla_definitions(id) ON DELETE CASCADE,
+        escalation_level INTEGER NOT NULL,
+        trigger_before_min INTEGER,
+        notify_role VARCHAR(50),
+        notify_user_id INTEGER REFERENCES hub.users(id) ON DELETE SET NULL,
+        action VARCHAR(100) DEFAULT 'notify',
+        is_active BOOLEAN DEFAULT TRUE
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.notification_templates (
+        id SERIAL PRIMARY KEY,
+        slug VARCHAR(100) NOT NULL UNIQUE,
+        label VARCHAR(255) NOT NULL,
+        subject TEXT NOT NULL,
+        body_html TEXT NOT NULL,
+        context VARCHAR(50) DEFAULT 'ticket',
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.notification_triggers (
+        id SERIAL PRIMARY KEY,
+        event VARCHAR(100) NOT NULL,
+        template_slug VARCHAR(100) NOT NULL REFERENCES hub_tickets.notification_templates(slug),
+        recipient_type VARCHAR(50) NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        UNIQUE(event, recipient_type)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.notification_queue (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        recipient_email VARCHAR(255) NOT NULL,
+        recipient_name VARCHAR(255),
+        subject TEXT NOT NULL,
+        body_html TEXT NOT NULL,
+        status VARCHAR(50) DEFAULT 'pending',
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        sent_at TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_nq_status ON hub_tickets.notification_queue(status)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.notification_logs (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER REFERENCES hub_tickets.tickets(glpi_id) ON DELETE SET NULL,
+        event VARCHAR(100),
+        recipient_email VARCHAR(255) NOT NULL,
+        recipient_name VARCHAR(255),
+        subject TEXT,
+        status VARCHAR(50),
+        error_message TEXT,
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_nl_ticket ON hub_tickets.notification_logs(ticket_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.assignment_rules (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        priority INTEGER DEFAULT 0,
+        match_type VARCHAR(50),
+        match_value VARCHAR(255),
+        assign_type VARCHAR(50) NOT NULL,
+        assign_to_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.saved_filters (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES hub.users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        filter_json JSONB NOT NULL,
+        is_default BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_favorites (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES hub.users(id) ON DELETE CASCADE,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, ticket_id)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_relations (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        relation_type VARCHAR(50) NOT NULL CHECK (relation_type IN ('contract','project','task','asset')),
+        relation_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_id, relation_type, relation_id)
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tr_ticket ON hub_tickets.ticket_relations(ticket_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.dashboard_widgets (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES hub.users(id) ON DELETE CASCADE,
+        widget_type VARCHAR(100) NOT NULL,
+        config JSONB DEFAULT '{}',
+        position INTEGER DEFAULT 0,
+        is_visible BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.technician_profiles (
+        user_id INTEGER PRIMARY KEY REFERENCES hub.users(id) ON DELETE CASCADE,
+        status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','inactive')),
+        paused_at TIMESTAMP,
+        paused_until TIMESTAMP,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    try { await client.query("ALTER TABLE hub_tickets.technician_profiles ADD COLUMN IF NOT EXISTS module_role VARCHAR(50) DEFAULT 'technician'"); } catch (e) {}
+    try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS hub_tickets.role_permissions (
+                id SERIAL PRIMARY KEY,
+                role VARCHAR(50) NOT NULL,
+                permission VARCHAR(100) NOT NULL,
+                UNIQUE(role, permission)
+            )
+        `);
+        const { rows: cntRows } = await client.query('SELECT COUNT(*) as cnt FROM hub_tickets.role_permissions');
+        if (parseInt(cntRows[0].cnt) === 0) {
+            const defaults = [
+                ['readonly','ticket:read'],['user','ticket:read'],['technician','ticket:read'],['supervisor','ticket:read'],['admin','ticket:read'],['superadmin','ticket:read'],
+                ['user','ticket:create'],['technician','ticket:create'],['supervisor','ticket:create'],['admin','ticket:create'],['superadmin','ticket:create'],
+                ['technician','ticket:update'],['supervisor','ticket:update'],['admin','ticket:update'],['superadmin','ticket:update'],
+                ['superadmin','ticket:delete'],
+                ['supervisor','ticket:assign'],['admin','ticket:assign'],['superadmin','ticket:assign'],
+                ['technician','ticket:assign_self'],
+                ['supervisor','ticket:escalate'],['admin','ticket:escalate'],['superadmin','ticket:escalate'],
+                ['technician','ticket:close'],['supervisor','ticket:close'],['admin','ticket:close'],['superadmin','ticket:close'],
+                ['user','ticket:reopen'],['technician','ticket:reopen'],['supervisor','ticket:reopen'],['admin','ticket:reopen'],['superadmin','ticket:reopen'],
+                ['technician','comment:read_private'],['supervisor','comment:read_private'],['admin','comment:read_private'],['superadmin','comment:read_private'],
+                ['technician','comment:write_internal'],['supervisor','comment:write_internal'],['admin','comment:write_internal'],['superadmin','comment:write_internal'],
+                ['user','comment:write_public'],['technician','comment:write_public'],['supervisor','comment:write_public'],['admin','comment:write_public'],['superadmin','comment:write_public'],
+                ['user','attachment:upload'],['technician','attachment:upload'],['supervisor','attachment:upload'],['admin','attachment:upload'],['superadmin','attachment:upload'],
+                ['admin','sla:configure'],['superadmin','sla:configure'],
+                ['admin','category:manage'],['superadmin','category:manage'],
+                ['admin','group:manage'],['superadmin','group:manage'],
+                ['admin','rules:manage'],['superadmin','rules:manage'],
+                ['admin','admin:access'],['superadmin','admin:access'],
+                ['supervisor','ticket:view_all'],['admin','ticket:view_all'],['superadmin','ticket:view_all'],
+                ['technician','dashboard:view_stats'],['supervisor','dashboard:view_stats'],['admin','dashboard:view_stats'],['superadmin','dashboard:view_stats'],
+            ];
+            for (const [role, perm] of defaults) {
+                await client.query('INSERT INTO hub_tickets.role_permissions (role, permission) VALUES ($1, $2) ON CONFLICT DO NOTHING', [role, perm]);
+            }
+        }
+    } catch (e) { console.error('[MIGRATIONS] role_permissions:', e.message); }
+
+    // ── Groupes de tickets ──────────────────────────────────────────
+    try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS hub_tickets.ticket_groups (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                description TEXT,
+                created_by_username VARCHAR(255),
+                problem_ticket_id INTEGER NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS hub_tickets.ticket_group_members (
+                id SERIAL PRIMARY KEY,
+                group_id INTEGER NOT NULL REFERENCES hub_tickets.ticket_groups(id) ON DELETE CASCADE,
+                ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+                added_by_username VARCHAR(255),
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ticket_id)
+            )
+        `);
+    } catch (e) { console.error('[MIGRATIONS] ticket_groups:', e.message); }
+    try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS resolution_method TEXT"); } catch (e) {}
+    try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS knowledge_article TEXT"); } catch (e) {}
+
+    // ── Historique quotidien des KPI ────────────────────────────────
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_tickets.kpi_history (
+            id SERIAL PRIMARY KEY,
+            snapshot_date DATE NOT NULL,
+            total INTEGER DEFAULT 0,
+            open INTEGER DEFAULT 0,
+            in_progress INTEGER DEFAULT 0,
+            waiting INTEGER DEFAULT 0,
+            critical_open INTEGER DEFAULT 0,
+            resolved INTEGER DEFAULT 0,
+            closed INTEGER DEFAULT 0,
+            problems INTEGER DEFAULT 0,
+            vip_total INTEGER DEFAULT 0,
+            open_incident INTEGER DEFAULT 0,
+            open_request INTEGER DEFAULT 0,
+            avg_age_open_seconds INTEGER DEFAULT 0,
+            avg_waiting_seconds_active INTEGER DEFAULT 0,
+            avg_active_seconds_week INTEGER DEFAULT 0,
+            resolved_week_count INTEGER DEFAULT 0,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(snapshot_date)
+        )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.module_config (
+        key VARCHAR(100) PRIMARY KEY,
+        value TEXT
+      );
+    `);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.categories (
@@ -207,21 +748,6 @@ async function setupPgDb() {
         subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT fk_app_sub FOREIGN KEY(app_id) REFERENCES magapp.apps(id) ON DELETE CASCADE,
         UNIQUE(email, app_id)
-      );
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS hub.users (
-        username VARCHAR(255) PRIMARY KEY,
-        password VARCHAR(255),
-        role VARCHAR(50) DEFAULT 'user',
-        displayName VARCHAR(255),
-        email VARCHAR(255),
-        service_code VARCHAR(100),
-        service_complement VARCHAR(255),
-        last_activity VARCHAR(100),
-        is_approved INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
@@ -2186,7 +2712,17 @@ async function setupPgDb() {
     // responsable_username sur les tâches standalone projet (pour matching fiable par username)
     try { await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS responsable_username TEXT DEFAULT ''`); } catch (e) {}
 
-    // Préférence d'alerte mail quotidienne (Mes Tâches)
+    // Table de préférences utilisateur (indépendante de hub.users — pas de FK, survit aux DROP CASCADE)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.user_prefs (
+        username TEXT PRIMARY KEY,
+        task_alert_email BOOLEAN DEFAULT FALSE,
+        ms_todo_sync BOOLEAN DEFAULT FALSE,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Préférence d'alerte mail quotidienne (Mes Tâches) — colonne legacy dans hub.users, conservée pour compatibilité
     try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS task_alert_email BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
     // Journal global de tous les emails envoyés par l'application
@@ -2219,8 +2755,100 @@ async function setupPgDb() {
     `);
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_task_notes_src ON hub.task_notes(source, task_id)`); } catch (e) {}
 
-    // Préférence sync Microsoft Todo
+    // Préférence sync Microsoft Todo — colonne legacy dans hub.users, conservée pour compatibilité
     try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS ms_todo_sync BOOLEAN DEFAULT FALSE`); } catch (e) {}
+
+    // ─── Migration GLPI → hub_tickets + seed ─────────────────────
+    try {
+        await client.query(`
+            INSERT INTO hub_tickets.tickets (glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22)
+            SELECT glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, 'hub', entity, requester_name, email_alt, requester_email_22 FROM glpi.tickets
+            ON CONFLICT (glpi_id) DO NOTHING
+        `);
+        await client.query(`UPDATE hub_tickets.tickets SET source = 'hub' WHERE source IS NULL OR source = 'glpi'`);
+        await client.query(`
+            INSERT INTO hub_tickets.ticket_status (id, label) SELECT id, label FROM glpi.ticket_status
+            ON CONFLICT (id) DO NOTHING
+        `);
+        await client.query(`
+            INSERT INTO hub_tickets.ticket_status (id, label) VALUES
+            (4, 'En attente utilisateur'), (5, 'En attente fournisseur'), (8, 'Rejeté')
+            ON CONFLICT (id) DO NOTHING
+        `);
+        await client.query(`
+            INSERT INTO hub_tickets.observers (ticket_id, user_id, name, login, email)
+            SELECT ticket_id, user_id, name, login, email FROM glpi.observers
+            ON CONFLICT (ticket_id, user_id) DO NOTHING
+        `);
+        await client.query(`
+            INSERT INTO hub_tickets.ticket_followups (ticket_id, content, content_hash, author_name, author_email, is_private, date_creation)
+            SELECT ticket_id, content, content_hash, author_name, author_email, is_private, date_creation FROM glpi.ticket_followups
+            ON CONFLICT (ticket_id, content_hash, date_creation) DO NOTHING
+        `);
+        console.log('[PG DB] hub_tickets migration from glpi completed');
+    } catch (e) {
+        console.log('[PG DB] hub_tickets migration skip:', e.message);
+    }
+
+    try {
+        // Seed sequence
+        await client.query(`INSERT INTO hub_tickets.ticket_sequence (last_id) SELECT COALESCE(MAX(glpi_id), 10000000) FROM hub_tickets.tickets`);
+
+        // Seed notification templates
+        await client.query(`
+            INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html) VALUES
+            ('ticket_created', 'Création de ticket', '{{app_name}} - Ticket #{{ticket_id}} créé : {{ticket_title}}', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Un nouveau ticket a été créé.</p><table><tr><td>Priorité :</td><td>{{priority_label}}</td></tr><tr><td>Type :</td><td>{{type_label}}</td></tr></table><p><a href="{{app_url}}/tickets/{{ticket_id}}">Voir le ticket</a></p>'),
+            ('ticket_assigned', 'Assignation de ticket', '{{app_name}} - Ticket #{{ticket_id}} vous a été assigné', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{assignee_name}},</p><p>Le ticket <strong>#{{ticket_id}}</strong> vous a été assigné.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}">Voir le ticket</a></p>')
+            ON CONFLICT (slug) DO NOTHING
+        `);
+
+        // Seed triggers
+        await client.query(`
+            INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type) VALUES
+            ('ticket.created', 'ticket_created', 'requester'),
+            ('ticket.created', 'ticket_created', 'technician'),
+            ('ticket.assigned', 'ticket_assigned', 'technician'),
+            ('ticket.assigned', 'ticket_assigned', 'requester')
+            ON CONFLICT (event, recipient_type) DO NOTHING
+        `);
+
+        // Seed calendar
+        await client.query(`INSERT INTO hub_tickets.sla_calendars (id, name, description, timezone, is_default) VALUES (1, 'Calendrier standard', 'Lun-Ven 08-12 14-18', 'Europe/Paris', true) ON CONFLICT (id) DO NOTHING`);
+        for (const day of [1, 2, 3, 4, 5]) {
+            await client.query(`INSERT INTO hub_tickets.sla_calendar_hours (calendar_id, day_of_week, start_time, end_time) VALUES (1, $1, '08:00', '12:00'), (1, $1, '14:00', '18:00') ON CONFLICT DO NOTHING`, [day]);
+        }
+
+        // Seed SLA definitions
+        await client.query(`
+            INSERT INTO hub_tickets.sla_definitions (name, description, calendar_id, first_response_min, resolution_min, priority) VALUES
+            ('SLA P1 - Très haute', 'Incident critique', 1, 15, 60, 1),
+            ('SLA P2 - Haute', 'Incident majeur', 1, 30, 240, 2),
+            ('SLA P3 - Normale', 'Incident standard', 1, 120, 1440, 3),
+            ('SLA P4 - Basse', 'Demande simple', 1, 480, 4320, 4)
+            ON CONFLICT (id) DO NOTHING
+        `);
+
+        console.log('[PG DB] hub_tickets seed data inserted');
+    } catch (e) {
+        console.log('[PG DB] hub_tickets seed skip:', e.message);
+    }
+
+    // Migration: is_mini_projet column
+    try { await client.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='projets' AND table_name='projets' AND column_name='is_mini_projet') THEN ALTER TABLE projets.projets ADD COLUMN is_mini_projet BOOLEAN DEFAULT FALSE; END IF; END $$;`); } catch (e) {}
+
+    // PMO agents assignments table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.pmo_assignments (
+        id SERIAL PRIMARY KEY,
+        pmo_username TEXT NOT NULL,
+        agent_username TEXT,
+        service_code TEXT,
+        secteur_code TEXT,
+        direction_code TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_pmo_assign_pmo ON projets.pmo_assignments(pmo_username);`); } catch (e) {}
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
