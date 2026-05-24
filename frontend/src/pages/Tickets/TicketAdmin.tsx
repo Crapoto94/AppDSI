@@ -83,43 +83,222 @@ export default function TicketAdmin() {
 // ─────────────────────────────────────────────────────────────────────────────
 // CATEGORY MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
+const SUGGESTED_CATEGORIES = [
+  { name: '🖥️ Matériel', subs: ['Ordinateurs de bureau', 'Portables', 'Imprimantes', 'Serveurs', 'Écrans', 'Autres équipements'] },
+  { name: '📱 Logiciels', subs: ['Systèmes d\'exploitation', 'Bureautique', 'Métier', 'Sécurité', 'Utilitaires', 'Antivirus/Protection'] },
+  { name: '🌐 Réseau et Connectivité', subs: ['Connexion Internet', 'WiFi', 'VPN', 'Accès à distance', 'Proxy'] },
+  { name: '👤 Utilisateurs et Permissions', subs: ['Création/Suppression de compte', 'Permissions/Droits d\'accès', 'Mot de passe', '2FA/Authentification'] },
+  { name: '⚙️ Services IT', subs: ['Email', 'Partage de fichiers', 'Backup/Sauvegarde', 'Serveur d\'impression', 'Services web'] },
+  { name: '⚡ Performance', subs: ['Lenteur système', 'Application lente', 'Problème de disque', 'RAM insuffisante', 'Processeur'] },
+  { name: '📚 Support et Documentation', subs: ['Formation utilisateur', 'Documentation technique', 'FAQ'] },
+];
+
 function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) {
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState<string>('');
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [apps, setApps] = useState<any[]>([]);
+  const [loadingApps, setLoadingApps] = useState(false);
+  const [expandedParent, setExpandedParent] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState('');
+
+  useEffect(() => {
+    if (showSuggest && apps.length === 0) {
+      loadApps();
+    }
+  }, [showSuggest]);
+
+  async function loadApps() {
+    setLoadingApps(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } });
+      setApps((res.data || []).filter((a: any) => a.is_active));
+    } catch (e) {
+      console.error('Failed to load apps:', e);
+    } finally {
+      setLoadingApps(false);
+    }
+  }
 
   async function add() {
     if (!name.trim()) return;
     const token = localStorage.getItem('token');
-    await axios.post('/api/tickets/admin/categories', { name, parent_id: parentId ? parseInt(parentId) : null }, { headers: { Authorization: `Bearer ${token}` } });
-    setName(''); setParentId('');
-    onUpdate();
+    try {
+      await axios.post('/api/tickets/admin/categories', { name, parent_id: parentId ? parseInt(parentId) : null }, { headers: { Authorization: `Bearer ${token}` } });
+      setName('');
+      setParentId('');
+      onUpdate();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de l\'ajout');
+    }
   }
+
+  async function addSuggested(catName: string, subNames: string[]) {
+    const token = localStorage.getItem('token');
+    try {
+      const catRes = await axios.post('/api/tickets/admin/categories', { name: catName, parent_id: null }, { headers: { Authorization: `Bearer ${token}` } });
+      for (const subName of subNames) {
+        await axios.post('/api/tickets/admin/categories', { name: subName, parent_id: catRes.data.id }, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      setShowSuggest(false);
+      onUpdate();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de l\'ajout');
+    }
+  }
+
+  async function addAppAsCategory(app: any, parentId: number) {
+    const token = localStorage.getItem('token');
+    try {
+      await axios.post('/api/tickets/admin/categories', { name: app.name, parent_id: parentId }, { headers: { Authorization: `Bearer ${token}` } });
+      setShowSuggest(false);
+      onUpdate();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de l\'ajout');
+    }
+  }
+
+  async function updateCategory(id: number, newName: string) {
+    if (!newName.trim()) return;
+    const token = localStorage.getItem('token');
+    try {
+      await axios.put(`/api/tickets/admin/categories/${id}`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
+      setEditingId(null);
+      setEditName('');
+      onUpdate();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la modification');
+    }
+  }
+
+  async function deleteCategory(id: number) {
+    if (!confirm('Supprimer cette catégorie ?')) return;
+    const token = localStorage.getItem('token');
+    try {
+      await axios.delete(`/api/tickets/admin/categories/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      onUpdate();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la suppression');
+    }
+  }
+
+  const rootCategories = data.filter(c => !c.parent_id);
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Catégories</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Catégories et sous-catégories</h3>
+        <button onClick={() => setShowSuggest(true)} style={{ padding: '8px 16px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          💡 Ajouter depuis suggestions
+        </button>
+      </div>
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Nom de la catégorie"
+        <input value={name} onChange={e => setName(e.target.value)} onKeyPress={e => e.key === 'Enter' && add()} placeholder="Nom de la catégorie"
           style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
         <select value={parentId} onChange={e => setParentId(e.target.value)}
-          style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
-          <option value="">— Racine —</option>
-          {data.filter(c => !c.parent_id).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff', minWidth: 150 }}>
+          <option value="">— Catégorie principale —</option>
+          {rootCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <button onClick={add} style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Ajouter</button>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {data.filter(c => !c.parent_id).map(c => (
-          <div key={c.id} style={{ padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-            <strong style={{ fontSize: 14 }}>{c.name}</strong>
-            <div style={{ marginLeft: 16, marginTop: 4 }}>
-              {data.filter(sub => sub.parent_id === c.id).map(sub => (
-                <div key={sub.id} style={{ fontSize: 13, color: '#64748b', padding: '4px 0' }}>↳ {sub.name}</div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rootCategories.map(c => {
+          const subs = data.filter(sub => sub.parent_id === c.id);
+          return (
+            <div key={c.id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ padding: 12, background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                onClick={() => setExpandedParent(expandedParent === c.id ? null : c.id)}>
+                <div style={{ flex: 1 }}>
+                  {editingId === c.id ? (
+                    <input value={editName} onChange={e => setEditName(e.target.value)} onClick={e => e.stopPropagation()}
+                      style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 13, width: '100%' }}
+                      onKeyPress={e => { if (e.key === 'Enter') updateCategory(c.id, editName); if (e.key === 'Escape') setEditingId(null); }} />
+                  ) : (
+                    <strong style={{ fontSize: 14 }}>{c.name}</strong>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+                  {editingId === c.id ? (
+                    <>
+                      <button onClick={() => updateCategory(c.id, editName)} style={{ padding: '4px 8px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✓</button>
+                      <button onClick={() => setEditingId(null)} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => { setEditingId(c.id); setEditName(c.name); }} style={{ padding: '4px 8px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✎</button>
+                      <button onClick={() => deleteCategory(c.id)} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>🗑</button>
+                      <span style={{ fontSize: 18, marginLeft: 8 }}>{expandedParent === c.id ? '▼' : '▶'}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {expandedParent === c.id && (
+                <div style={{ padding: 12, background: '#fff', borderTop: '1px solid #e2e8f0' }}>
+                  {subs.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {subs.map(sub => (
+                        <div key={sub.id} style={{ padding: 8, background: '#f1f5f9', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 13 }}>↳ {sub.name}</span>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button onClick={() => deleteCategory(sub.id)} style={{ padding: '2px 6px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>🗑</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>Aucune sous-catégorie</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {showSuggest && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 24, maxWidth: 600, maxHeight: '80vh', overflow: 'auto', width: '90%' }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: 18 }}>Catégories prédéfinies pour le support IT</h3>
+            <div style={{ display: 'grid', gap: 12, marginBottom: 16 }}>
+              {SUGGESTED_CATEGORIES.map(cat => (
+                <div key={cat.name} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                  <button onClick={() => addSuggested(cat.name, cat.subs)} style={{ width: '100%', textAlign: 'left', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: 10, cursor: 'pointer', fontWeight: 600, fontSize: 13, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>{cat.name}</span> <span>+ Ajouter</span>
+                  </button>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 6, marginLeft: 8 }}>
+                    {cat.subs.map(sub => <div key={sub} style={{ fontSize: 12, color: '#64748b', padding: '4px 0' }}>↳ {sub}</div>)}
+                  </div>
+                </div>
               ))}
             </div>
+            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 16, marginBottom: 16 }}>
+              <h4 style={{ margin: '0 0 12px 0', fontSize: 14 }}>Ou ajouter les logiciels comme sous-catégories</h4>
+              {loadingApps && <div style={{ fontSize: 13, color: '#94a3b8' }}>Chargement des logiciels...</div>}
+              {!loadingApps && apps.length > 0 && (
+                <div style={{ display: 'grid', gap: 6, maxHeight: 300, overflow: 'auto' }}>
+                  {apps.map(app => (
+                    <div key={app.id} style={{ padding: 8, background: '#f1f5f9', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                      <span>{app.name}</span>
+                      <select onChange={e => { if (e.target.value) addAppAsCategory(app, parseInt(e.target.value)); }} style={{ padding: '4px 8px', fontSize: 12, borderRadius: 4, border: '1px solid #cbd5e1' }}>
+                        <option value="">Ajouter à...</option>
+                        {data.filter(c => !c.parent_id).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowSuggest(false)} style={{ padding: '8px 16px', background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Fermer</button>
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -185,7 +185,10 @@
       "Bash(node -e \"require\\('./modules/glpi/glpi.routes'\\); console.log\\('OK'\\)\")",
       "Bash(curl -s http://localhost:3001/api/tickets/dashboard/stats -H \"Authorization: Bearer test\")",
       "Bash(curl -s \"http://localhost:3001/api/tickets/dashboard/daily-metrics\")",
-      "mcp__Claude_in_Chrome__read_page"
+      "mcp__Claude_in_Chrome__read_page",
+      "Bash(.\\\\run_all.bat)",
+      "Bash(findstr \"5173\\\\|3001\")",
+      "Bash(findstr \"node\")"
     ]
   }
 }
