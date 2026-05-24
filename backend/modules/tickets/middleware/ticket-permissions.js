@@ -69,19 +69,29 @@ async function resolveTicketRole(user) {
     const role = normalizeRole(user.role);
     // If the global role is already elevated, use it directly
     if (role !== 'user') return role;
-    // Fallback: check technician_profiles.module_role by username (avoids SQLite/PG id mismatch)
+    // Fallback: look up hub.users + technician_profiles by username.
+    // Start from hub.users (not technician_profiles) to avoid returning nothing
+    // when user_id FK was set with a stale/wrong id.
     try {
         const { pgDb } = require('../../../shared/database');
         const row = await pgDb.get(
-            `SELECT tp.module_role
-             FROM hub_tickets.technician_profiles tp
-             JOIN hub.users u ON u.id = tp.user_id
+            `SELECT u.role AS hub_role, tp.module_role
+             FROM hub.users u
+             LEFT JOIN hub_tickets.technician_profiles tp ON tp.user_id = u.id
              WHERE u.username = $1`,
             [user.username]
         );
-        if (row && row.module_role) {
-            const moduleRole = normalizeRole(row.module_role);
-            if (moduleRole !== 'user') return moduleRole;
+        if (row) {
+            // module_role is the tickets-specific role — prefer it
+            if (row.module_role) {
+                const moduleRole = normalizeRole(row.module_role);
+                if (moduleRole !== 'user') return moduleRole;
+            }
+            // hub_role is the global PG role set by the admin route
+            if (row.hub_role) {
+                const hubRole = normalizeRole(row.hub_role);
+                if (hubRole !== 'user') return hubRole;
+            }
         }
     } catch (e) {
         console.error('[PERMISSIONS] resolveTicketRole lookup error:', e.message);

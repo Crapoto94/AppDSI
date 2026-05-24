@@ -452,6 +452,17 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             user.email = req.user.email;
         }
 
+        // Overlay role from hub.users (PostgreSQL) if the admin elevated it via the tickets module.
+        // SQLite users.role is not updated by the tickets admin — hub.users.role is the source of truth.
+        if (source === 'sqlite' && (!user.role || user.role === 'user' || user.role === 'magapp')) {
+            try {
+                const hubUserRow = await pgDb.get('SELECT role FROM hub.users WHERE username = $1', [user.username]);
+                if (hubUserRow && hubUserRow.role && !['user', 'magapp'].includes(hubUserRow.role)) {
+                    user.role = hubUserRow.role;
+                }
+            } catch (e) { /* non-fatal */ }
+        }
+
         // Check manager status for all users
         try {
             const userInHub = await pgDb.get('SELECT id FROM hub.users WHERE username = $1', [user.username]);
@@ -3589,7 +3600,17 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                 if (user || magappUser) {
                     const u = user || magappUser;
                     const source = user ? 'hub' : 'magapp';
-                    console.log(`[DEBUG LOGIN] Generating token for user ${u.username} (source: ${source})`);
+                    // Check hub.users (PG) for elevated role set by the tickets admin module.
+                    // SQLite users.role is never updated by the tickets admin, so always check PG.
+                    if (!u.role || u.role === 'user' || u.role === 'magapp') {
+                        try {
+                            const hubR = await pool.query('SELECT role FROM hub.users WHERE username = $1', [u.username]);
+                            if (hubR.rows[0] && !['user', 'magapp'].includes(hubR.rows[0].role)) {
+                                u.role = hubR.rows[0].role;
+                            }
+                        } catch (e) { /* non-fatal */ }
+                    }
+                    console.log(`[DEBUG LOGIN] Generating token for user ${u.username} (source: ${source}, role: ${u.role})`);
                     const accessToken = jwt.sign({
                         id: u.id || 0,
                         username: u.username,
