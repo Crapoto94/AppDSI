@@ -446,11 +446,11 @@ module.exports = {
                     t.software_id,
                     a.name as software_name,
                     COUNT(t.glpi_id) as ticket_count,
-                    COUNT(t.glpi_id) FILTER (WHERE t.type = 1) as incident_count,
-                    COUNT(t.glpi_id) FILTER (WHERE t.type = 2) as request_count
+                    COUNT(t.glpi_id) FILTER (WHERE t.type::text = '1') as incident_count,
+                    COUNT(t.glpi_id) FILTER (WHERE t.type::text = '2') as request_count
                 FROM hub_tickets.tickets t
                 LEFT JOIN magapp.apps a ON t.software_id = a.id
-                WHERE t.status <= 4
+                WHERE t.status::integer <= 4
                 GROUP BY t.software_id, a.name
                 ORDER BY ticket_count DESC
             `, []);
