@@ -1277,15 +1277,18 @@ const glpiController = {
             const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
 
             // 1. Collect all unique numeric GLPI user IDs from both tables
+            // Use simple IS NOT NULL filter — JavaScript handles the numeric parsing
             const [ticketReqRes, observerIdsRes] = await Promise.all([
-                pool.query(`SELECT DISTINCT requester_name FROM glpi.tickets WHERE requester_name IS NOT NULL AND requester_name != '' AND requester_name ~ '^[\\[\\]0-9,\\s]+$'`),
+                pool.query(`SELECT DISTINCT requester_name FROM glpi.tickets WHERE requester_name IS NOT NULL AND requester_name != ''`),
                 pool.query(`SELECT DISTINCT user_id FROM glpi.observers WHERE user_id IS NOT NULL`)
             ]);
 
             const allIds = new Set();
             for (const row of ticketReqRes.rows) {
-                // Handle "[1392,2569]" and "1196" formats
-                row.requester_name.replace(/[\[\]\s]/g, '').split(',').filter(Boolean).forEach(id => {
+                // Handle "[1392,2569]" and "1196" formats — filter only rows that look numeric
+                const cleaned = (row.requester_name || '').replace(/[\[\]\s]/g, '');
+                if (!/^[0-9,]+$/.test(cleaned)) continue; // skip already-resolved names
+                cleaned.split(',').filter(Boolean).forEach(id => {
                     const n = parseInt(id, 10);
                     if (!isNaN(n) && n > 0) allIds.add(n);
                 });
