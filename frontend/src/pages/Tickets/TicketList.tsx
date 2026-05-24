@@ -3,15 +3,13 @@ import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 
 const STATUS_NAMES: Record<number, string> = {
-  1: 'Nouveau', 2: 'Assigné', 3: 'En cours',
-   4: 'En attente', 5: 'En attente',
-  6: 'Résolu', 7: 'Fermé', 8: 'Rejeté'
+  1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
+  4: 'En attente', 5: 'Résolu', 6: 'Clos'
 };
 
 const STATUS_COLORS: Record<number, string> = {
   1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b',
-  4: '#f97316', 5: '#ef4444', 6: '#22c55e',
-  7: '#64748b', 8: '#ef4444'
+  4: '#f97316', 5: '#22c55e', 6: '#64748b'
 };
 
 // priority 2=Basse -> 1 dot, 3=Normale -> 2, 4=Haute -> 3, 5=Tres haute -> 4
