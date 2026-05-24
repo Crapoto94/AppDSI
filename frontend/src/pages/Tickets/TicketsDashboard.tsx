@@ -547,50 +547,52 @@ export default function TicketsDashboard() {
       </div>
 
       {categories.length > 0 && (
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:13,fontWeight:600,color:'#64748b',marginBottom:8}}>Filtrer par catégorie :</div>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
-            {activeCategory && (
-              <button onClick={() => handleCategoryFilter(null, null)}
-                style={{
-                  display:'inline-flex',alignItems:'center',gap:4,
-                  padding:'6px 12px',border:'1px solid #e2e8f0',borderRadius:6,background:'#fff',cursor:'pointer',
-                  fontSize:12,fontWeight:500,color:'#64748b'
-                }}>
-                Toutes les catégories ✕
-              </button>
-            )}
+        <div style={{marginBottom:16,display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+          <div style={{fontSize:13,fontWeight:600,color:'#64748b'}}>Catégorie :</div>
+          <select
+            value={activeCategory || ''}
+            onChange={e => {
+              const catId = e.target.value ? parseInt(e.target.value) : null;
+              handleCategoryFilter(catId, null);
+            }}
+            style={{
+              padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:6,
+              background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500,
+              color:activeCategory ? '#6366f1' : '#64748b'
+            }}>
+            <option value="">Toutes les catégories</option>
             {categories.map(cat => (
-              <button key={cat.id}
-                onClick={() => handleCategoryFilter(cat.id, null)}
-                style={{
-                  display:'inline-flex',alignItems:'center',gap:4,
-                  padding:'6px 12px',border:'1px solid #e2e8f0',borderRadius:6,
-                  background:activeCategory === cat.id ? '#6366f1' : '#fff',
-                  color:activeCategory === cat.id ? '#fff' : '#475569',
-                  cursor:'pointer',fontSize:12,fontWeight:500
-                }}>
-                {cat.name}
-                {cat.children && cat.children.length > 0 && <span style={{fontSize:10}}>▼</span>}
-              </button>
+              <option key={cat.id} value={cat.id}>{cat.name}</option>
             ))}
-          </div>
+          </select>
           {activeCategory && (
-            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            <select
+              value={activeSubcategory || ''}
+              onChange={e => {
+                const subcatId = e.target.value ? parseInt(e.target.value) : null;
+                handleCategoryFilter(activeCategory, subcatId);
+              }}
+              style={{
+                padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:6,
+                background:'#fff',cursor:'pointer',fontSize:13,fontWeight:500,
+                color:activeSubcategory ? '#7c3aed' : '#64748b'
+              }}>
+              <option value="">Toutes les sous-catégories</option>
               {categories.find(c => c.id === activeCategory)?.children?.map((subcat: any) => (
-                <button key={subcat.id}
-                  onClick={() => handleCategoryFilter(activeCategory, subcat.id)}
-                  style={{
-                    display:'inline-flex',alignItems:'center',gap:4,
-                    padding:'6px 12px',border:'1px solid #e2e8f0',borderRadius:6,
-                    background:activeSubcategory === subcat.id ? '#7c3aed' : '#f8fafc',
-                    color:activeSubcategory === subcat.id ? '#fff' : '#475569',
-                    cursor:'pointer',fontSize:12,fontWeight:500
-                  }}>
-                  → {subcat.name}
-                </button>
+                <option key={subcat.id} value={subcat.id}>{subcat.name}</option>
               ))}
-            </div>
+            </select>
+          )}
+          {(activeCategory || activeSubcategory) && (
+            <button
+              onClick={() => handleCategoryFilter(null, null)}
+              style={{
+                padding:'6px 12px',border:'1px solid #e2e8f0',borderRadius:6,
+                background:'#fef2f2',color:'#ef4444',cursor:'pointer',
+                fontSize:12,fontWeight:500
+              }}>
+              ✕ Effacer
+            </button>
           )}
         </div>
       )}
