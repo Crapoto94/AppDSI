@@ -182,7 +182,10 @@
       "Bash(node -e \"require\\('./modules/tasks/tasks.routes.js'\\); console.log\\('routes OK'\\)\")",
       "PowerShell($content = [System.IO.File]::ReadAllText\\(\"C:\\\\dev\\\\AppDSI\\\\frontend\\\\src\\\\pages\\\\Admin.tsx\", [System.Text.Encoding]::UTF8\\); $idx = $content.IndexOf\\(\"const { role, is_approved\"\\); Write-Host $content.Substring\\($idx, 300\\))",
       "Bash(node -e \"require\\('./modules/glpi/glpi.controller'\\); console.log\\('OK'\\)\")",
-      "Bash(node -e \"require\\('./modules/glpi/glpi.routes'\\); console.log\\('OK'\\)\")"
+      "Bash(node -e \"require\\('./modules/glpi/glpi.routes'\\); console.log\\('OK'\\)\")",
+      "Bash(curl -s http://localhost:3001/api/tickets/dashboard/stats -H \"Authorization: Bearer test\")",
+      "Bash(curl -s \"http://localhost:3001/api/tickets/dashboard/daily-metrics\")",
+      "mcp__Claude_in_Chrome__read_page"
     ]
   }
 }

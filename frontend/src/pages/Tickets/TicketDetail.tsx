@@ -15,8 +15,7 @@ function decodeHtml(str: string) {
 
 const STATUS_COLORS: Record<number, string> = {
   1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b',
-  4: '#f97316', 5: '#ef4444', 6: '#22c55e',
-  7: '#64748b', 8: '#ef4444'
+  4: '#f97316', 5: '#22c55e', 6: '#64748b'
 };
 
 const PRIORITY_COLORS: Record<number, string> = {
@@ -33,19 +32,17 @@ const IMPACT_INFO: Record<number, { icon: string; label: string }> = {
 };
 
 const STATUS_NAMES: Record<number, string> = {
-  1: 'Nouveau', 2: 'Assigné', 3: 'En cours',
-   4: 'En attente', 5: 'En attente',
-  6: 'Résolu', 7: 'Fermé', 8: 'Rejeté'
+  1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
+  4: 'En attente', 5: 'Résolu', 6: 'Clos'
 };
 
 const VALID_TRANSITIONS: Record<number, { to: number; label: string; color: string }[]> = {
-  1: [{ to: 2, label: 'Assigner', color: '#8b5cf6' }, { to: 3, label: 'Prendre en charge', color: '#f59e0b' }, { to: 8, label: 'Rejeter', color: '#ef4444' }],
+  1: [{ to: 2, label: 'Assigner', color: '#8b5cf6' }, { to: 3, label: 'Prendre en charge', color: '#f59e0b' }],
   2: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }, { to: 1, label: 'Réinitialiser', color: '#64748b' }],
-   3: [{ to: 4, label: 'En attente', color: '#f97316' }, { to: 6, label: 'Résoudre', color: '#22c55e' }, { to: 2, label: 'Réassigner', color: '#8b5cf6' }],
-  4: [{ to: 3, label: 'Reprendre', color: '#f59e0b' }, { to: 6, label: 'Résoudre', color: '#22c55e' }],
-  5: [{ to: 3, label: 'Reprendre', color: '#f59e0b' }],
-  6: [{ to: 7, label: 'Fermer', color: '#64748b' }, { to: 3, label: 'Réouvrir', color: '#f59e0b' }],
-  7: [{ to: 3, label: 'Réouvrir', color: '#f59e0b' }],
+  3: [{ to: 4, label: 'En attente', color: '#f97316' }, { to: 5, label: 'Résoudre', color: '#22c55e' }, { to: 2, label: 'Réassigner', color: '#8b5cf6' }],
+  4: [{ to: 3, label: 'Reprendre', color: '#f59e0b' }, { to: 5, label: 'Résoudre', color: '#22c55e' }],
+  5: [{ to: 6, label: 'Fermer', color: '#64748b' }, { to: 3, label: 'Réouvrir', color: '#f59e0b' }],
+  6: [{ to: 3, label: 'Réouvrir', color: '#f59e0b' }],
 };
 
 export default function TicketDetail() {
@@ -252,7 +249,7 @@ export default function TicketDetail() {
       setShowWaitingModal(true);
       return;
     }
-    if (newStatus === 6) {
+    if (newStatus === 5) {
       setSolutionText('');
       setShowSolutionModal(true);
       return;
