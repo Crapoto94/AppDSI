@@ -163,10 +163,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [isSyncingObservers, setIsSyncingObservers] = useState(false);
   const [isSyncingFollowups, setIsSyncingFollowups] = useState(false);
   const [isSyncingDescriptions, setIsSyncingDescriptions] = useState(false);
+  const [isSyncingNames, setIsSyncingNames] = useState(false);
   const [syncStatus, setSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [observersSyncStatus, setObserversSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [followupsSyncStatus, setFollowupsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [descriptionsSyncStatus, setDescriptionsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
+  const [namesSyncStatus, setNamesSyncStatus] = useState<{ active: boolean; processed: number; total: number; resolved: number; source: string | null }>({ active: false, processed: 0, total: 0, resolved: 0, source: null });
   const [syncLogs, setSyncLogs] = useState<any[]>([]);
   const [syncLogsPage, setSyncLogsPage] = useState(1);
   const syncLogsPerPage = 10;
@@ -1145,6 +1147,47 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       setIsSyncingDescriptions(false);
       setDescriptionsSyncStatus(prev => ({ ...prev, active: false }));
       clearInterval(pollInterval);
+    }
+  };
+
+  const handleSyncUserNames = async () => {
+    if (!window.confirm('Résoudre les noms/prénoms des demandeurs et observateurs via l\'API GLPI (+ fallback AD) ? Cette opération peut prendre quelques minutes.')) return;
+
+    setIsSyncingNames(true);
+    setNamesSyncStatus({ active: true, processed: 0, total: 0, resolved: 0, source: 'glpi' });
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await axios.get('/api/glpi/sync-names-status', { headers: { Authorization: `Bearer ${token}` } });
+        setNamesSyncStatus(res.data);
+        if (!res.data.active) clearInterval(pollInterval);
+      } catch (e) {
+        console.error('Erreur polling names:', e);
+      }
+    }, 1500);
+
+    try {
+      const response = await axios.post('/api/glpi/sync-user-names', {}, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 600000
+      });
+      const msg = response.data.message || `${response.data.resolved} noms résolus sur ${response.data.total}.`;
+      alert(`Synchronisation des noms réussie : ${msg}`);
+      fetchSyncLogs();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Erreur lors de la synchronisation des noms');
+    } finally {
+      setIsSyncingNames(false);
+      setNamesSyncStatus(prev => ({ ...prev, active: false }));
+      clearInterval(pollInterval);
+    }
+  };
+
+  const handleCancelNamesSync = async () => {
+    try {
+      await axios.post('/api/glpi/sync-names-cancel', {}, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) {
+      console.error('Erreur annulation names:', e);
     }
   };
 
@@ -3526,7 +3569,35 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <span>{isSyncingDescriptions ? `${descriptionsSyncStatus.processed}/${descriptionsSyncStatus.total}` : 'Descriptions'}</span>
                             </button>
 
+                            <button onClick={handleSyncUserNames} className="action-tile" disabled={isSyncingNames || !glpiConfig.is_enabled} style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #6ee7b7' }}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                                <span>{isSyncingNames ? `${namesSyncStatus.resolved}/${namesSyncStatus.total}` : 'Noms/Prénoms'}</span>
+                            </button>
+
                         </div>
+
+                        {namesSyncStatus.active && (
+                            <div className="sync-progress-box" style={{ marginTop: '10px', borderColor: '#059669' }}>
+                                <div className="progress-header">
+                                    <div className="progress-label">
+                                        <span className="progress-spinner">⟳</span>
+                                        {namesSyncStatus.source === 'ad' ? 'Fallback AD (LDAP)...' : 'Résolution noms via GLPI...'}
+                                    </div>
+                                    <div className="progress-percent">
+                                        {namesSyncStatus.total > 0 ? Math.round((namesSyncStatus.processed / namesSyncStatus.total) * 100) : 0}%
+                                    </div>
+                                </div>
+                                <div className="progress-bar-container">
+                                    <div className="progress-bar-fill" style={{ width: `${namesSyncStatus.total > 0 ? (namesSyncStatus.processed / namesSyncStatus.total) * 100 : 0}%`, transition: 'width 0.3s ease', backgroundColor: '#059669' }}>
+                                        <div className="progress-bar-shimmer"></div>
+                                    </div>
+                                </div>
+                                <div className="progress-stats">
+                                    <span>{namesSyncStatus.resolved.toLocaleString()} résolus · {namesSyncStatus.processed.toLocaleString()} / {namesSyncStatus.total.toLocaleString()}</span>
+                                    <button className="btn-cancel-sync" onClick={handleCancelNamesSync}>Annuler</button>
+                                </div>
+                            </div>
+                        )}
 
                         {observersSyncStatus.active && (
                             <div className="sync-progress-box" style={{ marginTop: '10px', borderColor: '#17a2b8' }}>

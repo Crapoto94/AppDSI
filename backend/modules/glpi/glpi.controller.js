@@ -1,7 +1,9 @@
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const ldap = require('ldapjs');
 const { getSqlite, pgDb, pool } = require('../../shared/database');
+const { flattenLDAPEntry, decodeLDAPString } = require('../../shared/utils');
 
 // Internal state for progress tracking
 let glpiSyncProgress = {
@@ -45,6 +47,18 @@ let descriptionsSyncProgress = {
 
 let descriptionsSyncCancelled = false;
 
+let namesSyncProgress = {
+    active: false,
+    processed: 0,
+    total: 0,
+    startTime: null,
+    lastUpdate: null,
+    source: null,    // 'glpi' | 'ad'
+    resolved: 0
+};
+
+let namesSyncCancelled = false;
+
 // Scheduled sync state
 let currentRunningSync = null;
 let syncQueue = [];
@@ -54,10 +68,57 @@ function isAnySyncActive() {
     return glpiSyncProgress.active ||
            observersSyncProgress.active ||
            followupsSyncProgress.active ||
-           descriptionsSyncProgress.active;
+           descriptionsSyncProgress.active ||
+           namesSyncProgress.active;
 }
 
 const SYNC_BUSY_MSG = 'Une synchronisation est déjà en cours. Attendez qu\'elle se termine avant d\'en lancer une autre.';
+
+// ─── LDAP batch lookup: username[] → Map<username, fullName> ─────────────────
+async function ldapBatchLookup(adSettings, usernames) {
+    const resultMap = new Map();
+    if (!usernames || usernames.length === 0) return resultMap;
+
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < usernames.length; i += BATCH_SIZE) {
+        const batch = usernames.slice(i, i + BATCH_SIZE);
+        const orClauses = batch.map(u => `(sAMAccountName=${u.replace(/[*()\\\x00]/g, '')})`).join('');
+        const filter = batch.length === 1
+            ? `(&(objectClass=user)(sAMAccountName=${batch[0].replace(/[*()\\\x00]/g, '')}))`
+            : `(&(objectClass=user)(|${orClauses}))`;
+
+        await new Promise((resolve) => {
+            const client = ldap.createClient({
+                url: `ldap://${adSettings.host}:${adSettings.port || 389}`,
+                connectTimeout: 5000,
+                timeout: 5000
+            });
+            client.on('error', () => resolve());
+            client.bind(adSettings.bind_dn, adSettings.bind_password, (bindErr) => {
+                if (bindErr) { client.destroy(); return resolve(); }
+                client.search(adSettings.base_dn, {
+                    filter,
+                    attributes: ['sAMAccountName', 'givenName', 'sn', 'displayName'],
+                    scope: 'sub'
+                }, (searchErr, searchRes) => {
+                    if (searchErr) { client.destroy(); return resolve(); }
+                    searchRes.on('searchEntry', (entry) => {
+                        const obj = flattenLDAPEntry(entry);
+                        const sam = (obj.sAMAccountName || '').toLowerCase();
+                        const givenName = decodeLDAPString(obj.givenName || '');
+                        const sn = decodeLDAPString(obj.sn || '');
+                        const displayName = decodeLDAPString(obj.displayName || '');
+                        const fullName = (givenName && sn) ? `${givenName} ${sn}` : (displayName || null);
+                        if (sam && fullName) resultMap.set(sam, fullName);
+                    });
+                    searchRes.on('end', () => { client.destroy(); resolve(); });
+                    searchRes.on('error', () => { client.destroy(); resolve(); });
+                });
+            });
+        });
+    }
+    return resultMap;
+}
 
 
 const glpiController = {
@@ -1195,6 +1256,198 @@ const glpiController = {
                 `INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, error_message) VALUES ($1, $2, $3, $4, $5)`,
                 [sync_type, sync_mode, 'scheduled-cron', 'error', errorMsg]
             ).catch(e => console.error('[SCHEDULED SYNC] Erreur log:', e.message));
+        }
+    },
+
+    // ─── Sync User Names (GLPI API + AD fallback) ────────────────────────────
+    getNamesStatus: (req, res) => res.json(namesSyncProgress),
+
+    cancelNamesSync: (req, res) => {
+        namesSyncCancelled = true;
+        res.json({ success: true, message: 'Annulation demandée' });
+    },
+
+    syncUserNames: async (req, res) => {
+        if (isAnySyncActive()) return res.status(409).json({ message: SYNC_BUSY_MSG });
+        namesSyncCancelled = false;
+        namesSyncProgress = { active: true, processed: 0, total: 0, resolved: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString(), source: 'glpi' };
+
+        try {
+            const db = getSqlite();
+            const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+
+            // 1. Collect all unique numeric GLPI user IDs from both tables
+            const [ticketReqRes, observerIdsRes] = await Promise.all([
+                pool.query(`SELECT DISTINCT requester_name FROM glpi.tickets WHERE requester_name IS NOT NULL AND requester_name != '' AND requester_name ~ '^[\\[\\]0-9,\\s]+$'`),
+                pool.query(`SELECT DISTINCT user_id FROM glpi.observers WHERE user_id IS NOT NULL`)
+            ]);
+
+            const allIds = new Set();
+            for (const row of ticketReqRes.rows) {
+                // Handle "[1392,2569]" and "1196" formats
+                row.requester_name.replace(/[\[\]\s]/g, '').split(',').filter(Boolean).forEach(id => {
+                    const n = parseInt(id, 10);
+                    if (!isNaN(n) && n > 0) allIds.add(n);
+                });
+            }
+            for (const row of observerIdsRes.rows) {
+                if (row.user_id > 0) allIds.add(row.user_id);
+            }
+
+            const idList = [...allIds];
+            namesSyncProgress.total = idList.length;
+            console.log(`[SYNC NAMES] ${idList.length} GLPI user IDs to resolve`);
+
+            // 2. Fetch names from GLPI API (GET /User/{id})
+            const glpiUserCache = new Map(); // id (number) → fullName (string)
+
+            if (settings?.url) {
+                const url = glpiController.getApiUrl(settings.url);
+                const commonHeaders = { 'App-Token': settings.app_token?.trim() || '', 'Content-Type': 'application/json' };
+                const authHeader = glpiController.getAuthHeader(settings);
+
+                try {
+                    const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader }, timeout: 10000 });
+                    const sessionToken = sessionRes.data?.session_token;
+
+                    if (sessionToken) {
+                        const CONCURRENCY = 30;
+                        for (let i = 0; i < idList.length; i += CONCURRENCY) {
+                            if (namesSyncCancelled) break;
+
+                            const batch = idList.slice(i, i + CONCURRENCY);
+                            const results = await Promise.allSettled(
+                                batch.map(id => axios.get(`${url}/User/${id}?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 5000 }))
+                            );
+
+                            results.forEach((r, idx) => {
+                                if (r.status === 'fulfilled' && r.value.data && !Array.isArray(r.value.data)) {
+                                    const u = r.value.data;
+                                    const firstname = (u.firstname || '').trim();
+                                    const realname = (u.realname || '').trim();
+                                    const loginName = (u.name || '').trim(); // GLPI login
+                                    const fullName = (firstname && realname) ? `${firstname} ${realname}` : (firstname || realname || loginName);
+                                    if (fullName) glpiUserCache.set(batch[idx], { fullName, login: loginName });
+                                }
+                            });
+
+                            namesSyncProgress.processed = Math.min(i + CONCURRENCY, idList.length);
+                            namesSyncProgress.resolved = glpiUserCache.size;
+                            namesSyncProgress.lastUpdate = new Date().toISOString();
+                        }
+
+                        await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders }).catch(() => {});
+                        console.log(`[SYNC NAMES] GLPI API resolved: ${glpiUserCache.size} names`);
+                    }
+                } catch (glpiErr) {
+                    console.error('[SYNC NAMES] GLPI API error:', glpiErr.message);
+                }
+            }
+
+            // 3. AD fallback for IDs not resolved by GLPI
+            if (!namesSyncCancelled) {
+                const missingIds = idList.filter(id => !glpiUserCache.has(id));
+                console.log(`[SYNC NAMES] Missing after GLPI: ${missingIds.length} — trying AD fallback`);
+
+                if (missingIds.length > 0) {
+                    namesSyncProgress.source = 'ad';
+                    namesSyncProgress.lastUpdate = new Date().toISOString();
+
+                    // Collect emails for missing IDs
+                    const emailByUserId = new Map();
+
+                    const [obsEmails, ticketEmails] = await Promise.all([
+                        pool.query(`SELECT DISTINCT user_id, email FROM glpi.observers WHERE user_id = ANY($1) AND email IS NOT NULL AND email != ''`, [missingIds]),
+                        pool.query(`SELECT DISTINCT requester_name::integer AS uid, requester_email_22 FROM glpi.tickets WHERE requester_name ~ '^[0-9]+$' AND requester_name::integer = ANY($1) AND requester_email_22 IS NOT NULL AND requester_email_22 != ''`, [missingIds])
+                    ]);
+
+                    for (const row of obsEmails.rows) emailByUserId.set(row.user_id, row.email);
+                    for (const row of ticketEmails.rows) {
+                        if (!emailByUserId.has(row.uid)) emailByUserId.set(row.uid, row.requester_email_22);
+                    }
+
+                    // Map username → userId for reverse lookup
+                    const usernameToId = new Map();
+                    for (const [userId, email] of emailByUserId) {
+                        const username = (email.split('@')[0] || '').toLowerCase();
+                        if (username) usernameToId.set(username, userId);
+                    }
+
+                    if (usernameToId.size > 0) {
+                        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1 AND is_enabled = 1');
+                        if (adSettings) {
+                            const adNames = await ldapBatchLookup(adSettings, [...usernameToId.keys()]);
+                            for (const [username, fullName] of adNames) {
+                                const userId = usernameToId.get(username);
+                                if (userId) glpiUserCache.set(userId, { fullName, login: username });
+                            }
+                            console.log(`[SYNC NAMES] AD resolved: ${adNames.size} additional names`);
+                            namesSyncProgress.resolved = glpiUserCache.size;
+                            namesSyncProgress.lastUpdate = new Date().toISOString();
+                        }
+                    }
+                }
+            }
+
+            // 4. Apply updates to database
+            if (glpiUserCache.size > 0 && !namesSyncCancelled) {
+                const entries = [...glpiUserCache.entries()]; // [id, { fullName, login }]
+
+                // Update glpi.observers.name and .login
+                for (let i = 0; i < entries.length; i += 100) {
+                    const batch = entries.slice(i, i + 100);
+                    const valSql = batch.map((_, k) => `($${k*3+1}::integer, $${k*3+2}::text, $${k*3+3}::text)`).join(', ');
+                    const params = batch.flatMap(([id, { fullName, login }]) => [id, fullName, login || fullName]);
+                    await pool.query(
+                        `UPDATE glpi.observers SET name = v.full_name, login = v.login
+                         FROM (VALUES ${valSql}) AS v(user_id, full_name, login)
+                         WHERE glpi.observers.user_id = v.user_id`,
+                        params
+                    );
+                }
+
+                // Update glpi.tickets + hub_tickets.tickets (single numeric requester_name)
+                for (let i = 0; i < entries.length; i += 100) {
+                    const batch = entries.slice(i, i + 100);
+                    const valSql = batch.map((_, k) => `($${k*2+1}::text, $${k*2+2}::text)`).join(', ');
+                    const params = batch.flatMap(([id, { fullName }]) => [String(id), fullName]);
+                    await pool.query(
+                        `UPDATE glpi.tickets SET requester_name = v.name FROM (VALUES ${valSql}) AS v(old_id, name) WHERE glpi.tickets.requester_name = v.old_id`,
+                        params
+                    );
+                    await pool.query(
+                        `UPDATE hub_tickets.tickets SET requester_name = v.name FROM (VALUES ${valSql}) AS v(old_id, name) WHERE hub_tickets.tickets.requester_name = v.old_id`,
+                        params
+                    );
+                }
+
+                // Handle bracket format "[1392,2569]" → "Prénom NOM, Prénom2 NOM2"
+                const bracketTickets = await pool.query(`SELECT glpi_id, requester_name FROM glpi.tickets WHERE requester_name ~ '^\\[.*\\]$'`);
+                for (const ticket of bracketTickets.rows) {
+                    const ids = ticket.requester_name.replace(/[\[\]\s]/g, '').split(',').map(Number).filter(n => !isNaN(n) && n > 0);
+                    const names = ids.map(id => glpiUserCache.get(id)?.fullName).filter(Boolean);
+                    if (names.length > 0) {
+                        const fullName = names.join(', ');
+                        await pool.query(`UPDATE glpi.tickets SET requester_name = $1 WHERE glpi_id = $2`, [fullName, ticket.glpi_id]);
+                        await pool.query(`UPDATE hub_tickets.tickets SET requester_name = $1 WHERE glpi_id = $2`, [fullName, ticket.glpi_id]);
+                    }
+                }
+            }
+
+            namesSyncProgress.active = false;
+            namesSyncProgress.lastUpdate = new Date().toISOString();
+            console.log(`[SYNC NAMES] Terminé. ${glpiUserCache.size} / ${idList.length} noms résolus.`);
+
+            res.json({
+                success: true,
+                resolved: glpiUserCache.size,
+                total: idList.length,
+                message: `${glpiUserCache.size} noms résolus sur ${idList.length} IDs.`
+            });
+        } catch (error) {
+            console.error('[SYNC NAMES] Erreur:', error.message);
+            namesSyncProgress.active = false;
+            res.status(500).json({ message: error.message });
         }
     }
 
