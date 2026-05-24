@@ -2504,7 +2504,7 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                 <tr key={`hub_${t.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: '#f0f9ff', borderLeft: '3px solid #3b82f6' }}>
                   <td style={{ padding: '10px 12px', fontWeight: '600', color: '#1e293b' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {t.is_team_task && <Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} title="Tâche d'équipe" />}
+                      {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
                       {t.description}
                     </span>
                   </td>

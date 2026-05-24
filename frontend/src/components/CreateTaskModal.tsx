@@ -17,7 +17,7 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  let debounceTimer: NodeJS.Timeout;
+  let debounceTimer: ReturnType<typeof setTimeout>;
 
   function searchAD(q: string) {
     if (q.length < 2) { setAdResults([]); return; }

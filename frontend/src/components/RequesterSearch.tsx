@@ -18,7 +18,7 @@ export default function RequesterSearch({ value, onChange, initialEmail, initial
   const [showTicketList, setShowTicketList] = useState(false);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<NodeJS.Timeout>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (selected && selected.email) {

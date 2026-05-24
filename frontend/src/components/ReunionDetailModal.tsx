@@ -496,7 +496,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
               <div style={{marginTop: '8px', border: '1px solid #dbeafe', borderRadius: '8px', overflow: 'hidden'}}>
                 {hubTasks.map((t: any) => (
                   <div key={t.id} style={{display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', fontSize: '12px', background: 'white', borderLeft: '3px solid #3b82f6'}}>
-                    {t.is_team_task && <Users size={12} style={{color: '#2563eb', flexShrink: 0}} title="Tâche d'équipe" />}
+                    {t.is_team_task && <span title="Tâche d'équipe"><Users size={12} style={{color: '#2563eb', flexShrink: 0}} /></span>}
                     <span style={{flex: 1, fontWeight: 600, color: '#1e293b'}}>{t.description}</span>
                     <span style={{fontSize: 11, color: '#64748b'}}>{t.username}</span>
                     {t.echeance && <span style={{fontSize: 10, color: '#94a3b8'}}>{new Date(t.echeance).toLocaleDateString('fr-FR')}</span>}

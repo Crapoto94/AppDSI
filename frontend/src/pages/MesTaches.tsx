@@ -326,7 +326,7 @@ const MesTaches: React.FC = () => {
         if ((data.imported || 0) > 0) parts.push(`${data.imported} importée(s) depuis Todo`);
         if (parts.length === 0) parts.push('Tout est à jour');
         setTodoResult({ ok: true, text: parts.join(' · ') });
-        if ((data.imported || 0) > 0) loadTasks(); // refresh if new tasks were imported
+        if ((data.imported || 0) > 0) fetchTasks(); // refresh if new tasks were imported
       }
       else setTodoResult({ ok: false, text: data.detail || data.error || 'Erreur inconnue' });
     } catch { setTodoResult({ ok: false, text: 'Erreur réseau' }); }
