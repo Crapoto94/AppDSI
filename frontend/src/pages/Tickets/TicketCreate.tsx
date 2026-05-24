@@ -229,45 +229,47 @@ export default function TicketCreate() {
             </div>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Logiciel / Métier</label>
-            <div style={{ position: 'relative' }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input value={softwareSearch} onChange={e => setSoftwareSearch(e.target.value)}
-                  placeholder="Rechercher un logiciel..."
-                  disabled={loadingData}
-                  style={{ flex: 1, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', cursor: loadingData ? 'not-allowed' : 'text' }} />
+          {form.category_id && categories.find(c => c.id === parseInt(form.category_id))?.name.toLowerCase().includes('logiciel') && (
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Logiciel / Métier</label>
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input value={softwareSearch} onChange={e => setSoftwareSearch(e.target.value)}
+                    placeholder="Rechercher un logiciel..."
+                    disabled={loadingData}
+                    style={{ flex: 1, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', cursor: loadingData ? 'not-allowed' : 'text' }} />
+                  {selectedSoftware && (
+                    <button onClick={clearSoftware} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>✕</button>
+                  )}
+                </div>
+                {!selectedSoftware && softwareResults.length > 0 && (
+                  <div style={{ marginTop: 4, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', position: 'absolute', width: '100%', background: '#fff', zIndex: 10, maxHeight: 300, overflowY: 'auto', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                    {softwareResults.map(app => (
+                      <div key={app.id} onClick={() => selectSoftware(app)}
+                        style={{
+                          padding: '10px 12px', cursor: 'pointer', fontSize: 13,
+                          borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          transition: 'background 0.1s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                        onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+                        <span style={{ fontWeight: 500, color: '#1e293b' }}>{app.name}</span>
+                        <span style={{ color: '#6366f1', fontSize: 12 }}>+</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!selectedSoftware && softwareSearch.trim().length > 0 && softwareResults.length === 0 && (
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Aucun logiciel trouvé</div>
+                )}
                 {selectedSoftware && (
-                  <button onClick={clearSoftware} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>✕</button>
+                  <div style={{ marginTop: 8, padding: '8px 12px', background: '#e0e7ff', border: '1px solid #c7d2fe', borderRadius: 6, fontSize: 13, color: '#4f46e5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>✓ {selectedSoftware.name}</span>
+                  </div>
                 )}
               </div>
-              {!selectedSoftware && softwareResults.length > 0 && (
-                <div style={{ marginTop: 4, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', position: 'absolute', width: '100%', background: '#fff', zIndex: 10, maxHeight: 300, overflowY: 'auto', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-                  {softwareResults.map(app => (
-                    <div key={app.id} onClick={() => selectSoftware(app)}
-                      style={{
-                        padding: '10px 12px', cursor: 'pointer', fontSize: 13,
-                        borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        transition: 'background 0.1s'
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                      onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                      <span style={{ fontWeight: 500, color: '#1e293b' }}>{app.name}</span>
-                      <span style={{ color: '#6366f1', fontSize: 12 }}>+</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {!selectedSoftware && softwareSearch.trim().length > 0 && softwareResults.length === 0 && (
-                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Aucun logiciel trouvé</div>
-              )}
-              {selectedSoftware && (
-                <div style={{ marginTop: 8, padding: '8px 12px', background: '#e0e7ff', border: '1px solid #c7d2fe', borderRadius: 6, fontSize: 13, color: '#4f46e5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>✓ {selectedSoftware.name}</span>
-                </div>
-              )}
             </div>
-          </div>
+          )}
 
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#374151' }}>
