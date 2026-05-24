@@ -371,18 +371,20 @@ router.post('/technicians', authenticateAdmin, async (req, res) => {
             res.status(201).json({ message: 'Technicien ajouté' });
         } else if (username) {
             // Preferred path: username from AD search
-            // Look up or create in hub.users (PG) for the FK
-            let existingUser = await pgDb.get('SELECT id FROM hub.users WHERE username = $1', [username]);
+            // Normalize to lowercase to match SQLite convention
+            const usernameLower = username.toLowerCase();
+            // Look up or create in hub.users (PG) for the FK (case-insensitive lookup)
+            let existingUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [username]);
             if (!existingUser) {
                 const result = await pgDb.run(`
                     INSERT INTO hub.users (username, displayName, email, role)
                     VALUES ($1, $2, $3, 'technician') RETURNING id
-                `, [username, displayName || username, email || '']);
+                `, [usernameLower, displayName || username, email || '']);
                 existingUser = { id: result.lastID || result.id };
             }
-            await technicianRepo.create(existingUser.id, username);
+            await technicianRepo.create(existingUser.id, usernameLower);
             // Sync technician role to SQLite (source of JWT)
-            await db.run("UPDATE users SET role = 'technician' WHERE username = ? AND role NOT IN ('admin','superadmin')", [username]);
+            await db.run("UPDATE users SET role = 'technician' WHERE LOWER(username) = LOWER(?) AND role NOT IN ('admin','superadmin')", [username]);
             res.status(201).json({ message: 'Technicien ajouté', user_id: existingUser.id });
         } else {
             res.status(400).json({ message: 'user_id ou username requis' });
@@ -484,11 +486,13 @@ router.put('/technicians/:id/role', authenticateAdmin, async (req, res) => {
             const hubUser = await pgDb.get('SELECT username FROM hub.users WHERE id = $1', [userId]);
             if (hubUser?.username) {
                 const db = getSqlite();
-                await db.run("UPDATE users SET role = ? WHERE username = ? AND role NOT IN ('superadmin')", [role, hubUser.username]);
-                // Also update the username in technician_profiles if not set yet
+                // Case-insensitive sync to SQLite (AD usernames may be MixedCase vs lowercase SQLite)
+                await db.run("UPDATE users SET role = ? WHERE LOWER(username) = LOWER(?) AND role NOT IN ('superadmin')", [role, hubUser.username]);
+                // Normalize username to lowercase in technician_profiles for future lookups
+                const normalizedUsername = hubUser.username.toLowerCase();
                 await pgDb.run(
-                    "UPDATE hub_tickets.technician_profiles SET username = $1 WHERE user_id = $2 AND username IS NULL",
-                    [hubUser.username, userId]
+                    "UPDATE hub_tickets.technician_profiles SET username = $1 WHERE user_id = $2",
+                    [normalizedUsername, userId]
                 );
             }
         } catch (e) { console.error('[ROLE SYNC]', e.message); }

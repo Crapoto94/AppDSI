@@ -72,21 +72,21 @@ async function resolveTicketRole(user) {
     // Fallback: look up technician_profiles by username (direct — no PG id dependency)
     try {
         const { pgDb } = require('../../../shared/database');
-        // Primary: username column (set when profile was created/updated)
+        // Primary: username column (case-insensitive — AD usernames may differ in case from SQLite)
         const byUsername = await pgDb.get(
-            `SELECT module_role FROM hub_tickets.technician_profiles WHERE username = $1`,
+            `SELECT module_role FROM hub_tickets.technician_profiles WHERE LOWER(username) = LOWER($1)`,
             [user.username]
         );
         if (byUsername?.module_role) {
             const moduleRole = normalizeRole(byUsername.module_role);
             if (moduleRole !== 'user') return moduleRole;
         }
-        // Fallback: join through hub.users (for older profiles without username column)
+        // Fallback: join through hub.users (case-insensitive)
         const byHub = await pgDb.get(
             `SELECT u.role AS hub_role, tp.module_role
              FROM hub.users u
              LEFT JOIN hub_tickets.technician_profiles tp ON tp.user_id = u.id
-             WHERE u.username = $1`,
+             WHERE LOWER(u.username) = LOWER($1)`,
             [user.username]
         );
         if (byHub) {

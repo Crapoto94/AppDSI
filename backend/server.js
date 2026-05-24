@@ -454,9 +454,10 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
 
         // Overlay role from hub.users (PostgreSQL) if the admin elevated it via the tickets module.
         // SQLite users.role is not updated by the tickets admin — hub.users.role is the source of truth.
+        // Use LOWER() because AD usernames in PG may differ in case from SQLite lowercase usernames.
         if (source === 'sqlite' && (!user.role || user.role === 'user' || user.role === 'magapp')) {
             try {
-                const hubUserRow = await pgDb.get('SELECT role FROM hub.users WHERE username = $1', [user.username]);
+                const hubUserRow = await pgDb.get('SELECT role FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
                 if (hubUserRow && hubUserRow.role && !['user', 'magapp'].includes(hubUserRow.role)) {
                     user.role = hubUserRow.role;
                 }
@@ -3525,6 +3526,15 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
         const u = user || magappUser;
         if (u) {
             const source = user ? 'hub' : 'magapp';
+            // Check hub.users (PG) for elevated role — same logic as AD login path
+            if (!u.role || u.role === 'user' || u.role === 'magapp') {
+                try {
+                    const hubR = await pool.query('SELECT role FROM hub.users WHERE LOWER(username) = LOWER($1)', [u.username]);
+                    if (hubR.rows[0] && !['user', 'magapp'].includes(hubR.rows[0].role)) {
+                        u.role = hubR.rows[0].role;
+                    }
+                } catch (e) { /* non-fatal */ }
+            }
             const userEmail = u.email && u.email.trim() !== ''
                 ? u.email
                 : `${username.toLowerCase()}@ivry94.fr`;
@@ -3602,9 +3612,10 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                     const source = user ? 'hub' : 'magapp';
                     // Check hub.users (PG) for elevated role set by the tickets admin module.
                     // SQLite users.role is never updated by the tickets admin, so always check PG.
+                    // Use LOWER() because AD usernames in PG may differ in case from SQLite lowercase usernames.
                     if (!u.role || u.role === 'user' || u.role === 'magapp') {
                         try {
-                            const hubR = await pool.query('SELECT role FROM hub.users WHERE username = $1', [u.username]);
+                            const hubR = await pool.query('SELECT role FROM hub.users WHERE LOWER(username) = LOWER($1)', [u.username]);
                             if (hubR.rows[0] && !['user', 'magapp'].includes(hubR.rows[0].role)) {
                                 u.role = hubR.rows[0].role;
                             }

@@ -575,8 +575,8 @@ async function setupPgDb() {
     // username column — authoritative key for lookups (hub users live in SQLite, not in hub.users PG)
     try { await client.query("ALTER TABLE hub_tickets.technician_profiles ADD COLUMN IF NOT EXISTS username VARCHAR(255)"); } catch (e) {}
     try { await client.query("CREATE UNIQUE INDEX IF NOT EXISTS tech_profiles_username_uq ON hub_tickets.technician_profiles(username) WHERE username IS NOT NULL"); } catch (e) {}
-    // Backfill username from hub.users for existing rows
-    try { await client.query("UPDATE hub_tickets.technician_profiles tp SET username = u.username FROM hub.users u WHERE tp.user_id = u.id AND tp.username IS NULL"); } catch (e) {}
+    // Backfill username from hub.users for existing rows — normalize to lowercase
+    try { await client.query("UPDATE hub_tickets.technician_profiles tp SET username = LOWER(u.username) FROM hub.users u WHERE tp.user_id = u.id AND (tp.username IS NULL OR tp.username != LOWER(u.username))"); } catch (e) {}
     try {
         await client.query(`
             CREATE TABLE IF NOT EXISTS hub_tickets.role_permissions (
