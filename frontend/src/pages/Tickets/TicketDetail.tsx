@@ -80,7 +80,13 @@ export default function TicketDetail() {
   const [observerResults, setObserverResults] = useState<any[]>([]);
   const [observerSearching, setObserverSearching] = useState(false);
 
-  useEffect(() => { loadTicket(); loadGroup(); }, [id]);
+  // Edition des informations
+  const [editingInfo, setEditingInfo] = useState(false);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [apps, setApps] = useState<any[]>([]);
+  const [editForm, setEditForm] = useState<any>({});
+
+  useEffect(() => { loadTicket(); loadGroup(); loadCategoriesAndApps(); }, [id]);
 
   useEffect(() => {
     const id = 'ticket-html-content-styles';
@@ -116,6 +122,18 @@ export default function TicketDetail() {
       .catch(() => {});
   }, []);
 
+  async function loadCategoriesAndApps() {
+    try {
+      const token = localStorage.getItem('token');
+      const [catRes, appRes] = await Promise.all([
+        axios.get('/api/tickets/admin/categories', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      setCategories(catRes.data || []);
+      setApps((appRes.data || []).filter((a: any) => a.present_magapp === 'oui'));
+    } catch (e) { console.error('Failed to load categories/apps:', e); }
+  }
+
   async function loadRequesterTickets(email: string) {
     try {
       const token = localStorage.getItem('token');
@@ -139,6 +157,13 @@ export default function TicketDetail() {
       ]);
       const t = ticketRes.data;
       setTicket(t);
+      setEditForm({
+        priority: t.priority?.id || t.priority,
+        impact: t.impact?.id || t.impact,
+        category_id: t.category_id || null,
+        subcategory_id: t.subcategory_id || null,
+        software_id: t.software_id || null
+      });
       setComments(commentsRes.data);
       setHistory(historyRes.data);
       setTicketTasks(tasksRes.data || []);
@@ -161,6 +186,24 @@ export default function TicketDetail() {
       });
       setTicketGroup(res.data);
     } catch (e) { setTicketGroup(null); }
+  }
+
+  async function saveInfo() {
+    try {
+      const token = localStorage.getItem('token');
+      const updateData: any = {};
+      if (editForm.priority !== undefined) updateData.priority = editForm.priority;
+      if (editForm.impact !== undefined) updateData.impact = editForm.impact;
+      if (editForm.category_id !== undefined) updateData.category_id = editForm.category_id;
+      if (editForm.subcategory_id !== undefined) updateData.subcategory_id = editForm.subcategory_id;
+      if (editForm.software_id !== undefined) updateData.software_id = editForm.software_id;
+
+      await axios.patch(`/api/tickets/${id}`, updateData, { headers: { Authorization: `Bearer ${token}` } });
+      setEditingInfo(false);
+      loadTicket();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la sauvegarde');
+    }
   }
 
   async function removeFromGroup(ticketIdToRemove: number) {
@@ -508,9 +551,9 @@ export default function TicketDetail() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 24 }}>
         {/* Main content */}
-        <div>
+        <div style={{ minWidth: 0 }}>
           {/* Description */}
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, marginBottom: 16 }}>
             <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px 0', color: '#374151' }}>Description</h3>
@@ -1068,6 +1111,136 @@ export default function TicketDetail() {
                 </div>
               ))}
               {history.length === 0 && <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>Aucun événement</div>}
+            </div>
+          </div>
+        </div>
+
+        {/* ─── Sidebar: Informations ─── */}
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, height: 'fit-content', position: 'sticky', top: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: '#374151' }}>Informations</h4>
+            {!editingInfo ? (
+              <button onClick={() => { setEditingInfo(true); setEditForm({ priority: ticket.priority?.id || ticket.priority, impact: ticket.impact?.id || ticket.impact, category_id: ticket.category_id, subcategory_id: ticket.subcategory_id, software_id: ticket.software_id }); }}
+                style={{ padding: '4px 8px', background: '#f1f5f9', border: 'none', borderRadius: 6, color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                ✏️ Éditer
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={saveInfo} style={{ padding: '4px 8px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✓</button>
+                <button onClick={() => setEditingInfo(false)} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>✕</button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Catégorie */}
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Catégorie</label>
+              {editingInfo ? (
+                <select value={editForm.category_id || ''} onChange={e => setEditForm({...editForm, category_id: e.target.value ? parseInt(e.target.value) : null, subcategory_id: null})}
+                  style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
+                  <option value="">— Non défini —</option>
+                  {categories.filter(c => !c.parent_id).map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.category_name || '—'}</div>
+              )}
+            </div>
+
+            {/* Sous-catégorie */}
+            {editForm.category_id || ticket.subcategory_id ? (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Sous-catégorie</label>
+                {editingInfo ? (
+                  <select value={editForm.subcategory_id || ''} onChange={e => setEditForm({...editForm, subcategory_id: e.target.value ? parseInt(e.target.value) : null})}
+                    disabled={!editForm.category_id}
+                    style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff', opacity: !editForm.category_id ? 0.6 : 1 }}>
+                    <option value="">— Non défini —</option>
+                    {categories.filter(c => c.parent_id === parseInt(editForm.category_id || '0')).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.subcategory_name || '—'}</div>
+                )}
+              </div>
+            ) : null}
+
+            {/* Logiciel */}
+            {editForm.category_id && categories.find(c => c.id === parseInt(editForm.category_id || '0'))?.name.toLowerCase().includes('logiciel') ? (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Logiciel</label>
+                {editingInfo ? (
+                  <select value={editForm.software_id || ''} onChange={e => setEditForm({...editForm, software_id: e.target.value ? parseInt(e.target.value) : null})}
+                    style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
+                    <option value="">— Non défini —</option>
+                    {apps.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.software_name || '—'}</div>
+                )}
+              </div>
+            ) : ticket.software_id ? (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Logiciel</label>
+                <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.software_name || '—'}</div>
+              </div>
+            ) : null}
+
+            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12 }} />
+
+            {/* Priorité */}
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Priorité</label>
+              {editingInfo ? (
+                <select value={editForm.priority || 3} onChange={e => setEditForm({...editForm, priority: parseInt(e.target.value)})}
+                  style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
+                  <option value={2}>Basse</option>
+                  <option value={3}>Normale</option>
+                  <option value={4}>Haute</option>
+                  <option value={5}>Très haute</option>
+                </select>
+              ) : (
+                <div style={{ marginTop: 4, display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: ticket.priority?.id === 5 ? '#fee2e2' : ticket.priority?.id === 4 ? '#fef3c7' : '#f0fdf4', color: ticket.priority?.id === 5 ? '#991b1b' : ticket.priority?.id === 4 ? '#92400e' : '#166534' }}>
+                  {ticket.priority?.label || 'Normale'}
+                </div>
+              )}
+            </div>
+
+            {/* Impact */}
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Impact</label>
+              {editingInfo ? (
+                <select value={editForm.impact || 2} onChange={e => setEditForm({...editForm, impact: parseInt(e.target.value)})}
+                  style={{ width: '100%', marginTop: 4, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
+                  <option value={2}>1 utilisateur</option>
+                  <option value={3}>Groupe de travail</option>
+                  <option value={4}>Service / Direction</option>
+                  <option value={5}>Global</option>
+                </select>
+              ) : (
+                <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.impact?.label || '—'}</div>
+              )}
+            </div>
+
+            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12 }} />
+
+            {/* Statut */}
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Statut</label>
+              <div style={{ marginTop: 4, display: 'inline-block', padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#eef2ff', color: '#4338ca' }}>
+                {ticket.status?.label || 'Inconnu'}
+              </div>
+            </div>
+
+            {/* Type */}
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Type</label>
+              <div style={{ marginTop: 4, fontSize: 13, fontWeight: 500, color: '#374151' }}>{ticket.type_label || '—'}</div>
             </div>
           </div>
         </div>
