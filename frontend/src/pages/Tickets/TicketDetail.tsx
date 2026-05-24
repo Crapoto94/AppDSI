@@ -532,19 +532,29 @@ export default function TicketDetail() {
             style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #e4e4e7', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500, color: '#18181b' }}>
             📋 Tâche
           </button>
+          {transitions.length > 0 && (
+            <>
+              <span style={{ color: '#e4e4e7', fontSize: 18, margin: '0 2px' }}>|</span>
+              {transitions.map(t => (
+                <button key={t.to} onClick={() => handleStatusChange(t.to)}
+                  style={{ padding: '5px 13px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 12, color: '#fff', background: t.color, whiteSpace: 'nowrap' }}>
+                  {t.label}
+                </button>
+              ))}
+            </>
+          )}
         </div>
 
         {/* ── TITLE AREA ── */}
-        <div style={{ flexShrink: 0, padding: '14px 20px 12px', borderBottom: '1px solid #f4f4f5', background: '#fff' }}>
-          <h1 style={{ fontSize: 18, fontWeight: 700, color: '#18181b', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', lineHeight: 1.3 }}>
+        <div style={{ flexShrink: 0, padding: '11px 20px 10px', borderBottom: '1px solid #f4f4f5', background: '#fff' }}>
+          <h1 style={{ fontSize: 17, fontWeight: 700, color: '#18181b', margin: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', lineHeight: 1.4 }}>
             {ticket.is_vip && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', padding: '2px 7px', borderRadius: 10 }}>⭐ VIP</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>⭐ VIP</span>
             )}
-            {ticket.title}
-          </h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span>{ticket.title}</span>
+            {/* Pills inline avec le titre */}
             <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
+              display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
               padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
               background: (STATUS_COLORS[ticket.status?.id] || '#64748b') + '18',
               color: STATUS_COLORS[ticket.status?.id] || '#64748b',
@@ -554,38 +564,27 @@ export default function TicketDetail() {
               {ticket.status?.id === 4 && ticket.waiting_reason && <span style={{ fontSize: 10, opacity: 0.75 }}>💬</span>}
             </span>
             <span style={{
-              display: 'inline-block', padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+              display: 'inline-block', flexShrink: 0,
+              padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
               background: (PRIORITY_COLORS[ticket.priority?.id] || '#64748b') + '18',
               color: PRIORITY_COLORS[ticket.priority?.id] || '#64748b'
             }}>
               {ticket.priority?.label || 'Normale'}
             </span>
             <span style={{
-              display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+              display: 'inline-block', flexShrink: 0,
+              padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
               background: String(ticket.type) === '3' ? '#ede9fe' : String(ticket.type) === '2' ? '#e0f2fe' : '#fef3c7',
               color: String(ticket.type) === '3' ? '#7c3aed' : String(ticket.type) === '2' ? '#0369a1' : '#92400e'
             }}>
               {ticket.type_label || 'Incident'}
             </span>
-            {(ticket.category_name || ticket.software_name) && (
-              <>
-                <span style={{ color: '#d4d4d8' }}>·</span>
-                <span style={{ fontSize: 12, color: '#71717a' }}>
-                  {ticket.category_name}
-                  {ticket.subcategory_name && ` / ${ticket.subcategory_name}`}
-                  {ticket.software_name && `${ticket.category_name ? ' · ' : ''}💾 ${ticket.software_name}`}
-                </span>
-              </>
-            )}
-          </div>
-          {transitions.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-              {transitions.map(t => (
-                <button key={t.to} onClick={() => handleStatusChange(t.to)}
-                  style={{ padding: '5px 14px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 12, color: '#fff', background: t.color }}>
-                  {t.label}
-                </button>
-              ))}
+          </h1>
+          {(ticket.category_name || ticket.software_name) && (
+            <div style={{ marginTop: 4, fontSize: 12, color: '#71717a' }}>
+              {ticket.category_name}
+              {ticket.subcategory_name && ` / ${ticket.subcategory_name}`}
+              {ticket.software_name && `${ticket.category_name ? ' · ' : ''}💾 ${ticket.software_name}`}
             </div>
           )}
         </div>
