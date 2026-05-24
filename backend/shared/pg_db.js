@@ -24,7 +24,7 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!hub_contrats\.)\bcontrats\b(?!\s*\.)/gi, 'hub_contrats.contrats')
                     .replace(/(?<!hub_contrats\.)\bcontrat_documents\b/gi, 'hub_contrats.contrat_documents')
                     .replace(/(?<!hub\.)\bcertificates\b/gi, 'hub.certificates')
-                    .replace(/(?<!hub\.)\busers\b/gi, 'hub.users')
+                    .replace(/(?<!\.)\busers\b/gi, 'hub.users')
                     .replace(/(?<!hub_rencontres\.)\brencontres_budgetaires\b/gi, 'hub_rencontres.rencontres_budgetaires')
                     .replace(/(?<!hub_rencontres\.)\brencontres_participants\b/gi, 'hub_rencontres.rencontres_participants')
                     .replace(/(?<!hub_rencontres\.)\brencontres_suivi\b/gi, 'hub_rencontres.rencontres_suivi')
@@ -572,6 +572,11 @@ async function setupPgDb() {
       );
     `);
     try { await client.query("ALTER TABLE hub_tickets.technician_profiles ADD COLUMN IF NOT EXISTS module_role VARCHAR(50) DEFAULT 'technician'"); } catch (e) {}
+    // username column — authoritative key for lookups (hub users live in SQLite, not in hub.users PG)
+    try { await client.query("ALTER TABLE hub_tickets.technician_profiles ADD COLUMN IF NOT EXISTS username VARCHAR(255)"); } catch (e) {}
+    try { await client.query("CREATE UNIQUE INDEX IF NOT EXISTS tech_profiles_username_uq ON hub_tickets.technician_profiles(username) WHERE username IS NOT NULL"); } catch (e) {}
+    // Backfill username from hub.users for existing rows
+    try { await client.query("UPDATE hub_tickets.technician_profiles tp SET username = u.username FROM hub.users u WHERE tp.user_id = u.id AND tp.username IS NULL"); } catch (e) {}
     try {
         await client.query(`
             CREATE TABLE IF NOT EXISTS hub_tickets.role_permissions (

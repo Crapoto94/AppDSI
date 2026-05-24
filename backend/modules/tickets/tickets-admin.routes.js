@@ -357,24 +357,33 @@ router.get('/technicians/ad-search', authenticateAdmin, async (req, res) => {
 router.post('/technicians', authenticateAdmin, async (req, res) => {
     try {
         const { user_id, username, displayName, email } = req.body;
+        const db = getSqlite();
+
         if (user_id) {
-            const existing = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [user_id]);
+            // Legacy path: user_id is PG hub.users.id
+            const existing = await pgDb.get('SELECT id, username FROM hub.users WHERE id = $1', [user_id]);
             if (!existing) return res.status(404).json({ message: 'Utilisateur non trouvé' });
-            await technicianRepo.create(user_id);
+            await technicianRepo.create(user_id, existing.username || null);
+            // Sync technician role to SQLite (source of JWT)
+            if (existing.username) {
+                await db.run("UPDATE users SET role = 'technician' WHERE username = ? AND role NOT IN ('admin','superadmin')", [existing.username]);
+            }
             res.status(201).json({ message: 'Technicien ajouté' });
         } else if (username) {
-            const existingUser = await pgDb.get('SELECT id FROM hub.users WHERE username = $1', [username]);
-            if (existingUser) {
-                await technicianRepo.create(existingUser.id);
-                return res.status(201).json({ message: 'Technicien ajouté', user_id: existingUser.id });
+            // Preferred path: username from AD search
+            // Look up or create in hub.users (PG) for the FK
+            let existingUser = await pgDb.get('SELECT id FROM hub.users WHERE username = $1', [username]);
+            if (!existingUser) {
+                const result = await pgDb.run(`
+                    INSERT INTO hub.users (username, displayName, email, role)
+                    VALUES ($1, $2, $3, 'technician') RETURNING id
+                `, [username, displayName || username, email || '']);
+                existingUser = { id: result.lastID || result.id };
             }
-            const result = await pgDb.run(`
-                INSERT INTO hub.users (username, displayName, email, role)
-                VALUES ($1, $2, $3, 'technician') RETURNING id
-            `, [username, displayName || username, email || '']);
-            const newId = result.lastID || result.id;
-            await technicianRepo.create(newId);
-            res.status(201).json({ message: 'Technicien créé depuis AD', user_id: newId });
+            await technicianRepo.create(existingUser.id, username);
+            // Sync technician role to SQLite (source of JWT)
+            await db.run("UPDATE users SET role = 'technician' WHERE username = ? AND role NOT IN ('admin','superadmin')", [username]);
+            res.status(201).json({ message: 'Technicien ajouté', user_id: existingUser.id });
         } else {
             res.status(400).json({ message: 'user_id ou username requis' });
         }
@@ -470,7 +479,19 @@ router.put('/technicians/:id/role', authenticateAdmin, async (req, res) => {
             [userId, role]
         );
         await pgDb.run('UPDATE hub.users SET role = $1 WHERE id = $2', [role, userId]);
-        await pgDb.run('UPDATE magapp.users SET role = $1 WHERE id = $2', [role, userId]);
+        // Sync role back to SQLite (source of JWT) — look up username from hub.users
+        try {
+            const hubUser = await pgDb.get('SELECT username FROM hub.users WHERE id = $1', [userId]);
+            if (hubUser?.username) {
+                const db = getSqlite();
+                await db.run("UPDATE users SET role = ? WHERE username = ? AND role NOT IN ('superadmin')", [role, hubUser.username]);
+                // Also update the username in technician_profiles if not set yet
+                await pgDb.run(
+                    "UPDATE hub_tickets.technician_profiles SET username = $1 WHERE user_id = $2 AND username IS NULL",
+                    [hubUser.username, userId]
+                );
+            }
+        } catch (e) { console.error('[ROLE SYNC]', e.message); }
         res.json({ message: 'Rôle mis à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });

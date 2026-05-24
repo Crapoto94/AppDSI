@@ -83,7 +83,7 @@ ${FENCE}json
 ${FENCE}`;
 
 const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
-  const { token } = useAuth();
+  const { token, user: currentUser } = useAuth();
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
   const [showTileModal, setShowTileModal] = useState(false);
@@ -96,6 +96,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', service_code: '', service_complement: '' });
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
+  const [editingUserPassword, setEditingUserPassword] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   
@@ -1544,13 +1545,16 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     if (!editingUser) return;
     try {
       const { role, is_approved, service_code, service_complement } = editingUser;
-      await axios.put(`/api/users/${editingUser.id}`, { role, is_approved, service_code, service_complement }, {
+      const updatePayload: Record<string, any> = { role, is_approved, service_code, service_complement };
+      if (editingUserPassword.trim()) updatePayload.password = editingUserPassword.trim();
+      await axios.put(`/api/users/${editingUser.id}`, updatePayload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       await axios.put(`/api/users/${editingUser.id}/tiles`, { tiles: editingUser.authorized_tiles || [] }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setEditingUser(null);
+      setEditingUserPassword('');
       fetchUsers();
     } catch (error: any) {
       console.error('Erreur mise Ã  jour utilisateur:', error?.response?.data || error);
@@ -1990,14 +1994,14 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             </div>
 
              {(isAddingUser || editingUser) && (
-               <div className="modal-overlay" onClick={() => { setIsAddingUser(false); setEditingUser(null); }}>
+               <div className="modal-overlay" onClick={() => { setIsAddingUser(false); setEditingUser(null); setEditingUserPassword(''); }}>
                  <div className="modal-container" style={{ maxWidth: '680px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
                   <div className="form-header flex justify-between items-center">
                     <h3 className="flex items-center gap-3">
                       <span className="p-2 bg-blue-50 text-blue-600 rounded-xl"><Edit2 size={20} /></span>
                       {editingUser ? `Modifier le profil de ${editingUser.username}` : 'Nouvel utilisateur'}
                     </h3>
-                    <button onClick={() => { setIsAddingUser(false); setEditingUser(null); }} className="icon-btn"><X size={20} /></button>
+                    <button onClick={() => { setIsAddingUser(false); setEditingUser(null); setEditingUserPassword(''); }} className="icon-btn"><X size={20} /></button>
                   </div>
                   <form onSubmit={editingUser ? handleUpdateUser : handleAddUser} className="admin-form">
                     <div className="form-grid">
@@ -2013,12 +2017,18 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           <option value="compta">Comptabilité</option>
                           <option value="magapp">Magasin d'Apps</option>
                           <option value="admin">Administrateur</option>
+                          {currentUser?.role === 'superadmin' && <option value="superadmin">Super Administrateur</option>}
                         </select>
                       </div>
-                      {!editingUser && (
+                      {!editingUser ? (
                         <div className="form-group">
                           <label>Mot de passe</label>
                           <input type="password" value={newUser.password} onChange={e => setNewUser({...newUser, password: e.target.value})} required />
+                        </div>
+                      ) : (
+                        <div className="form-group">
+                          <label>Nouveau mot de passe <span style={{fontSize:11,color:'#94a3b8',fontWeight:400}}>(laisser vide pour ne pas changer)</span></label>
+                          <input type="password" value={editingUserPassword} onChange={e => setEditingUserPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
                         </div>
                       )}
                       <div className="form-group">

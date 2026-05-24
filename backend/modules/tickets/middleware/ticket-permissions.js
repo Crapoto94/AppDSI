@@ -69,27 +69,33 @@ async function resolveTicketRole(user) {
     const role = normalizeRole(user.role);
     // If the global role is already elevated, use it directly
     if (role !== 'user') return role;
-    // Fallback: look up hub.users + technician_profiles by username.
-    // Start from hub.users (not technician_profiles) to avoid returning nothing
-    // when user_id FK was set with a stale/wrong id.
+    // Fallback: look up technician_profiles by username (direct — no PG id dependency)
     try {
         const { pgDb } = require('../../../shared/database');
-        const row = await pgDb.get(
+        // Primary: username column (set when profile was created/updated)
+        const byUsername = await pgDb.get(
+            `SELECT module_role FROM hub_tickets.technician_profiles WHERE username = $1`,
+            [user.username]
+        );
+        if (byUsername?.module_role) {
+            const moduleRole = normalizeRole(byUsername.module_role);
+            if (moduleRole !== 'user') return moduleRole;
+        }
+        // Fallback: join through hub.users (for older profiles without username column)
+        const byHub = await pgDb.get(
             `SELECT u.role AS hub_role, tp.module_role
              FROM hub.users u
              LEFT JOIN hub_tickets.technician_profiles tp ON tp.user_id = u.id
              WHERE u.username = $1`,
             [user.username]
         );
-        if (row) {
-            // module_role is the tickets-specific role — prefer it
-            if (row.module_role) {
-                const moduleRole = normalizeRole(row.module_role);
+        if (byHub) {
+            if (byHub.module_role) {
+                const moduleRole = normalizeRole(byHub.module_role);
                 if (moduleRole !== 'user') return moduleRole;
             }
-            // hub_role is the global PG role set by the admin route
-            if (row.hub_role) {
-                const hubRole = normalizeRole(row.hub_role);
+            if (byHub.hub_role) {
+                const hubRole = normalizeRole(byHub.hub_role);
                 if (hubRole !== 'user') return hubRole;
             }
         }

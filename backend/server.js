@@ -3953,12 +3953,24 @@ app.get('/api/users', authenticateAdmin, async (req, res) => {
 });
 
 app.put('/api/users/:id', authenticateAdmin, async (req, res) => {
-    const { role, is_approved, service_code, service_complement } = req.body;
+    const { role, is_approved, service_code, service_complement, password } = req.body;
     try {
-        await db.run(
-            'UPDATE users SET role = ?, is_approved = ?, service_code = ?, service_complement = ? WHERE id = ?',
-            [role, is_approved, service_code, service_complement, req.params.id]
-        );
+        // Only superadmin can assign superadmin role
+        if (role === 'superadmin' && req.user.role !== 'superadmin') {
+            return res.status(403).json({ message: 'Seul un super-administrateur peut attribuer ce rôle.' });
+        }
+        if (password && password.trim()) {
+            const hashedPassword = await bcrypt.hash(password.trim(), 10);
+            await db.run(
+                'UPDATE users SET role = ?, is_approved = ?, service_code = ?, service_complement = ?, password = ? WHERE id = ?',
+                [role, is_approved, service_code, service_complement, hashedPassword, req.params.id]
+            );
+        } else {
+            await db.run(
+                'UPDATE users SET role = ?, is_approved = ?, service_code = ?, service_complement = ? WHERE id = ?',
+                [role, is_approved, service_code, service_complement, req.params.id]
+            );
+        }
         res.json({ message: 'Utilisateur mis à jour avec succès' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la mise à jour', error: error.message });

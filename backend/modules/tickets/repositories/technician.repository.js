@@ -23,19 +23,20 @@ module.exports = {
         `, [userId]);
     },
 
-    async create(userId) {
+    async create(userId, username) {
         await pgDb.run(
-            `INSERT INTO hub_tickets.technician_profiles (user_id, module_role) VALUES ($1, 'technician') ON CONFLICT (user_id) DO UPDATE SET module_role = COALESCE(technician_profiles.module_role, 'technician')`,
-            [userId]
+            `INSERT INTO hub_tickets.technician_profiles (user_id, username, module_role)
+             VALUES ($1, $2, 'technician')
+             ON CONFLICT (user_id) DO UPDATE SET
+               module_role = COALESCE(technician_profiles.module_role, 'technician'),
+               username    = COALESCE($2, technician_profiles.username)`,
+            [userId, username || null]
         );
         await pgDb.run(
             `UPDATE hub.users SET role = 'technician' WHERE id = $1 AND role NOT IN ('admin','superadmin')`,
             [userId]
         );
-        await pgDb.run(
-            `UPDATE magapp.users SET role = 'technician' WHERE id = $1 AND role NOT IN ('admin','superadmin')`,
-            [userId]
-        );
+        // Note: no magapp.users update — hub users live in SQLite, magapp.users IDs differ
     },
 
     async updateStatus(userId, status, pausedUntil, notes) {
