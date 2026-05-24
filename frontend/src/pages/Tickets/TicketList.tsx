@@ -271,6 +271,7 @@ export default function TicketList({
                 { key: 'status',     label: 'Statut',     align: 'center' },
                 { key: 'priority',   label: 'Priorité',   align: 'center' },
                 { key: 'impact',     label: 'Impact',     align: 'center' },
+                { key: 'software',   label: 'Logiciel',   align: 'center' },
                 { key: 'type',       label: 'Type',       align: 'center' },
                 { key: 'history',    label: 'Journal',    align: 'center' },
                 { key: 'tasks',      label: 'Tâches',     align: 'center' },
@@ -376,6 +377,24 @@ export default function TicketList({
                     {t.impact?.id ? (
                       <span title={IMPACT_LABELS[t.impact.id]?.label} style={{ fontSize: 15 }}>
                         {IMPACT_LABELS[t.impact.id]?.icon || '—'}
+                      </span>
+                    ) : <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>}
+                  </td>
+
+                  {/* Logiciel */}
+                  <td style={tdStyle}>
+                    {t.software_name ? (
+                      <span style={{
+                        display: 'inline-block', padding: '3px 10px', borderRadius: 20,
+                        fontSize: 12, fontWeight: 500,
+                        background: '#e0e7ff',
+                        color: '#4f46e5',
+                        maxWidth: 150,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }} title={t.software_name}>
+                        💾 {t.software_name}
                       </span>
                     ) : <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>}
                   </td>

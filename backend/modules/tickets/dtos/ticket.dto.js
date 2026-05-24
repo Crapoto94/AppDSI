@@ -98,6 +98,8 @@ module.exports = {
             } : null,
             date_creation: ticket.date_creation,
             date_mod: ticket.date_mod,
+            software_id: ticket.software_id || null,
+            software_name: ticket.software_name || null,
             active_days: computeActiveDays(ticket),
         };
     },

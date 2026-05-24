@@ -14,6 +14,7 @@ router.get('/my-role', authenticateJWT, async (req, res) => {
 });
 
 // ─── Dashboard & Stats ───────────────────────────────────────────
+router.get('/stats/tickets-by-software', authenticateJWT, (req, res) => controller.getTicketCountsBySoftware(req, res));
 router.get('/dashboard/stats', authenticateJWT, (req, res) => controller.getDashboardStats(req, res));
 router.get('/dashboard/my-stats', authenticateJWT, (req, res) => controller.getMyStats(req, res));
 router.get('/dashboard/daily-metrics', authenticateJWT, (req, res) => controller.getDailyMetrics(req, res));

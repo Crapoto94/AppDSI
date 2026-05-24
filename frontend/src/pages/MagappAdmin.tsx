@@ -188,6 +188,7 @@ const MagappAdmin: React.FC = () => {
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [ticketCounts, setTicketCounts] = useState<Record<number, number>>({});
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
   const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
@@ -300,8 +301,27 @@ const MagappAdmin: React.FC = () => {
 
         console.log('[MagappAdmin] Apps avec contrats:', appsWithContracts.filter((a: AppItem) => (a.contract_count || 0) > 0));
         setApps(appsWithContracts);
+        fetchTicketCounts();
       }
     } catch (e) { console.error('[MagappAdmin] Erreur fetchApps:', e); }
+  };
+
+  const fetchTicketCounts = async () => {
+    try {
+      const response = await fetch('/api/tickets/stats/tickets-by-software', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const countMap: Record<number, number> = {};
+        data.forEach((item: any) => {
+          if (item.software_id) {
+            countMap[item.software_id] = item.ticket_count;
+          }
+        });
+        setTicketCounts(countMap);
+      }
+    } catch (e) { console.error('[MagappAdmin] Erreur fetchTicketCounts:', e); }
   };
 
   const fetchLibrary = async () => {
@@ -978,6 +998,11 @@ const MagappAdmin: React.FC = () => {
                             {app.contract_count !== undefined && app.contract_count > 0 && (
                               <span title={`${app.contract_count} contrat(s) dans le module Contrats`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fef3c7', color: '#92400e', fontSize: '0.72rem', fontWeight: 700 }}>
                                 📋 {app.contract_count}
+                              </span>
+                            )}
+                            {ticketCounts[app.id] !== undefined && ticketCounts[app.id] > 0 && (
+                              <span title={`${ticketCounts[app.id]} ticket(s) ouvert(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fee2e2', color: '#991b1b', fontSize: '0.72rem', fontWeight: 700 }}>
+                                🎫 {ticketCounts[app.id]}
                               </span>
                             )}
                             {app.dsi_only ? (

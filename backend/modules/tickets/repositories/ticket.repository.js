@@ -10,6 +10,7 @@ const BASE_SELECT = `
            tgm.group_id AS bundle_id,
            tg.name AS bundle_name,
            tg.problem_ticket_id AS bundle_problem_ticket_id,
+           ma.name as software_name,
             (SELECT COUNT(*) FROM hub_tickets.observers o WHERE o.ticket_id = t.glpi_id AND o.is_active = 1) as observer_count,
            (SELECT COUNT(*) FROM hub_tickets.ticket_history h WHERE h.ticket_id = t.glpi_id) as history_count,
            (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count
@@ -21,6 +22,7 @@ const BASE_SELECT = `
     LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
     LEFT JOIN hub_tickets.ticket_group_members tgm ON tgm.ticket_id = t.glpi_id
     LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
+    LEFT JOIN magapp.apps ma ON t.software_id = ma.id
 `;
 
 module.exports = {

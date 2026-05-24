@@ -439,6 +439,22 @@ module.exports = {
         }
     },
 
+    async getTicketCountsBySoftware(req, res) {
+        try {
+            const data = await pgDb.all(`
+                SELECT t.software_id, a.name as software_name, COUNT(t.glpi_id) as ticket_count
+                FROM hub_tickets.tickets t
+                LEFT JOIN magapp.apps a ON t.software_id = a.id
+                WHERE t.status <= 4
+                GROUP BY t.software_id, a.name
+                ORDER BY ticket_count DESC
+            `, []);
+            res.json(data);
+        } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    },
+
     async getMyStats(req, res) {
         try {
             const stats = await ticketService.getMyStats(req.user);
