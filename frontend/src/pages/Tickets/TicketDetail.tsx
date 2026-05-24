@@ -593,7 +593,8 @@ export default function TicketDetail() {
         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '2fr 1fr', overflow: 'hidden' }}>
 
           {/* ── LEFT PANE ── */}
-          <div style={{ overflowY: 'auto', padding: '0 20px 20px', borderRight: '1px solid #f4f4f5' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid #f4f4f5' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
 
             {/* DESCRIPTION */}
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
@@ -724,6 +725,52 @@ export default function TicketDetail() {
                 {comments.length === 0 && <p style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic', margin: 0 }}>Aucun commentaire</p>}
               </div>
             </div>
+          </div>
+          {/* end scrollable content */}
+
+          {/* ── REPLY BAR (inside left pane) ── */}
+          <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff', padding: '10px 20px' }}>
+            <div style={{ border: '1px solid #e4e4e7', borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
+              <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire..."
+                modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
+                style={{ fontFamily: 'inherit', fontSize: 13 }}
+              />
+            </div>
+            {commentFile && (
+              <div style={{ marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#71717a', background: '#f9f9fb', padding: '3px 8px', borderRadius: 5, border: '1px solid #f4f4f5' }}>
+                <span>📎 {commentFile.name}</span>
+                <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, color: '#71717a', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={commentPrivate} onChange={e => setCommentPrivate(e.target.checked)} />
+                  Commentaire interne
+                </label>
+                <button onClick={() => fileInputRef.current?.click()} title="Joindre un fichier"
+                  style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  📎 Fichier
+                </button>
+                <input ref={fileInputRef} type="file" style={{ display: 'none' }}
+                  onChange={e => setCommentFile(e.target.files?.[0] || null)}
+                  accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
+              </div>
+              <div style={{ display: 'flex', gap: 7 }}>
+                {ticket.requester?.email && !commentPrivate && (
+                  <button onClick={handleSendToUser} disabled={isCommentEmpty(newComment) || sendingToUser}
+                    title={`Envoyer par email à ${ticket.requester.email}`}
+                    style={{ padding: '6px 14px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: isCommentEmpty(newComment) || sendingToUser ? 0.5 : 1 }}>
+                    {sendingToUser ? 'Envoi...' : '✉️ Enregistrer & envoyer'}
+                  </button>
+                )}
+                <button onClick={handleAddComment} disabled={isCommentEmpty(newComment)}
+                  style={{ padding: '6px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: isCommentEmpty(newComment) ? 0.5 : 1 }}>
+                  Enregistrer
+                </button>
+              </div>
+            </div>
+          </div>
           </div>
           {/* end left pane */}
 
@@ -1105,49 +1152,6 @@ export default function TicketDetail() {
           </div>
         )}
 
-        {/* ── BOTTOM REPLY BAR ── */}
-        <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff', padding: '10px 20px' }}>
-          <div style={{ border: '1px solid #e4e4e7', borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
-            <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire..."
-              modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
-              style={{ fontFamily: 'inherit', fontSize: 13 }}
-            />
-          </div>
-          {commentFile && (
-            <div style={{ marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#71717a', background: '#f9f9fb', padding: '3px 8px', borderRadius: 5, border: '1px solid #f4f4f5' }}>
-              <span>📎 {commentFile.name}</span>
-              <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, color: '#71717a', cursor: 'pointer' }}>
-                <input type="checkbox" checked={commentPrivate} onChange={e => setCommentPrivate(e.target.checked)} />
-                Commentaire interne
-              </label>
-              <button onClick={() => fileInputRef.current?.click()} title="Joindre un fichier"
-                style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
-                📎 Fichier
-              </button>
-              <input ref={fileInputRef} type="file" style={{ display: 'none' }}
-                onChange={e => setCommentFile(e.target.files?.[0] || null)}
-                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
-            </div>
-            <div style={{ display: 'flex', gap: 7 }}>
-              {ticket.requester?.email && !commentPrivate && (
-                <button onClick={handleSendToUser} disabled={isCommentEmpty(newComment) || sendingToUser}
-                  title={`Envoyer par email à ${ticket.requester.email}`}
-                  style={{ padding: '6px 14px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: isCommentEmpty(newComment) || sendingToUser ? 0.5 : 1 }}>
-                  {sendingToUser ? 'Envoi...' : '✉️ Enregistrer & envoyer'}
-                </button>
-              )}
-              <button onClick={handleAddComment} disabled={isCommentEmpty(newComment)}
-                style={{ padding: '6px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: isCommentEmpty(newComment) ? 0.5 : 1 }}>
-                Enregistrer
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
 
       {showTaskModal && (
