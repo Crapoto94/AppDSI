@@ -11,7 +11,7 @@ const TYPES = [
 export default function TicketCreate() {
   const [form, setForm] = useState({
     title: '', content: '', type: 1, priority: 3, impact: 2,
-    category: '', requester_name: '', requester_email: '',
+    category_id: '', subcategory_id: '', software_id: '', requester_name: '', requester_email: '',
     location: '', is_vip: false
   });
   const [submitting, setSubmitting] = useState(false);
@@ -20,6 +20,30 @@ export default function TicketCreate() {
   const [observerResults, setObserverResults] = useState<any[]>([]);
   const [observers, setObservers] = useState<any[]>([]);
   const [observerSearching, setObserverSearching] = useState(false);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [apps, setApps] = useState<any[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+
+  useEffect(() => {
+    loadCategoriesAndApps();
+  }, []);
+
+  async function loadCategoriesAndApps() {
+    setLoadingData(true);
+    try {
+      const token = localStorage.getItem('token');
+      const [catRes, appRes] = await Promise.all([
+        axios.get('/api/tickets/admin/categories', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      setCategories(catRes.data || []);
+      setApps((appRes.data || []).filter((a: any) => a.is_active));
+    } catch (e) {
+      console.error('Failed to load categories/apps:', e);
+    } finally {
+      setLoadingData(false);
+    }
+  }
 
   useEffect(() => {
     if (!observerSearch || observerSearch.length < 2) { setObserverResults([]); return; }
@@ -56,10 +80,22 @@ export default function TicketCreate() {
     setError('');
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post('/api/tickets', {
-        ...form,
+      const submitData = {
+        title: form.title,
+        content: form.content,
+        type: form.type,
+        priority: form.priority,
+        impact: form.impact,
+        category_id: form.category_id ? parseInt(form.category_id) : null,
+        subcategory_id: form.subcategory_id ? parseInt(form.subcategory_id) : null,
+        software_id: form.software_id ? parseInt(form.software_id) : null,
+        requester_name: form.requester_name,
+        requester_email: form.requester_email,
+        location: form.location,
+        is_vip: form.is_vip,
         observer_ids: observers.map(o => ({ user_id: o.id, name: o.name, email: o.email, username: o.username }))
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      };
+      const res = await axios.post('/api/tickets', submitData, { headers: { Authorization: `Bearer ${token}` } });
       window.location.href = `/tickets/${res.data.id}`;
     } catch (err: any) {
       setError(err.response?.data?.message || 'Erreur lors de la création');
@@ -115,7 +151,7 @@ export default function TicketCreate() {
               style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Priorité</label>
               <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: parseInt(e.target.value) }))}
@@ -136,12 +172,43 @@ export default function TicketCreate() {
                 <option value={5}>Global</option>
               </select>
             </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Catégorie</label>
-              <input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                placeholder="Ex: Informatique / Logiciel"
-                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+              <select value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: e.target.value, subcategory_id: '' }))}
+                disabled={loadingData}
+                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fff', cursor: loadingData ? 'not-allowed' : 'pointer' }}>
+                <option value="">— Sélectionnez une catégorie —</option>
+                {categories.filter(c => !c.parent_id).map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Sous-catégorie</label>
+              <select value={form.subcategory_id} onChange={e => setForm(f => ({ ...f, subcategory_id: e.target.value }))}
+                disabled={!form.category_id || loadingData}
+                style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fff', cursor: !form.category_id || loadingData ? 'not-allowed' : 'pointer', opacity: !form.category_id ? 0.6 : 1 }}>
+                <option value="">— Sélectionnez une sous-catégorie —</option>
+                {categories.filter(c => c.parent_id === parseInt(form.category_id || '0')).map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Logiciel / Métier</label>
+            <select value={form.software_id} onChange={e => setForm(f => ({ ...f, software_id: e.target.value }))}
+              disabled={loadingData}
+              style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', background: '#fff', cursor: loadingData ? 'not-allowed' : 'pointer' }}>
+              <option value="">— Sélectionnez un logiciel (optionnel) —</option>
+              {apps.map(app => (
+                <option key={app.id} value={app.id}>{app.name}</option>
+              ))}
+            </select>
           </div>
 
           <div>

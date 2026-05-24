@@ -126,11 +126,12 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
     if (!name.trim()) return;
     const token = localStorage.getItem('token');
     try {
-      await axios.post('/api/tickets/admin/categories', { name, parent_id: parentId ? parseInt(parentId) : null }, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.post('/api/tickets/admin/categories', { name, parent_id: parentId ? parseInt(parentId) : null }, { headers: { Authorization: `Bearer ${token}` } });
       setName('');
       setParentId('');
       onUpdate();
     } catch (e: any) {
+      console.error('Error adding category:', e.response?.data || e.message);
       alert(e.response?.data?.message || 'Erreur lors de l\'ajout');
     }
   }

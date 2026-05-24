@@ -199,6 +199,9 @@ async function setupPgDb() {
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD UNIQUE (glpi_id)'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT false'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS total_waiting_seconds DOUBLE PRECISION DEFAULT 0'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS subcategory_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS software_id INTEGER REFERENCES magapp.apps(id) ON DELETE SET NULL'); } catch (e) {}
     // Supprimer la FK sur user_id (hub.users est vidée à chaque restart)
     try { await client.query('ALTER TABLE hub_tickets.ticket_history DROP CONSTRAINT IF EXISTS ticket_history_user_id_fkey'); } catch (e) {}
     await client.query(`

@@ -188,7 +188,11 @@
       "mcp__Claude_in_Chrome__read_page",
       "Bash(.\\\\run_all.bat)",
       "Bash(findstr \"5173\\\\|3001\")",
-      "Bash(findstr \"node\")"
+      "Bash(findstr \"node\")",
+      "Bash(curl -s *)",
+      "Bash(sqlite3 \"C:\\\\dev\\\\AppDSI\\\\backend\\\\data\\\\database.sqlite\" \"SELECT username, role FROM hub.users LIMIT 10;\")",
+      "Bash(psql \"postgresql://localhost/hub\" -c \"SELECT username, role FROM hub.users WHERE username = 'machevalier';\")",
+      "mcp__Claude_in_Chrome__form_input"
     ]
   }
 }

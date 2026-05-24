@@ -20,7 +20,7 @@ router.post('/categories', authenticateAdmin, async (req, res) => {
         const { name, parent_id, sort_order } = req.body;
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.ticket_categories (name, parent_id, full_path, sort_order)
-            VALUES ($1, $2, $3, $4) RETURNING id
+            VALUES ($1, $2, $3, $4)
         `, [name, parent_id || null, name, sort_order || 0]);
         const id = result.lastID;
         if (parent_id) {
