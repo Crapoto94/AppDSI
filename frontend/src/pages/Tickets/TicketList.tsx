@@ -172,6 +172,10 @@ export default function TicketList({
   sortKey,
   sortDir,
   onSort,
+  categories = [],
+  activeCategory,
+  activeSubcategory,
+  onCategoryFilter,
 }: {
   tickets: any[];
   loading: boolean;
@@ -179,6 +183,10 @@ export default function TicketList({
   sortKey?: string;
   sortDir?: 'asc' | 'desc';
   onSort?: (key: string, dir: 'asc' | 'desc') => void;
+  categories?: any[];
+  activeCategory?: number | null;
+  activeSubcategory?: number | null;
+  onCategoryFilter?: (categoryId: number | null, subcategoryId: number | null) => void;
 }) {
   const { user } = useAuth();
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -350,9 +358,18 @@ export default function TicketList({
                     </div>
                   </td>
 
-                  {/* Titre */}
-                  <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {t.title}
+                  {/* Titre + Catégorie */}
+                  <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 300 }}>
+                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.title}
+                    </div>
+                    {(t.category_name || t.subcategory_name) && (
+                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {t.category_name && <span>{t.category_name}</span>}
+                        {t.category_name && t.subcategory_name && <span> / </span>}
+                        {t.subcategory_name && <span>{t.subcategory_name}</span>}
+                      </div>
+                    )}
                   </td>
 
                   {/* Statut */}

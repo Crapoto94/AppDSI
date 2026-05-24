@@ -11,6 +11,8 @@ const BASE_SELECT = `
            tg.name AS bundle_name,
            tg.problem_ticket_id AS bundle_problem_ticket_id,
            ma.name as software_name,
+           tc.name as category_name,
+           tsc.name as subcategory_name,
             (SELECT COUNT(*) FROM hub_tickets.observers o WHERE o.ticket_id = t.glpi_id AND o.is_active = 1) as observer_count,
            (SELECT COUNT(*) FROM hub_tickets.ticket_history h WHERE h.ticket_id = t.glpi_id) as history_count,
            (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count
@@ -23,6 +25,8 @@ const BASE_SELECT = `
     LEFT JOIN hub_tickets.ticket_group_members tgm ON tgm.ticket_id = t.glpi_id
     LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
     LEFT JOIN magapp.apps ma ON t.software_id = ma.id
+    LEFT JOIN hub_tickets.ticket_categories tc ON t.category_id = tc.id
+    LEFT JOIN hub_tickets.ticket_categories tsc ON t.subcategory_id = tsc.id
 `;
 
 module.exports = {
@@ -87,6 +91,14 @@ module.exports = {
         }
         if (filters.vip) {
             conditions.push('t.is_vip = true');
+        }
+        if (filters.category_id) {
+            conditions.push(`t.category_id = $${idx++}`);
+            params.push(parseInt(filters.category_id));
+        }
+        if (filters.subcategory_id) {
+            conditions.push(`t.subcategory_id = $${idx++}`);
+            params.push(parseInt(filters.subcategory_id));
         }
         if (filters.favorites && user) {
             conditions.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_favorites WHERE user_id = $${idx++})`);

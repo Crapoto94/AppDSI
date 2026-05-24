@@ -100,6 +100,10 @@ module.exports = {
             date_mod: ticket.date_mod,
             software_id: ticket.software_id || null,
             software_name: ticket.software_name || null,
+            category_id: ticket.category_id || null,
+            category_name: ticket.category_name || null,
+            subcategory_id: ticket.subcategory_id || null,
+            subcategory_name: ticket.subcategory_name || null,
             active_days: computeActiveDays(ticket),
         };
     },

@@ -58,9 +58,12 @@ export default function TicketsDashboard() {
   const [kpiHistory, setKpiHistory] = useState<any[]>([]);
   const [kpiDays, setKpiDays] = useState(30);
   const [kpiActionLoading, setKpiActionLoading] = useState<string | null>(null);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [activeCategory, setActiveCategory] = useState<number | null>(null);
+  const [activeSubcategory, setActiveSubcategory] = useState<number | null>(null);
   const limit = 50;
 
-  const loadData = useCallback(async (filter?: string | null, userFilter?: string | null, pageNum?: number, searchValue: string = search) => {
+  const loadData = useCallback(async (filter?: string | null, userFilter?: string | null, pageNum?: number, searchValue: string = search, categoryId?: number | null, subcategoryId?: number | null) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -77,6 +80,12 @@ export default function TicketsDashboard() {
       }
       if (searchValue.trim()) {
         params.search = searchValue.trim();
+      }
+      if (categoryId) {
+        params.category_id = String(categoryId);
+      }
+      if (subcategoryId) {
+        params.subcategory_id = String(subcategoryId);
       }
       params.sort = sortKey;
       params.order = sortDir;
@@ -97,13 +106,21 @@ export default function TicketsDashboard() {
     }
   }, [page, search, sortKey, sortDir]);
 
-  useEffect(() => { loadData(activeFilter, activeUserFilter, 1); }, []);
+  useEffect(() => { loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory); }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
     axios.get('/api/tickets/my-role', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setResolvedRole(r.data.role))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    axios.get('/api/tickets/admin/categories', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setCategories(r.data || []))
       .catch(() => {});
   }, []);
 
@@ -125,8 +142,15 @@ export default function TicketsDashboard() {
 
   useEffect(() => {
     showResolvedRef.current = showResolved;
-    loadData(activeFilter, activeUserFilter, 1);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory);
   }, [showResolved]);
+
+  function handleCategoryFilter(categoryId: number | null, subcategoryId: number | null) {
+    setActiveCategory(categoryId);
+    setActiveSubcategory(subcategoryId);
+    setPage(1);
+    loadData(activeFilter, activeUserFilter, 1, search, categoryId, subcategoryId);
+  }
 
   useEffect(() => { loadKpiHistory(kpiDays); }, [kpiDays]);
   useEffect(() => { loadDailyMetrics(); }, []);
@@ -522,6 +546,55 @@ export default function TicketsDashboard() {
         )}
       </div>
 
+      {categories.length > 0 && (
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:13,fontWeight:600,color:'#64748b',marginBottom:8}}>Filtrer par catégorie :</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+            {activeCategory && (
+              <button onClick={() => handleCategoryFilter(null, null)}
+                style={{
+                  display:'inline-flex',alignItems:'center',gap:4,
+                  padding:'6px 12px',border:'1px solid #e2e8f0',borderRadius:6,background:'#fff',cursor:'pointer',
+                  fontSize:12,fontWeight:500,color:'#64748b'
+                }}>
+                Toutes les catégories ✕
+              </button>
+            )}
+            {categories.map(cat => (
+              <button key={cat.id}
+                onClick={() => handleCategoryFilter(cat.id, null)}
+                style={{
+                  display:'inline-flex',alignItems:'center',gap:4,
+                  padding:'6px 12px',border:'1px solid #e2e8f0',borderRadius:6,
+                  background:activeCategory === cat.id ? '#6366f1' : '#fff',
+                  color:activeCategory === cat.id ? '#fff' : '#475569',
+                  cursor:'pointer',fontSize:12,fontWeight:500
+                }}>
+                {cat.name}
+                {cat.children && cat.children.length > 0 && <span style={{fontSize:10}}>▼</span>}
+              </button>
+            ))}
+          </div>
+          {activeCategory && (
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {categories.find(c => c.id === activeCategory)?.children?.map((subcat: any) => (
+                <button key={subcat.id}
+                  onClick={() => handleCategoryFilter(activeCategory, subcat.id)}
+                  style={{
+                    display:'inline-flex',alignItems:'center',gap:4,
+                    padding:'6px 12px',border:'1px solid #e2e8f0',borderRadius:6,
+                    background:activeSubcategory === subcat.id ? '#7c3aed' : '#f8fafc',
+                    color:activeSubcategory === subcat.id ? '#fff' : '#475569',
+                    cursor:'pointer',fontSize:12,fontWeight:500
+                  }}>
+                  → {subcat.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <form className="search-bar" style={{flex:1,maxWidth:500,marginBottom:0}} onSubmit={runSearch}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un ticket par titre ou contenu..." />
@@ -540,7 +613,17 @@ export default function TicketsDashboard() {
       </div>
 
       {viewMode === 'table' ? (
-        <TicketList tickets={tickets} loading={loading} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+        <TicketList
+          tickets={tickets}
+          loading={loading}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSort={handleSort}
+          categories={categories}
+          activeCategory={activeCategory}
+          activeSubcategory={activeSubcategory}
+          onCategoryFilter={handleCategoryFilter}
+        />
       ) : (
         <TicketKanban
           tickets={tickets}
@@ -549,7 +632,7 @@ export default function TicketsDashboard() {
           totalPages={totalPages}
           page={page}
           onPageChange={goToPage}
-          onRefresh={() => loadData(activeFilter, activeUserFilter, page)}
+          onRefresh={() => loadData(activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory)}
         />
       )}
 
