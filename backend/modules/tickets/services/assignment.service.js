@@ -28,32 +28,20 @@ module.exports = {
             }
         }
 
-        const existing = await pgDb.get(
-            'SELECT technician_id, group_id FROM hub_tickets.ticket_assignments WHERE ticket_id = $1',
-            [ticketId]
-        );
+        // Remove old assignments for this ticket
+        await pgDb.run('DELETE FROM hub_tickets.ticket_assignments WHERE ticket_id = $1', [ticketId]);
 
-        const oldTechId = existing?.technician_id;
-        const oldGroupId = existing?.group_id;
+        // Insert new assignment
+        await pgDb.run(`
+            INSERT INTO hub_tickets.ticket_assignments
+                (ticket_id, technician_id, group_id, assigned_by, is_primary)
+            VALUES ($1, $2, $3, $4, true)
+        `, [ticketId, resolvedTechId || null, group_id || null, resolvedUserId]);
 
-        if (existing) {
-            await pgDb.run(`
-                UPDATE hub_tickets.ticket_assignments
-                SET technician_id = $1, group_id = $2, assigned_at = $3, assigned_by = $4
-                WHERE ticket_id = $5
-            `, [resolvedTechId || null, group_id || null, new Date(), resolvedUserId, ticketId]);
-        } else {
-            await pgDb.run(`
-                INSERT INTO hub_tickets.ticket_assignments
-                    (ticket_id, technician_id, group_id, assigned_by)
-                VALUES ($1, $2, $3, $4)
-            `, [ticketId, resolvedTechId || null, group_id || null, resolvedUserId]);
-        }
-
-        if (resolvedTechId && resolvedTechId !== oldTechId) {
+        if (resolvedTechId) {
             try {
                 await historyRepo.log(ticketId, resolvedUserId, 'assigned', 'technician_id',
-                    String(oldTechId || ''), String(resolvedTechId));
+                    '', String(resolvedTechId));
             } catch (e) { console.error('[HISTORY] assign log failed:', e.message); }
 
             if (ticket.status === 1) {
@@ -66,11 +54,70 @@ module.exports = {
             await notificationService.trigger('ticket.assigned', { ticket_id: ticketId, user, technician_id: resolvedTechId });
         }
 
-        if (group_id && group_id !== oldGroupId) {
+        if (group_id) {
             try {
                 await historyRepo.log(ticketId, resolvedUserId, 'assigned_group', 'group_id',
-                    String(oldGroupId || ''), String(group_id));
+                    '', String(group_id));
             } catch (e) { console.error('[HISTORY] group assign log failed:', e.message); }
+        }
+    },
+
+    async assignToMultiple(ticketId, { user_id, group_id, is_primary }, user) {
+        const ticket = await ticketRepo.findById(ticketId);
+        if (!ticket) throw new Error('Ticket non trouvé');
+
+        let resolvedUserId = user_id;
+        if (resolvedUserId) {
+            const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [resolvedUserId]);
+            if (!exists) {
+                const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [user?.username || '']);
+                if (hubUser) resolvedUserId = hubUser.id;
+            }
+        }
+
+        let resolvedAssignedBy = user?.id;
+        if (resolvedAssignedBy && user?.username) {
+            const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [resolvedAssignedBy]);
+            if (!exists) {
+                const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
+                if (hubUser) resolvedAssignedBy = hubUser.id;
+            }
+        }
+
+        // Check if already assigned
+        const existing = await pgDb.get(
+            'SELECT id FROM hub_tickets.ticket_assignments WHERE ticket_id = $1 AND technician_id = $2',
+            [ticketId, resolvedUserId]
+        );
+        if (existing) {
+            // Update is_primary if needed
+            await pgDb.run('UPDATE hub_tickets.ticket_assignments SET is_primary = $1, group_id = $2 WHERE id = $3',
+                [is_primary ? true : false, group_id || null, existing.id]);
+            return;
+        }
+
+        // Insert assignment
+        await pgDb.run(`
+            INSERT INTO hub_tickets.ticket_assignments
+                (ticket_id, technician_id, group_id, assigned_by, is_primary)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT DO NOTHING
+        `, [ticketId, resolvedUserId, group_id || null, resolvedAssignedBy, is_primary ? true : false]);
+
+        if (resolvedUserId) {
+            try {
+                await historyRepo.log(ticketId, resolvedAssignedBy, 'assigned', 'technician_id',
+                    '', String(resolvedUserId));
+            } catch (e) { console.error('[HISTORY] assign log failed:', e.message); }
+
+            if (is_primary && ticket.status === 1) {
+                await ticketRepo.update(ticketId, { status: 2 });
+                try {
+                    await historyRepo.log(ticketId, resolvedAssignedBy, 'status_changed', 'status', '1', '2', 'Assignation automatique');
+                } catch (e) { console.error('[HISTORY] auto-status log failed:', e.message); }
+            }
+
+            await notificationService.trigger('ticket.assigned', { ticket_id: ticketId, user, technician_id: resolvedUserId });
         }
     },
 

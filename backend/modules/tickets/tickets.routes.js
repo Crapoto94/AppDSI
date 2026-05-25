@@ -77,6 +77,21 @@ router.get('/:id/sla', authenticateJWT, (req, res) => controller.getSLA(req, res
 // ─── Actions ──────────────────────────────────────────────────────
 router.post('/:id/assign', authenticateJWT, (req, res) => controller.assign(req, res));
 router.post('/:id/assign-to-group', authenticateJWT, (req, res) => controller.assignToGroup(req, res));
+router.get('/:id/assignees', authenticateJWT, async (req, res) => {
+    try {
+        const rows = await pgDb.all(`
+            SELECT ta.id, ta.technician_id, ta.group_id, ta.is_primary, ta.assigned_at,
+                   u.displayName as technician_name, u.username, u.email,
+                   g.name as group_name
+            FROM hub_tickets.ticket_assignments ta
+            LEFT JOIN hub.users u ON ta.technician_id = u.id
+            LEFT JOIN hub_tickets.technician_groups g ON ta.group_id = g.id
+            WHERE ta.ticket_id = $1
+            ORDER BY ta.is_primary DESC NULLS LAST, u.displayName
+        `, [parseInt(req.params.id)]);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
 router.post('/:id/status', authenticateJWT, (req, res) => controller.changeStatus(req, res));
 router.post('/:id/solution', authenticateJWT, (req, res) => controller.setSolution(req, res));
 router.post('/:id/reopen', authenticateJWT, (req, res) => controller.reopen(req, res));

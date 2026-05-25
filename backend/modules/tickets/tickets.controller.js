@@ -188,23 +188,46 @@ module.exports = {
             const ticketId = parseInt(req.params.id);
             if (!group_id) return res.status(400).json({ message: 'group_id requis' });
 
-            const group = await groupRepo.findById(group_id);
+            const group = await pgDb.get('SELECT * FROM hub_tickets.technician_groups WHERE id = $1 AND is_active = true', [group_id]);
             if (!group) return res.status(404).json({ message: 'Groupe non trouvé' });
 
-            const tech = await assignmentService.findLeastBusyInGroup(group_id);
-            if (!tech) return res.status(404).json({ message: `Aucun technicien disponible dans le groupe ${group.name}` });
+            const members = await pgDb.all('SELECT * FROM hub_tickets.technician_group_members WHERE group_id = $1', [group_id]);
+            if (members.length === 0) return res.status(404).json({ message: `Aucun membre dans le groupe ${group.name}` });
 
-            await assignmentService.assign(ticketId, { technician_id: tech.user_id, group_id }, req.user);
+            // Find least busy member as primary
+            const leastBusy = await assignmentService.findLeastBusyInGroup(group_id);
 
+            // Remove old assignments for this ticket first
+            await pgDb.run('DELETE FROM hub_tickets.ticket_assignments WHERE ticket_id = $1', [ticketId]);
+
+            // Assign to all members of the group
+            for (const member of members) {
+                const isPrimary = leastBusy && leastBusy.user_id === member.user_id;
+                await assignmentService.assignToMultiple(ticketId, {
+                    user_id: member.user_id,
+                    group_id,
+                    is_primary: isPrimary
+                }, req.user);
+            }
+
+            // Propagate to sibling tickets
             const siblingIds = await groupRepo.getSiblingIds(ticketId);
             for (const sibId of siblingIds) {
                 try {
-                    await assignmentService.assign(sibId, { technician_id: tech.user_id, group_id }, req.user);
+                    await pgDb.run('DELETE FROM hub_tickets.ticket_assignments WHERE ticket_id = $1', [sibId]);
+                    for (const member of members) {
+                        await assignmentService.assignToMultiple(sibId, {
+                            user_id: member.user_id,
+                            group_id,
+                            is_primary: leastBusy && leastBusy.user_id === member.user_id
+                        }, req.user);
+                    }
                 } catch (e) { console.error(`[GROUP] assign propagation to #${sibId} failed:`, e.message); }
             }
 
-            res.json({ message: `Ticket escaladé vers le groupe ${group.name} (${tech.displayName || 'technicien assigné'})` });
+            res.json({ message: `Ticket escaladé vers le groupe ${group.name} (${members.length} membres assignés)` });
         } catch (error) {
+            console.error('[ASSIGN-GROUP] error:', error);
             res.status(400).json({ message: error.message });
         }
     },

@@ -280,6 +280,9 @@ async function setupPgDb() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_tech ON hub_tickets.ticket_assignments(technician_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_group ON hub_tickets.ticket_assignments(group_id)`);
+    // Allow multiple assignments per ticket (group escalation)
+    try { await client.query('ALTER TABLE hub_tickets.ticket_assignments DROP CONSTRAINT IF EXISTS ticket_assignments_ticket_id_key'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.ticket_assignments ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT true'); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_categories (

@@ -80,6 +80,7 @@ export default function TicketDetail() {
   const [observerResults, setObserverResults] = useState<any[]>([]);
   const [observerSearching, setObserverSearching] = useState(false);
   const [escaladeTargets, setEscaladeTargets] = useState<any[]>([]);
+  const [assignees, setAssignees] = useState<any[]>([]);
   const [assignTab, setAssignTab] = useState<'tech' | 'escalade'>('tech');
 
   // Panels latéraux
@@ -198,6 +199,8 @@ export default function TicketDetail() {
         axios.get(`/api/tasks/by-context?source=ticket&id=${id}`, { headers }).catch(() => ({ data: [] })),
         axios.get(`/api/tickets/${id}/observers`, { headers }).catch(() => ({ data: [] })),
       ]);
+      // Load assignees in parallel
+      axios.get(`/api/tickets/${id}/assignees`, { headers }).then(r => setAssignees(r.data || [])).catch(() => setAssignees([]));
       const t = ticketRes.data;
       setTicket(t);
       setEditForm({
@@ -1100,8 +1103,19 @@ export default function TicketDetail() {
 
             {/* ASSIGNÉ */}
             <div style={SF}>
-              <span style={SL}>Assigné</span>
-              {ticket.technician_name ? (
+              <span style={SL}>Assigné{assignees.length > 1 ? 's' : ''}</span>
+              {assignees.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {assignees.map((a: any) => (
+                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <div style={{ flexShrink: 0, width: 20, height: 20, borderRadius: '50%', background: avatarColor(a.technician_name || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff' }}>{getInitials(a.technician_name || '?')}</div>
+                      <span style={SV}>{a.technician_name || a.username || '?'}</span>
+                      {a.group_name && <span style={{ fontSize: 10, color: '#6366f1', background: '#eff6ff', padding: '1px 5px', borderRadius: 4 }}>{a.group_name}</span>}
+                      {a.is_primary && assignees.length > 1 && <span style={{ fontSize: 9, color: '#16a34a', fontWeight: 600 }}>★</span>}
+                    </div>
+                  ))}
+                </div>
+              ) : ticket.technician_name ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(ticket.technician_name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(ticket.technician_name)}</div>
                   <span style={SV}>{ticket.technician_name}</span>
