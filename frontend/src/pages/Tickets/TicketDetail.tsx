@@ -329,7 +329,8 @@ export default function TicketDetail() {
         }
         loadTicket();
       } catch (err: any) {
-        alert(err.response?.data?.message || 'Erreur');
+        console.error('[STATUS_CHANGE]', err.response?.status, err.response?.data, err.message);
+        alert('Erreur: ' + (err.response?.data?.message || err.message || 'Erreur'));
       }
       return;
     }
@@ -522,7 +523,8 @@ export default function TicketDetail() {
       setAssignTab('tech');
       setShowAssignModal(true);
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Erreur');
+      console.error('[OPEN_ASSIGN]', err.response?.status, err.response?.data, err.message);
+      alert('Erreur chargement techniciens: ' + (err.response?.data?.message || err.message || 'Erreur'));
     }
   }
 
@@ -533,7 +535,10 @@ export default function TicketDetail() {
       setShowAssignModal(false);
       loadTicket();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Erreur');
+      const msg = err.response?.data?.message || err.message || 'Erreur inconnue';
+      const status = err.response?.status;
+      console.error('[ASSIGN] Error:', status, msg, err);
+      alert(`Erreur assignation (${status || '?'}): ${msg}`);
     }
   }
 
