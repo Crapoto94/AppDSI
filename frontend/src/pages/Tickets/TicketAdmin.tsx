@@ -303,36 +303,387 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SLA MANAGER
+// SLA MANAGER (complet)
 // ─────────────────────────────────────────────────────────────────────────────
-function SLAManager({ data }: { data: any[], onUpdate: () => void }) {
+type SlaTab = 'definitions' | 'calendars' | 'breaches';
+
+function SLAManager({ data: initialData }: { data: any[], onUpdate: () => void }) {
+  const [subTab, setSubTab] = useState<SlaTab>('definitions');
+  const [definitions, setDefinitions] = useState<any[]>(initialData);
+  const [calendars, setCalendars] = useState<any[]>([]);
+  const [breaches, setBreaches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { setDefinitions(initialData); }, [initialData]);
+
+  useEffect(() => {
+    if (subTab === 'calendars') loadCalendars();
+    if (subTab === 'breaches') loadBreaches();
+  }, [subTab]);
+
+  const token = localStorage.getItem('token');
+  const h = { Authorization: `Bearer ${token}` };
+
+  async function loadCalendars() {
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/tickets/admin/sla/calendars', { headers: h });
+      setCalendars(res.data);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }
+
+  async function loadBreaches() {
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/tickets/dashboard/sla-breaches', { headers: h });
+      setBreaches(res.data);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }
+
+  const subTabs: { key: SlaTab; label: string }[] = [
+    { key: 'definitions', label: 'Définitions' },
+    { key: 'calendars', label: 'Calendriers' },
+    { key: 'breaches', label: 'Dépassements' },
+  ];
+
   return (
     <div>
-      <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Définitions SLA</h3>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+        {subTabs.map(t => (
+          <button key={t.key} onClick={() => setSubTab(t.key)} style={btn(subTab === t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {subTab === 'definitions' && <SLADefinitions data={definitions} onUpdate={() => {
+        axios.get('/api/tickets/admin/sla', { headers: h }).then(r => setDefinitions(r.data));
+      }} />}
+      {subTab === 'calendars' && <SLACalendars data={calendars} onUpdate={loadCalendars} loading={loading} />}
+      {subTab === 'breaches' && <SLABreaches data={breaches} loading={loading} />}
+    </div>
+  );
+}
+
+// ── SLA Definitions CRUD ──────────────────────────────────────────
+function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: '', description: '', priority: '', first_response_min: '', resolution_min: '', type: '', is_active: true });
+
+  const token = localStorage.getItem('token');
+  const h = { Authorization: `Bearer ${token}` };
+
+  function resetForm() { setForm({ name: '', description: '', priority: '', first_response_min: '', resolution_min: '', type: '', is_active: true }); }
+
+  async function create() {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      await axios.post('/api/tickets/admin/sla', {
+        name: form.name, description: form.description,
+        priority: form.priority ? parseInt(form.priority) : null,
+        first_response_min: form.first_response_min ? parseInt(form.first_response_min) : null,
+        resolution_min: form.resolution_min ? parseInt(form.resolution_min) : null,
+        type: form.type || null,
+      }, { headers: h });
+      setShowCreate(false);
+      resetForm();
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setSaving(false);
+  }
+
+  function startEdit(s: any) {
+    setEditingId(s.id);
+    setForm({
+      name: s.name || '', description: s.description || '',
+      priority: s.priority?.toString() || '',
+      first_response_min: s.first_response_min?.toString() || '',
+      resolution_min: s.resolution_min?.toString() || '',
+      type: s.type || '',
+      is_active: s.is_active !== false,
+    });
+  }
+
+  async function saveEdit() {
+    if (!editingId || !form.name.trim()) return;
+    setSaving(true);
+    try {
+      await axios.put(`/api/tickets/admin/sla/${editingId}`, {
+        name: form.name, description: form.description,
+        priority: form.priority ? parseInt(form.priority) : null,
+        first_response_min: form.first_response_min ? parseInt(form.first_response_min) : null,
+        resolution_min: form.resolution_min ? parseInt(form.resolution_min) : null,
+        type: form.type || null,
+        is_active: form.is_active,
+      }, { headers: h });
+      setEditingId(null);
+      resetForm();
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setSaving(false);
+  }
+
+  async function toggleActive(s: any) {
+    try {
+      await axios.put(`/api/tickets/admin/sla/${s.id}`, { is_active: !s.is_active }, { headers: h });
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function remove(s: any) {
+    if (!confirm(`Désactiver « ${s.name} » ?`)) return;
+    try {
+      await axios.delete(`/api/tickets/admin/sla/${s.id}`, { headers: h });
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  const inputStyle: React.CSSProperties = { padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, width: '100%', boxSizing: 'border-box' };
+
+  const input = (val: string, set: (v: string) => void, extra?: any) => {
+    const { style, ...rest } = extra || {};
+    return <input value={val} onChange={e => set(e.target.value)} style={{ ...inputStyle, ...(style || {}) }} {...rest} />;
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Définitions SLA</h3>
+        <button onClick={() => setShowCreate(true)}
+          style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          + Nouveau SLA
+        </button>
+      </div>
+
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ borderBottom: '2px solid #e2e8f0', background: '#f8fafc' }}>
-            <th style={{ padding: 10, textAlign: 'left' }}>Nom</th>
-            <th style={{ padding: 10, textAlign: 'center' }}>Priorité</th>
-            <th style={{ padding: 10, textAlign: 'center' }}>1ère réponse</th>
-            <th style={{ padding: 10, textAlign: 'center' }}>Résolution</th>
-            <th style={{ padding: 10, textAlign: 'center' }}>Actif</th>
+            <th style={{ padding: 10, textAlign: 'left', minWidth: 160 }}>Nom</th>
+            <th style={{ padding: 10, textAlign: 'center', width: 60 }}>Priorité</th>
+            <th style={{ padding: 10, textAlign: 'center', width: 110 }}>1ère réponse</th>
+            <th style={{ padding: 10, textAlign: 'center', width: 110 }}>Résolution</th>
+            <th style={{ padding: 10, textAlign: 'center', width: 80 }}>Type</th>
+            <th style={{ padding: 10, textAlign: 'center', width: 60 }}>Actif</th>
+            <th style={{ padding: 10, textAlign: 'center', width: 90 }}></th>
           </tr>
         </thead>
         <tbody>
-          {data.map(s => (
-            <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-              <td style={{ padding: 10, fontWeight: 500 }}>{s.name}</td>
-              <td style={{ padding: 10, textAlign: 'center' }}>{s.priority || '—'}</td>
-              <td style={{ padding: 10, textAlign: 'center' }}>{s.first_response_min ? `${s.first_response_min} min` : '—'}</td>
-              <td style={{ padding: 10, textAlign: 'center' }}>{s.resolution_min ? `${(s.resolution_min / 60).toFixed(1)}h` : '—'}</td>
-              <td style={{ padding: 10, textAlign: 'center' }}>
-                <span style={{ color: s.is_active ? '#22c55e' : '#ef4444', fontWeight: 600 }}>{s.is_active ? 'Oui' : 'Non'}</span>
+          {showCreate && (
+            <tr style={{ borderBottom: '1px solid #dbeafe', background: '#eff6ff' }}>
+              <td style={{ padding: 8 }}>{input(form.name, v => setForm(f => ({ ...f, name: v })), { placeholder: 'Nom du SLA' })}</td>
+              <td style={{ padding: 8 }}>{input(form.priority, v => setForm(f => ({ ...f, priority: v })), { placeholder: '1-5', style: { textAlign:'center' } })}</td>
+              <td style={{ padding: 8 }}>{input(form.first_response_min, v => setForm(f => ({ ...f, first_response_min: v })), { placeholder: 'min', style: { textAlign:'center' } })}</td>
+              <td style={{ padding: 8 }}>{input(form.resolution_min, v => setForm(f => ({ ...f, resolution_min: v })), { placeholder: 'min', style: { textAlign:'center' } })}</td>
+              <td style={{ padding: 8 }}>
+                <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
+                  style={{ padding: '6px 6px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, width: '100%', background: '#fff' }}>
+                  <option value="">—</option>
+                  <option value="1">Incident</option>
+                  <option value="2">Demande</option>
+                </select>
+              </td>
+              <td style={{ padding: 8, textAlign: 'center' }}>
+                <input type="checkbox" checked={form.is_active} onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))} />
+              </td>
+              <td style={{ padding: 8, textAlign: 'center' }}>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button onClick={create} disabled={saving}
+                    style={{ padding: '5px 10px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>✓</button>
+                  <button onClick={() => { setShowCreate(false); resetForm(); }}
+                    style={{ padding: '5px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>✕</button>
+                </div>
               </td>
             </tr>
-          ))}
+          )}
+          {data.map(s => {
+            const isEditing = editingId === s.id;
+            return (
+              <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9', background: isEditing ? '#fffbeb' : undefined }}>
+                {isEditing ? (
+                  <>
+                    <td style={{ padding: 8 }}>{input(form.name, v => setForm(f => ({ ...f, name: v })))}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{input(form.priority, v => setForm(f => ({ ...f, priority: v })), { style: { textAlign:'center', width:50 } })}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{input(form.first_response_min, v => setForm(f => ({ ...f, first_response_min: v })), { style: { textAlign:'center', width:70 } })}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{input(form.resolution_min, v => setForm(f => ({ ...f, resolution_min: v })), { style: { textAlign:'center', width:70 } })}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>
+                      <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
+                        style={{ padding: '4px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 11, background: '#fff' }}>
+                        <option value="">—</option>
+                        <option value="1">Incident</option>
+                        <option value="2">Demande</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>
+                      <input type="checkbox" checked={form.is_active} onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))} />
+                    </td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                        <button onClick={saveEdit} disabled={saving}
+                          style={{ padding: '4px 8px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>✓</button>
+                        <button onClick={() => setEditingId(null)}
+                          style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>✕</button>
+                      </div>
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td style={{ padding: 10, fontWeight: 500 }}>{s.name}</td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>{s.priority || '—'}</td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>{s.first_response_min ? `${s.first_response_min} min` : '—'}</td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>{s.resolution_min ? `${(s.resolution_min / 60).toFixed(1)}h` : '—'}</td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>{s.type === '1' ? 'Incident' : s.type === '2' ? 'Demande' : '—'}</td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>
+                      <span onClick={() => toggleActive(s)} style={{ cursor: 'pointer', color: s.is_active ? '#22c55e' : '#ef4444', fontWeight: 600, userSelect: 'none' }}>
+                        {s.is_active ? '✓ Oui' : '✕ Non'}
+                      </span>
+                    </td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                        <button onClick={() => startEdit(s)}
+                          style={{ padding: '4px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>✎</button>
+                        <button onClick={() => remove(s)}
+                          style={{ padding: '4px 10px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>🗑</button>
+                      </div>
+                    </td>
+                  </>
+                )}
+              </tr>
+            );
+          })}
+          {data.length === 0 && !showCreate && (
+            <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: '#94a3b8' }}>Aucune définition SLA</td></tr>
+          )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── SLA Calendars ──────────────────────────────────────────────────
+function SLACalendars({ data, onUpdate, loading }: { data: any[], onUpdate: () => void, loading: boolean }) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const token = localStorage.getItem('token');
+  const h = { Authorization: `Bearer ${token}` };
+
+  const DAY_LABELS = ['', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+
+  async function create() {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await axios.post('/api/tickets/admin/sla/calendars', { name }, { headers: h });
+      setName('');
+      setShowCreate(false);
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setSaving(false);
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Calendriers SLA</h3>
+        <button onClick={() => setShowCreate(true)}
+          style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          + Nouveau calendrier
+        </button>
+      </div>
+
+      {showCreate && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, padding: 12, background: '#eff6ff', borderRadius: 8, border: '1px solid #dbeafe' }}>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Nom du calendrier"
+            style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+          <button onClick={create} disabled={saving}
+            style={{ padding: '8px 16px', background: saving ? '#94a3b8' : '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+            {saving ? '...' : 'Créer'}
+          </button>
+          <button onClick={() => { setShowCreate(false); setName(''); }}
+            style={{ padding: '8px 16px', background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Annuler</button>
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {data.map(c => (
+            <div key={c.id} style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{c.name}</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
+                {c.description || '—'} · {c.timezone || 'Europe/Paris'}
+                {c.is_default && <span style={{ marginLeft: 8, color: '#6366f1', fontWeight: 600 }}>Défaut</span>}
+              </div>
+              {(c.hours || []).length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {(c.hours as any[]).map((h: any, i: number) => (
+                    <span key={i} style={{ padding: '4px 10px', background: '#eef2ff', color: '#6366f1', borderRadius: 6, fontSize: 12 }}>
+                      {DAY_LABELS[h.day_of_week] || `J${h.day_of_week}`} {h.start_time?.substring(0, 5)}-{h.end_time?.substring(0, 5)}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucune plage horaire définie</div>
+              )}
+            </div>
+          ))}
+          {data.length === 0 && !loading && (
+            <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Aucun calendrier</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── SLA Breaches ────────────────────────────────────────────────────
+function SLABreaches({ data, loading }: { data: any[], loading: boolean }) {
+  const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+    warning: { label: 'Alerte', color: '#f59e0b', bg: '#fffbeb' },
+    breached: { label: 'Dépassé', color: '#ef4444', bg: '#fef2f2' },
+  };
+
+  return (
+    <div>
+      <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Dépassements SLA actifs</h3>
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {data.map(s => {
+            const st = STATUS_LABELS[s.sla_status] || { label: s.sla_status, color: '#64748b', bg: '#f1f5f9' };
+            return (
+              <div key={s.id} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: st.bg, color: st.color, whiteSpace: 'nowrap' }}>
+                  {st.label}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>
+                    <a href={`/tickets/${s.glpi_id}`} style={{ color: '#6366f1', textDecoration: 'none' }}>#{s.glpi_id}</a>
+                    {' — '}{s.title}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                    Statut: {s.status_label || `#${s.status}`}
+                    {s.first_response_target && <> · 1ère réponse: {new Date(s.first_response_target).toLocaleString('fr-FR')}</>}
+                    {s.resolution_target && <> · Résolution: {new Date(s.resolution_target).toLocaleString('fr-FR')}</>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {data.length === 0 && (
+            <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>
+              ✅ Aucun dépassement SLA en cours
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -922,6 +1273,9 @@ function EscaladeManager() {
   const [loading, setLoading] = useState(true);
   const [targetType, setTargetType] = useState<'agent' | 'service'>('agent');
   const [selectedTargetService, setSelectedTargetService] = useState('');
+  const [adServices, setAdServices] = useState<Record<string, string | null>>({});
+  const [verifying, setVerifying] = useState(false);
+  const [verifyingAgent, setVerifyingAgent] = useState<string | null>(null);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -941,6 +1295,29 @@ function EscaladeManager() {
       setServices(svcRes.data || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
+  }
+
+  async function verifyServices(techs: any[]) {
+    if (verifying || techs.length === 0) return;
+    setVerifying(true);
+    setAdServices({});
+    const token = localStorage.getItem('token');
+    for (const tech of techs) {
+      const username = tech.username;
+      if (!username) continue;
+      setVerifyingAgent(username);
+      try {
+        const res = await axios.get(
+          `/api/tickets/admin/escalade/agent-service?username=${encodeURIComponent(username)}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setAdServices(prev => ({ ...prev, [username]: res.data.service || null }));
+      } catch {
+        setAdServices(prev => ({ ...prev, [username]: null }));
+      }
+    }
+    setVerifyingAgent(null);
+    setVerifying(false);
   }
 
   async function toggleSupportAgent(tech: any) {
@@ -1001,29 +1378,60 @@ function EscaladeManager() {
 
   const activeTechs = technicians.filter(t => t.status === 'active');
 
-  const techRow = (tech: any, isIn: boolean, onToggle: () => void, activeColor: string) => (
-    <div key={tech.user_id} style={{
-      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-      border: `1px solid ${isIn ? activeColor + '40' : '#e4e4e7'}`,
-      borderRadius: 8, background: isIn ? activeColor + '08' : '#fff',
-    }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>{tech.displayname || tech.displayName}</div>
-        <div style={{ fontSize: 11, color: '#71717a' }}>{tech.service_complement || tech.service_code || tech.email}</div>
-      </div>
-      <button onClick={onToggle} style={{
-        padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
-        fontSize: 12, fontWeight: 600,
-        background: isIn ? '#fef2f2' : '#f0fdf4',
-        color: isIn ? '#dc2626' : '#16a34a',
-        whiteSpace: 'nowrap',
+  const techRow = (tech: any, isIn: boolean, onToggle: () => void, activeColor: string) => {
+    const username = tech.username || '';
+    const isChecked = username in adServices;
+    const adService = adServices[username];
+    const isCurrentlyVerifying = verifyingAgent === username;
+    return (
+      <div key={tech.user_id} style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+        border: `1px solid ${isIn ? activeColor + '40' : '#e4e4e7'}`,
+        borderRadius: 8, background: isIn ? activeColor + '08' : '#fff',
       }}>
-        {isIn ? '✕ Retirer' : '+ Ajouter'}
-      </button>
-    </div>
-  );
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {tech.displayname || tech.displayName}
+            {isCurrentlyVerifying && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 400 }}>⟳ vérification…</span>}
+          </div>
+          <div style={{ fontSize: 11, color: '#71717a', display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 1 }}>
+            <span>{tech.service_complement || tech.service_code || tech.email}</span>
+            {isChecked && !isCurrentlyVerifying && (
+              adService
+                ? <span style={{ color: '#6366f1', fontWeight: 600 }}>🏢 {adService}</span>
+                : <span style={{ color: '#f59e0b', fontStyle: 'italic' }}>⚠️ non trouvé dans l'AD</span>
+            )}
+          </div>
+        </div>
+        <button onClick={onToggle} style={{
+          padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+          fontSize: 12, fontWeight: 600,
+          background: isIn ? '#fef2f2' : '#f0fdf4',
+          color: isIn ? '#dc2626' : '#16a34a',
+          whiteSpace: 'nowrap',
+        }}>
+          {isIn ? '✕ Retirer' : '+ Ajouter'}
+        </button>
+      </div>
+    );
+  };
 
   return (
+    <div>
+      {/* ── Header avec bouton vérifier ── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button onClick={() => verifyServices(activeTechs)} disabled={verifying || activeTechs.length === 0}
+          style={{
+            padding: '7px 16px', borderRadius: 7, border: '1px solid #e4e4e7', cursor: verifying ? 'default' : 'pointer',
+            fontSize: 12, fontWeight: 600, background: verifying ? '#f1f5f9' : '#fff',
+            color: verifying ? '#94a3b8' : '#6366f1', display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+          {verifying
+            ? <>⟳ Vérification… ({Object.keys(adServices).length}/{activeTechs.length})</>
+            : <>🔍 Vérifier services (AD)</>}
+        </button>
+      </div>
+
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
 
       {/* ── Équipe support ── */}
@@ -1095,6 +1503,7 @@ function EscaladeManager() {
           </>
         )}
       </div>
+    </div>
     </div>
   );
 }
