@@ -195,7 +195,10 @@
       "mcp__Claude_in_Chrome__form_input",
       "Bash(awk '{print $2}')",
       "Bash(curl -i \"http://localhost:3001/api/tickets/stats/tickets-by-software\")",
-      "Bash(node -e \"const { pgDb } = require\\('./shared/database'\\); pgDb.get\\('SELECT glpi_id, category_id, subcategory_id, software_id, title FROM hub_tickets.tickets WHERE glpi_id = 43968'\\).then\\(t => { console.log\\(JSON.stringify\\(t, null, 2\\)\\); process.exit\\(0\\); }\\).catch\\(e => { console.error\\(e.message\\); process.exit\\(1\\); }\\);\")"
+      "Bash(node -e \"const { pgDb } = require\\('./shared/database'\\); pgDb.get\\('SELECT glpi_id, category_id, subcategory_id, software_id, title FROM hub_tickets.tickets WHERE glpi_id = 43968'\\).then\\(t => { console.log\\(JSON.stringify\\(t, null, 2\\)\\); process.exit\\(0\\); }\\).catch\\(e => { console.error\\(e.message\\); process.exit\\(1\\); }\\);\")",
+      "Bash(node -e \"const r = require\\('./modules/tickets/repositories/ticket.repository.js'\\); console.log\\('OK'\\)\")",
+      "Bash(git -C \"C:/dev/AppDSI\" add backend/modules/tickets/dtos/ticket.dto.js backend/modules/tickets/repositories/ticket.repository.js frontend/src/pages/MagappAdmin.tsx frontend/src/pages/Tickets/TicketDetail.tsx frontend/src/pages/Tickets/TicketList.tsx frontend/src/pages/Tickets/TicketsDashboard.tsx)",
+      "Bash(git -C C:/dev/AppDSI commit -m ' *)"
     ]
   }
 }

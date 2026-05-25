@@ -135,6 +135,7 @@ module.exports = {
             sla_deadline: sla_data?.resolution_target || sla_data?.first_response_target || '',
             comment_content: comment?.content || '',
             reopened_by: user?.displayName || user?.username || '',
+            reply_url: context.reply_url || '',
         };
 
         let result = template;

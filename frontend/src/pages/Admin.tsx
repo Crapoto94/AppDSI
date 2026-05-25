@@ -119,7 +119,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     ollama_host: 'http://localhost:11434',
     anthropic_model: 'claude-3-5-sonnet-20240620',
     custom_prompt: '',
-    max_chars_context: ''
+    max_chars_context: '',
+    ai_reformulate_prompt: ''
   });
 
   const MAX_CHARS_BY_PROVIDER: Record<string, number> = {
@@ -521,7 +522,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           ollama_host: data.ollama_host || 'http://localhost:11434',
           anthropic_model: data.anthropic_model || 'claude-3-5-sonnet-20240620',
           custom_prompt: data.custom_prompt || '',
-          max_chars_context: data.max_chars_context || ''
+          max_chars_context: data.max_chars_context || '',
+          ai_reformulate_prompt: data.ai_reformulate_prompt || ''
         });
       }
     } catch (error) {
@@ -2628,6 +2630,34 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           type="button"
                           style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
                           onClick={() => setTranscriptConfig({ ...transcriptConfig, custom_prompt: '' })}
+                        >
+                          Réinitialiser au prompt par défaut
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Prompt de reformulation */}
+                    <div className="form-field full-width" style={{ marginTop: '1rem' }}>
+                      <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        ✨ Prompt de reformulation (tickets)
+                      </label>
+                      <p style={{ fontSize: '0.78rem', color: '#7c3aed', marginBottom: '0.5rem' }}>
+                        Utilisé par le bouton "Reformuler" dans les tickets. Utilisez <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{{text}}'}</code> pour insérer le texte original. Laissez vide pour le prompt par défaut.
+                      </p>
+                      <textarea
+                        className="admin-input"
+                        rows={5}
+                        style={{ fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical', lineHeight: 1.5 }}
+                        placeholder={`Reformule ce commentaire de manière professionnelle et claire, en conservant le sens exact. Réponds uniquement avec le texte reformulé, sans introduction ni commentaire.\n\nTexte original:\n{{text}}`}
+                        value={transcriptConfig.ai_reformulate_prompt}
+                        onChange={e => setTranscriptConfig({ ...transcriptConfig, ai_reformulate_prompt: e.target.value })}
+                        spellCheck={false}
+                      />
+                      {transcriptConfig.ai_reformulate_prompt && (
+                        <button
+                          type="button"
+                          style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                          onClick={() => setTranscriptConfig({ ...transcriptConfig, ai_reformulate_prompt: '' })}
                         >
                           Réinitialiser au prompt par défaut
                         </button>

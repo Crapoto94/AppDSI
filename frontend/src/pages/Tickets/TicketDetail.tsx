@@ -103,6 +103,7 @@ export default function TicketDetail() {
   // Reformule
   const [reformulating, setReformulating] = useState(false);
   const [reformulationProposal, setReformulationProposal] = useState<string | null>(null);
+  const [aiReformulationEnabled, setAiReformulationEnabled] = useState(true);
 
   // CC observateurs à l'envoi
   const [ccObservers, setCcObservers] = useState(false);
@@ -111,7 +112,22 @@ export default function TicketDetail() {
   const [showCascadeModal, setShowCascadeModal] = useState(false);
   const [cascadeSolution, setCascadeSolution] = useState('');
 
-  useEffect(() => { loadTicket(); loadGroup(); loadCategoriesAndApps(); }, [id]);
+  // Arbitrage
+  const [showArbitrageModal, setShowArbitrageModal] = useState(false);
+  const [arbitreSearch, setArbitreSearch] = useState('');
+  const [arbitreResults, setArbitreResults] = useState<any[]>([]);
+  const [arbitreSearching, setArbitreSearching] = useState(false);
+  const [selectedArbitre, setSelectedArbitre] = useState<any>(null);
+  const [arbitreMotif, setArbitreMotif] = useState('');
+  const [arbitreSubmitting, setArbitreSubmitting] = useState(false);
+
+  useEffect(() => {
+    loadTicket(); loadGroup(); loadCategoriesAndApps();
+    const token = localStorage.getItem('token');
+    axios.get('/api/tickets/config/public', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setAiReformulationEnabled(r.data.ai_reformulation_enabled !== false))
+      .catch(() => {});
+  }, [id]);
 
   useEffect(() => {
     const id = 'ticket-html-content-styles';
@@ -401,6 +417,22 @@ export default function TicketDetail() {
     return () => clearTimeout(timer);
   }, [observerSearch]);
 
+  useEffect(() => {
+    if (!arbitreSearch || arbitreSearch.length < 2) { setArbitreResults([]); return; }
+    const timer = setTimeout(async () => {
+      setArbitreSearching(true);
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`/api/tickets/users/ad-search?q=${encodeURIComponent(arbitreSearch)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setArbitreResults(res.data);
+      } catch { setArbitreResults([]); }
+      finally { setArbitreSearching(false); }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [arbitreSearch]);
+
   function isCommentEmpty(html: string) {
     return !html || html === '<p><br></p>' || html.replace(/<[^>]*>/g, '').trim() === '';
   }
@@ -535,6 +567,34 @@ export default function TicketDetail() {
     }
   }
 
+  async function handleArbitrage() {
+    if (!selectedArbitre || !arbitreMotif.trim()) return;
+    setArbitreSubmitting(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (ticket.status?.id !== 4) {
+        await doChangeStatus(4, arbitreMotif);
+      }
+      await axios.post('/api/tasks', {
+        description: `Arbitrage : ${arbitreMotif}`,
+        assignees: [selectedArbitre.username],
+        context_source: 'ticket',
+        context_id: parseInt(id || '0'),
+        statut: 'a_faire'
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setShowArbitrageModal(false);
+      setArbitreSearch('');
+      setArbitreResults([]);
+      setSelectedArbitre(null);
+      setArbitreMotif('');
+      loadTicket();
+    } catch (e: any) {
+      alert(e.response?.data?.message || "Erreur lors de la création de la demande d'arbitrage");
+    } finally {
+      setArbitreSubmitting(false);
+    }
+  }
+
   async function handleCascadeResolve() {
     if (!ticketGroup) return;
     const token = localStorage.getItem('token');
@@ -637,6 +697,16 @@ export default function TicketDetail() {
               <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>⭐ VIP</span>
             )}
             <span>{ticket.title}</span>
+            {ticket.category_name && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 7px', borderRadius: 4, fontSize: 10, fontWeight: 600, background: '#f1f5f9', color: '#64748b', flexShrink: 0 }}>
+                {ticket.category_name}{ticket.subcategory_name ? ` / ${ticket.subcategory_name}` : ''}
+              </span>
+            )}
+            {ticket.software_name && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 7px', borderRadius: 4, fontSize: 10, fontWeight: 600, background: '#f0fdf4', color: '#16a34a', flexShrink: 0 }}>
+                💾 {ticket.software_name}
+              </span>
+            )}
             {/* Pills inline avec le titre */}
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
@@ -665,13 +735,6 @@ export default function TicketDetail() {
               {ticket.type_label || 'Incident'}
             </span>
           </h1>
-          {(ticket.category_name || ticket.software_name) && (
-            <div style={{ marginTop: 4, fontSize: 12, color: '#71717a' }}>
-              {ticket.category_name}
-              {ticket.subcategory_name && ` / ${ticket.subcategory_name}`}
-              {ticket.software_name && `${ticket.category_name ? ' · ' : ''}💾 ${ticket.software_name}`}
-            </div>
-          )}
         </div>
 
         {/* ── BODY ── */}
@@ -782,31 +845,47 @@ export default function TicketDetail() {
                 </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {comments.map((c: any, i: number) => (
-                  <div key={c.id || i} style={{ display: 'flex', gap: 10 }}>
-                    <div style={{
-                      flexShrink: 0, width: 28, height: 28, borderRadius: '50%',
-                      background: avatarColor(c.author_name || ''),
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, fontWeight: 700, color: '#fff'
-                    }}>{getInitials(c.author_name || '')}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: '#18181b' }}>{c.author_name || 'Inconnu'}</span>
-                        {c.is_private && <span style={{ fontSize: 10, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: 8, fontWeight: 600 }}>🔒 Interne</span>}
-                        <span style={{ fontSize: 11, color: '#a1a1aa', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
-                          {c.date_creation ? new Date(c.date_creation).toLocaleString('fr-FR') : ''}
-                        </span>
-                      </div>
+                {comments.map((c: any, i: number) => {
+                  const requesterEmails = [
+                    ticket?.requester?.email,
+                    ticket?.email_alt,
+                    ticket?.requester_email_22,
+                  ].filter(Boolean).map((e: string) => e.toLowerCase());
+                  const isFromRequester = c.author_email && requesterEmails.includes(c.author_email.toLowerCase());
+                  const isSentToUser = c.sent_to_user === 1 || c.sent_to_user === true;
+
+                  // Sent-to-user: blue tint; requester reply: green tint; private: yellow; normal: grey
+                  const bgColor = (isSentToUser || isFromRequester) ? '#f0fdf4' : c.is_private ? '#fffbeb' : '#f9f9fb';
+                  const borderColor = (isSentToUser || isFromRequester) ? '#bbf7d0' : c.is_private ? '#fde68a' : '#f4f4f5';
+
+                  return (
+                    <div key={c.id || i} style={{ display: 'flex', gap: 10, marginLeft: isFromRequester ? 20 : 0 }}>
                       <div style={{
-                        fontSize: 13, color: '#3f3f46', lineHeight: 1.5,
-                        background: c.is_private ? '#fffbeb' : '#f9f9fb',
-                        border: `1px solid ${c.is_private ? '#fde68a' : '#f4f4f5'}`,
-                        borderRadius: 8, padding: '8px 12px'
-                      }} dangerouslySetInnerHTML={{ __html: decodeHtml(c.content) }} />
+                        flexShrink: 0, width: 28, height: 28, borderRadius: '50%',
+                        background: isFromRequester ? '#16a34a' : isSentToUser ? '#2563eb' : avatarColor(c.author_name || ''),
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 700, color: '#fff'
+                      }}>{isFromRequester ? '↩' : getInitials(c.author_name || '')}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#18181b' }}>{c.author_name || 'Inconnu'}</span>
+                          {isSentToUser && <span style={{ fontSize: 10, color: '#1d4ed8', background: '#dbeafe', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>✉️ Envoyé</span>}
+                          {isFromRequester && <span style={{ fontSize: 10, color: '#15803d', background: '#dcfce7', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>↩ Réponse</span>}
+                          {c.is_private && <span style={{ fontSize: 10, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: 8, fontWeight: 600 }}>🔒 Interne</span>}
+                          <span style={{ fontSize: 11, color: '#a1a1aa', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+                            {c.date_creation ? new Date(c.date_creation).toLocaleString('fr-FR') : ''}
+                          </span>
+                        </div>
+                        <div style={{
+                          fontSize: 13, color: '#3f3f46', lineHeight: 1.5,
+                          background: bgColor,
+                          border: `1px solid ${borderColor}`,
+                          borderRadius: 8, padding: '8px 12px'
+                        }} dangerouslySetInnerHTML={{ __html: decodeHtml(c.content) }} />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {comments.length === 0 && <p style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic', margin: 0 }}>Aucun commentaire</p>}
               </div>
             </div>
@@ -863,11 +942,13 @@ export default function TicketDetail() {
                 <input ref={fileInputRef} type="file" style={{ display: 'none' }}
                   onChange={e => setCommentFile(e.target.files?.[0] || null)}
                   accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
-                <button onClick={handleReformulate} disabled={isCommentEmpty(newComment) || reformulating}
-                  title="Reformuler avec l'IA"
-                  style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: isCommentEmpty(newComment) ? 'default' : 'pointer', fontSize: 11, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 3, opacity: isCommentEmpty(newComment) ? 0.4 : 1 }}>
-                  {reformulating ? '⏳' : '✨'} Reformuler
-                </button>
+                {aiReformulationEnabled && (
+                  <button onClick={handleReformulate} disabled={isCommentEmpty(newComment) || reformulating}
+                    title="Reformuler avec l'IA"
+                    style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: isCommentEmpty(newComment) ? 'default' : 'pointer', fontSize: 11, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 3, opacity: isCommentEmpty(newComment) ? 0.4 : 1 }}>
+                    {reformulating ? '⏳' : '✨'} Reformuler
+                  </button>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 7 }}>
                 {ticket.requester?.email && !commentPrivate && (
@@ -935,6 +1016,10 @@ export default function TicketDetail() {
                 )}
               </button>
               <div style={{ flex: 1 }} />
+              <button onClick={() => { setShowArbitrageModal(true); setSelectedArbitre(null); setArbitreSearch(''); setArbitreMotif(''); }}
+                style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #fbbf24', borderRadius: 6, color: '#b45309', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                ⚖️ Arbitrage
+              </button>
               {!editingInfo ? (
                 <button onClick={() => { setEditingInfo(true); setEditForm({ priority: ticket.priority?.id || ticket.priority, impact: ticket.impact?.id || ticket.impact, category_id: ticket.category_id, subcategory_id: ticket.subcategory_id, software_id: ticket.software_id }); }}
                   style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #e4e4e7', borderRadius: 6, color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
@@ -951,52 +1036,48 @@ export default function TicketDetail() {
             {/* STATUT */}
             <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
               <span style={SL}>Statut</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: (STATUS_COLORS[ticket.status?.id] || '#64748b') + '18', color: STATUS_COLORS[ticket.status?.id] || '#64748b', cursor: ticket.status?.id === 4 && ticket.waiting_reason ? 'help' : 'default' }}
-                title={ticket.status?.id === 4 && ticket.waiting_reason ? `Motif : ${ticket.waiting_reason}` : undefined}>
-                {ticket.status?.label || 'Inconnu'}
-                {ticket.status?.id === 4 && ticket.waiting_reason && <span style={{ fontSize: 10 }}>💬</span>}
-              </span>
-              {ticket.status?.id === 4 && ticket.waiting_reason && (
-                <div style={{ marginTop: 5, fontSize: 11, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 5, padding: '4px 8px', lineHeight: 1.4 }}>
-                  {ticket.waiting_reason}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: (STATUS_COLORS[ticket.status?.id] || '#64748b') + '18', color: STATUS_COLORS[ticket.status?.id] || '#64748b', flexShrink: 0 }}>
+                  {ticket.status?.label || 'Inconnu'}
+                </span>
+                {ticket.status?.id === 4 && ticket.waiting_reason && (
+                  <span style={{ fontSize: 11, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 6px', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
+                    💬 {ticket.waiting_reason}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* PRIORITÉ + IMPACT */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={SL}>Priorité</span>
+                  {editingInfo ? (
+                    <select value={editForm.priority || 3} onChange={e => setEditForm({...editForm, priority: parseInt(e.target.value)})}
+                      style={{ width: '100%', padding: '4px 6px', border: '1px solid #e4e4e7', borderRadius: 5, fontSize: 11, background: '#fff' }}>
+                      <option value={2}>Basse</option><option value={3}>Normale</option><option value={4}>Haute</option><option value={5}>Très haute</option>
+                    </select>
+                  ) : (
+                    <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: (PRIORITY_COLORS[ticket.priority?.id] || '#64748b') + '18', color: PRIORITY_COLORS[ticket.priority?.id] || '#64748b' }}>
+                      {ticket.priority?.label || 'Normale'}
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
-
-            {/* PRIORITÉ */}
-            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
-              <span style={SL}>Priorité</span>
-              {editingInfo ? (
-                <select value={editForm.priority || 3} onChange={e => setEditForm({...editForm, priority: parseInt(e.target.value)})}
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
-                  <option value={2}>Basse</option><option value={3}>Normale</option><option value={4}>Haute</option><option value={5}>Très haute</option>
-                </select>
-              ) : (
-                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: (PRIORITY_COLORS[ticket.priority?.id] || '#64748b') + '18', color: PRIORITY_COLORS[ticket.priority?.id] || '#64748b' }}>
-                  {ticket.priority?.label || 'Normale'}
-                </span>
-              )}
-            </div>
-
-            {/* IMPACT */}
-            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
-              <span style={SL}>Impact</span>
-              {editingInfo ? (
-                <select value={editForm.impact || 2} onChange={e => setEditForm({...editForm, impact: parseInt(e.target.value)})}
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
-                  <option value={2}>1 utilisateur</option><option value={3}>Groupe de travail</option><option value={4}>Service / Direction</option><option value={5}>Global</option>
-                </select>
-              ) : (
-                <span style={{ fontSize: 12, color: '#3f3f46' }}>
-                  {ticket.impact?.id && IMPACT_INFO[ticket.impact.id] ? `${IMPACT_INFO[ticket.impact.id].icon} ${IMPACT_INFO[ticket.impact.id].label}` : '—'}
-                </span>
-              )}
-            </div>
-
-            {/* TYPE */}
-            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
-              <span style={SL}>Type</span>
-              <span style={{ fontSize: 12, fontWeight: 500, color: String(ticket.type) === '3' ? '#7c3aed' : '#3f3f46' }}>{ticket.type_label || '—'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={SL}>Impact</span>
+                  {editingInfo ? (
+                    <select value={editForm.impact || 2} onChange={e => setEditForm({...editForm, impact: parseInt(e.target.value)})}
+                      style={{ width: '100%', padding: '4px 6px', border: '1px solid #e4e4e7', borderRadius: 5, fontSize: 11, background: '#fff' }}>
+                      <option value={2}>1 utilisateur</option><option value={3}>Groupe de travail</option><option value={4}>Service / Direction</option><option value={5}>Global</option>
+                    </select>
+                  ) : (
+                    <span style={{ fontSize: 11, color: '#3f3f46' }}>
+                      {ticket.impact?.id && IMPACT_INFO[ticket.impact.id] ? `${IMPACT_INFO[ticket.impact.id].icon} ${IMPACT_INFO[ticket.impact.id].label}` : '—'}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* ASSIGNÉ */}
@@ -1311,29 +1392,99 @@ export default function TicketDetail() {
       {showAssignModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={() => setShowAssignModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420, maxHeight: '70vh', overflow: 'auto' }}
-            onClick={e => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 600 }}>Assigner un technicien</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {technicians.map((t: any) => (
-                <div key={t.user_id} onClick={() => assignTechnician(t.user_id)}
-                  style={{
-                    padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer',
-                    background: '#fff', transition: 'background 0.1s', display: 'flex', alignItems: 'center', gap: 12
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                  onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: t.status === 'active' ? '#22c55e' : t.status === 'paused' ? '#f59e0b' : '#ef4444', flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{t.displayname || t.displayName}</div>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>{t.email}</div>
-                  </div>
-                  <span style={{ fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}>{t.active_tickets || 0} ticket(s)</span>
+          <div style={{ background: '#fff', borderRadius: 16, width: 440, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}
+            onClick={e => e.stopPropagation()}
+            onKeyDown={e => { if (e.key === 'Escape') setShowAssignModal(false); if (e.key === 'Enter' && technicians.length > 0) assignTechnician(technicians[0].user_id); }}>
+            {/* Header */}
+            <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid #f4f4f5', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#18181b' }}>+ Assigner ce ticket</div>
+                  <div style={{ fontSize: 11, color: '#71717a', marginTop: 2 }}>#{ticket.id} · {(ticket.title || '').substring(0, 48)}{(ticket.title || '').length > 48 ? '…' : ''}</div>
                 </div>
-              ))}
-              {technicians.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>Aucun technicien disponible</div>
+                <button onClick={() => setShowAssignModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 20, lineHeight: 1, padding: '0 0 0 8px', flexShrink: 0 }}>×</button>
+              </div>
+            </div>
+            {/* Content */}
+            <div style={{ overflowY: 'auto', padding: '16px 20px 12px', flex: 1 }}>
+              {technicians.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucun technicien disponible</div>
+              ) : (
+                <>
+                  {/* Suggéré */}
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Suggéré</div>
+                  {(() => {
+                    const best = technicians[0];
+                    const load = parseInt(best.active_tickets || '0');
+                    const loadColor = load === 0 ? '#22c55e' : load <= 3 ? '#f59e0b' : '#ef4444';
+                    return (
+                      <div style={{ border: '2px solid #fca5a5', borderRadius: 12, padding: '14px 16px', marginBottom: 16, background: '#fff5f5' }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Moins chargé de l'équipe</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                          <div style={{ width: 38, height: 38, borderRadius: '50%', background: avatarColor(best.displayname || best.displayName || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                            {getInitials(best.displayname || best.displayName || '')}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#18181b' }}>{best.displayname || best.displayName}</div>
+                            <div style={{ fontSize: 11, color: '#71717a', marginTop: 1 }}>{best.module_role || 'technicien'} · {load} ticket{load !== 1 ? 's' : ''} actif{load !== 1 ? 's' : ''}</div>
+                          </div>
+                          <button onClick={() => assignTechnician(best.user_id)}
+                            style={{ padding: '7px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>
+                            Assigner
+                          </button>
+                        </div>
+                        <div style={{ height: 4, background: '#fee2e2', borderRadius: 2 }}>
+                          <div style={{ height: '100%', width: `${Math.min(100, load * 12.5)}%`, background: loadColor, borderRadius: 2 }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {/* Disponibles */}
+                  {technicians.length > 1 && (
+                    <>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Disponibles</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {technicians.slice(1).map((t: any) => {
+                          const load = parseInt(t.active_tickets || '0');
+                          const loadColor = load === 0 ? '#22c55e' : load <= 3 ? '#f59e0b' : '#ef4444';
+                          return (
+                            <div key={t.user_id}
+                              className="assign-row"
+                              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #f4f4f5', background: '#fff', cursor: 'pointer', position: 'relative' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = '#f9f9fb'; (e.currentTarget.querySelector('.assign-hover-btn') as HTMLElement).style.opacity = '1'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = '#fff'; (e.currentTarget.querySelector('.assign-hover-btn') as HTMLElement).style.opacity = '0'; }}>
+                              <div style={{ width: 30, height: 30, borderRadius: '50%', background: avatarColor(t.displayname || t.displayName || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                {getInitials(t.displayname || t.displayName || '')}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>{t.displayname || t.displayName}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
+                                  <span style={{ fontSize: 10, color: '#a1a1aa' }}>{t.module_role || 'technicien'}</span>
+                                  <div style={{ width: 50, height: 3, background: '#f4f4f5', borderRadius: 2 }}>
+                                    <div style={{ height: '100%', width: `${Math.min(100, load * 12.5)}%`, background: loadColor, borderRadius: 2 }} />
+                                  </div>
+                                  <span style={{ fontSize: 10, color: '#71717a' }}>{load}</span>
+                                </div>
+                              </div>
+                              <button className="assign-hover-btn" onClick={() => assignTechnician(t.user_id)}
+                                style={{ padding: '5px 12px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0, opacity: 0, transition: 'opacity 0.15s' }}>
+                                Assigner
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </>
               )}
+            </div>
+            {/* Footer */}
+            <div style={{ padding: '10px 20px', borderTop: '1px solid #f4f4f5', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: '#a1a1aa' }}>
+                {ticket.category_name ? `Auto-assign : ${ticket.category_name}` : ''}
+              </span>
+              <span style={{ fontSize: 11, color: '#a1a1aa', fontFamily: 'monospace' }}>esc: annuler · ↵: assigner</span>
             </div>
           </div>
         </div>
@@ -1391,6 +1542,73 @@ export default function TicketDetail() {
               <button onClick={handleSolutionSubmit} disabled={!solutionText.trim()}
                 style={{ padding: '10px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                 Résoudre
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Arbitrage Modal ─────────────────────────────────────────────── */}
+      {showArbitrageModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={() => setShowArbitrageModal(false)}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 460 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: 17, fontWeight: 700 }}>⚖️ Demander un arbitrage</h3>
+            <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#64748b' }}>
+              Le ticket sera mis en attente et une tâche d'arbitrage sera attribuée à l'arbitre choisi.
+            </p>
+            {/* Arbitre */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Arbitre</label>
+              {selectedArbitre ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid #c7d2fe', borderRadius: 8, background: '#eef2ff' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#4f46e5', flex: 1 }}>{selectedArbitre.name}</span>
+                  <button onClick={() => setSelectedArbitre(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 16, padding: 0 }}>×</button>
+                </div>
+              ) : (
+                <>
+                  <input value={arbitreSearch} onChange={e => setArbitreSearch(e.target.value)} placeholder="Rechercher un utilisateur..."
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid #e4e4e7', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', outline: 'none' }} autoFocus />
+                  {arbitreSearching && <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 3 }}>Recherche...</div>}
+                  {arbitreResults.length > 0 && (
+                    <div style={{ border: '1px solid #f4f4f5', borderRadius: 8, overflow: 'hidden', marginTop: 3 }}>
+                      {arbitreResults.map((u: any) => (
+                        <div key={u.id} onClick={() => { setSelectedArbitre(u); setArbitreSearch(''); setArbitreResults([]); }}
+                          style={{ padding: '7px 10px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f9f9fb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f9f9fb')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
+                          <span style={{ fontWeight: 500 }}>{u.name}</span>
+                          <span style={{ fontSize: 11, color: '#71717a' }}>{u.email}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            {/* Motif */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Motif de l'arbitrage</label>
+              <textarea
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid #e4e4e7', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', resize: 'vertical', minHeight: 80, outline: 'none' }}
+                placeholder="Décrivez le motif de l'arbitrage..."
+                value={arbitreMotif}
+                onChange={e => setArbitreMotif(e.target.value)}
+              />
+            </div>
+            {ticket.status?.id !== 4 && (
+              <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 6, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#c2410c' }}>
+                ⚠️ Le ticket sera automatiquement mis en attente.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowArbitrageModal(false)}
+                style={{ padding: '9px 20px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={handleArbitrage} disabled={!selectedArbitre || !arbitreMotif.trim() || arbitreSubmitting}
+                style={{ padding: '9px 20px', background: (!selectedArbitre || !arbitreMotif.trim()) ? '#a5b4fc' : '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                {arbitreSubmitting ? 'Envoi...' : "⚖️ Demander l'arbitrage"}
               </button>
             </div>
           </div>

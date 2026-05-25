@@ -645,6 +645,7 @@ async function setupPgDb() {
     } catch (e) { console.error('[MIGRATIONS] ticket_groups:', e.message); }
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS resolution_method TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS knowledge_article TEXT"); } catch (e) {}
+    try { await client.query("ALTER TABLE hub_tickets.ticket_followups ADD COLUMN IF NOT EXISTS sent_to_user INTEGER DEFAULT 0"); } catch (e) {}
 
     // ── Historique quotidien des KPI ────────────────────────────────
     await client.query(`
@@ -675,6 +676,21 @@ async function setupPgDb() {
       CREATE TABLE IF NOT EXISTS hub_tickets.module_config (
         key VARCHAR(100) PRIMARY KEY,
         value TEXT
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.escalade_config (
+        id SERIAL PRIMARY KEY,
+        type VARCHAR(50) NOT NULL,
+        target_type VARCHAR(20),
+        user_id INTEGER,
+        username VARCHAR(100),
+        display_name VARCHAR(200),
+        email VARCHAR(200),
+        service_code VARCHAR(100),
+        service_label VARCHAR(200),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
@@ -2806,7 +2822,8 @@ async function setupPgDb() {
         await client.query(`
             INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html) VALUES
             ('ticket_created', 'Création de ticket', '{{app_name}} - Ticket #{{ticket_id}} créé : {{ticket_title}}', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Un nouveau ticket a été créé.</p><table><tr><td>Priorité :</td><td>{{priority_label}}</td></tr><tr><td>Type :</td><td>{{type_label}}</td></tr></table><p><a href="{{app_url}}/tickets/{{ticket_id}}">Voir le ticket</a></p>'),
-            ('ticket_assigned', 'Assignation de ticket', '{{app_name}} - Ticket #{{ticket_id}} vous a été assigné', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{assignee_name}},</p><p>Le ticket <strong>#{{ticket_id}}</strong> vous a été assigné.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}">Voir le ticket</a></p>')
+            ('ticket_assigned', 'Assignation de ticket', '{{app_name}} - Ticket #{{ticket_id}} vous a été assigné', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{assignee_name}},</p><p>Le ticket <strong>#{{ticket_id}}</strong> vous a été assigné.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}">Voir le ticket</a></p>'),
+            ('ticket_comment_reply', 'Réponse à un ticket', '[Ticket #{{ticket_id}}] Réponse à votre demande', '<p>Bonjour {{recipient_name}},</p><p>Vous avez reçu une réponse concernant votre ticket <strong>#{{ticket_id}} – {{ticket_title}}</strong> :</p><blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;">{{comment_content}}</blockquote><p style="margin-top:16px;"><a href="{{reply_url}}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">↩ Répondre à ce message</a></p><p style="font-size:12px;color:#94a3b8;">Ou copiez ce lien : {{reply_url}}</p><p>Cordialement,<br>{{author_name}}</p>')
             ON CONFLICT (slug) DO NOTHING
         `);
 

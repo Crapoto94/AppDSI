@@ -4,6 +4,7 @@ module.exports = {
     async findAll(status) {
         const rows = await pgDb.all(`
             SELECT tp.*, u.displayName, u.email, u.username, u.role,
+                   u.service_code, u.service_complement,
                    (SELECT COUNT(*) FROM hub_tickets.ticket_assignments ta WHERE ta.technician_id = tp.user_id) as active_tickets
             FROM hub_tickets.technician_profiles tp
             JOIN hub.users u ON tp.user_id = u.id
@@ -67,8 +68,11 @@ module.exports = {
 
     async findAvailable() {
         return pgDb.all(`
-            SELECT tp.user_id, u.displayName, u.email,
-                   (SELECT COUNT(*) FROM hub_tickets.ticket_assignments ta WHERE ta.technician_id = tp.user_id) as active_tickets
+            SELECT tp.user_id, tp.module_role, tp.status,
+                   u.displayName, u.email,
+                   (SELECT COUNT(*) FROM hub_tickets.ticket_assignments ta
+                    JOIN hub_tickets.tickets t ON ta.ticket_id = t.glpi_id
+                    WHERE ta.technician_id = tp.user_id AND t.status NOT IN (6,7,8)) as active_tickets
             FROM hub_tickets.technician_profiles tp
             JOIN hub.users u ON tp.user_id = u.id
             WHERE tp.status = 'active'

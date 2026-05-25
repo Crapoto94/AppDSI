@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 
+function stripHtml(html: string) {
+  return html ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : '';
+}
+
 export default function PublicTicketReply() {
   const { token } = useParams();
   const [info, setInfo] = useState<any>(null);
@@ -9,6 +13,7 @@ export default function PublicTicketReply() {
   const [content, setContent] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [showDesc, setShowDesc] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -31,13 +36,16 @@ export default function PublicTicketReply() {
     }
   }
 
+  const descText = info?.description ? stripHtml(info.description) : '';
+
   return (
     <div style={{
       minHeight: '100vh', background: '#f8fafc',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontFamily: 'ui-sans-serif, system-ui, sans-serif', padding: 24
     }}>
-      <div style={{ background: '#fff', borderRadius: 16, padding: 36, width: '100%', maxWidth: 560, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
+      <div style={{ background: '#fff', borderRadius: 16, padding: 36, width: '100%', maxWidth: 580, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
+        {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
           <span style={{ fontSize: 24 }}>🎫</span>
           <div>
@@ -62,13 +70,47 @@ export default function PublicTicketReply() {
           </div>
         ) : info ? (
           <>
-            <div style={{ background: '#f0f0ff', borderRadius: 10, padding: '12px 16px', marginBottom: 24 }}>
+            {/* Ticket title */}
+            <div style={{ background: '#f0f0ff', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
                 Ticket #{info.ticketId}
               </div>
               <div style={{ fontSize: 15, fontWeight: 600, color: '#18181b' }}>{info.title}</div>
             </div>
 
+            {/* Description (collapsible) */}
+            {descText && (
+              <div style={{ marginBottom: 16 }}>
+                <button onClick={() => setShowDesc(v => !v)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#6366f1', fontWeight: 600, padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {showDesc ? '▾' : '▸'} Description de la demande
+                </button>
+                {showDesc && (
+                  <div style={{ marginTop: 8, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, color: '#374151', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                    {descText}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Last tech question */}
+            {info.lastQuestion && (
+              <div style={{ marginBottom: 24, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 10, padding: '14px 16px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                  ❓ Question du technicien
+                </div>
+                <div style={{ fontSize: 13, color: '#78350f', lineHeight: 1.6 }}
+                  dangerouslySetInnerHTML={{ __html: info.lastQuestion.content }} />
+                <div style={{ marginTop: 8, fontSize: 11, color: '#a16207' }}>
+                  — {info.lastQuestion.author_name}
+                  {info.lastQuestion.date_creation && (
+                    <> · {new Date(info.lastQuestion.date_creation).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Reply form */}
             <form onSubmit={handleSubmit}>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 8 }}>
                 Votre réponse

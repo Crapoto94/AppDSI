@@ -50,6 +50,19 @@ router.post('/:id/solution', authenticateJWT, (req, res) => controller.setSoluti
 router.post('/:id/reopen', authenticateJWT, (req, res) => controller.reopen(req, res));
 router.post('/:id/vip', authenticateJWT, (req, res) => controller.toggleVip(req, res));
 router.get('/users/search', authenticateJWT, (req, res) => controller.searchUsers(req, res));
+router.get('/users/ad-search', authenticateJWT, async (req, res) => {
+    try {
+        const q = (req.query.q || '').trim();
+        if (!q || q.length < 2) return res.json([]);
+        const { getSqlite } = require('../../shared/database');
+        const { searchADUsersByQuery } = require('../../shared/ad_helper');
+        const db = getSqlite();
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) return res.json([]);
+        const results = await searchADUsersByQuery(q, adSettings);
+        res.json((results || []).map(u => ({ name: u.displayName || u.name || u.username, email: u.email, username: u.username })));
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
 router.get('/:id/observers', authenticateJWT, (req, res) => controller.getObservers(req, res));
 router.post('/:id/observers', authenticateJWT, (req, res) => controller.addObserver(req, res));
 router.delete('/:id/observers/:userId', authenticateJWT, (req, res) => controller.removeObserver(req, res));
@@ -60,6 +73,13 @@ router.delete('/:id/favorite', authenticateJWT, (req, res) => controller.removeF
 
 // ─── AI ───────────────────────────────────────────────────────────
 router.post('/ai/reformulate', authenticateJWT, (req, res) => controller.reformulateText(req, res));
+router.get('/config/public', authenticateJWT, async (req, res) => {
+    try {
+        const techRepo = require('./repositories/technician.repository');
+        const val = await techRepo.getConfig('ai_reformulation_enabled');
+        res.json({ ai_reformulation_enabled: val !== 'false' });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
 
 // ─── CRUD Tickets (doit être APRÈS les routes spécifiques) ────────
 router.get('/requester/:email', authenticateJWT, (req, res) => controller.getByRequester(req, res));

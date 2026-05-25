@@ -749,7 +749,7 @@ app.post('/api/o365-mail-settings', authenticateAdmin, async (req, res) => {
 // --- Transcript Settings API ---
 app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
     try {
-        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'custom_prompt', 'max_chars_context'];
+        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'custom_prompt', 'max_chars_context', 'ai_reformulate_prompt'];
         const config = {};
         for (const key of keys) {
             const s = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
@@ -764,7 +764,7 @@ app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
 app.post('/api/transcript-settings', authenticateAdmin, async (req, res) => {
     try {
         const payload = req.body;
-        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'custom_prompt', 'max_chars_context'];
+        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'custom_prompt', 'max_chars_context', 'ai_reformulate_prompt'];
         for (const key of keys) {
             if (payload[key] !== undefined && payload[key] !== '••••••••' && payload[key] !== '********') {
                 const existing = await db.get('SELECT 1 FROM app_settings WHERE setting_key = ?', [key]);

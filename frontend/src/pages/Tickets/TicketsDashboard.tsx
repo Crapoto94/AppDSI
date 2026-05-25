@@ -450,55 +450,55 @@ export default function TicketsDashboard() {
                       cursor: card.filterKey ? 'pointer' : 'default',
                       boxShadow: isActive ? `0 0 0 2px ${card.color}33` : 'none',
                       display: 'flex', flexDirection: 'column', gap: 0,
+                      position: 'relative', overflow: 'hidden',
                     }}>
-                    {/* En-tête label + trend */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{card.label}</span>
-                      {sparkData.length > 1 && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: trendColor }}>
-                          {trendIcon}{deltaPct > 0 ? ` ${deltaPct}%` : ''}
-                        </span>
-                      )}
-                    </div>
-                    {/* Valeur */}
-                    <div style={{ fontSize: 24, fontWeight: 700, color: card.color, lineHeight: 1.1 }}>{card.value}</div>
-                    {/* Daily metrics */}
-                    {dailyMetrics && (card.key === 'open' || card.key === 'in_progress' || card.key === 'waiting' || card.key === 'resolved') && (() => {
-                      const dayKey = card.key === 'open' ? 'today_created'
-                                   : card.key === 'in_progress' ? 'today_in_progress'
-                                   : card.key === 'waiting' ? 'today_waiting'
-                                   : card.key === 'resolved' ? 'today_resolved' : null;
-                      const avgKey = card.key === 'open' ? 'avg_open_60d'
-                                   : card.key === 'in_progress' ? 'avg_in_progress_60d'
-                                   : card.key === 'waiting' ? 'avg_waiting_60d'
-                                   : card.key === 'resolved' ? 'avg_resolved_60d' : null;
-                      const todayVal = dayKey ? dailyMetrics[dayKey] || 0 : 0;
-                      const avgVal = avgKey ? dailyMetrics[avgKey] || 0 : 0;
-                      const diff = todayVal - avgVal;
-                      const diffPct = avgVal > 0 ? Math.round((diff / avgVal) * 100) : 0;
-                      const diffColor = diff === 0 ? '#94a3b8' : (card.goodDown ? (diff < 0 ? '#22c55e' : '#ef4444') : (diff > 0 ? '#22c55e' : '#ef4444'));
-                      return (
-                        <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
-                          <div>{todayVal} auj. | moy 60j: {avgVal}</div>
-                          <div style={{ color: diffColor, fontWeight: 600 }}>{diff > 0 ? '+' : ''}{diff} ({diffPct > 0 ? '+' : ''}{diffPct}%)</div>
-                        </div>
-                      );
-                    })()}
-                    {/* Sous-info */}
-                    {card.sub && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.sub}</div>}
-                    {/* Sparkline */}
-                    <div style={{ marginTop: 8, marginLeft: -6, marginRight: -6 }}>
-                      <ResponsiveContainer width="100%" height={38}>
-                        <LineChart data={sparkData.length >= 2 ? sparkData : [{ v: 0, d: '' }, { v: 0, d: '' }]}
-                          margin={{ top: 2, right: 4, left: 4, bottom: 2 }}>
-                          <Tooltip
-                            contentStyle={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, border: `1px solid ${card.color}44`, background: '#fff' }}
-                            formatter={(v: any) => [card.isTime ? formatDuration(v) : v, card.label]}
-                            labelFormatter={(l: any) => l}
-                          />
-                          <Line type="monotone" dataKey="v" stroke={card.color} strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                        </LineChart>
-                      </ResponsiveContainer>
+                    {/* Sparkline en fond */}
+                    {sparkData.length >= 2 && (
+                      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 44, opacity: 0.18, pointerEvents: 'none' }}>
+                        <ResponsiveContainer width="100%" height={44}>
+                          <LineChart data={sparkData} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                            <Line type="monotone" dataKey="v" stroke={card.color} strokeWidth={2} dot={false} isAnimationActive={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                    {/* Contenu au premier plan */}
+                    <div style={{ position: 'relative', zIndex: 1 }}>
+                      {/* En-tête label + trend */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{card.label}</span>
+                        {sparkData.length > 1 && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: trendColor }}>
+                            {trendIcon}{deltaPct > 0 ? ` ${deltaPct}%` : ''}
+                          </span>
+                        )}
+                      </div>
+                      {/* Valeur */}
+                      <div style={{ fontSize: 24, fontWeight: 700, color: card.color, lineHeight: 1.1 }}>{card.value}</div>
+                      {/* Daily metrics */}
+                      {dailyMetrics && (card.key === 'open' || card.key === 'in_progress' || card.key === 'waiting' || card.key === 'resolved') && (() => {
+                        const dayKey = card.key === 'open' ? 'today_created'
+                                     : card.key === 'in_progress' ? 'today_in_progress'
+                                     : card.key === 'waiting' ? 'today_waiting'
+                                     : card.key === 'resolved' ? 'today_resolved' : null;
+                        const avgKey = card.key === 'open' ? 'avg_open_60d'
+                                     : card.key === 'in_progress' ? 'avg_in_progress_60d'
+                                     : card.key === 'waiting' ? 'avg_waiting_60d'
+                                     : card.key === 'resolved' ? 'avg_resolved_60d' : null;
+                        const todayVal = dayKey ? dailyMetrics[dayKey] || 0 : 0;
+                        const avgVal = avgKey ? dailyMetrics[avgKey] || 0 : 0;
+                        const diff = todayVal - avgVal;
+                        const diffPct = avgVal > 0 ? Math.round((diff / avgVal) * 100) : 0;
+                        const diffColor = diff === 0 ? '#94a3b8' : (card.goodDown ? (diff < 0 ? '#22c55e' : '#ef4444') : (diff > 0 ? '#22c55e' : '#ef4444'));
+                        return (
+                          <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
+                            <div>{todayVal} auj. | moy 60j: {avgVal}</div>
+                            <div style={{ color: diffColor, fontWeight: 600 }}>{diff > 0 ? '+' : ''}{diff} ({diffPct > 0 ? '+' : ''}{diffPct}%)</div>
+                          </div>
+                        );
+                      })()}
+                      {/* Sous-info */}
+                      {card.sub && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.sub}</div>}
                     </div>
                   </div>
                 );

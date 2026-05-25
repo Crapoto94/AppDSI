@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 
-type Tab = 'categories' | 'tags' | 'groups' | 'sla' | 'rules' | 'templates' | 'triggers' | 'technicians' | 'roles';
+type Tab = 'categories' | 'sla' | 'rules' | 'templates' | 'triggers' | 'technicians' | 'roles' | 'escalade' | 'params';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -13,8 +15,6 @@ const btn = (active: boolean): React.CSSProperties => ({
 export default function TicketAdmin() {
   const [tab, setTab] = useState<Tab>('categories');
   const [categories, setCategories] = useState<any[]>([]);
-  const [tags, setTags] = useState<any[]>([]);
-  const [groups, setGroups] = useState<any[]>([]);
   const [slas, setSlas] = useState<any[]>([]);
   const [rules, setRules] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
@@ -24,8 +24,6 @@ export default function TicketAdmin() {
   useEffect(() => {
     switch (tab) {
       case 'categories': loadData('/api/tickets/admin/categories', setCategories); break;
-      case 'tags':       loadData('/api/tickets/admin/tags', setTags); break;
-      case 'groups':     loadData('/api/tickets/admin/groups', setGroups); break;
       case 'sla':        loadData('/api/tickets/admin/sla', setSlas); break;
       case 'rules':      loadData('/api/tickets/admin/assignment-rules', setRules); break;
       case 'templates':  loadData('/api/tickets/admin/notification-templates', setTemplates); break;
@@ -44,14 +42,14 @@ export default function TicketAdmin() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'categories',  label: 'Catégories' },
-    { key: 'tags',        label: 'Tags' },
-    { key: 'groups',      label: 'Groupes' },
     { key: 'sla',         label: 'SLA' },
     { key: 'rules',       label: 'Règles' },
     { key: 'templates',   label: 'Templates' },
     { key: 'triggers',    label: 'Déclencheurs' },
     { key: 'technicians', label: 'Équipe' },
+    { key: 'escalade',    label: '⬆️ Escalade' },
     { key: 'roles',       label: '🔐 Rôles' },
+    { key: 'params',      label: '⚙️ Paramètres' },
   ];
 
   return (
@@ -67,14 +65,14 @@ export default function TicketAdmin() {
 
       <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 24 }}>
         {tab === 'categories'  && <CategoryManager data={categories} onUpdate={() => loadData('/api/tickets/admin/categories', setCategories)} />}
-        {tab === 'tags'        && <TagManager data={tags} onUpdate={() => loadData('/api/tickets/admin/tags', setTags)} />}
-        {tab === 'groups'      && <GroupManager data={groups} onUpdate={() => loadData('/api/tickets/admin/groups', setGroups)} />}
         {tab === 'sla'         && <SLAManager data={slas} onUpdate={() => loadData('/api/tickets/admin/sla', setSlas)} />}
         {tab === 'rules'       && <RuleManager data={rules} onUpdate={() => loadData('/api/tickets/admin/assignment-rules', setRules)} />}
-        {tab === 'templates'   && <TemplateManager data={templates} />}
+        {tab === 'templates'   && <TemplateManager data={templates} onUpdate={() => loadData('/api/tickets/admin/notification-templates', setTemplates)} />}
         {tab === 'triggers'    && <TriggerManager data={triggers} />}
         {tab === 'technicians' && <TeamManager data={technicians} onUpdate={() => loadData('/api/tickets/admin/technicians', setTechnicians)} />}
+        {tab === 'escalade'    && <EscaladeManager />}
         {tab === 'roles'       && <RolePermissionsManager />}
+        {tab === 'params'      && <TicketParamsManager />}
       </div>
     </div>
   );
@@ -305,82 +303,6 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TAG MANAGER
-// ─────────────────────────────────────────────────────────────────────────────
-function TagManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) {
-  const [name, setName] = useState('');
-  const [color, setColor] = useState('#6366f1');
-
-  async function add() {
-    if (!name.trim()) return;
-    const token = localStorage.getItem('token');
-    await axios.post('/api/tickets/admin/tags', { name, color }, { headers: { Authorization: `Bearer ${token}` } });
-    setName('');
-    onUpdate();
-  }
-
-  return (
-    <div>
-      <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Tags</h3>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Nom du tag"
-          style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
-        <input type="color" value={color} onChange={e => setColor(e.target.value)}
-          style={{ width: 40, padding: 4, border: '1px solid #e2e8f0', borderRadius: 6 }} />
-        <button onClick={add} style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Ajouter</button>
-      </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {data.map(t => (
-          <span key={t.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 20, background: t.color + '20', color: t.color, fontSize: 13, fontWeight: 500 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: t.color }} />
-            {t.name}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GROUP MANAGER
-// ─────────────────────────────────────────────────────────────────────────────
-function GroupManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) {
-  const [name, setName] = useState('');
-
-  async function add() {
-    if (!name.trim()) return;
-    const token = localStorage.getItem('token');
-    await axios.post('/api/tickets/admin/groups', { name }, { headers: { Authorization: `Bearer ${token}` } });
-    setName('');
-    onUpdate();
-  }
-
-  return (
-    <div>
-      <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Groupes de l'équipe</h3>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Nom du groupe"
-          style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
-        <button onClick={add} style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Créer</button>
-      </div>
-      <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))' }}>
-        {data.map(g => (
-          <div key={g.id} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
-            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{g.name}</div>
-            <div style={{ fontSize: 12, color: '#64748b' }}>
-              {(g.members || []).map((m: any) => (
-                <div key={m.id} style={{ padding: '2px 0' }}>• {m.displayName || `User #${m.user_id}`}</div>
-              ))}
-              {(!g.members || g.members.length === 0) && <span style={{ fontStyle: 'italic' }}>Aucun membre</span>}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // SLA MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
 function SLAManager({ data }: { data: any[], onUpdate: () => void }) {
@@ -445,16 +367,89 @@ function RuleManager({ data }: { data: any[], onUpdate: () => void }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // TEMPLATE / TRIGGER MANAGERS
 // ─────────────────────────────────────────────────────────────────────────────
-function TemplateManager({ data }: { data: any[] }) {
+function TemplateManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editSubject, setEditSubject] = useState('');
+  const [editBody, setEditBody] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  function startEdit(t: any) {
+    setEditingId(t.id);
+    setEditLabel(t.label || '');
+    setEditSubject(t.subject || '');
+    setEditBody(t.body_html || '');
+  }
+
+  async function save() {
+    if (!editingId) return;
+    setSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`/api/tickets/admin/notification-templates/${editingId}`, {
+        label: editLabel, subject: editSubject, body_html: editBody,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setEditingId(null);
+      onUpdate();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la sauvegarde');
+    }
+    setSaving(false);
+  }
+
   return (
     <div>
-      <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Templates de notification</h3>
-      <div style={{ display: 'grid', gap: 8 }}>
+      <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>Templates de notification</h3>
+      <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b' }}>
+        Variables disponibles : {'{{ticket_id}}, {{ticket_title}}, {{ticket_content}}, {{priority_label}}, {{type_label}}, {{status_label}}, {{requester_name}}, {{recipient_name}}, {{assignee_name}}, {{technician_name}}, {{author_name}}, {{old_status}}, {{new_status}}, {{solution_text}}, {{comment_content}}, {{app_name}}, {{app_url}}'}
+      </p>
+      <div style={{ display: 'grid', gap: 12 }}>
         {data.map(t => (
-          <div key={t.id} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 8 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{t.label}</div>
-            <div style={{ fontSize: 12, color: '#64748b', fontFamily: 'monospace' }}>{t.slug}</div>
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>{t.subject}</div>
+          <div key={t.id} style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            {editingId === t.id ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace', minWidth: 140 }}>{t.slug}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, minWidth: 60 }}>Libellé</label>
+                  <input value={editLabel} onChange={e => setEditLabel(e.target.value)}
+                    style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, minWidth: 60 }}>Sujet</label>
+                  <input value={editSubject} onChange={e => setEditSubject(e.target.value)}
+                    style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Corps HTML</label>
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'hidden' }}>
+                    <ReactQuill value={editBody} onChange={setEditBody} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setEditingId(null)} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                  <button onClick={save} disabled={saving}
+                    style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: saving ? '#94a3b8' : '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                    {saving ? 'Enregistrement...' : 'Enregistrer'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: 14 }}>{t.label}</span>
+                    <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace', marginLeft: 8 }}>{t.slug}</span>
+                  </div>
+                  <button onClick={() => startEdit(t)} style={{ padding: '4px 12px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>✎ Modifier</button>
+                </div>
+                <div style={{ fontSize: 13, color: '#475569', marginBottom: 4 }}>{t.subject}</div>
+                <div style={{ fontSize: 11, color: '#94a3b8', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {t.body_html?.replace(/<[^>]*>/g, ' ').substring(0, 150)}
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -593,6 +588,11 @@ function TeamManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
                 <div style={{ fontSize: 12, color: '#64748b', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   <span>{t.email}</span>
                   <span style={{ color: '#94a3b8' }}>@{t.username}</span>
+                  {(t.service_complement || t.service_code) && (
+                    <span style={{ color: '#6366f1', fontWeight: 500 }}>
+                      🏢 {t.service_complement || t.service_code}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -906,6 +906,259 @@ function RolePermissionsManager() {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ESCALADE MANAGER
+// ─────────────────────────────────────────────────────────────────────────────
+function EscaladeManager() {
+  const [supportAgents, setSupportAgents] = useState<any[]>([]);
+  const [escaladeTargets, setEscaladeTargets] = useState<any[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [services, setServices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [targetType, setTargetType] = useState<'agent' | 'service'>('agent');
+  const [selectedTargetService, setSelectedTargetService] = useState('');
+
+  useEffect(() => { loadAll(); }, []);
+
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const h = { Authorization: `Bearer ${token}` };
+      const [cfgRes, techRes, svcRes] = await Promise.all([
+        axios.get('/api/tickets/admin/escalade', { headers: h }),
+        axios.get('/api/tickets/admin/technicians', { headers: h }),
+        axios.get('/api/tickets/admin/escalade/services', { headers: h }),
+      ]);
+      setSupportAgents(cfgRes.data.support_agents || []);
+      setEscaladeTargets(cfgRes.data.escalade_targets || []);
+      setTechnicians(techRes.data || []);
+      setServices(svcRes.data || []);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }
+
+  async function toggleSupportAgent(tech: any) {
+    const token = localStorage.getItem('token');
+    const existing = supportAgents.find(a => a.user_id === tech.user_id);
+    try {
+      if (existing) {
+        await axios.delete(`/api/tickets/admin/escalade/support-agent/${existing.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      } else {
+        await axios.post('/api/tickets/admin/escalade/support-agent', {
+          user_id: tech.user_id, username: tech.username,
+          display_name: tech.displayname || tech.displayName, email: tech.email
+        }, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function toggleTargetAgent(tech: any) {
+    const token = localStorage.getItem('token');
+    const existing = escaladeTargets.find(t => t.target_type === 'agent' && t.user_id === tech.user_id);
+    try {
+      if (existing) {
+        await axios.delete(`/api/tickets/admin/escalade/target/${existing.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      } else {
+        await axios.post('/api/tickets/admin/escalade/target', {
+          target_type: 'agent', user_id: tech.user_id, username: tech.username,
+          display_name: tech.displayname || tech.displayName, email: tech.email
+        }, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function addTargetService() {
+    const svc = services.find(s => s.service_code === selectedTargetService);
+    if (!svc) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('/api/tickets/admin/escalade/target', {
+        target_type: 'service', service_code: svc.service_code, service_label: svc.service_complement || svc.service_code
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setSelectedTargetService('');
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function removeTarget(id: number) {
+    if (!confirm('Retirer cette cible ?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`/api/tickets/admin/escalade/target/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>;
+
+  const activeTechs = technicians.filter(t => t.status === 'active');
+
+  const techRow = (tech: any, isIn: boolean, onToggle: () => void, activeColor: string) => (
+    <div key={tech.user_id} style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+      border: `1px solid ${isIn ? activeColor + '40' : '#e4e4e7'}`,
+      borderRadius: 8, background: isIn ? activeColor + '08' : '#fff',
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>{tech.displayname || tech.displayName}</div>
+        <div style={{ fontSize: 11, color: '#71717a' }}>{tech.service_complement || tech.service_code || tech.email}</div>
+      </div>
+      <button onClick={onToggle} style={{
+        padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+        fontSize: 12, fontWeight: 600,
+        background: isIn ? '#fef2f2' : '#f0fdf4',
+        color: isIn ? '#dc2626' : '#16a34a',
+        whiteSpace: 'nowrap',
+      }}>
+        {isIn ? '✕ Retirer' : '+ Ajouter'}
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+
+      {/* ── Équipe support ── */}
+      <div>
+        <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Équipe support</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#71717a' }}>Agents disponibles pour recevoir des escalades.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {activeTechs.length === 0 && <div style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Aucun technicien actif</div>}
+          {activeTechs.map(tech => {
+            const isIn = supportAgents.some(a => a.user_id === tech.user_id);
+            return techRow(tech, isIn, () => toggleSupportAgent(tech), '#6366f1');
+          })}
+        </div>
+      </div>
+
+      {/* ── Cibles d'escalade ── */}
+      <div>
+        <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Cibles d'escalade</h3>
+        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#71717a' }}>Agents ou services vers lesquels escalader un ticket.</p>
+
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          <button onClick={() => setTargetType('agent')}
+            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 12, background: targetType === 'agent' ? '#6366f1' : '#f1f5f9', color: targetType === 'agent' ? '#fff' : '#475569' }}>
+            👤 Agent
+          </button>
+          <button onClick={() => setTargetType('service')}
+            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 12, background: targetType === 'service' ? '#6366f1' : '#f1f5f9', color: targetType === 'service' ? '#fff' : '#475569' }}>
+            🏢 Service
+          </button>
+        </div>
+
+        {targetType === 'agent' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {activeTechs.length === 0 && <div style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Aucun technicien actif</div>}
+            {activeTechs.map(tech => {
+              const isIn = escaladeTargets.some(t => t.target_type === 'agent' && t.user_id === tech.user_id);
+              return techRow(tech, isIn, () => toggleTargetAgent(tech), '#8b5cf6');
+            })}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <select value={selectedTargetService} onChange={e => setSelectedTargetService(e.target.value)}
+                style={{ flex: 1, padding: '8px 10px', border: '1px solid #e4e4e7', borderRadius: 8, fontSize: 13, background: '#fff' }}>
+                <option value="">— Choisir un service —</option>
+                {services.filter(s => !escaladeTargets.some(t => t.target_type === 'service' && t.service_code === s.service_code)).map(s => (
+                  <option key={s.service_code} value={s.service_code}>{s.service_complement || s.service_code}</option>
+                ))}
+              </select>
+              <button onClick={addTargetService} disabled={!selectedTargetService}
+                style={{ padding: '8px 16px', background: selectedTargetService ? '#6366f1' : '#e4e4e7', color: selectedTargetService ? '#fff' : '#94a3b8', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: selectedTargetService ? 'pointer' : 'default' }}>
+                + Ajouter
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {escaladeTargets.filter(t => t.target_type === 'service').length === 0 && (
+                <div style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Aucun service configuré</div>
+              )}
+              {escaladeTargets.filter(t => t.target_type === 'service').map(t => (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: '1px solid #f59e0b40', borderRadius: 8, background: '#f59e0b08' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>🏢 {t.service_label || t.service_code}</div>
+                    <div style={{ fontSize: 11, color: '#71717a' }}>{t.service_code}</div>
+                  </div>
+                  <button onClick={() => removeTarget(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 16, padding: 0 }}>×</button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TICKET PARAMS MANAGER
+// ─────────────────────────────────────────────────────────────────────────────
+function TicketParamsManager() {
+  const [aiReformulation, setAiReformulation] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    axios.get('/api/tickets/config/public', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setAiReformulation(r.data.ai_reformulation_enabled !== false))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save(val: boolean) {
+    setSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put('/api/tickets/admin/config/ai_reformulation_enabled', { value: String(val) }, { headers: { Authorization: `Bearer ${token}` } });
+      setAiReformulation(val);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setSaving(false);
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>;
+
+  const toggle = (checked: boolean) => save(checked);
+
+  return (
+    <div>
+      <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 700 }}>Paramètres du module tickets</h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#18181b', marginBottom: 2 }}>✨ Reformulation IA</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>Affiche le bouton de reformulation IA dans la zone de commentaire</div>
+          </div>
+          <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: saving ? 'default' : 'pointer', flexShrink: 0 }}>
+            <input type="checkbox" checked={aiReformulation} onChange={e => toggle(e.target.checked)} disabled={saving}
+              style={{ opacity: 0, width: 0, height: 0 }} />
+            <span style={{
+              position: 'absolute', inset: 0, borderRadius: 24, transition: 'background 0.2s',
+              background: aiReformulation ? '#6366f1' : '#cbd5e1',
+            }}>
+              <span style={{
+                position: 'absolute', top: 3, left: aiReformulation ? 23 : 3,
+                width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+              }} />
+            </span>
+          </label>
+        </div>
+
+        {saved && <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ Paramètre enregistré</div>}
       </div>
     </div>
   );

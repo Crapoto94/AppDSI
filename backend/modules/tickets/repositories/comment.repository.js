@@ -32,12 +32,12 @@ module.exports = {
 
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.ticket_followups
-                (ticket_id, content, content_hash, author_name, author_email, is_private, date_creation)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (ticket_id, content, content_hash, author_name, author_email, is_private, sent_to_user, date_creation)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `, [
             ticketId, data.content, contentHash,
             user.displayName || user.username, user.email || '',
-            data.is_private ? 1 : 0, new Date()
+            data.is_private ? 1 : 0, data.sent_to_user ? 1 : 0, new Date()
         ]);
 
         const id = result.lastID;

@@ -329,6 +329,22 @@ router.get('/sla/escalations', authenticateJWT, async (req, res) => {
 router.get('/technicians', authenticateAdmin, async (req, res) => {
     try {
         const list = await technicianRepo.findAll(req.query.status || null);
+        // Enrich with service data from SQLite (hub.users doesn't store service_code)
+        const db = getSqlite();
+        if (list.length > 0) {
+            const placeholders = list.map(() => '?').join(', ');
+            const usernames = list.map(t => (t.username || '').toLowerCase());
+            const rows = await db.all(
+                `SELECT LOWER(username) as un, service_code, service_complement FROM users WHERE LOWER(username) IN (${placeholders})`,
+                usernames
+            );
+            const svcMap = {};
+            for (const r of rows) svcMap[r.un] = r;
+            for (const t of list) {
+                const s = svcMap[(t.username || '').toLowerCase()];
+                if (s) { t.service_code = s.service_code; t.service_complement = s.service_complement; }
+            }
+        }
         res.json(list);
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
@@ -336,7 +352,7 @@ router.get('/technicians', authenticateAdmin, async (req, res) => {
 router.get('/technicians/available', authenticateJWT, async (req, res) => {
     try {
         const list = await technicianRepo.findAvailable();
-        res.json(list);
+        res.json(list.filter(t => (t.module_role || 'technician') === 'technician'));
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
@@ -441,6 +457,77 @@ router.post('/technicians/:id/reassign', authenticateAdmin, async (req, res) => 
         await technicianRepo.reassignTickets(parseInt(req.params.id), mode, target_id ? parseInt(target_id) : null);
         res.json({ message: 'Tickets réassignés' });
     } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// ─── Escalade ────────────────────────────────────────────────────
+
+router.get('/escalade', authenticateAdmin, async (req, res) => {
+    try {
+        const support = await pgDb.all(`SELECT * FROM hub_tickets.escalade_config WHERE type = 'support_agent' ORDER BY display_name`);
+        const targets = await pgDb.all(`SELECT * FROM hub_tickets.escalade_config WHERE type = 'escalade_target' ORDER BY display_name, service_label`);
+        res.json({ support_agents: support, escalade_targets: targets });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.get('/escalade/agent-service', authenticateAdmin, async (req, res) => {
+    try {
+        const username = (req.query.username || '').trim();
+        if (!username) return res.json({ service: null });
+        const db = getSqlite();
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) return res.json({ service: null });
+        const results = await searchADUsersByQuery(username, adSettings);
+        const match = results.find(u => (u.username || '').toLowerCase() === username.toLowerCase());
+        res.json({ service: match?.service || null, displayName: match?.displayName || null });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.get('/escalade/services', authenticateAdmin, async (req, res) => {
+    try {
+        const db = getSqlite();
+        const rows = await db.all(`
+            SELECT DISTINCT service_code, service_complement
+            FROM users
+            WHERE service_code IS NOT NULL AND service_code != ''
+            ORDER BY service_code
+        `);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.post('/escalade/support-agent', authenticateAdmin, async (req, res) => {
+    try {
+        const { user_id, username, display_name, email } = req.body;
+        const existing = await pgDb.get(`SELECT id FROM hub_tickets.escalade_config WHERE type = 'support_agent' AND user_id = $1`, [user_id]);
+        if (existing) return res.status(400).json({ message: 'Agent déjà dans la liste' });
+        await pgDb.run(`INSERT INTO hub_tickets.escalade_config (type, user_id, username, display_name, email) VALUES ('support_agent', $1, $2, $3, $4)`, [user_id, username, display_name, email]);
+        res.json({ message: 'Agent ajouté' });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.delete('/escalade/support-agent/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await pgDb.run(`DELETE FROM hub_tickets.escalade_config WHERE id = $1 AND type = 'support_agent'`, [req.params.id]);
+        res.json({ message: 'Agent retiré' });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.post('/escalade/target', authenticateAdmin, async (req, res) => {
+    try {
+        const { target_type, user_id, username, display_name, email, service_code, service_label } = req.body;
+        await pgDb.run(
+            `INSERT INTO hub_tickets.escalade_config (type, target_type, user_id, username, display_name, email, service_code, service_label) VALUES ('escalade_target', $1, $2, $3, $4, $5, $6, $7)`,
+            [target_type, user_id || null, username || null, display_name || null, email || null, service_code || null, service_label || null]
+        );
+        res.json({ message: 'Cible ajoutée' });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.delete('/escalade/target/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await pgDb.run(`DELETE FROM hub_tickets.escalade_config WHERE id = $1 AND type = 'escalade_target'`, [req.params.id]);
+        res.json({ message: 'Cible retirée' });
+    } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
 router.get('/glpi-url', authenticateJWT, async (req, res) => {
