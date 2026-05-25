@@ -35,11 +35,13 @@ export default function ChatWidget() {
   const [checking, setChecking] = useState(true); // checking for existing session on mount
   const [liveEnabled, setLiveEnabled] = useState<boolean | null>(null); // null = loading
   const [uploading, setUploading] = useState(false);
+  const [listening, setListening] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   const token = localStorage.getItem('token');
   const userStr = localStorage.getItem('user') || '{}';
@@ -253,6 +255,29 @@ export default function ChatWidget() {
     }
   }
 
+  function toggleDictation() {
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { alert('Dictée vocale non supportée par ce navigateur'); return; }
+    const rec = new SR();
+    rec.lang = 'fr-FR';
+    rec.continuous = true;
+    rec.interimResults = false;
+    recognitionRef.current = rec;
+    rec.onresult = (e: any) => {
+      const t = Array.from(e.results).slice(e.resultIndex).map((r: any) => r[0].transcript).join(' ');
+      setInput(prev => prev + (prev ? ' ' : '') + t);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    rec.start();
+    setListening(true);
+  }
+
   function closeWidget() {
     stopPolling();
     if (socketRef.current) socketRef.current.disconnect();
@@ -377,6 +402,13 @@ export default function ChatWidget() {
             disabled={state === 'connecting'}
             autoFocus
           />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4, marginBottom: 2 }}>
+            <button type="button" onClick={toggleDictation}
+              title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}
+              style={{ padding: '4px 10px', background: listening ? '#fef2f2' : 'transparent', color: listening ? '#dc2626' : '#94a3b8', border: `1px solid ${listening ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 7, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+              🎤 {listening ? 'Arrêter' : 'Dicter'}
+            </button>
+          </div>
           <button type="submit"
             disabled={state === 'connecting' || !input.trim()}
             style={{ marginTop: 10, width: '100%', padding: '11px', background: (state === 'connecting' || !input.trim()) ? '#a5b4fc' : '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: state === 'connecting' ? 'default' : 'pointer' }}>
@@ -438,6 +470,16 @@ export default function ChatWidget() {
               fontSize: 16, lineHeight: 1, opacity: uploading ? 0.5 : 1, flexShrink: 0,
             }}>
             {uploading ? '⏳' : '📎'}
+          </button>
+          {/* Mic button */}
+          <button onClick={toggleDictation} title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}
+            style={{
+              padding: '8px 10px', background: listening ? '#fef2f2' : '#f8fafc',
+              color: listening ? '#dc2626' : '#475569',
+              border: `1.5px solid ${listening ? '#fca5a5' : '#e2e8f0'}`,
+              borderRadius: 10, cursor: 'pointer', fontSize: 16, lineHeight: 1, flexShrink: 0,
+            }}>
+            🎤
           </button>
           <textarea
             ref={textareaRef}

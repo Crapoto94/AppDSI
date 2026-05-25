@@ -116,6 +116,10 @@ export default function TicketDetail() {
   const [showCascadeModal, setShowCascadeModal] = useState(false);
   const [cascadeSolution, setCascadeSolution] = useState('');
 
+  // Dictée vocale commentaire
+  const [listenComment, setListenComment] = useState(false);
+  const commentRecognitionRef = useRef<any>(null);
+
   // Arbitrage
   const [showArbitrageModal, setShowArbitrageModal] = useState(false);
   const [arbitreSearch, setArbitreSearch] = useState('');
@@ -578,6 +582,33 @@ export default function TicketDetail() {
     document.addEventListener('mouseup', onUp);
   }
 
+  function toggleCommentDictation() {
+    if (listenComment) {
+      commentRecognitionRef.current?.stop();
+      setListenComment(false);
+      return;
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { alert('Dictée vocale non supportée par ce navigateur'); return; }
+    const rec = new SR();
+    rec.lang = 'fr-FR';
+    rec.continuous = true;
+    rec.interimResults = false;
+    commentRecognitionRef.current = rec;
+    rec.onresult = (e: any) => {
+      const t = Array.from(e.results).slice(e.resultIndex).map((r: any) => r[0].transcript).join(' ');
+      setNewComment(prev => {
+        if (!prev || prev === '<p><br></p>') return '<p>' + t + '</p>';
+        if (prev.endsWith('</p>')) return prev.slice(0, -4) + ' ' + t + '</p>';
+        return prev + ' ' + t;
+      });
+    };
+    rec.onend = () => setListenComment(false);
+    rec.onerror = () => setListenComment(false);
+    rec.start();
+    setListenComment(true);
+  }
+
   async function handleReformulate() {
     const plainText = newComment.replace(/<[^>]*>/g, '').trim();
     if (!plainText) return;
@@ -970,6 +1001,11 @@ export default function TicketDetail() {
                 <input ref={fileInputRef} type="file" style={{ display: 'none' }}
                   onChange={e => setCommentFile(e.target.files?.[0] || null)}
                   accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
+                <button onClick={toggleCommentDictation}
+                  title={listenComment ? 'Arrêter la dictée' : 'Dictée vocale'}
+                  style={{ background: listenComment ? '#fef2f2' : 'none', border: `1px solid ${listenComment ? '#fca5a5' : '#e4e4e7'}`, borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: listenComment ? '#dc2626' : '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  🎤 {listenComment ? 'Arrêter' : 'Dicter'}
+                </button>
                 {aiReformulationEnabled && (
                   <button onClick={handleReformulate} disabled={isCommentEmpty(newComment) || reformulating}
                     title="Reformuler avec l'IA"

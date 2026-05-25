@@ -42,6 +42,10 @@ export default function LiveSessionsPanel() {
   const [reformulationProposal, setReformulationProposal] = useState<string | null>(null);
   // File upload
   const [uploading, setUploading] = useState(false);
+  // Requester ticket history
+  const [showRequesterTickets, setShowRequesterTickets] = useState(false);
+  const [requesterTickets, setRequesterTickets] = useState<any[]>([]);
+  const [loadingReqTickets, setLoadingReqTickets] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -167,6 +171,8 @@ export default function LiveSessionsPanel() {
       const r = await axios.post(url, {}, { headers: { Authorization: `Bearer ${token}` } });
       setActiveSession(r.data);
       setShowTakeover(false);
+      setShowRequesterTickets(false);
+      setRequesterTickets([]);
       setMessages([]);
       // Load history via REST immediately
       const msgs = await axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } });
@@ -178,11 +184,29 @@ export default function LiveSessionsPanel() {
     }
   }
 
+  async function loadRequesterTickets() {
+    if (!activeSession?.user_email) return;
+    setLoadingReqTickets(true);
+    try {
+      const r = await axios.get('/api/tickets', {
+        params: { requester_email: activeSession.user_email, limit: 10, sort: 'date_creation', order: 'desc' },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setRequesterTickets(Array.isArray(r.data) ? r.data : (r.data.tickets || []));
+    } catch {
+      setRequesterTickets([]);
+    } finally {
+      setLoadingReqTickets(false);
+    }
+  }
+
   function openSession(session: LiveSession) {
     setActiveSession(session);
     setMessages([]);
     setShowRename(false);
     setShowTakeover(false);
+    setShowRequesterTickets(false);
+    setRequesterTickets([]);
     // Load messages via REST immediately (works even without socket)
     axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setMessages(r.data)).catch(() => {});
@@ -522,6 +546,18 @@ export default function LiveSessionsPanel() {
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {/* Requester ticket history button */}
+                <button
+                  onClick={() => { setShowRequesterTickets(v => { if (!v) loadRequesterTickets(); return !v; }); }}
+                  title="Derniers tickets du demandeur"
+                  style={{
+                    padding: '4px 10px', background: showRequesterTickets ? '#eef2ff' : '#f8fafc',
+                    color: showRequesterTickets ? '#6366f1' : '#64748b',
+                    border: `1px solid ${showRequesterTickets ? '#c7d2fe' : '#e2e8f0'}`,
+                    borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  }}>
+                  📋 Tickets
+                </button>
                 {/* Status badge */}
                 <span style={{
                   padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
@@ -567,6 +603,43 @@ export default function LiveSessionsPanel() {
                 display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
               }}>
                 🔒 Session en lecture seule — gérée par <strong>{activeSession.tech_display_name}</strong>
+              </div>
+            )}
+
+            {/* Requester ticket history panel */}
+            {showRequesterTickets && (
+              <div style={{ borderBottom: '1px solid #e2e8f0', background: '#fff', padding: '10px 18px', maxHeight: 210, overflowY: 'auto', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
+                    📋 10 derniers tickets de {activeSession.user_display_name || activeSession.user_username}
+                  </div>
+                  <button onClick={() => setShowRequesterTickets(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}>✕</button>
+                </div>
+                {loadingReqTickets ? (
+                  <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, padding: '8px 0' }}>Chargement…</div>
+                ) : requesterTickets.length === 0 ? (
+                  <div style={{ color: '#94a3b8', fontSize: 12 }}>Aucun ticket trouvé</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {requesterTickets.map((t: any) => {
+                      const tid = t.glpi_id || t.id;
+                      const statusColors: Record<number, string> = { 1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b', 4: '#f97316', 5: '#22c55e', 6: '#64748b' };
+                      const statusLabels: Record<number, string> = { 1: 'Nouveau', 2: 'En cours', 3: 'Planifié', 4: 'En attente', 5: 'Résolu', 6: 'Clos' };
+                      return (
+                        <a key={tid} href={`/tickets/${tid}`} target="_blank" rel="noreferrer"
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, background: '#f8fafc', textDecoration: 'none', color: '#1e293b', transition: 'background 0.1s' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#eef2ff')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '#f8fafc')}>
+                          <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 700, flexShrink: 0 }}>#{tid}</span>
+                          <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title || t.name || '—'}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, flexShrink: 0, color: statusColors[t.status] || '#64748b' }}>
+                            {statusLabels[t.status] || `#${t.status}`}
+                          </span>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
