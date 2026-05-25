@@ -281,10 +281,7 @@ export default function TicketList({
                 { key: 'impact',     label: 'Impact',     align: 'center' },
                 { key: 'software',   label: 'Logiciel',   align: 'center' },
                 { key: 'type',       label: 'Type',       align: 'center' },
-                { key: 'comments',   label: 'Comm.',      align: 'center' },
-                { key: 'tasks',      label: 'Tâches',     align: 'center' },
-                { key: 'observers',  label: 'Obs.',       align: 'center' },
-                { key: 'active',     label: 'Actif',      align: 'center' },
+                { key: 'indicators', label: 'Comm  Tâches  Obs  Actif', align: 'center' },
                 { key: 'requester',  label: 'Demandeur',  align: 'left'   },
                 { key: 'technician', label: 'Technicien', align: 'left'   },
                 { key: 'date',       label: 'Date',       align: 'center' },
@@ -441,58 +438,48 @@ export default function TicketList({
                     </span>
                   </td>
 
-                  {/* Comm. */}
-                  <td style={tdStyle}>
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      minWidth: 22, height: 22, borderRadius: 11, padding: '0 6px',
-                      fontSize: 11, fontWeight: 600,
-                      background: (t.followups_count || 0) > 0 ? '#e0f2fe' : '#f1f5f9',
-                      color: (t.followups_count || 0) > 0 ? '#0284c7' : '#94a3b8'
-                    }}>
-                      💬 {t.followups_count || 0}
-                    </span>
-                  </td>
-
-                  {/* Tâches */}
-                  <td style={tdStyle}>
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      minWidth: 22, height: 22, borderRadius: 11, padding: '0 6px',
-                      fontSize: 11, fontWeight: 600,
-                      background: (t.tasks_count || 0) > 0 ? '#fef3c7' : '#f1f5f9',
-                      color: (t.tasks_count || 0) > 0 ? '#d97706' : '#94a3b8'
-                    }}>
-                      ✓ {t.tasks_count || 0}
-                    </span>
-                  </td>
-
-                  {/* Observateurs */}
-                  <td style={tdStyle}>
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      minWidth: 22, height: 22, borderRadius: 11, padding: '0 6px',
-                      fontSize: 11, fontWeight: 600,
-                      background: (t.observer_count || 0) > 0 ? '#ede9fe' : '#f1f5f9',
-                      color: (t.observer_count || 0) > 0 ? '#7c3aed' : '#94a3b8'
-                    }}>
-                      👁 {t.observer_count || 0}
-                    </span>
-                  </td>
-
-                  {/* Actif */}
-                  <td style={tdStyle}>
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      minWidth: 22, height: 22, borderRadius: 11, padding: '0 6px',
-                      fontSize: 11, fontWeight: 600,
-                      background: t.active_days != null && t.active_days > 0 ? '#f0fdf4' : '#f1f5f9',
-                      color: t.active_days != null && t.active_days > 0 ? '#16a34a' : '#94a3b8'
-                    }}>
-                      {t.active_days != null
-                        ? t.active_days < 1 ? '< 1j' : `${Math.round(t.active_days)}j`
-                        : '?'}
-                    </span>
+                  {/* Indicateurs compacts */}
+                  <td style={{ ...tdStyle, textAlign: 'center' }}>
+                    <div style={{ display: 'flex', gap: 3, justifyContent: 'center', alignItems: 'center' }}>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
+                        fontSize: 10, fontWeight: 600,
+                        background: (t.followups_count || 0) > 0 ? '#e0f2fe' : '#f1f5f9',
+                        color: (t.followups_count || 0) > 0 ? '#0284c7' : '#94a3b8'
+                      }} title="Commentaires">
+                        💬{t.followups_count || 0}
+                      </span>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
+                        fontSize: 10, fontWeight: 600,
+                        background: (t.tasks_count || 0) > 0 ? '#fef3c7' : '#f1f5f9',
+                        color: (t.tasks_count || 0) > 0 ? '#d97706' : '#94a3b8'
+                      }} title="Tâches">
+                        ✓{t.tasks_count || 0}
+                      </span>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
+                        fontSize: 10, fontWeight: 600,
+                        background: (t.observer_count || 0) > 0 ? '#ede9fe' : '#f1f5f9',
+                        color: (t.observer_count || 0) > 0 ? '#7c3aed' : '#94a3b8'
+                      }} title="Observateurs">
+                        👁{t.observer_count || 0}
+                      </span>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
+                        fontSize: 10, fontWeight: 600,
+                        background: t.active_days != null && t.active_days > 0 ? '#f0fdf4' : '#f1f5f9',
+                        color: t.active_days != null && t.active_days > 0 ? '#16a34a' : '#94a3b8'
+                      }} title="Jours actifs">
+                        {t.active_days != null
+                          ? t.active_days < 1 ? '<1j' : `${Math.round(t.active_days)}j`
+                          : '?'}
+                      </span>
+                    </div>
                   </td>
 
                   {/* Demandeur */}
@@ -501,7 +488,7 @@ export default function TicketList({
                       {t.requester_name || 'Anonyme'}
                     </div>
                     <div style={{ fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {t.requester_email || ''}
+                      {t.requester_service || t.requester_email || ''}
                     </div>
                   </td>
 

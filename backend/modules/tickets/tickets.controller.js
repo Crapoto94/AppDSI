@@ -563,7 +563,7 @@ module.exports = {
                 if (h.action === 'assigned' && h.old_value) ids.add(String(h.old_value));
                 if (h.action === 'assigned_group' && h.new_value) ids.add(String(h.new_value));
             }
-            const names: Record<string, string> = {};
+            const names = {};
             if (ids.size > 0) {
                 const userRows = await pgDb.all(`SELECT id, displayName FROM hub.users WHERE id IN (${Array.from(ids).join(',')})`);
                 for (const r of userRows) names[String(r.id)] = r.displayname || r.displayName;

@@ -1346,8 +1346,8 @@ export default function TicketDetail() {
                     <div style={{ fontWeight: 500, color: '#3f3f46', lineHeight: 1.3 }}>
                       {h.action === 'created' && '🎫 Ticket créé'}
                       {h.action === 'status_changed' && `🔄 Statut → ${STATUS_NAMES[parseInt(h.new_value)] || h.new_value}`}
-                      {h.action === 'assigned' && '👤 Assigné'}
-                      {h.action === 'assigned_group' && '👥 Groupe assigné'}
+{h.action === 'assigned' && `👤 Assigné${h.new_value_label ? ' à ' + h.new_value_label : ''}`}
+                       {h.action === 'assigned_group' && `👥 Groupe assigné${h.new_value_label ? ' → ' + h.new_value_label : ''}`}
                       {h.action === 'comment_added' && '💬 Commentaire ajouté'}
                       {h.action === 'comment_sent_to_requester' && '✉️ Envoyé au demandeur'}
                       {h.action === 'task_created' && '📋 Tâche créée'}
