@@ -172,6 +172,9 @@ async function setupPgDb() {
       );
     `);
 
+    // ─── Ensure unaccent extension for accent-insensitive search ──
+    try { await client.query('CREATE EXTENSION IF NOT EXISTS unaccent SCHEMA public'); } catch (e) { console.log('[SETUP] unaccent extension not available, accent-insensitive search disabled'); }
+
     // ─── hub_tickets — Tables core (copies de glpi) ──────────────
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.tickets (

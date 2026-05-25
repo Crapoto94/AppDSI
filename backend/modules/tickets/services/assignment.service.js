@@ -216,7 +216,27 @@ module.exports = {
         if (rule.match_type === 'vip_requester') {
             return !!ticket.is_vip;
         }
+        if (rule.match_type === 'title_contains') {
+            const search = (rule.match_value || '').toLowerCase().trim();
+            if (!search) return false;
+            const title = this._normalize(ticket.title || '');
+            return title.includes(this._normalize(search));
+        }
+        if (rule.match_type === 'requester') {
+            const search = (rule.match_value || '').toLowerCase().trim();
+            if (!search) return false;
+            const email = (ticket.requester_email_22 || '').toLowerCase();
+            const name = (ticket.requester_name || '').toLowerCase();
+            return email.includes(search) || name.includes(search);
+        }
+        if (rule.match_type === 'source') {
+            return (ticket.source || '') === rule.match_value;
+        }
         return true;
+    },
+
+    _normalize(str) {
+        return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     },
 
     async findLeastBusyInGroup(groupId) {

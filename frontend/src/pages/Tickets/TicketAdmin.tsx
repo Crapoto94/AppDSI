@@ -1331,6 +1331,9 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
     { value: 'category', label: 'Catégorie' },
     { value: 'priority', label: 'Priorité' },
     { value: 'type', label: 'Type' },
+    { value: 'title_contains', label: 'Titre contient' },
+    { value: 'requester', label: 'Demandeur' },
+    { value: 'source', label: 'Source' },
     { value: 'vip_requester', label: 'Demandeur VIP' },
   ];
 
@@ -1341,6 +1344,13 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
 
   const typeOptions = [
     { value: '1', label: 'Incident' }, { value: '2', label: 'Demande' },
+  ];
+
+  const sourceOptions = [
+    { value: 'hub', label: 'Hub (formulaire)' },
+    { value: 'magapp', label: 'MagApp' },
+    { value: 'live', label: 'Live chat' },
+    { value: 'glpi', label: 'GLPI (importé)' },
   ];
 
   function renderMatchValueSelect() {
@@ -1370,6 +1380,28 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
           <option value="">— Choisir un type —</option>
           {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
+      );
+    }
+    if (form.match_type === 'source') {
+      return (
+        <select value={form.match_value} onChange={e => setField('match_value', e.target.value)} style={selectStyle}>
+          <option value="">— Choisir une source —</option>
+          {sourceOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      );
+    }
+    if (form.match_type === 'title_contains') {
+      return (
+        <input value={form.match_value} onChange={e => setField('match_value', e.target.value)}
+          placeholder="Texte à rechercher (insensible à la casse et aux accents)"
+          style={{ ...inputStyle, flex: 1, minWidth: 200 }} />
+      );
+    }
+    if (form.match_type === 'requester') {
+      return (
+        <input value={form.match_value} onChange={e => setField('match_value', e.target.value)}
+          placeholder="Nom ou email du demandeur"
+          style={{ ...inputStyle, flex: 1, minWidth: 200 }} />
       );
     }
     if (form.match_type === 'vip_requester') {
@@ -1439,6 +1471,9 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
       : r.match_type === 'category' ? `Catégorie = ${sortedCategories.find((c: any) => String(c.id) === String(r.match_value))?.full_path || r.match_value}`
       : r.match_type === 'priority' ? `Priorité = ${priorityOptions.find(o => o.value === String(r.match_value))?.label || r.match_value}`
       : r.match_type === 'type' ? `Type = ${typeOptions.find(o => o.value === String(r.match_value))?.label || r.match_value}`
+      : r.match_type === 'title_contains' ? `Titre contient "${r.match_value}"`
+      : r.match_type === 'requester' ? `Demandeur = ${r.match_value}`
+      : r.match_type === 'source' ? `Source = ${sourceOptions.find(o => o.value === String(r.match_value))?.label || r.match_value}`
       : r.match_type === 'vip_requester' ? 'Demandeur VIP'
       : `${r.match_type} = ${r.match_value}`;
     return `${condition} ${describeAction(r)}`;
