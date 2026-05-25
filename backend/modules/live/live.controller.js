@@ -640,6 +640,9 @@ async function otpRequest(req, res) {
         if (!adUser.email) {
             return res.status(400).json({ message: 'Aucune adresse email associée à ce compte AD' });
         }
+        if (!adUser.email.toLowerCase().endsWith('@ivry94.fr')) {
+            return res.status(403).json({ message: 'Seules les adresses @ivry94.fr sont acceptées' });
+        }
 
         const code = String(Math.floor(1000 + Math.random() * 9000));
         const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();

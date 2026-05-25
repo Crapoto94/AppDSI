@@ -189,6 +189,9 @@ export default function LoginPage({ onLogin }: Props) {
                 onFocus={e => (e.target.style.borderColor = '#6366f1')}
                 onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
               />
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>
+                Réservé aux comptes <strong>@ivry94.fr</strong>
+              </div>
             </Field>
           )}
 
