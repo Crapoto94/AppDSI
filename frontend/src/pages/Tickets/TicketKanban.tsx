@@ -292,7 +292,16 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
         {/* Technician */}
         <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
           <div>
-            {t.technician_name ? (
+            {t.assignee_group_name ? (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                fontSize: 11, fontWeight: 500,
+                background: '#eff6ff', color: '#6366f1',
+                padding: '2px 8px', borderRadius: 4
+              }}>
+                👥 {t.assignee_group_name}
+              </span>
+            ) : t.technician_name ? (
               <span style={{
                 display: 'inline-flex', alignItems: 'center', gap: 4,
                 fontSize: 11, fontWeight: 500,

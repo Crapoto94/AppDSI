@@ -6,6 +6,7 @@ const BASE_SELECT = `
            tca.category_id,
            ts.label as status_label,
            tu.displayName as technician_name,
+           tg2.name as assignee_group_name,
            tp.status as technician_status,
            tgm.group_id AS bundle_id,
            tg.name AS bundle_name,
@@ -25,6 +26,7 @@ const BASE_SELECT = `
 LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.is_primary = true OR ta.is_primary IS NULL)
      LEFT JOIN hub_tickets.technician_profiles tp ON ta.technician_id = tp.user_id
      LEFT JOIN hub.users tu ON ta.technician_id = tu.id
+     LEFT JOIN hub_tickets.technician_groups tg2 ON ta.group_id = tg2.id
     LEFT JOIN hub_tickets.ticket_category_assignments tca ON t.glpi_id = tca.ticket_id
     LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
     LEFT JOIN hub_tickets.ticket_group_members tgm ON tgm.ticket_id = t.glpi_id

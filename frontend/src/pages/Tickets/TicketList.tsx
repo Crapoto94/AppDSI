@@ -161,7 +161,7 @@ const SORT_FIELDS: Record<string, (t: any) => any> = {
   observers:  t => t.observer_count ?? 0,
   active:     t => t.active_days ?? -1,
   requester:  t => (t.requester_name || '').toLowerCase(),
-  technician: t => (t.technician_name || 'zzz').toLowerCase(),
+  technician: t => (t.assignee_group_name || t.technician_name || 'zzz').toLowerCase(),
   date:       t => t.date_creation || '',
 };
 
@@ -507,7 +507,12 @@ export default function TicketList({
 
                   {/* Technicien */}
                   <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 160 }}>
-                    {t.technician_name ? (
+                    {t.assignee_group_name ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#6366f1', fontWeight: 500 }}>
+                        <span style={{ fontSize: 12 }}>👥</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{t.assignee_group_name}</span>
+                      </span>
+                    ) : t.technician_name ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#0284c7', fontWeight: 500 }}>
                         <span style={{ fontSize: 12 }}>🔧</span>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{t.technician_name}</span>
