@@ -13,6 +13,7 @@ interface LiveSession {
   status: 'waiting' | 'active' | 'closed';
   created_at: string;
   claimed_at: string | null;
+  auth_method?: string;
 }
 
 interface LiveMessage {
@@ -533,6 +534,9 @@ export default function LiveSessionsPanel() {
                           : isMine ? '✅ Vous gérez'
                           : `🔒 ${s.tech_display_name}`}
                       </div>
+                      {s.auth_method && (
+                        <div style={{ marginTop: 3 }}>{renderAuthBadge(s.auth_method, 'small')}</div>
+                      )}
                     </div>
                     <div style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }}>
                       {formatAge(s.created_at)}
@@ -577,8 +581,11 @@ export default function LiveSessionsPanel() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 36, height: 36, background: '#e0e7ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>👤</div>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>
-                    {activeSession.user_display_name || activeSession.user_username}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>
+                      {activeSession.user_display_name || activeSession.user_username}
+                    </span>
+                    {activeSession.auth_method && renderAuthBadge(activeSession.auth_method, 'normal')}
                   </div>
                   <div style={{ fontSize: 11, color: '#64748b' }}>
                     {activeSession.user_email}
@@ -649,6 +656,17 @@ export default function LiveSessionsPanel() {
                 display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
               }}>
                 🔒 Session en lecture seule — gérée par <strong>{activeSession.tech_display_name}</strong>
+              </div>
+            )}
+
+            {/* Auth warning banner */}
+            {activeSession.auth_method === 'guest' && (
+              <div style={{
+                background: '#fff7ed', borderBottom: '1px solid #fed7aa',
+                padding: '8px 18px', fontSize: 12, color: '#9a3412',
+                display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+              }}>
+                ⚠️ <strong>Identité non vérifiée</strong> — ce demandeur s'est connecté sans authentification.
               </div>
             )}
 
@@ -849,6 +867,26 @@ export default function LiveSessionsPanel() {
         )}
       </div>
     </div>
+  );
+}
+
+function renderAuthBadge(method: string, size: 'small' | 'normal') {
+  const cfg: Record<string, { bg: string; color: string; border: string; label: string }> = {
+    ad:       { bg: '#dcfce7', color: '#15803d', border: '#86efac', label: '✅ Authentifié AD' },
+    otp:      { bg: '#ccfbf1', color: '#0f766e', border: '#5eead4', label: '✅ Identifié email' },
+    guest:    { bg: '#fef3c7', color: '#92400e', border: '#fcd34d', label: '⚠️ Non authentifié' },
+    internal: { bg: '#f1f5f9', color: '#475569', border: '#cbd5e1', label: '🏠 Interne' },
+  };
+  const c = cfg[method] || cfg.internal;
+  const fs = size === 'small' ? 10 : 11;
+  return (
+    <span style={{
+      display: 'inline-block', padding: size === 'small' ? '1px 6px' : '2px 8px',
+      background: c.bg, color: c.color, border: `1px solid ${c.border}`,
+      borderRadius: 20, fontSize: fs, fontWeight: 700, whiteSpace: 'nowrap',
+    }}>
+      {c.label}
+    </span>
   );
 }
 

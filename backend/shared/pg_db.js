@@ -2904,6 +2904,19 @@ async function setupPgDb() {
     // Attachments support (non-destructive migrations)
     try { await client.query(`ALTER TABLE hub_tickets.live_messages ADD COLUMN IF NOT EXISTS attachment_url VARCHAR(500)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_tickets.live_messages ADD COLUMN IF NOT EXISTS attachment_name VARCHAR(255)`); } catch (e) {}
+    // Live auth
+    try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS auth_method VARCHAR(20) DEFAULT 'guest'`); } catch (e) {}
+    try { await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.live_otp_codes (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) NOT NULL,
+        display_name VARCHAR(255),
+        code VARCHAR(4) NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `); } catch (e) {}
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

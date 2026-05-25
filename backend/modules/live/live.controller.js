@@ -1,7 +1,8 @@
-const { pgDb } = require('../../shared/database');
+const { pgDb, getSqlite } = require('../../shared/database');
 const { getIO } = require('./live.socket');
 const jwt = require('jsonwebtoken');
 const { SECRET_KEY } = require('../../shared/config');
+const { authenticateAD } = require('../../shared/ad_auth');
 
 let _sendMail = null;
 function setSendMail(fn) { _sendMail = fn; }
@@ -72,11 +73,12 @@ async function createSession(req, res) {
             user.email || '']);
 
         // Create live session
+        const authMethod = user.auth_method || 'internal';
         const sessionResult = await pgDb.run(`
             INSERT INTO hub_tickets.live_sessions
-                (ticket_id, user_username, user_display_name, user_email, status, created_at)
-            VALUES ($1, $2, $3, $4, 'waiting', NOW())
-        `, [ticketId, user.username, user.displayName || user.username, user.email || '']);
+                (ticket_id, user_username, user_display_name, user_email, status, auth_method, created_at)
+            VALUES ($1, $2, $3, $4, 'waiting', $5, NOW())
+        `, [ticketId, user.username, user.displayName || user.username, user.email || '', authMethod]);
 
         const sessionId = sessionResult.lastID;
 
@@ -553,7 +555,7 @@ function startScheduler() {
     setInterval(_checkScheduleTick, 60 * 1000); // then every minute
 }
 
-// ── POST /api/live/guest-login (public — no JWT required) ─────────────────
+// ── POST /api/live/guest-login (public) ───────────────────────────────────
 async function guestLogin(req, res) {
     try {
         const { displayName, email } = req.body || {};
@@ -565,18 +567,135 @@ async function guestLogin(req, res) {
         }
         const username = `guest_${Date.now()}`;
         const token = jwt.sign({
-            id: 0,
-            username,
+            id: 0, username,
             displayName: displayName.trim(),
             email: email.trim().toLowerCase(),
-            role: 'user',
-            is_approved: true,
+            role: 'user', is_approved: true,
+            auth_method: 'guest',
         }, SECRET_KEY);
-        res.json({
-            token,
-            user: { username, displayName: displayName.trim(), email: email.trim().toLowerCase() },
-        });
+        res.json({ token, user: { username, displayName: displayName.trim(), email: email.trim().toLowerCase() } });
     } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
+// ── POST /api/live/auth/ad (public) ───────────────────────────────────────
+async function adLogin(req, res) {
+    try {
+        const { username, password } = req.body || {};
+        if (!username?.trim() || !password) {
+            return res.status(400).json({ message: 'Identifiants requis' });
+        }
+        const db = getSqlite();
+        const adSettings = db.prepare('SELECT * FROM ad_settings WHERE id = 1').get();
+        if (!adSettings || !adSettings.is_enabled) {
+            return res.status(503).json({ message: 'Authentification AD non disponible' });
+        }
+        const clean = username.trim().replace(/@ivry94\.fr$/i, '');
+        const adUser = await authenticateAD(clean, password, adSettings);
+        if (!adUser) {
+            return res.status(401).json({ message: 'Identifiants incorrects' });
+        }
+        const email = adUser.email || `${clean.toLowerCase()}@ivry94.fr`;
+        const token = jwt.sign({
+            id: 0, username: clean.toLowerCase(),
+            displayName: adUser.displayName,
+            email,
+            role: 'user', is_approved: true,
+            auth_method: 'ad',
+        }, SECRET_KEY);
+        res.json({ token, user: { username: clean.toLowerCase(), displayName: adUser.displayName, email } });
+    } catch (e) {
+        console.error('[LIVE] adLogin error:', e.message);
+        res.status(401).json({ message: e.message || 'Échec de l\'authentification AD' });
+    }
+}
+
+// ── POST /api/live/auth/otp/request (public) ──────────────────────────────
+async function otpRequest(req, res) {
+    try {
+        const { displayName, email } = req.body || {};
+        if (!displayName?.trim() || !email?.trim()) {
+            return res.status(400).json({ message: 'Nom et email requis' });
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+            return res.status(400).json({ message: 'Adresse email invalide' });
+        }
+        const lowerEmail = email.trim().toLowerCase();
+        const code = String(Math.floor(1000 + Math.random() * 9000)); // 4 digits
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+        // Invalidate existing codes for this email
+        await pgDb.run(
+            `DELETE FROM hub_tickets.live_otp_codes WHERE email = $1`,
+            [lowerEmail]
+        );
+        await pgDb.run(
+            `INSERT INTO hub_tickets.live_otp_codes (email, display_name, code, expires_at) VALUES ($1, $2, $3, $4)`,
+            [lowerEmail, displayName.trim(), code, expiresAt]
+        );
+
+        if (_sendMail) {
+            const html = `
+                <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+                  <h2 style="color:#4f46e5">Support DSI — Code de vérification</h2>
+                  <p>Bonjour <strong>${displayName.trim()}</strong>,</p>
+                  <p>Voici votre code de connexion pour accéder au chat de support :</p>
+                  <div style="text-align:center;margin:28px 0">
+                    <span style="font-size:40px;font-weight:900;letter-spacing:12px;color:#4f46e5;background:#eef2ff;padding:16px 28px;border-radius:12px">${code}</span>
+                  </div>
+                  <p style="color:#64748b;font-size:13px">Ce code est valable <strong>5 minutes</strong> et ne peut être utilisé qu'une seule fois.</p>
+                  <p style="color:#94a3b8;font-size:12px">Si vous n'avez pas demandé ce code, ignorez cet e-mail.</p>
+                </div>`;
+            try {
+                await _sendMail(lowerEmail, 'Votre code de connexion — Support DSI', html);
+            } catch (mailErr) {
+                console.error('[LIVE] OTP mail failed:', mailErr.message);
+            }
+        } else {
+            // Dev fallback: log the code
+            console.log(`[LIVE] OTP code for ${lowerEmail}: ${code}`);
+        }
+
+        res.json({ success: true, message: 'Code envoyé par email' });
+    } catch (e) {
+        console.error('[LIVE] otpRequest error:', e.message);
+        res.status(500).json({ message: e.message });
+    }
+}
+
+// ── POST /api/live/auth/otp/verify (public) ───────────────────────────────
+async function otpVerify(req, res) {
+    try {
+        const { email, code } = req.body || {};
+        if (!email?.trim() || !code?.trim()) {
+            return res.status(400).json({ message: 'Email et code requis' });
+        }
+        const lowerEmail = email.trim().toLowerCase();
+        const record = await pgDb.get(
+            `SELECT * FROM hub_tickets.live_otp_codes
+             WHERE email = $1 AND code = $2 AND used = FALSE AND expires_at > NOW()
+             ORDER BY created_at DESC LIMIT 1`,
+            [lowerEmail, code.trim()]
+        );
+        if (!record) {
+            return res.status(400).json({ message: 'Code invalide ou expiré' });
+        }
+        await pgDb.run(
+            `UPDATE hub_tickets.live_otp_codes SET used = TRUE WHERE id = $1`,
+            [record.id]
+        );
+        const username = `otp_${Date.now()}`;
+        const token = jwt.sign({
+            id: 0, username,
+            displayName: record.display_name || lowerEmail,
+            email: lowerEmail,
+            role: 'user', is_approved: true,
+            auth_method: 'otp',
+        }, SECRET_KEY);
+        res.json({ token, user: { username, displayName: record.display_name || lowerEmail, email: lowerEmail } });
+    } catch (e) {
+        console.error('[LIVE] otpVerify error:', e.message);
         res.status(500).json({ message: e.message });
     }
 }
