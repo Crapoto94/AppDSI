@@ -757,7 +757,7 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
                      location, solution, source, entity, requester_name, email_alt,
                      requester_email_22)
                 SELECT glpi_id, title, content, status, priority, urgency, impact,
-                       category, type, date_creation, date_mod, date_closed, date_solved,
+                       category, type, NULLIF(date_creation, '')::TIMESTAMP, NULLIF(date_mod, '')::TIMESTAMP, NULLIF(date_closed, '')::TIMESTAMP, NULLIF(date_solved, '')::TIMESTAMP,
                        location, solution, source, entity, requester_name, email_alt,
                        requester_email_22
                 FROM glpi.tickets
@@ -798,7 +798,7 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
                     (ticket_id, content, content_hash, author_name, author_email,
                      is_private, date_creation)
                 SELECT ticket_id, content, content_hash, author_name, author_email,
-                       is_private, date_creation
+                       is_private, NULLIF(date_creation, '')::TIMESTAMP
                 FROM glpi.ticket_followups
             `);
 

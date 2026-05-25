@@ -184,10 +184,10 @@ async function setupPgDb() {
         impact INTEGER DEFAULT 3,
         category TEXT,
         type TEXT,
-        date_creation TEXT,
-        date_mod TEXT,
-        date_closed TEXT,
-        date_solved TEXT,
+        date_creation TIMESTAMP,
+        date_mod TIMESTAMP,
+        date_closed TIMESTAMP,
+        date_solved TIMESTAMP,
         location TEXT,
         solution TEXT,
         source TEXT DEFAULT 'hub',
@@ -208,6 +208,7 @@ async function setupPgDb() {
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS subcategory_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS software_id INTEGER REFERENCES magapp.apps(id) ON DELETE SET NULL'); } catch (e) {}
+
     // Supprimer la FK sur user_id (hub.users est vidée à chaque restart)
     try { await client.query('ALTER TABLE hub_tickets.ticket_history DROP CONSTRAINT IF EXISTS ticket_history_user_id_fkey'); } catch (e) {}
     await client.query(`
@@ -2797,7 +2798,7 @@ async function setupPgDb() {
     try {
         await client.query(`
             INSERT INTO hub_tickets.tickets (glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22)
-            SELECT glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, 'hub', entity, requester_name, email_alt, requester_email_22 FROM glpi.tickets
+            SELECT glpi_id, title, content, status, priority, urgency, impact, category, type, NULLIF(date_creation, '')::TIMESTAMP, NULLIF(date_mod, '')::TIMESTAMP, NULLIF(date_closed, '')::TIMESTAMP, NULLIF(date_solved, '')::TIMESTAMP, location, solution, 'hub', entity, requester_name, email_alt, requester_email_22 FROM glpi.tickets
             ON CONFLICT (glpi_id) DO NOTHING
         `);
         await client.query(`UPDATE hub_tickets.tickets SET source = 'hub' WHERE source IS NULL OR source = 'glpi'`);
@@ -2817,12 +2818,23 @@ async function setupPgDb() {
         `);
         await client.query(`
             INSERT INTO hub_tickets.ticket_followups (ticket_id, content, content_hash, author_name, author_email, is_private, date_creation)
-            SELECT ticket_id, content, content_hash, author_name, author_email, is_private, date_creation FROM glpi.ticket_followups
+            SELECT ticket_id, content, content_hash, author_name, author_email, is_private, NULLIF(date_creation, '')::TIMESTAMP FROM glpi.ticket_followups
             ON CONFLICT (ticket_id, content_hash, date_creation) DO NOTHING
         `);
         console.log('[PG DB] hub_tickets migration from glpi completed');
     } catch (e) {
         console.log('[PG DB] hub_tickets migration skip:', e.message);
+    }
+
+    // Migrate date columns from TEXT to TIMESTAMP (after GLPI copy)
+    try {
+        await client.query(`ALTER TABLE hub_tickets.tickets ALTER COLUMN date_creation TYPE TIMESTAMP USING NULLIF(date_creation, '')::TIMESTAMP`);
+        await client.query(`ALTER TABLE hub_tickets.tickets ALTER COLUMN date_mod TYPE TIMESTAMP USING NULLIF(date_mod, '')::TIMESTAMP`);
+        await client.query(`ALTER TABLE hub_tickets.tickets ALTER COLUMN date_closed TYPE TIMESTAMP USING NULLIF(date_closed, '')::TIMESTAMP`);
+        await client.query(`ALTER TABLE hub_tickets.tickets ALTER COLUMN date_solved TYPE TIMESTAMP USING NULLIF(date_solved, '')::TIMESTAMP`);
+        console.log('[PG DB] hub_tickets.tickets date columns migrated to TIMESTAMP');
+    } catch (e) {
+        console.log('[PG DB] date column migration skip:', e.message);
     }
 
     try {
@@ -2906,6 +2918,8 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub_tickets.live_messages ADD COLUMN IF NOT EXISTS attachment_name VARCHAR(255)`); } catch (e) {}
     // Live auth
     try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS auth_method VARCHAR(20) DEFAULT 'guest'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ DEFAULT NOW()`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS close_reason VARCHAR(50)`); } catch (e) {}
     try { await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.live_otp_codes (
         id SERIAL PRIMARY KEY,

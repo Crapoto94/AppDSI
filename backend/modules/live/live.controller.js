@@ -184,7 +184,8 @@ async function closeSession(req, res) {
 
             // Store transcript as a followup on the ticket
             if (messages.length > 0) {
-                const transcriptHtml = buildTranscriptHtml(messages, session);
+                const ticket = await pgDb.get(`SELECT title, content FROM hub_tickets.tickets WHERE glpi_id = $1`, [session.ticket_id]);
+                const transcriptHtml = buildTranscriptHtml(messages, session, ticket);
                 await pgDb.run(`
                     INSERT INTO hub_tickets.ticket_followups
                         (ticket_id, content, author_name, author_email, is_private, sent_to_user, date_creation)
@@ -290,13 +291,22 @@ async function getWaitingCount(req, res) {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
-function buildTranscriptHtml(messages, session) {
+function buildTranscriptHtml(messages, session, ticket) {
+    const opener = ticket?.content?.trim();
+    const originalTitle = ticket?.title || '';
+    let header = `<h4 style="color:#6366f1">Transcript de la session live</h4>`;
+    if (originalTitle) header += `<p style="color:#64748b;font-size:12px">Session initiée : ${originalTitle}</p>`;
+    header += `<p>Durée : ${session.claimed_at ? Math.round((Date.now() - new Date(session.claimed_at).getTime()) / 60000) + ' min' : 'N/A'}</p>`;
+    if (opener) {
+        const who = `👤 ${session.user_display_name || session.user_username}`;
+        header += `<p style="margin:4px 0;background:#f8fafc;padding:8px 10px;border-radius:6px"><strong>${who}</strong><br>${opener}</p>`;
+    }
     const rows = messages.map(m => {
         const who = m.sender_type === 'tech' ? `👨‍💻 ${m.sender_name}` : `👤 ${m.sender_name}`;
         const t = new Date(m.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
         return `<p style="margin:4px 0"><strong>${who}</strong> <span style="color:#94a3b8;font-size:11px">${t}</span><br>${m.content}</p>`;
     }).join('');
-    return `<div style="font-family:sans-serif;font-size:13px"><h4 style="color:#6366f1">Transcript de la session live</h4><p>Durée : ${session.claimed_at ? Math.round((Date.now() - new Date(session.claimed_at).getTime()) / 60000) + ' min' : 'N/A'}</p>${rows}</div>`;
+    return `<div style="font-family:sans-serif;font-size:13px">${header}${rows}</div>`;
 }
 
 function buildSummaryEmail(messages, session, title) {
@@ -354,6 +364,9 @@ async function sendMessage(req, res) {
             `SELECT * FROM hub_tickets.live_messages WHERE id = $1`, [result.lastID]
         );
 
+        await pgDb.run(
+            `UPDATE hub_tickets.live_sessions SET last_activity_at = NOW() WHERE id = $1`, [id]
+        );
         const io = getIO();
         if (io) io.to(`live:session:${id}`).emit('new_message', message);
 
@@ -464,11 +477,28 @@ async function computeLiveEnabled() {
     return cfg.live_enabled !== 'false';
 }
 
+// ── GET /api/live/public-config (public) ─────────────────────────────
+async function getPublicConfig(req, res) {
+    try {
+        const rows = await pgDb.all(
+            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message')`
+        );
+        const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
+        const useSchedule = cfg.live_use_schedule === 'true';
+        const live_enabled = useSchedule
+            ? await isNowInCalendar(cfg.live_calendar_id ? parseInt(cfg.live_calendar_id) : null)
+            : (cfg.live_enabled !== 'false');
+        res.json({ live_enabled, closing_message: cfg.live_closing_message || '' });
+    } catch (e) {
+        res.json({ live_enabled: true, closing_message: '' });
+    }
+}
+
 // ── GET /api/live/config ──────────────────────────────────────────────
 async function getConfig(req, res) {
     try {
         const rows = await pgDb.all(
-            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id')`
+            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message')`
         );
         const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
         const useSchedule  = cfg.live_use_schedule === 'true';
@@ -477,32 +507,33 @@ async function getConfig(req, res) {
             ? await isNowInCalendar(calendarId)
             : (cfg.live_enabled !== 'false');
 
-        res.json({ live_enabled, live_use_schedule: useSchedule, live_calendar_id: calendarId });
+        res.json({ live_enabled, live_use_schedule: useSchedule, live_calendar_id: calendarId, closing_message: cfg.live_closing_message || '' });
     } catch (e) {
-        res.json({ live_enabled: true, live_use_schedule: false, live_calendar_id: null });
+        res.json({ live_enabled: true, live_use_schedule: false, live_calendar_id: null, closing_message: '' });
     }
 }
 
 // ── PUT /api/live/config ──────────────────────────────────────────────
 async function setConfig(req, res) {
     try {
-        const { live_enabled, live_use_schedule, live_calendar_id } = req.body;
+        const { live_enabled, live_use_schedule, live_calendar_id, closing_message } = req.body;
 
         const upsert = (key, val) => pgDb.run(
             `INSERT INTO hub_tickets.module_config (key, value) VALUES ($1, $2)
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-            [key, String(val)]
+            [key, String(val ?? '')]
         );
 
-        if (live_enabled  !== undefined) await upsert('live_enabled',      live_enabled  ? 'true' : 'false');
-        if (live_use_schedule !== undefined) await upsert('live_use_schedule', live_use_schedule ? 'true' : 'false');
-        if (live_calendar_id  !== undefined) await upsert('live_calendar_id',  live_calendar_id ?? '');
+        if (live_enabled      !== undefined) await upsert('live_enabled',          live_enabled ? 'true' : 'false');
+        if (live_use_schedule !== undefined) await upsert('live_use_schedule',      live_use_schedule ? 'true' : 'false');
+        if (live_calendar_id  !== undefined) await upsert('live_calendar_id',       live_calendar_id ?? '');
+        if (closing_message   !== undefined) await upsert('live_closing_message',   closing_message);
 
         const effective = await computeLiveEnabled();
         const io = getIO();
         if (io) io.emit('live_config', { live_enabled: effective });
 
-        res.json({ live_enabled: effective, live_use_schedule: !!live_use_schedule, live_calendar_id: live_calendar_id ?? null });
+        res.json({ live_enabled: effective, live_use_schedule: !!live_use_schedule, live_calendar_id: live_calendar_id ?? null, closing_message: closing_message ?? '' });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }
@@ -550,9 +581,99 @@ async function _checkScheduleTick() {
     }
 }
 
+// ── Auto-close sessions inactive for 15 min ───────────────────────────
+async function _autoCloseInactiveSessions() {
+    try {
+        const inactive = await pgDb.all(`
+            SELECT * FROM hub_tickets.live_sessions
+            WHERE status != 'closed'
+            AND COALESCE(last_activity_at, created_at) < NOW() - INTERVAL '15 minutes'
+        `);
+        const io = getIO();
+        for (const session of inactive) {
+            await pgDb.run(
+                `UPDATE hub_tickets.live_sessions SET status = 'closed', closed_at = NOW(), close_reason = 'inactivity' WHERE id = $1`,
+                [session.id]
+            );
+            if (io) {
+                io.to(`live:session:${session.id}`).emit('session_closed', { sessionId: session.id, reason: 'inactivity' });
+                io.to('live:techs').emit('session_closed', { sessionId: session.id });
+            }
+            console.log(`[LIVE] Auto-closed inactive session ${session.id}`);
+        }
+    } catch (e) {
+        console.error('[LIVE] auto-close inactivity error:', e.message);
+    }
+}
+
 function startScheduler() {
-    _checkScheduleTick(); // immediate check at startup
-    setInterval(_checkScheduleTick, 60 * 1000); // then every minute
+    _checkScheduleTick();          // immediate check at startup
+    _autoCloseInactiveSessions();  // and inactivity check
+    setInterval(_checkScheduleTick, 60 * 1000);
+    setInterval(_autoCloseInactiveSessions, 60 * 1000); // every minute
+}
+
+// ── POST /api/live/sessions/:id/reject ───────────────────────────────
+async function rejectSession(req, res) {
+    try {
+        const { id } = req.params;
+        const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
+        if (!session) return res.status(404).json({ message: 'Session introuvable' });
+        if (session.status === 'closed') return res.status(400).json({ message: 'Session déjà fermée' });
+
+        // Soft-delete the auto-created ticket (status = 8 "Rejeté")
+        if (session.ticket_id) {
+            await pgDb.run(
+                `UPDATE hub_tickets.tickets SET status = 8, date_mod = NOW() WHERE glpi_id = $1`,
+                [session.ticket_id]
+            );
+        }
+
+        await pgDb.run(
+            `UPDATE hub_tickets.live_sessions SET status = 'closed', closed_at = NOW(), close_reason = 'rejected' WHERE id = $1`,
+            [id]
+        );
+
+        const io = getIO();
+        if (io) {
+            io.to(`live:session:${id}`).emit('session_closed', { sessionId: parseInt(id), reason: 'rejected' });
+            io.to('live:techs').emit('session_closed', { sessionId: parseInt(id) });
+        }
+
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
+// ── POST /api/live/sessions/:id/task ─────────────────────────────────
+async function createTask(req, res) {
+    try {
+        const { id } = req.params;
+        const { description, echeance } = req.body || {};
+        if (!description?.trim()) return res.status(400).json({ message: 'Description requise' });
+
+        const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
+        if (!session) return res.status(404).json({ message: 'Session introuvable' });
+
+        const user = req.user;
+        await pgDb.run(`
+            INSERT INTO hub.user_tasks
+                (username, description, echeance, statut, context_source, context_id, context_title, created_by)
+            VALUES ($1, $2, $3, 'a_faire', 'ticket', $4, $5, $6)
+        `, [
+            user.username,
+            description.trim(),
+            echeance || null,
+            session.ticket_id || null,
+            session.ticket_id ? `Chat live — Ticket #${session.ticket_id}` : `Session live #${id}`,
+            user.username,
+        ]);
+
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
 }
 
 // ── POST /api/live/guest-login (public) ───────────────────────────────────
@@ -713,4 +834,4 @@ async function otpVerify(req, res) {
     }
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify };
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask };

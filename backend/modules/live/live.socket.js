@@ -69,6 +69,9 @@ function setupSocket(server) {
                      VALUES ($1, $2, $3, $4, $5, NOW())`,
                     [sessionId, senderType, user.displayName || user.username, user.username, content.trim()]
                 );
+                await pgDb.run(
+                    `UPDATE hub_tickets.live_sessions SET last_activity_at = NOW() WHERE id = $1`, [sessionId]
+                );
 
                 const message = await pgDb.get(
                     `SELECT * FROM hub_tickets.live_messages WHERE id = $1`,

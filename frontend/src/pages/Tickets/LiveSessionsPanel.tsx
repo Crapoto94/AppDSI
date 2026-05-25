@@ -50,6 +50,12 @@ export default function LiveSessionsPanel() {
   const [showRequesterTickets, setShowRequesterTickets] = useState(false);
   const [requesterTickets, setRequesterTickets] = useState<any[]>([]);
   const [loadingReqTickets, setLoadingReqTickets] = useState(false);
+  const [openerMessage, setOpenerMessage] = useState<{ content: string; sender_name: string } | null>(null);
+  // Task creation modal
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [taskDesc, setTaskDesc] = useState('');
+  const [taskEcheance, setTaskEcheance] = useState('');
+  const [taskSaving, setTaskSaving] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -179,9 +185,18 @@ export default function LiveSessionsPanel() {
       setShowRequesterTickets(false);
       setRequesterTickets([]);
       setMessages([]);
+      setOpenerMessage(null);
       // Load history via REST immediately
       const msgs = await axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } });
       setMessages(msgs.data);
+      // Load ticket opener message
+      if (r.data.ticket_id) {
+        axios.get(`/api/tickets/${r.data.ticket_id}`, { headers: { Authorization: `Bearer ${token}` } })
+          .then(tr => {
+            const t = tr.data;
+            if (t?.content) setOpenerMessage({ content: t.content, sender_name: t.requester_name || r.data.user_display_name || r.data.user_username });
+          }).catch(() => {});
+      }
       // Also join via socket for real-time updates
       if (socketRef.current) socketRef.current.emit('join_session', { sessionId: session.id });
     } catch (e: any) {
@@ -197,7 +212,7 @@ export default function LiveSessionsPanel() {
         params: { requester_email: activeSession.user_email, limit: 10, sort: 'date_creation', order: 'desc' },
         headers: { Authorization: `Bearer ${token}` },
       });
-      setRequesterTickets(Array.isArray(r.data) ? r.data : (r.data.tickets || []));
+      setRequesterTickets(Array.isArray(r.data) ? r.data : (r.data.data || r.data.tickets || []));
     } catch {
       setRequesterTickets([]);
     } finally {
@@ -208,6 +223,7 @@ export default function LiveSessionsPanel() {
   function openSession(session: LiveSession) {
     setActiveSession(session);
     setMessages([]);
+    setOpenerMessage(null);
     setShowRename(false);
     setShowTakeover(false);
     setShowRequesterTickets(false);
@@ -215,6 +231,14 @@ export default function LiveSessionsPanel() {
     // Load messages via REST immediately (works even without socket)
     axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setMessages(r.data)).catch(() => {});
+    // Load ticket opener message
+    if (session.ticket_id) {
+      axios.get(`/api/tickets/${session.ticket_id}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(tr => {
+          const t = tr.data;
+          if (t?.content) setOpenerMessage({ content: t.content, sender_name: t.requester_name || session.user_display_name || session.user_username });
+        }).catch(() => {});
+    }
     // Also join via socket for real-time
     if (socketRef.current) socketRef.current.emit('join_session', { sessionId: session.id });
   }
@@ -247,6 +271,34 @@ export default function LiveSessionsPanel() {
     setRenameTitle('');
     setCloseTicketOnEnd(true);
     setShowRename(true);
+  }
+
+  async function rejectSession(session: LiveSession) {
+    if (!confirm(`Refuser la demande de ${session.user_display_name || session.user_username} ? Aucun ticket ne sera conservé.`)) return;
+    try {
+      await axios.post(`/api/live/sessions/${session.id}/reject`, {}, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors du refus');
+    }
+  }
+
+  async function saveTask() {
+    if (!taskDesc.trim() || !activeSession) return;
+    setTaskSaving(true);
+    try {
+      await axios.post(
+        `/api/live/sessions/${activeSession.id}/task`,
+        { description: taskDesc.trim(), echeance: taskEcheance || null },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setShowTaskModal(false);
+      setTaskDesc('');
+      setTaskEcheance('');
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la création de la tâche');
+    } finally {
+      setTaskSaving(false);
+    }
   }
 
   async function confirmClose(title?: string, closeTicket = true) {
@@ -687,8 +739,11 @@ export default function LiveSessionsPanel() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     {requesterTickets.map((t: any) => {
                       const tid = t.glpi_id || t.id;
-                      const statusColors: Record<number, string> = { 1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b', 4: '#f97316', 5: '#22c55e', 6: '#64748b' };
-                      const statusLabels: Record<number, string> = { 1: 'Nouveau', 2: 'En cours', 3: 'Planifié', 4: 'En attente', 5: 'Résolu', 6: 'Clos' };
+                      const sid = typeof t.status === 'object' ? t.status.id : t.status;
+                      const slabel = typeof t.status === 'object' ? t.status.label : null;
+                      const statusColors: Record<number, string> = { 1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b', 4: '#f97316', 5: '#22c55e', 6: '#64748b', 7: '#475569', 8: '#ef4444' };
+                      const statusLabels: Record<number, string> = { 1: 'Nouveau', 2: 'En cours (attribué)', 3: 'Planifié', 4: 'En attente utilisateur', 5: 'En attente fournisseur', 6: 'Résolu', 7: 'Clos', 8: 'Rejeté' };
+                      const label = slabel || statusLabels[sid] || `#${sid}`;
                       return (
                         <a key={tid} href={`/tickets/${tid}`} target="_blank" rel="noreferrer"
                           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, background: '#f8fafc', textDecoration: 'none', color: '#1e293b', transition: 'background 0.1s' }}
@@ -696,8 +751,8 @@ export default function LiveSessionsPanel() {
                           onMouseLeave={e => (e.currentTarget.style.background = '#f8fafc')}>
                           <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 700, flexShrink: 0 }}>#{tid}</span>
                           <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title || t.name || '—'}</span>
-                          <span style={{ fontSize: 10, fontWeight: 700, flexShrink: 0, color: statusColors[t.status] || '#64748b' }}>
-                            {statusLabels[t.status] || `#${t.status}`}
+                          <span style={{ fontSize: 10, fontWeight: 700, flexShrink: 0, color: statusColors[sid] || '#64748b', background: `${statusColors[sid] || '#64748b'}18`, padding: '1px 6px', borderRadius: 8 }}>
+                            {label}
                           </span>
                         </a>
                       );
@@ -709,7 +764,26 @@ export default function LiveSessionsPanel() {
 
             {/* Messages */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 8, background: '#f8fafc' }}>
-              {messages.length === 0 && (
+              {openerMessage && (
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
+                  <div style={{
+                    maxWidth: '72%',
+                    background: '#fff',
+                    color: '#1e293b',
+                    borderRadius: '18px 18px 18px 4px',
+                    padding: '8px 13px', fontSize: 13, lineHeight: 1.5,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+                    border: '1px solid #f1f5f9',
+                    wordBreak: 'break-word',
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#6366f1', marginBottom: 2 }}>
+                      {openerMessage.sender_name}
+                    </div>
+                    {openerMessage.content}
+                  </div>
+                </div>
+              )}
+              {!openerMessage && messages.length === 0 && (
                 <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, marginTop: 16 }}>
                   Début de la conversation
                 </div>

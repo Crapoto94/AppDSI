@@ -140,10 +140,8 @@ module.exports = {
         }
         if (filters.is_live === 'true' || filters.is_live === '1') {
             conditions.push(`t.is_live = true`);
-        } else {
-            // Hide live tickets whose session is still open (status != 6 = not yet closed).
-            // Use IS NOT TRUE to handle NULL is_live (regular tickets) correctly — NOT (NULL = true) = NULL (falsy in WHERE).
-            conditions.push(`(t.is_live IS NOT TRUE OR t.status = 6)`);
+        } else if (filters.is_live === 'false' || filters.is_live === '0') {
+            conditions.push(`t.is_live IS NOT TRUE`);
         }
 
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -328,15 +326,15 @@ module.exports = {
                 COALESCE(
                     AVG(
                         EXTRACT(EPOCH FROM (
-                            COALESCE(NULLIF(date_solved, '')::timestamp, CURRENT_TIMESTAMP)
-                            - NULLIF(date_creation, '')::timestamp
+                            COALESCE(date_solved, CURRENT_TIMESTAMP)
+                            - date_creation
                         )) - COALESCE(total_waiting_seconds, 0)
-                    ) FILTER (WHERE NULLIF(date_creation, '') IS NOT NULL), 0
+                    ) FILTER (WHERE date_creation IS NOT NULL), 0
                 )::integer as avg_active_seconds_resolved_week,
                 COALESCE(
                     AVG(
-                        EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - NULLIF(date_creation, '')::timestamp))
-                    ) FILTER (WHERE status IN (1,2,3) AND NULLIF(date_creation, '') IS NOT NULL), 0
+                        EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - date_creation))
+                    ) FILTER (WHERE status IN (1,2,3) AND date_creation IS NOT NULL), 0
                 )::integer as avg_age_open_seconds
             FROM hub_tickets.tickets
             WHERE status IN (1,2,3,4,5)
@@ -350,14 +348,14 @@ module.exports = {
                 COALESCE(
                     AVG(
                         EXTRACT(EPOCH FROM (
-                            COALESCE(NULLIF(date_solved, '')::timestamp, NULLIF(date_closed, '')::timestamp, CURRENT_TIMESTAMP)
-                            - NULLIF(date_creation, '')::timestamp
+                            COALESCE(date_solved, date_closed, CURRENT_TIMESTAMP)
+                            - date_creation
                         )) - COALESCE(total_waiting_seconds, 0)
-                    ) FILTER (WHERE NULLIF(date_creation, '') IS NOT NULL), 0
+                    ) FILTER (WHERE date_creation IS NOT NULL), 0
                 )::integer as avg_active_seconds_week
             FROM hub_tickets.tickets
             WHERE status = 6
-              AND NULLIF(date_solved, '')::timestamp >= DATE_TRUNC('week', CURRENT_TIMESTAMP)::date
+              AND date_solved >= DATE_TRUNC('week', CURRENT_TIMESTAMP)::date
         `);
     },
 
@@ -427,9 +425,9 @@ module.exports = {
                     t.type,
                     t.priority,
                     t.is_vip,
-                    t.date_creation::timestamp AS created_at,
-                    t.date_solved::timestamp   AS solved_at,
-                    t.date_closed::timestamp   AS closed_at,
+                    t.date_creation AS created_at,
+                    t.date_solved   AS solved_at,
+                    t.date_closed   AS closed_at,
                     COALESCE(t.total_waiting_seconds, 0) AS wait_sec,
                     -- Le ticket était-il ouvert (non encore résolu/fermé) ce jour-là ?
                     CASE WHEN

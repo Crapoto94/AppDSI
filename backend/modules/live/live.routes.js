@@ -24,10 +24,11 @@ const uploadLive = multer({
 });
 
 // ── Routes ─────────────────────────────────────────────────────────────
-router.post('/guest-login',        (req, res) => controller.guestLogin(req, res)); // public
-router.post('/auth/ad',            (req, res) => controller.adLogin(req, res));    // public
-router.post('/auth/otp/request',   (req, res) => controller.otpRequest(req, res)); // public
-router.post('/auth/otp/verify',    (req, res) => controller.otpVerify(req, res));  // public
+router.post('/guest-login',        (req, res) => controller.guestLogin(req, res));     // public
+router.post('/auth/ad',            (req, res) => controller.adLogin(req, res));        // public
+router.post('/auth/otp/request',   (req, res) => controller.otpRequest(req, res));     // public
+router.post('/auth/otp/verify',    (req, res) => controller.otpVerify(req, res));      // public
+router.get('/public-config',       (req, res) => controller.getPublicConfig(req, res));// public
 router.get('/config',              authenticateJWT, (req, res) => controller.getConfig(req, res));
 router.put('/config',              authenticateJWT, (req, res) => controller.setConfig(req, res));
 router.get('/calendars',           authenticateJWT, (req, res) => controller.getCalendars(req, res));
@@ -39,7 +40,9 @@ router.get('/sessions/:id',        authenticateJWT, (req, res) => controller.get
 router.get('/sessions/:id/messages', authenticateJWT, (req, res) => controller.getMessages(req, res));
 router.post('/sessions/:id/claim',    authenticateJWT, (req, res) => controller.claimSession(req, res));
 router.post('/sessions/:id/messages', authenticateJWT, (req, res) => controller.sendMessage(req, res));
-router.post('/sessions/:id/close', authenticateJWT, (req, res) => controller.closeSession(req, res));
+router.post('/sessions/:id/close',  authenticateJWT, (req, res) => controller.closeSession(req, res));
+router.post('/sessions/:id/reject', authenticateJWT, (req, res) => controller.rejectSession(req, res));
+router.post('/sessions/:id/task',   authenticateJWT, (req, res) => controller.createTask(req, res));
 router.post('/sessions/:id/upload', authenticateJWT, uploadLive.single('file'), (req, res) => controller.uploadAttachment(req, res));
 
 module.exports = router;
