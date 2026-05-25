@@ -17,6 +17,8 @@ module.exports = {
         const ticket = await ticketRepo.findById(ticketId);
         if (!ticket) throw new Error('Ticket non trouvé');
 
+        const resolvedUserId = await resolveUserId(user) || userId;
+
         const currentStatus = ticket.status;
         const transition = TRANSITIONS[currentStatus];
 
@@ -53,7 +55,7 @@ module.exports = {
         await ticketRepo.update(ticketId, { status: newStatus });
 
         try {
-            await historyRepo.log(ticketId, userId, 'status_changed', 'status',
+            await historyRepo.log(ticketId, resolvedUserId, 'status_changed', 'status',
                 String(currentStatus), String(newStatus), comment || null);
         } catch (e) { console.error('[HISTORY] status_changed log failed:', e.message); }
 
@@ -86,6 +88,7 @@ module.exports = {
         }
 
         const role = await resolveTicketRole(user);
+        const resolvedUserId = await resolveUserId(user);
 
         if (role === 'user') {
             if (ticket.requester_email_22 !== user.email) {
@@ -98,10 +101,20 @@ module.exports = {
             }
         }
 
-        await this.changeStatus(ticketId, 3, user.id, 'Réouverture du ticket', user);
+        await this.changeStatus(ticketId, 3, resolvedUserId, 'Réouverture du ticket', user);
 
         await notificationService.trigger('ticket.reopened', {
             ticket_id: ticketId, user
         });
     },
 };
+
+async function resolveUserId(user) {
+    if (!user?.username) return null;
+    if (user.id) {
+        const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [user.id]);
+        if (exists) return user.id;
+    }
+    const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
+    return hubUser?.id || null;
+}

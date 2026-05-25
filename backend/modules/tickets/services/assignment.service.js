@@ -8,14 +8,22 @@ module.exports = {
         const ticket = await ticketRepo.findById(ticketId);
         if (!ticket) throw new Error('Ticket non trouvé');
 
-        // Résoudre technician_id : si l'ID fourni ne correspond pas à hub.users,
-        // chercher par le username de l'utilisateur courant (compatibilité JWT SQLite)
+        // Résoudre les IDs SQLite → PostgreSQL hub.users.id par username
         let resolvedTechId = technician_id;
         if (resolvedTechId) {
             const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [resolvedTechId]);
             if (!exists && user?.username) {
                 const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
                 if (hubUser) resolvedTechId = hubUser.id;
+            }
+        }
+
+        let resolvedUserId = user?.id;
+        if (resolvedUserId && user?.username) {
+            const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [resolvedUserId]);
+            if (!exists) {
+                const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
+                if (hubUser) resolvedUserId = hubUser.id;
             }
         }
 
@@ -32,25 +40,25 @@ module.exports = {
                 UPDATE hub_tickets.ticket_assignments
                 SET technician_id = $1, group_id = $2, assigned_at = $3, assigned_by = $4
                 WHERE ticket_id = $5
-            `, [resolvedTechId || null, group_id || null, new Date(), user.id, ticketId]);
+            `, [resolvedTechId || null, group_id || null, new Date(), resolvedUserId, ticketId]);
         } else {
             await pgDb.run(`
                 INSERT INTO hub_tickets.ticket_assignments
                     (ticket_id, technician_id, group_id, assigned_by)
                 VALUES ($1, $2, $3, $4)
-            `, [ticketId, resolvedTechId || null, group_id || null, user.id]);
+            `, [ticketId, resolvedTechId || null, group_id || null, resolvedUserId]);
         }
 
         if (resolvedTechId && resolvedTechId !== oldTechId) {
             try {
-                await historyRepo.log(ticketId, user.id, 'assigned', 'technician_id',
+                await historyRepo.log(ticketId, resolvedUserId, 'assigned', 'technician_id',
                     String(oldTechId || ''), String(resolvedTechId));
             } catch (e) { console.error('[HISTORY] assign log failed:', e.message); }
 
             if (ticket.status === 1) {
                 await ticketRepo.update(ticketId, { status: 2 });
                 try {
-                    await historyRepo.log(ticketId, user.id, 'status_changed', 'status', '1', '2', 'Assignation automatique');
+                    await historyRepo.log(ticketId, resolvedUserId, 'status_changed', 'status', '1', '2', 'Assignation automatique');
                 } catch (e) { console.error('[HISTORY] auto-status log failed:', e.message); }
             }
 
@@ -59,7 +67,7 @@ module.exports = {
 
         if (group_id && group_id !== oldGroupId) {
             try {
-                await historyRepo.log(ticketId, user.id, 'assigned_group', 'group_id',
+                await historyRepo.log(ticketId, resolvedUserId, 'assigned_group', 'group_id',
                     String(oldGroupId || ''), String(group_id));
             } catch (e) { console.error('[HISTORY] group assign log failed:', e.message); }
         }
