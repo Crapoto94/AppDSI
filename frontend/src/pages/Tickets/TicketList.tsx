@@ -356,6 +356,11 @@ export default function TicketList({
                       )}
                       {t.sla_status === 'breached' && <span title="SLA dépassé" style={{ fontSize: 13, color: '#ef4444' }}>⚠️</span>}
                       {t.sla_status === 'warning' && <span title="SLA en alerte" style={{ fontSize: 13, color: '#f59e0b' }}>⚠️</span>}
+                      {(() => {
+                        const created = t.date_creation ? new Date(t.date_creation) : null;
+                        const isNew = created && (Date.now() - created.getTime()) < 15 * 60 * 1000;
+                        return isNew ? <span title="Nouveau ticket" style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: '#22c55e', borderRadius: 8, padding: '1px 5px', marginRight: 2 }}>NEW</span> : null;
+                      })()}
                       {t.id}
                     </div>
                   </td>

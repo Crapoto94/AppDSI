@@ -113,6 +113,16 @@ export default function TicketsDashboard() {
     }
   }, [page, search, sortKey, sortDir]);
 
+  const loadDataRef = useRef(loadData);
+  useEffect(() => { loadDataRef.current = loadData; }, [loadData]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadDataRef.current(activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory, activeSoftware);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory, activeSoftware]);
+
   useEffect(() => { loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware); }, []);
 
   useEffect(() => {
