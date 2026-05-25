@@ -61,6 +61,19 @@ services:
       - app-network
     restart: unless-stopped
 
+  chat-frontend:
+    build:
+      context: ./chat-frontend
+      dockerfile: Dockerfile
+    container_name: appdsi-chat-frontend
+    ports:
+      - "5175:5175"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    restart: unless-stopped
+
 networks:
   # Définit un réseau commun pour que les conteneurs puissent communiquer entre eux
   app-network:

@@ -1,0 +1,491 @@
+import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
+import { io, type Socket } from 'socket.io-client'
+import axios from 'axios'
+import type { UserInfo } from './App'
+
+interface Message {
+  id: number
+  session_id: number
+  sender_type: 'user' | 'tech'
+  sender_name: string
+  content: string
+  attachment_url?: string
+  attachment_name?: string
+  created_at: string
+}
+
+interface Session {
+  id: number
+  status: 'waiting' | 'active' | 'closed'
+  tech_display_name: string | null
+}
+
+type ChatState = 'checking' | 'idle' | 'starting' | 'waiting' | 'active' | 'ended'
+
+const SESSION_KEY = 'chat_dmz_session_id'
+
+interface Props {
+  token: string
+  user: UserInfo
+  onLogout: () => void
+}
+
+export default function ChatPage({ token, user, onLogout }: Props) {
+  const [state, setState] = useState<ChatState>('checking')
+  const [sessionId, setSessionId] = useState<number | null>(null)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState('')
+  const [initMsg, setInitMsg] = useState('')
+  const [techName, setTechName] = useState('')
+  const [error, setError] = useState('')
+  const [listening, setListening] = useState(false)
+
+  const socketRef = useRef<Socket | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const initRef = useRef<HTMLTextAreaElement>(null)
+  const recognitionRef = useRef<unknown>(null)
+
+  const headers = { Authorization: `Bearer ${token}` }
+
+  // Auto-scroll
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+  }, [])
+
+  const startPolling = useCallback((sid: number) => {
+    stopPolling()
+    const tick = async () => {
+      try {
+        const [msgRes, sessRes] = await Promise.all([
+          axios.get<Message[]>(`/api/live/sessions/${sid}/messages`, { headers }),
+          axios.get<Session>(`/api/live/sessions/${sid}`, { headers }),
+        ])
+        setMessages(prev => {
+          const ids = new Set(prev.map(m => m.id))
+          const fresh = msgRes.data.filter(m => !ids.has(m.id))
+          return fresh.length ? [...prev, ...fresh] : prev
+        })
+        const s = sessRes.data
+        if (s.status === 'active') {
+          setState(prev => {
+            if (prev === 'waiting') { setTechName(s.tech_display_name || 'Technicien DSI'); return 'active' }
+            return prev
+          })
+        } else if (s.status === 'closed') {
+          stopPolling(); localStorage.removeItem(SESSION_KEY); setState('ended')
+        }
+      } catch { /* ignore */ }
+    }
+    tick()
+    pollRef.current = setInterval(tick, 2500)
+  }, [token, stopPolling]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Restore session on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(SESSION_KEY)
+    if (!stored) { setState('idle'); return }
+    axios.get<Session>(`/api/live/sessions/${stored}`, { headers })
+      .then(res => {
+        const s = res.data
+        if (s.status === 'closed') { localStorage.removeItem(SESSION_KEY); setState('idle'); return }
+        setSessionId(s.id)
+        if (s.status === 'active') { setTechName(s.tech_display_name || 'Technicien DSI'); setState('active') }
+        else setState('waiting')
+      })
+      .catch(() => { localStorage.removeItem(SESSION_KEY); setState('idle') })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Socket — mount once
+  useEffect(() => {
+    const socket = io({ auth: { token }, transports: ['websocket', 'polling'] })
+    socketRef.current = socket
+
+    socket.on('new_message', (msg: Message) => {
+      setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
+    })
+    socket.on('session_history', (msgs: Message[]) => setMessages(msgs))
+    socket.on('session_claimed', ({ tech }: { tech: { displayName: string } }) => {
+      setTechName(tech.displayName); setState('active')
+    })
+    socket.on('session_closed', () => {
+      stopPolling(); localStorage.removeItem(SESSION_KEY); setState('ended')
+    })
+
+    return () => { stopPolling(); socket.disconnect(); socketRef.current = null }
+  }, [token, stopPolling])
+
+  // Join room + polling when sessionId changes
+  useEffect(() => {
+    if (!sessionId) return
+    socketRef.current?.emit('join_session', { sessionId })
+    startPolling(sessionId)
+    return stopPolling
+  }, [sessionId, startPolling, stopPolling])
+
+  async function startChat(e: FormEvent) {
+    e.preventDefault()
+    if (!initMsg.trim()) return
+    setError('')
+    setState('starting')
+    try {
+      const res = await axios.post('/api/live/sessions', { content: initMsg.trim() }, { headers })
+      const sid = res.data.session.id as number
+      localStorage.setItem(SESSION_KEY, String(sid))
+      setSessionId(sid)
+      setInitMsg('')
+      setState('waiting')
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err) ? err.response?.data?.message : null
+      setError(msg || 'Erreur lors du démarrage du chat')
+      setState('idle')
+    }
+  }
+
+  async function sendMessage() {
+    const text = input.trim()
+    if (!text || !sessionId) return
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('send_message', { sessionId, content: text })
+      setInput('')
+    } else {
+      try {
+        const r = await axios.post(`/api/live/sessions/${sessionId}/messages`, { content: text }, { headers })
+        setMessages(prev => prev.find(m => m.id === (r.data as Message).id) ? prev : [...prev, r.data as Message])
+        setInput('')
+      } catch (err: unknown) {
+        const msg = axios.isAxiosError(err) ? err.response?.data?.message : null
+        alert(msg || 'Erreur lors de l\'envoi')
+      }
+    }
+    inputRef.current?.focus()
+  }
+
+  async function endChat() {
+    if (!sessionId) return
+    stopPolling()
+    localStorage.removeItem(SESSION_KEY)
+    try { await axios.post(`/api/live/sessions/${sessionId}/close`, {}, { headers }) } catch { /* ignore */ }
+    setState('ended')
+  }
+
+  function startNew() {
+    setSessionId(null); setMessages([]); setInput(''); setInitMsg(''); setTechName(''); setState('idle')
+  }
+
+  function toggleDictation(setter: React.Dispatch<React.SetStateAction<string>>) {
+    if (listening) {
+      (recognitionRef.current as { stop(): void } | null)?.stop()
+      setListening(false)
+      return
+    }
+    const SR = (window as unknown as Record<string, unknown>)['SpeechRecognition'] as (new () => SpeechRecognition) | undefined
+      || (window as unknown as Record<string, unknown>)['webkitSpeechRecognition'] as (new () => SpeechRecognition) | undefined
+    if (!SR) { alert('Dictée vocale non supportée par ce navigateur'); return }
+    const rec = new SR()
+    rec.lang = 'fr-FR'
+    rec.continuous = true
+    rec.interimResults = false
+    recognitionRef.current = rec
+    rec.onresult = (e: SpeechRecognitionEvent) => {
+      const t = Array.from(e.results).slice(e.resultIndex).map(r => r[0].transcript).join(' ')
+      setter(prev => prev + (prev ? ' ' : '') + t)
+    }
+    rec.onend = () => setListening(false)
+    rec.onerror = () => setListening(false)
+    rec.start()
+    setListening(true)
+  }
+
+  // ── Layout ────────────────────────────────────────────────────────────
+  return (
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f0f4ff' }}>
+      <style>{`
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes slideUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes spin { to{transform:rotate(360deg)} }
+        * { box-sizing: border-box; }
+      `}</style>
+
+      {/* Header */}
+      <header style={{
+        background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+        padding: '0 24px', height: 64, display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', flexShrink: 0,
+        boxShadow: '0 2px 16px rgba(79,70,229,0.3)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{
+            width: 38, height: 38, background: 'rgba(255,255,255,0.2)',
+            borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+          }}>💬</div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: '#fff', letterSpacing: -0.3 }}>Support DSI</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>
+              {state === 'active' ? `En ligne · ${techName}` : state === 'waiting' ? 'En attente d\'un technicien…' : 'Chat en direct'}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>👤 {user.displayName}</span>
+          <button onClick={onLogout} style={{
+            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)',
+            color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer',
+            fontSize: 12, fontWeight: 600,
+          }}>
+            Déconnexion
+          </button>
+        </div>
+      </header>
+
+      {/* Body */}
+      <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ width: '100%', maxWidth: 740, height: '100%', display: 'flex', flexDirection: 'column', padding: '20px 16px 0' }}>
+
+          {state === 'checking' && (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: 36, height: 36, border: '4px solid #e0e7ff', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            </div>
+          )}
+
+          {state === 'idle' && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', animation: 'slideUp 0.3s ease' }}>
+              <div style={{
+                background: '#fff', borderRadius: 20, padding: '36px 32px', width: '100%', maxWidth: 520,
+                boxShadow: '0 8px 32px rgba(99,102,241,0.12)',
+              }}>
+                <div style={{ fontSize: 40, marginBottom: 12, textAlign: 'center' }}>👋</div>
+                <h2 style={{ margin: '0 0 8px', textAlign: 'center', fontSize: 20, fontWeight: 800, color: '#1e293b' }}>
+                  Bonjour, {user.displayName.split(' ')[0]} !
+                </h2>
+                <p style={{ margin: '0 0 24px', textAlign: 'center', fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
+                  Décrivez votre problème ci-dessous et un technicien DSI vous répondra en direct.
+                </p>
+                {error && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', color: '#dc2626', fontSize: 13, marginBottom: 16 }}>
+                    ⚠️ {error}
+                  </div>
+                )}
+                <form onSubmit={startChat}>
+                  <div style={{ position: 'relative', marginBottom: 12 }}>
+                    <textarea
+                      ref={initRef}
+                      value={initMsg}
+                      onChange={e => setInitMsg(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void startChat(e as unknown as FormEvent) } }}
+                      placeholder="Décrivez votre problème… (Ex : Je n'arrive pas à me connecter au VPN)"
+                      rows={4}
+                      style={{
+                        width: '100%', padding: '12px 14px', border: '1.5px solid #e2e8f0',
+                        borderRadius: 12, fontSize: 14, fontFamily: 'inherit', resize: 'none', outline: 'none',
+                      }}
+                      onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                      onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                      autoFocus
+                    />
+                    <button type="button" onClick={() => toggleDictation(setInitMsg)}
+                      title={listening ? 'Arrêter la dictée' : 'Dicter'}
+                      style={{
+                        position: 'absolute', bottom: 10, right: 10,
+                        background: listening ? '#fef2f2' : '#f8fafc',
+                        color: listening ? '#dc2626' : '#94a3b8',
+                        border: `1px solid ${listening ? '#fca5a5' : '#e2e8f0'}`,
+                        borderRadius: 7, padding: '4px 8px', cursor: 'pointer', fontSize: 13,
+                      }}>
+                      🎤
+                    </button>
+                  </div>
+                  <button type="submit" disabled={!initMsg.trim()}
+                    style={{
+                      width: '100%', padding: '13px',
+                      background: initMsg.trim() ? 'linear-gradient(135deg, #6366f1, #818cf8)' : '#a5b4fc',
+                      color: '#fff', border: 'none', borderRadius: 12,
+                      fontSize: 15, fontWeight: 700, cursor: initMsg.trim() ? 'pointer' : 'default',
+                      boxShadow: '0 4px 14px rgba(99,102,241,0.3)',
+                    }}>
+                    🚀 Démarrer le chat
+                  </button>
+                </form>
+                <p style={{ margin: '12px 0 0', fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
+                  Entrée pour envoyer · Maj+Entrée pour saut de ligne
+                </p>
+              </div>
+            </div>
+          )}
+
+          {state === 'starting' && (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ textAlign: 'center', color: '#6366f1' }}>
+                <div style={{ width: 36, height: 36, border: '4px solid #e0e7ff', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 14, fontWeight: 600 }}>Connexion en cours…</div>
+              </div>
+            </div>
+          )}
+
+          {(state === 'waiting' || state === 'active') && (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: '16px 16px 0 0', boxShadow: '0 -4px 24px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+              {/* Status bar */}
+              <div style={{
+                padding: '10px 18px', borderBottom: '1px solid #f1f5f9',
+                background: state === 'active' ? '#f0fdf4' : '#fefce8',
+                display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+              }}>
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                  background: state === 'active' ? '#22c55e' : '#f59e0b',
+                  animation: state === 'waiting' ? 'pulse 1.5s infinite' : 'none',
+                }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: state === 'active' ? '#15803d' : '#92400e' }}>
+                  {state === 'active' ? `✅ ${techName} a rejoint la conversation` : '⏳ En attente d\'un technicien disponible…'}
+                </span>
+              </div>
+
+              {/* Messages */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {messages.length === 0 && (
+                  <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, marginTop: 20 }}>
+                    Début de la conversation
+                  </div>
+                )}
+                {messages.map(msg => (
+                  <MessageBubble key={msg.id} msg={msg} isSelf={msg.sender_type === 'user'} />
+                ))}
+                <div ref={bottomRef} />
+              </div>
+
+              {/* Input */}
+              {state === 'active' ? (
+                <div style={{ borderTop: '1px solid #e2e8f0', padding: '12px 16px', background: '#fff', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                    <button onClick={() => toggleDictation(setInput)}
+                      title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}
+                      style={{
+                        padding: '9px 11px',
+                        background: listening ? '#fef2f2' : '#f8fafc',
+                        color: listening ? '#dc2626' : '#64748b',
+                        border: `1.5px solid ${listening ? '#fca5a5' : '#e2e8f0'}`,
+                        borderRadius: 10, cursor: 'pointer', fontSize: 16, flexShrink: 0,
+                      }}>
+                      🎤
+                    </button>
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      onChange={e => setInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() } }}
+                      placeholder="Votre message… (Entrée pour envoyer)"
+                      rows={2}
+                      style={{
+                        flex: 1, padding: '9px 13px', border: '1.5px solid #e2e8f0',
+                        borderRadius: 10, fontSize: 14, fontFamily: 'inherit', resize: 'none', outline: 'none',
+                      }}
+                      onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                      onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                      autoFocus
+                    />
+                    <button onClick={() => void sendMessage()} disabled={!input.trim()}
+                      style={{
+                        padding: '9px 18px',
+                        background: input.trim() ? '#6366f1' : '#e2e8f0',
+                        color: input.trim() ? '#fff' : '#94a3b8',
+                        border: 'none', borderRadius: 10, fontWeight: 700,
+                        cursor: input.trim() ? 'pointer' : 'default', fontSize: 18, flexShrink: 0,
+                      }}>
+                      ↑
+                    </button>
+                  </div>
+                  <div style={{ marginTop: 10, textAlign: 'center' }}>
+                    <button onClick={() => void endChat()} style={{
+                      background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer',
+                      fontSize: 12, textDecoration: 'underline',
+                    }}>
+                      Terminer la conversation
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ padding: '10px 16px', borderTop: '1px solid #e2e8f0', background: '#fefce8', flexShrink: 0, textAlign: 'center' }}>
+                  <span style={{ fontSize: 12, color: '#92400e' }}>
+                    Un technicien va prendre en charge votre demande…
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {state === 'ended' && (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'slideUp 0.3s ease' }}>
+              <div style={{
+                background: '#fff', borderRadius: 20, padding: '40px 32px', textAlign: 'center',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.08)', maxWidth: 400, width: '100%',
+              }}>
+                <div style={{ fontSize: 52, marginBottom: 16 }}>✅</div>
+                <h2 style={{ margin: '0 0 10px', fontSize: 22, fontWeight: 800, color: '#15803d' }}>Session terminée</h2>
+                <p style={{ margin: '0 0 28px', fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
+                  Merci d'avoir contacté le support DSI.<br />
+                  Un récapitulatif a été créé dans notre système.
+                </p>
+                <button onClick={startNew} style={{
+                  padding: '12px 28px', background: '#6366f1', color: '#fff',
+                  border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                  boxShadow: '0 4px 14px rgba(99,102,241,0.3)',
+                }}>
+                  Nouvelle conversation
+                </button>
+                <div style={{ marginTop: 12 }}>
+                  <button onClick={onLogout} style={{
+                    background: 'none', border: 'none', color: '#94a3b8',
+                    cursor: 'pointer', fontSize: 13, textDecoration: 'underline',
+                  }}>
+                    Se déconnecter
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </main>
+    </div>
+  )
+}
+
+function MessageBubble({ msg, isSelf }: { msg: Message; isSelf: boolean }) {
+  const time = new Date(msg.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+  return (
+    <div style={{ display: 'flex', flexDirection: isSelf ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 6 }}>
+      {!isSelf && (
+        <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>
+          👨‍💻
+        </div>
+      )}
+      <div style={{
+        maxWidth: '75%',
+        background: isSelf ? '#6366f1' : '#fff',
+        color: isSelf ? '#fff' : '#1e293b',
+        borderRadius: isSelf ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+        padding: '9px 14px', fontSize: 14, lineHeight: 1.5,
+        boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
+        border: isSelf ? 'none' : '1px solid #f1f5f9',
+        wordBreak: 'break-word',
+      }}>
+        {!isSelf && (
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', marginBottom: 3 }}>{msg.sender_name}</div>
+        )}
+        {msg.attachment_url ? (
+          <a href={msg.attachment_url} target="_blank" rel="noreferrer"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, color: isSelf ? '#fff' : '#6366f1', textDecoration: 'none' }}>
+            <span>📎</span>
+            <span style={{ textDecoration: 'underline', wordBreak: 'break-all', fontSize: 13 }}>{msg.attachment_name || msg.content}</span>
+          </a>
+        ) : (
+          <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+        )}
+        <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4, textAlign: 'right' }}>{time}</div>
+      </div>
+    </div>
+  )
+}

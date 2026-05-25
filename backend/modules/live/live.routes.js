@@ -24,6 +24,7 @@ const uploadLive = multer({
 });
 
 // ── Routes ─────────────────────────────────────────────────────────────
+router.post('/guest-login',        (req, res) => controller.guestLogin(req, res)); // public
 router.get('/config',              authenticateJWT, (req, res) => controller.getConfig(req, res));
 router.put('/config',              authenticateJWT, (req, res) => controller.setConfig(req, res));
 router.get('/calendars',           authenticateJWT, (req, res) => controller.getCalendars(req, res));

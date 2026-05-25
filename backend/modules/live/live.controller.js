@@ -1,5 +1,7 @@
 const { pgDb } = require('../../shared/database');
 const { getIO } = require('./live.socket');
+const jwt = require('jsonwebtoken');
+const { SECRET_KEY } = require('../../shared/config');
 
 let _sendMail = null;
 function setSendMail(fn) { _sendMail = fn; }
@@ -543,4 +545,32 @@ function startScheduler() {
     setInterval(_checkScheduleTick, 60 * 1000); // then every minute
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getCalendars, startScheduler, uploadAttachment, sendMessage };
+// ── POST /api/live/guest-login (public — no JWT required) ─────────────────
+async function guestLogin(req, res) {
+    try {
+        const { displayName, email } = req.body || {};
+        if (!displayName?.trim() || !email?.trim()) {
+            return res.status(400).json({ message: 'Nom et email requis' });
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+            return res.status(400).json({ message: 'Adresse email invalide' });
+        }
+        const username = `guest_${Date.now()}`;
+        const token = jwt.sign({
+            id: 0,
+            username,
+            displayName: displayName.trim(),
+            email: email.trim().toLowerCase(),
+            role: 'user',
+            is_approved: true,
+        }, SECRET_KEY);
+        res.json({
+            token,
+            user: { username, displayName: displayName.trim(), email: email.trim().toLowerCase() },
+        });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin };
