@@ -38,6 +38,7 @@ const ROLE_LABELS: Record<string, { label: string; color: string; bg: string }> 
 export default function TicketsDashboard() {
   const { user } = useAuth();
   const [resolvedRole, setResolvedRole] = useState<string | null>(null);
+  const [canViewKpi, setCanViewKpi] = useState(true);
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,6 +120,9 @@ export default function TicketsDashboard() {
     if (!token) return;
     axios.get('/api/tickets/my-role', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setResolvedRole(r.data.role))
+      .catch(() => {});
+    axios.get('/api/tickets/has-permission/dashboard:view_kpi', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setCanViewKpi(r.data.allowed !== false))
       .catch(() => {});
   }, []);
 
@@ -361,7 +365,7 @@ export default function TicketsDashboard() {
         </div>
       )}
       {/* ── Ligne unique de KPI avec sparklines ── */}
-      {(() => {
+      {canViewKpi && (() => {
         const isAdmin = ['superadmin','admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase());
 
         // Config unifiée : statuts + temps dans le même tableau

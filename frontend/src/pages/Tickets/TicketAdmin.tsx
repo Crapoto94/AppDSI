@@ -1284,6 +1284,7 @@ const PERMISSION_GROUPS = [
     perms: [
       { key: 'attachment:upload',    label: 'Joindre des fichiers' },
       { key: 'dashboard:view_stats', label: 'Voir les statistiques' },
+      { key: 'dashboard:view_kpi',   label: 'Voir les KPI' },
       { key: 'ticket:view_rejected', label: 'Voir les tickets rejetés' },
     ]
   },

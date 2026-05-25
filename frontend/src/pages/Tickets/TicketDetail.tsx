@@ -39,7 +39,7 @@ const STATUS_NAMES: Record<number, string> = {
 const VALID_TRANSITIONS: Record<number, { to: number; label: string; color: string }[]> = {
   1: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }],
   2: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }, { to: 1, label: 'Réinitialiser', color: '#64748b' }],
-  3: [{ to: 4, label: 'En attente', color: '#f97316' }, { to: 5, label: 'Résoudre', color: '#22c55e' }],
+  3: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }, { to: 4, label: 'En attente', color: '#f97316' }, { to: 5, label: 'Résoudre', color: '#22c55e' }],
   4: [{ to: 3, label: 'Reprendre', color: '#f59e0b' }, { to: 5, label: 'Résoudre', color: '#22c55e' }],
   5: [{ to: 6, label: 'Fermer', color: '#64748b' }, { to: 3, label: 'Réouvrir', color: '#f59e0b' }],
   6: [{ to: 3, label: 'Réouvrir', color: '#f59e0b' }],
@@ -321,7 +321,10 @@ export default function TicketDetail() {
         if (user?.id) {
           await axios.post(`/api/tickets/${id}/assign`, { technician_id: user.id }, { headers: { Authorization: `Bearer ${token}` } });
         }
-        await doChangeStatus(3);
+        // Ne change le statut que si différent (évite 3→3 refusé par le backend)
+        if (ticket.status !== 3) {
+          await doChangeStatus(3);
+        }
         loadTicket();
       } catch (err: any) {
         alert(err.response?.data?.message || 'Erreur');
@@ -628,7 +631,9 @@ export default function TicketDetail() {
     return palette[Math.abs(h) % palette.length];
   }
 
-  const SL: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 };
+   const SL: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', minWidth: 80, flexShrink: 0 };
+   const SF: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid #f4f4f5', padding: '6px 0' };
+   const SV: React.CSSProperties = { fontSize: 12, color: '#18181b', fontWeight: 600 };
 
   return (
     <>
@@ -1034,7 +1039,7 @@ export default function TicketDetail() {
             </div>
 
             {/* STATUT */}
-            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+            <div style={SF}>
               <span style={SL}>Statut</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: (STATUS_COLORS[ticket.status?.id] || '#64748b') + '18', color: STATUS_COLORS[ticket.status?.id] || '#64748b', flexShrink: 0 }}>
@@ -1049,44 +1054,38 @@ export default function TicketDetail() {
             </div>
 
             {/* PRIORITÉ + IMPACT */}
-            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <span style={SL}>Priorité</span>
-                  {editingInfo ? (
-                    <select value={editForm.priority || 3} onChange={e => setEditForm({...editForm, priority: parseInt(e.target.value)})}
-                      style={{ width: '100%', padding: '4px 6px', border: '1px solid #e4e4e7', borderRadius: 5, fontSize: 11, background: '#fff' }}>
-                      <option value={2}>Basse</option><option value={3}>Normale</option><option value={4}>Haute</option><option value={5}>Très haute</option>
-                    </select>
-                  ) : (
-                    <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: (PRIORITY_COLORS[ticket.priority?.id] || '#64748b') + '18', color: PRIORITY_COLORS[ticket.priority?.id] || '#64748b' }}>
-                      {ticket.priority?.label || 'Normale'}
-                    </span>
-                  )}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <span style={SL}>Impact</span>
-                  {editingInfo ? (
-                    <select value={editForm.impact || 2} onChange={e => setEditForm({...editForm, impact: parseInt(e.target.value)})}
-                      style={{ width: '100%', padding: '4px 6px', border: '1px solid #e4e4e7', borderRadius: 5, fontSize: 11, background: '#fff' }}>
-                      <option value={2}>1 utilisateur</option><option value={3}>Groupe de travail</option><option value={4}>Service / Direction</option><option value={5}>Global</option>
-                    </select>
-                  ) : (
-                    <span style={{ fontSize: 11, color: '#3f3f46' }}>
-                      {ticket.impact?.id && IMPACT_INFO[ticket.impact.id] ? `${IMPACT_INFO[ticket.impact.id].icon} ${IMPACT_INFO[ticket.impact.id].label}` : '—'}
-                    </span>
-                  )}
-                </div>
-              </div>
+            <div style={SF}>
+              <span style={SL}>Priorité</span>
+              {editingInfo ? (
+                <select value={editForm.priority || 3} onChange={e => setEditForm({...editForm, priority: parseInt(e.target.value)})}
+                  style={{ padding: '4px 6px', border: '1px solid #e4e4e7', borderRadius: 5, fontSize: 11, background: '#fff' }}>
+                  <option value={2}>Basse</option><option value={3}>Normale</option><option value={4}>Haute</option><option value={5}>Très haute</option>
+                </select>
+              ) : (
+                <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 11, fontWeight: 600, background: (PRIORITY_COLORS[ticket.priority?.id] || '#64748b') + '18', color: PRIORITY_COLORS[ticket.priority?.id] || '#64748b' }}>
+                  {ticket.priority?.label || 'Normale'}
+                </span>
+              )}
+              <span style={SL}>Impact</span>
+              {editingInfo ? (
+                <select value={editForm.impact || 2} onChange={e => setEditForm({...editForm, impact: parseInt(e.target.value)})}
+                  style={{ padding: '4px 6px', border: '1px solid #e4e4e7', borderRadius: 5, fontSize: 11, background: '#fff' }}>
+                  <option value={2}>1 utilisateur</option><option value={3}>Groupe de travail</option><option value={4}>Service / Direction</option><option value={5}>Global</option>
+                </select>
+              ) : (
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#3f3f46' }}>
+                  {ticket.impact?.id && IMPACT_INFO[ticket.impact.id] ? `${IMPACT_INFO[ticket.impact.id].icon} ${IMPACT_INFO[ticket.impact.id].label}` : '—'}
+                </span>
+              )}
             </div>
 
             {/* ASSIGNÉ */}
-            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+            <div style={SF}>
               <span style={SL}>Assigné</span>
               {ticket.technician_name ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(ticket.technician_name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(ticket.technician_name)}</div>
-                  <span style={{ fontSize: 12, color: '#18181b' }}>{ticket.technician_name}</span>
+                  <span style={SV}>{ticket.technician_name}</span>
                 </div>
               ) : (
                 <span style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Non assigné</span>
@@ -1094,59 +1093,59 @@ export default function TicketDetail() {
             </div>
 
             {/* CATÉGORIE */}
-            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+            <div style={SF}>
               <span style={SL}>Catégorie</span>
               {editingInfo ? (
                 <select value={editForm.category_id || ''} onChange={e => setEditForm({...editForm, category_id: e.target.value ? parseInt(e.target.value) : null, subcategory_id: null})}
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
+                  style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
                   <option value="">— Non défini —</option>
                   {categories.filter(c => !c.parent_id).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               ) : (
-                <span style={{ fontSize: 12, color: '#3f3f46' }}>{ticket.category_name || '—'}</span>
+                <span style={SV}>{ticket.category_name || '—'}</span>
               )}
             </div>
 
             {/* SOUS-CATÉGORIE */}
             {(editForm.category_id || ticket.subcategory_id) ? (
-              <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <div style={SF}>
                 <span style={SL}>Sous-catégorie</span>
                 {editingInfo ? (
                   <select value={editForm.subcategory_id || ''} onChange={e => setEditForm({...editForm, subcategory_id: e.target.value ? parseInt(e.target.value) : null})}
                     disabled={!editForm.category_id}
-                    style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', opacity: !editForm.category_id ? 0.5 : 1 }}>
+                    style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', opacity: !editForm.category_id ? 0.5 : 1 }}>
                     <option value="">— Non défini —</option>
                     {categories.filter(c => c.parent_id === parseInt(editForm.category_id || '0')).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 ) : (
-                  <span style={{ fontSize: 12, color: '#3f3f46' }}>{ticket.subcategory_name || '—'}</span>
+                  <span style={SV}>{ticket.subcategory_name || '—'}</span>
                 )}
               </div>
             ) : null}
 
             {/* LOGICIEL */}
             {(editForm.software_id || ticket.software_id || (editingInfo && editForm.category_id && categories.find(c => c.id === parseInt(editForm.category_id || '0'))?.name.toLowerCase().includes('logiciel'))) ? (
-              <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <div style={SF}>
                 <span style={SL}>Logiciel</span>
                 {editingInfo ? (
                   <select value={editForm.software_id || ''} onChange={e => setEditForm({...editForm, software_id: e.target.value ? parseInt(e.target.value) : null})}
-                    style={{ width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
+                    style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
                     <option value="">— Non défini —</option>
                     {apps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 ) : (
-                  <span style={{ fontSize: 12, color: '#3f3f46' }}>{ticket.software_name || '—'}</span>
+                  <span style={SV}>{ticket.software_name || '—'}</span>
                 )}
               </div>
             ) : null}
 
             {/* DEMANDEUR */}
-            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+            <div style={SF}>
               <span style={SL}>Demandeur</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: ticket.requester?.email ? 4 : 0 }}>
                 <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(ticket.requester?.name || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(ticket.requester?.name || '')}</div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: '#18181b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester?.name || 'Anonyme'}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#18181b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester?.name || 'Anonyme'}</div>
                   {ticket.requester?.email && (
                     <a href={`mailto:${ticket.requester.email}`} style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester.email}</a>
                   )}
@@ -1176,16 +1175,13 @@ export default function TicketDetail() {
             </div>
 
             {/* CRÉÉ LE */}
-            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+            <div style={SF}>
               <span style={SL}>Créé le</span>
-              <span style={{ fontSize: 12, color: '#3f3f46' }}>{ticket.date_creation ? new Date(ticket.date_creation).toLocaleString('fr-FR') : '—'}</span>
+              <span style={SV}>{ticket.date_creation ? new Date(ticket.date_creation).toLocaleString('fr-FR') : '—'}</span>
               {ticket.active_days != null && (
-                <div style={{ marginTop: 4 }}>
-                  <span style={{ fontSize: 10, color: '#a1a1aa' }}>Temps actif : </span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: ticket.active_days > 7 ? '#dc2626' : ticket.active_days > 3 ? '#f59e0b' : '#16a34a' }}>
-                    {ticket.active_days > 1 ? `${Math.round(ticket.active_days)} jours` : ticket.active_days === 1 ? '1 jour' : '< 1 jour'}
-                  </span>
-                </div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: ticket.active_days > 7 ? '#dc2626' : ticket.active_days > 3 ? '#f59e0b' : '#16a34a', marginLeft: 'auto' }}>
+                  {ticket.active_days > 1 ? `${Math.round(ticket.active_days)}j` : ticket.active_days === 1 ? '1j' : '<1j'}
+                </span>
               )}
             </div>
 

@@ -13,6 +13,15 @@ router.get('/my-role', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ role: 'user' }); }
 });
 
+// ─── Permission check ────────────────────────────────────────────
+router.get('/has-permission/:action', authenticateJWT, async (req, res) => {
+    try {
+        const { hasPermission } = require('./middleware/ticket-permissions');
+        const allowed = await hasPermission(req.user, req.params.action);
+        res.json({ allowed });
+    } catch (e) { res.status(500).json({ allowed: false }); }
+});
+
 // ─── Dashboard & Stats ───────────────────────────────────────────
 router.get('/ticket-stats', authenticateJWT, (req, res) => controller.getTicketCountsBySoftware(req, res));
 router.get('/dashboard/stats', authenticateJWT, (req, res) => controller.getDashboardStats(req, res));

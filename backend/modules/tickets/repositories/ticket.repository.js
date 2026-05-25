@@ -136,6 +136,7 @@ module.exports = {
             SELECT COUNT(*) as total
             FROM hub_tickets.tickets t
             LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id
+            LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
             ${where}
         `;
         const totalResult = await pgDb.get(countSql, params);

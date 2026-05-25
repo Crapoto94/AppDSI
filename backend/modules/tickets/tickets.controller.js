@@ -309,6 +309,11 @@ module.exports = {
                 await historyRepo.log(ticketId, req.user.id, 'comment_added', null, null, null,
                     `Commentaire ${is_private ? 'interne ' : ''}ajouté par ${req.user.displayName || req.user.username}`);
             } catch (e) { console.error('[HISTORY] addComment log failed:', e.message); }
+            // Première réponse SLA si commentaire public
+            if (!is_private) {
+                await slaRepo.setFirstResponse(ticketId);
+            }
+
             await notificationService.trigger('ticket.comment_added', { ticket_id: ticketId, comment, user: req.user });
 
             // Propagation du commentaire à tous les membres du groupe
@@ -338,6 +343,10 @@ module.exports = {
             if (!requesterEmail) return res.status(400).json({ message: 'Aucun email demandeur trouvé' });
 
             const comment = await commentRepo.create(ticketId, { content, is_private: is_private ? 1 : 0, sent_to_user: 1 }, req.user);
+
+            // Première réponse SLA (un envoi au demandeur compte comme réponse)
+            await slaRepo.setFirstResponse(ticketId);
+
             try {
                 await historyRepo.log(ticketId, req.user.id, 'comment_sent_to_requester', null, null, null,
                     `Commentaire envoyé par email au demandeur par ${req.user.displayName || req.user.username}`);

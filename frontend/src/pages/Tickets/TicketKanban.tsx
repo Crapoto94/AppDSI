@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
-  4: 'En attente', 5: 'Résolu', 6: 'Clos'
+  4: 'En attente', 5: 'Résolus', 6: 'Clos'
 };
 
 const STATUS_COLORS: Record<number, string> = {
@@ -30,7 +30,7 @@ function bundleColors(bundleId: number) {
   return BUNDLE_PALETTE[bundleId % BUNDLE_PALETTE.length];
 }
 
-const COLUMNS = [1, 2, 3, 4, 6];
+const COLUMNS = [1, 2, 3, 4, 5];
 
 interface KanbanProps {
   tickets: any[];

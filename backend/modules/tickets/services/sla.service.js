@@ -16,7 +16,10 @@ module.exports = {
             ? this.addBusinessMinutes(now, slaDef.resolution_min, slaDef.calendar_id)
             : null;
 
-        await slaRepo.createForTicket(ticketId, slaDef.id, firstResponseTarget, resolutionTarget);
+        // Formater en local sans timezone pour éviter la conversion UTC de TIMESTAMP
+        const fmt = (d) => d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}` : null;
+
+        await slaRepo.createForTicket(ticketId, slaDef.id, fmt(firstResponseTarget), fmt(resolutionTarget));
     },
 
     addBusinessMinutes(fromDate, minutes, calendarId = 1) {
