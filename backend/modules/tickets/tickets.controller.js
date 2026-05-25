@@ -557,7 +557,32 @@ module.exports = {
     async getHistory(req, res) {
         try {
             const history = await historyRepo.findByTicket(parseInt(req.params.id));
-            res.json(history);
+            const ids = new Set();
+            for (const h of history) {
+                if (h.action === 'assigned' && h.new_value) ids.add(String(h.new_value));
+                if (h.action === 'assigned' && h.old_value) ids.add(String(h.old_value));
+                if (h.action === 'assigned_group' && h.new_value) ids.add(String(h.new_value));
+            }
+            const names: Record<string, string> = {};
+            if (ids.size > 0) {
+                const userRows = await pgDb.all(`SELECT id, displayName FROM hub.users WHERE id IN (${Array.from(ids).join(',')})`);
+                for (const r of userRows) names[String(r.id)] = r.displayname || r.displayName;
+                const groupRows = await pgDb.all(`SELECT id, name FROM hub_tickets.technician_groups WHERE id IN (${Array.from(ids).join(',')})`);
+                for (const r of groupRows) names[`g${r.id}`] = r.name;
+            }
+            const enriched = history.map(h => {
+                const row = { ...h };
+                if (h.action === 'assigned') {
+                    if (h.new_value && names[String(h.new_value)]) row.new_value_label = names[String(h.new_value)];
+                    if (h.old_value && names[String(h.old_value)]) row.old_value_label = names[String(h.old_value)];
+                }
+                if (h.action === 'assigned_group') {
+                    if (h.new_value && names[`g${h.new_value}`]) row.new_value_label = names[`g${h.new_value}`];
+                    if (h.old_value && names[`g${h.old_value}`]) row.old_value_label = names[`g${h.old_value}`];
+                }
+                return row;
+            });
+            res.json(enriched);
         } catch (error) {
             res.status(500).json({ message: error.message });
         }

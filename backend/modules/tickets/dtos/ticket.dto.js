@@ -88,6 +88,8 @@ module.exports = {
             type_label: TYPE_NAMES[ticket.type] || TYPE_NAMES[String(ticket.type)] || ticket.type,
             requester_name: ticket.requester_name,
             requester_email: ticket.requester_email_22,
+            requester_service: ticket.requester_service || null,
+            requester_service_code: ticket.requester_service_code || null,
             technician_id: ticket.technician_id,
             technician_name: ticket.technician_name,
             technician_status: ticket.technician_status,

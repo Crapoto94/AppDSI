@@ -206,7 +206,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
     }
   }
 
-  // ─── Card renderer ───────────────────────────────────────────────
+// ─── Card renderer ───────────────────────────────────────────────
   function renderCard(t: any) {
     const isProblem = t.type?.id === 3 || t.type === 3;
     const hasBundleProblem = t.bundle?.problem_ticket_id;
@@ -221,98 +221,83 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
           e.dataTransfer.effectAllowed = 'move';
         }}
         onDragEnd={() => setDraggedId(null)}
-        onClick={() => window.location.href = `/tickets/${t.id}`}
         style={{
-          background: draggedId === t.id ? '#e0e7ff' : (isProblem ? '#faf5ff' : '#fff'),
-          borderRadius: 10, padding: 12, cursor: 'grab',
+          background: draggedId === t.id ? '#e0e7ff' : '#fff',
+          borderRadius: 10, overflow: 'hidden',
           border: `1px solid ${draggedId === t.id ? '#6366f1' : isProblem ? '#d8b4fe' : '#e2e8f0'}`,
           boxShadow: draggedId === t.id
             ? '0 8px 16px rgba(99,102,241,0.15)'
             : '0 1px 2px rgba(0,0,0,0.04)',
-          transition: 'box-shadow 0.15s, border-color 0.15s, background 0.15s',
+          transition: 'box-shadow 0.15s, border-color 0.15s',
           opacity: moving ? 0.7 : 1,
-          transform: draggedId === t.id ? 'rotate(2deg)' : 'none'
-        }}
-        onMouseEnter={e => {
-          if (draggedId !== t.id) e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.08)';
-        }}
-        onMouseLeave={e => {
-          if (draggedId !== t.id) e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)';
         }}>
-        {/* ID row + badges */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-          <span style={{
-            fontSize: 11, fontFamily: 'monospace',
-            color: isProblem ? '#9333ea' : '#6366f1',
-            fontWeight: 600, flex: 1
-          }}>#{t.id}</span>
+        {/* Grip bar */}
+        <div style={{
+            cursor: 'grab', padding: '5px 12px 3px',
+            background: isProblem ? '#f3e8ff' : '#f1f5f9',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex', alignItems: 'center', gap: 4,
+          }}>
+          <span style={{ fontSize: 11, fontFamily: 'monospace', color: isProblem ? '#9333ea' : '#6366f1', fontWeight: 600, flex: 1 }}>
+            ⠿ #{t.id}
+          </span>
           {isProblem && (
-            <span style={{
-              fontSize: 10, fontWeight: 700, background: '#f3e8ff', color: '#9333ea',
-              padding: '1px 6px', borderRadius: 4, letterSpacing: 0.3
-            }}>PROBLÈME</span>
+            <span style={{ fontSize: 10, fontWeight: 700, background: '#e9d5ff', color: '#9333ea', padding: '1px 6px', borderRadius: 4, letterSpacing: 0.3 }}>PROBLÈME</span>
           )}
           {hasBundleProblem && (
-            <span
-              title={`Problème #${t.bundle.problem_ticket_id}`}
-              onClick={e => { e.stopPropagation(); window.location.href = `/tickets/${t.bundle.problem_ticket_id}`; }}
-              style={{
-                fontSize: 10, fontWeight: 600, background: '#f3e8ff', color: '#9333ea',
-                padding: '1px 6px', borderRadius: 4, cursor: 'pointer', letterSpacing: 0.3
-              }}>
+            <span onClick={e => { e.stopPropagation(); window.location.href = `/tickets/${t.bundle.problem_ticket_id}`; }}
+              style={{ fontSize: 10, fontWeight: 600, background: '#e9d5ff', color: '#9333ea', padding: '1px 6px', borderRadius: 4, cursor: 'pointer', letterSpacing: 0.3 }}>
               ↗ #{t.bundle.problem_ticket_id}
             </span>
           )}
+          {t.is_vip && <span style={{ fontSize: 10 }}>⭐</span>}
+          {t.sla_status === 'breached' && <span title="SLA dépassé" style={{ fontSize: 12 }}>⚠️</span>}
+          {t.sla_status === 'warning' && <span title="SLA en alerte" style={{ fontSize: 12 }}>⚠️</span>}
         </div>
 
-        {/* Title */}
-        <div style={{
-          fontSize: 13, fontWeight: isProblem ? 600 : 500,
-          color: isProblem ? '#6b21a8' : '#1e293b',
-          marginBottom: 8, lineHeight: 1.3,
-          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-          overflow: 'hidden'
-        }}>{t.title}</div>
+        {/* Clickable body */}
+        <div
+          onClick={() => window.location.href = `/tickets/${t.id}`}
+          style={{ padding: '8px 12px 12px', cursor: 'pointer' }}>
 
-        {/* Priority dots + VIP */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-            {[1, 2, 3, 4].map(i => {
-              const activeDots = Math.max(0, Math.min(4, (t.priority?.id || 3) - 1));
-              const color = PRIORITY_COLORS[t.priority?.id] || '#64748b';
-              return <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: i <= activeDots ? color : '#e2e8f0' }} />;
-            })}
-            {t.is_vip && <span style={{ fontSize: 10, marginLeft: 4 }}>⭐</span>}
+          {/* Title */}
+          <div style={{
+            fontSize: 13, fontWeight: isProblem ? 600 : 500,
+            color: isProblem ? '#6b21a8' : '#1e293b',
+            marginBottom: 6, lineHeight: 1.3,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            overflow: 'hidden'
+          }}>{t.title}</div>
+
+          {/* Priority dots + Requester */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              {[1, 2, 3, 4].map(i => {
+                const activeDots = Math.max(0, Math.min(4, (t.priority?.id || 3) - 1));
+                const color = PRIORITY_COLORS[t.priority?.id] || '#64748b';
+                return <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: i <= activeDots ? color : '#e2e8f0' }} />;
+              })}
+            </div>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>
+              {t.requester_name || 'Anonyme'}
+            </span>
           </div>
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>
-            {t.requester_name || 'Anonyme'}
-          </span>
-        </div>
 
-        {/* Technician */}
-        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-          <div>
-            {t.assignee_group_name ? (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                fontSize: 11, fontWeight: 500,
-                background: '#eff6ff', color: '#6366f1',
-                padding: '2px 8px', borderRadius: 4
-              }}>
-                👥 {t.assignee_group_name}
-              </span>
-            ) : t.technician_name ? (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                fontSize: 11, fontWeight: 500,
-                background: '#e0f2fe', color: '#0284c7',
-                padding: '2px 8px', borderRadius: 4
-              }}>
-                🔧 {t.technician_name}
-              </span>
-            ) : (
-              <span style={{ fontSize: 11, color: '#94a3b8' }}>Non assigné</span>
-            )}
+          {/* Technician/Group */}
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+            <div>
+              {t.assignee_group_name ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, background: '#eff6ff', color: '#6366f1', padding: '2px 8px', borderRadius: 4 }}>
+                  👥 {t.assignee_group_name}
+                </span>
+              ) : t.technician_name ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, background: '#e0f2fe', color: '#0284c7', padding: '2px 8px', borderRadius: 4 }}>
+                  🔧 {t.technician_name}
+                </span>
+              ) : (
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>Non assigné</span>
+              )}
+            </div>
           </div>
         </div>
       </div>

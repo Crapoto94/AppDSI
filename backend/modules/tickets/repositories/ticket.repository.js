@@ -1,40 +1,43 @@
 const { pgDb, pool } = require('../../../shared/database');
 
 const BASE_SELECT = `
-    SELECT t.*,
+SELECT t.*,
            ta.technician_id, ta.group_id,
            tca.category_id,
            ts.label as status_label,
            tu.displayName as technician_name,
            tg2.name as assignee_group_name,
            tp.status as technician_status,
+           mu.service_code as requester_service_code,
+           mu.service_complement as requester_service,
            tgm.group_id AS bundle_id,
            tg.name AS bundle_name,
            tg.problem_ticket_id AS bundle_problem_ticket_id,
            ma.name as software_name,
            tc.name as category_name,
            tsc.name as subcategory_name,
-            (SELECT COUNT(*) FROM hub_tickets.observers o WHERE o.ticket_id = t.glpi_id AND o.is_active = 1) as observer_count,
-           (SELECT COUNT(*) FROM hub_tickets.ticket_history h WHERE h.ticket_id = t.glpi_id) as history_count,
-           (SELECT COUNT(*) FROM hub_tickets.ticket_followups tf WHERE tf.ticket_id = t.glpi_id) as followups_count,
-           (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count,
-            (SELECT h2.comment FROM hub_tickets.ticket_history h2
-             WHERE h2.ticket_id = t.glpi_id AND h2.action = 'status_changed' AND h2.new_value = '4'
-             ORDER BY h2.created_at DESC LIMIT 1) as waiting_reason,
-            tsla.sla_status
-    FROM hub_tickets.tickets t
+             (SELECT COUNT(*) FROM hub_tickets.observers o WHERE o.ticket_id = t.glpi_id AND o.is_active = 1) as observer_count,
+            (SELECT COUNT(*) FROM hub_tickets.ticket_history h WHERE h.ticket_id = t.glpi_id) as history_count,
+            (SELECT COUNT(*) FROM hub_tickets.ticket_followups tf WHERE tf.ticket_id = t.glpi_id) as followups_count,
+            (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count,
+             (SELECT h2.comment FROM hub_tickets.ticket_history h2
+              WHERE h2.ticket_id = t.glpi_id AND h2.action = 'status_changed' AND h2.new_value = '4'
+              ORDER BY h2.created_at DESC LIMIT 1) as waiting_reason,
+             tsla.sla_status
+     FROM hub_tickets.tickets t
 LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.is_primary = true OR ta.is_primary IS NULL)
      LEFT JOIN hub_tickets.technician_profiles tp ON ta.technician_id = tp.user_id
      LEFT JOIN hub.users tu ON ta.technician_id = tu.id
      LEFT JOIN hub_tickets.technician_groups tg2 ON ta.group_id = tg2.id
-    LEFT JOIN hub_tickets.ticket_category_assignments tca ON t.glpi_id = tca.ticket_id
-    LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
-    LEFT JOIN hub_tickets.ticket_group_members tgm ON tgm.ticket_id = t.glpi_id
-    LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
-    LEFT JOIN magapp.apps ma ON t.software_id = ma.id
-    LEFT JOIN hub_tickets.ticket_categories tc ON t.category_id = tc.id
-    LEFT JOIN hub_tickets.ticket_categories tsc ON t.subcategory_id = tsc.id
-    LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
+     LEFT JOIN magapp.users mu ON LOWER(t.requester_email_22) = LOWER(mu.email)
+     LEFT JOIN hub_tickets.ticket_category_assignments tca ON t.glpi_id = tca.ticket_id
+     LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
+     LEFT JOIN hub_tickets.ticket_group_members tgm ON tgm.ticket_id = t.glpi_id
+     LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
+     LEFT JOIN magapp.apps ma ON t.software_id = ma.id
+     LEFT JOIN hub_tickets.ticket_categories tc ON t.category_id = tc.id
+     LEFT JOIN hub_tickets.ticket_categories tsc ON t.subcategory_id = tsc.id
+     LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
 `;
 
 module.exports = {
