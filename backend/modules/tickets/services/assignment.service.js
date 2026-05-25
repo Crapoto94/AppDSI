@@ -131,6 +131,9 @@ module.exports = {
     },
 
     async autoAssign(ticket) {
+        // Check VIP requester first — mark ticket as VIP regardless of rules
+        await this.checkVipRequester(ticket);
+
         const rules = await pgDb.all(`
             SELECT * FROM hub_tickets.assignment_rules
             WHERE is_active = true
@@ -153,6 +156,19 @@ module.exports = {
         }
     },
 
+    async checkVipRequester(ticket) {
+        const email = ticket.requester_email_22 || '';
+        const requesterName = ticket.requester_name || '';
+        if (!email && !requesterName) return;
+        const vip = await pgDb.get(
+            `SELECT id FROM hub_tickets.vip_users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($2) LIMIT 1`,
+            [email, requesterName]
+        );
+        if (vip) {
+            await ticketRepo.update(ticket.glpi_id, { is_vip: true });
+        }
+    },
+
     matchesRule(ticket, rule) {
         if (!rule.match_type || rule.match_type === 'any') return true;
         if (rule.match_type === 'category') {
@@ -164,6 +180,9 @@ module.exports = {
         }
         if (rule.match_type === 'type') {
             return (ticket.type || '') === rule.match_value;
+        }
+        if (rule.match_type === 'vip_requester') {
+            return !!ticket.is_vip;
         }
         return true;
     },

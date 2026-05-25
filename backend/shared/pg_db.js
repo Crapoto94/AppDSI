@@ -207,6 +207,7 @@ async function setupPgDb() {
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS total_waiting_seconds DOUBLE PRECISION DEFAULT 0'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS subcategory_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.ticket_categories ADD COLUMN IF NOT EXISTS icon VARCHAR(50)'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS software_id INTEGER REFERENCES magapp.apps(id) ON DELETE SET NULL'); } catch (e) {}
 
     // Supprimer la FK sur user_id (hub.users est vidée à chaque restart)
@@ -296,6 +297,7 @@ async function setupPgDb() {
         full_path TEXT,
         is_active BOOLEAN DEFAULT TRUE,
         sort_order INTEGER DEFAULT 0,
+        icon VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -528,6 +530,17 @@ async function setupPgDb() {
         assign_type VARCHAR(50) NOT NULL,
         assign_to_id INTEGER NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.vip_users (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        username VARCHAR(255) NOT NULL,
+        display_name VARCHAR(255),
+        email VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(username)
       );
     `);
     await client.query(`

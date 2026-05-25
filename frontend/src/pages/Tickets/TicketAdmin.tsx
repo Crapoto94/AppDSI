@@ -3,7 +3,7 @@ import axios from 'axios';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-type Tab = 'categories' | 'sla' | 'rules' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config';
+type Tab = 'categories' | 'sla' | 'rules' | 'vip' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -104,6 +104,7 @@ export default function TicketAdmin() {
     { key: 'categories',  label: 'Catégories' },
     { key: 'sla',         label: 'SLA' },
     { key: 'rules',       label: 'Règles' },
+    { key: 'vip',         label: '⭐ VIP' },
     { key: 'templates',   label: 'Templates' },
     { key: 'triggers',    label: 'Déclencheurs' },
     { key: 'technicians', label: 'Équipe' },
@@ -129,6 +130,7 @@ export default function TicketAdmin() {
         {tab === 'categories'  && <CategoryManager data={categories} onUpdate={() => loadData('/api/tickets/admin/categories', setCategories)} />}
         {tab === 'sla'         && <SLAManager data={slas} onUpdate={() => loadData('/api/tickets/admin/sla', setSlas)} />}
         {tab === 'rules'       && <RuleManager data={rules} onUpdate={() => loadData('/api/tickets/admin/assignment-rules', setRules)} />}
+        {tab === 'vip'         && <VipManager />}
         {tab === 'templates'   && <TemplateManager data={templates} onUpdate={() => loadData('/api/tickets/admin/notification-templates', setTemplates)} />}
         {tab === 'triggers'    && <TriggerManager data={triggers} onUpdate={() => loadData('/api/tickets/admin/notification-triggers', setTriggers)} />}
         {tab === 'technicians' && <TeamManager data={technicians} onUpdate={() => loadData('/api/tickets/admin/technicians', setTechnicians)} />}
@@ -370,12 +372,14 @@ const SUGGESTED_CATEGORIES = [
 function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) {
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState<string>('');
+  const [icon, setIcon] = useState('');
   const [showSuggest, setShowSuggest] = useState(false);
   const [apps, setApps] = useState<any[]>([]);
   const [loadingApps, setLoadingApps] = useState(false);
   const [expandedParent, setExpandedParent] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
+  const [editIcon, setEditIcon] = useState('');
 
   useEffect(() => {
     if (showSuggest && apps.length === 0) {
@@ -400,9 +404,10 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
     if (!name.trim()) return;
     const token = localStorage.getItem('token');
     try {
-      const res = await axios.post('/api/tickets/admin/categories', { name, parent_id: parentId ? parseInt(parentId) : null }, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.post('/api/tickets/admin/categories', { name, parent_id: parentId ? parseInt(parentId) : null, icon: icon.trim() || null }, { headers: { Authorization: `Bearer ${token}` } });
       setName('');
       setParentId('');
+      setIcon('');
       onUpdate();
     } catch (e: any) {
       console.error('Error adding category:', e.response?.data || e.message);
@@ -435,13 +440,14 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
     }
   }
 
-  async function updateCategory(id: number, newName: string) {
+  async function updateCategory(id: number, newName: string, newIcon?: string) {
     if (!newName.trim()) return;
     const token = localStorage.getItem('token');
     try {
-      await axios.put(`/api/tickets/admin/categories/${id}`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.put(`/api/tickets/admin/categories/${id}`, { name: newName, icon: newIcon !== undefined ? newIcon : undefined }, { headers: { Authorization: `Bearer ${token}` } });
       setEditingId(null);
       setEditName('');
+      setEditIcon('');
       onUpdate();
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors de la modification');
@@ -470,9 +476,11 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <input value={name} onChange={e => setName(e.target.value)} onKeyPress={e => e.key === 'Enter' && add()} placeholder="Nom de la catégorie"
-          style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+          style={{ flex: 1, minWidth: 180, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+        <input value={icon} onChange={e => setIcon(e.target.value)} placeholder="Icône (emoji ou lucide)"
+          style={{ width: 160, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
         <select value={parentId} onChange={e => setParentId(e.target.value)}
           style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff', minWidth: 150 }}>
           <option value="">— Catégorie principale —</option>
@@ -490,22 +498,26 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
                 onClick={() => setExpandedParent(expandedParent === c.id ? null : c.id)}>
                 <div style={{ flex: 1 }}>
                   {editingId === c.id ? (
-                    <input value={editName} onChange={e => setEditName(e.target.value)} onClick={e => e.stopPropagation()}
-                      style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 13, width: '100%' }}
-                      onKeyPress={e => { if (e.key === 'Enter') updateCategory(c.id, editName); if (e.key === 'Escape') setEditingId(null); }} />
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <input value={editIcon} onChange={e => setEditIcon(e.target.value)} onClick={e => e.stopPropagation()} placeholder="icone"
+                        style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 13, width: 70 }} />
+                      <input value={editName} onChange={e => setEditName(e.target.value)} onClick={e => e.stopPropagation()}
+                        style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 13, flex: 1 }}
+                        onKeyPress={e => { if (e.key === 'Enter') updateCategory(c.id, editName, editIcon); if (e.key === 'Escape') setEditingId(null); }} />
+                    </div>
                   ) : (
-                    <strong style={{ fontSize: 14 }}>{c.name}</strong>
+                    <strong style={{ fontSize: 14 }}>{c.icon ? <span style={{ marginRight: 6 }}>{c.icon}</span> : null}{c.name}</strong>
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 4, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
                   {editingId === c.id ? (
                     <>
-                      <button onClick={() => updateCategory(c.id, editName)} style={{ padding: '4px 8px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✓</button>
+                      <button onClick={() => updateCategory(c.id, editName, editIcon)} style={{ padding: '4px 8px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✓</button>
                       <button onClick={() => setEditingId(null)} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✕</button>
                     </>
                   ) : (
                     <>
-                      <button onClick={() => { setEditingId(c.id); setEditName(c.name); }} style={{ padding: '4px 8px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✎</button>
+                      <button onClick={() => { setEditingId(c.id); setEditName(c.name); setEditIcon(c.icon || ''); }} style={{ padding: '4px 8px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✎</button>
                       <button onClick={() => deleteCategory(c.id)} style={{ padding: '4px 8px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>🗑</button>
                       <span style={{ fontSize: 18, marginLeft: 8 }}>{expandedParent === c.id ? '▼' : '▶'}</span>
                     </>
@@ -518,7 +530,7 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {subs.map(sub => (
                         <div key={sub.id} style={{ padding: 8, background: '#f1f5f9', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: 13 }}>↳ {sub.name}</span>
+                          <span style={{ fontSize: 13 }}>↳ {sub.icon ? <span style={{ marginRight: 4 }}>{sub.icon}</span> : null}{sub.name}</span>
                           <div style={{ display: 'flex', gap: 4 }}>
                             <button onClick={() => deleteCategory(sub.id)} style={{ padding: '2px 6px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>🗑</button>
                           </div>
@@ -1098,31 +1110,402 @@ function SLABreaches({ data, loading }: { data: any[], loading: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RULE MANAGER
+// VIP MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
-function RuleManager({ data }: { data: any[], onUpdate: () => void }) {
+function VipManager() {
+  const token = localStorage.getItem('token');
+  const h = { Authorization: `Bearer ${token}` };
+  const [vipUsers, setVipUsers] = useState<any[]>([]);
+  const [search, setSearch] = useState('');
+  const [adResults, setAdResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [adding, setAdding] = useState<number | null>(null);
+
+  useEffect(() => { loadVipUsers(); }, []);
+
+  function loadVipUsers() {
+    axios.get('/api/tickets/admin/vip-users', { headers: h }).then(r => setVipUsers(r.data)).catch(() => {});
+  }
+
+  async function searchAD() {
+    if (!search.trim()) return;
+    setSearching(true);
+    setAdResults([]);
+    try {
+      const res = await axios.get('/api/tickets/users/ad-search', { headers: h, params: { q: search.trim() } });
+      setAdResults(res.data || []);
+    } catch { setAdResults([]); }
+    setSearching(false);
+  }
+
+  async function addVip(user: any) {
+    setAdding(user.id || 0);
+    try {
+      await axios.post('/api/tickets/admin/vip-users', {
+        user_id: user.id || null,
+        username: user.sAMAccountName || user.username || user.mail?.split('@')[0],
+        display_name: user.displayName || user.cn || user.name || '',
+        email: user.mail || user.email || '',
+      }, { headers: h });
+      loadVipUsers();
+      setSearch('');
+      setAdResults([]);
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setAdding(null);
+  }
+
+  async function removeVip(id: number) {
+    if (!confirm('Retirer cet utilisateur VIP ?')) return;
+    try {
+      await axios.delete(`/api/tickets/admin/vip-users/${id}`, { headers: h });
+      loadVipUsers();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
   return (
     <div>
-      <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Règles d'assignation</h3>
-      <div style={{ display: 'grid', gap: 8 }}>
-        {data.map(r => (
-          <div key={r.id} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{r.name}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>
-                Si {r.match_type === 'any' ? 'tous les tickets' : `${r.match_type} = ${r.match_value}`}
-                {' → '} Assigner au {r.assign_type === 'technician' ? 'technicien' : 'groupe'} #{r.assign_to_id}
+      <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>⭐ Utilisateurs VIP</h3>
+      <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b' }}>
+        Les utilisateurs VIP sont automatiquement détectés lors de la création de tickets. Vous pouvez créer des règles d'assignation avec la condition « Demandeur VIP » pour les traiter en priorité.
+      </p>
+
+      {/* Search AD */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchAD()}
+          placeholder="Rechercher dans l'AD (nom, prénom, email...)"
+          style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+        <button onClick={searchAD} disabled={searching}
+          style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13, opacity: searching ? 0.6 : 1 }}>
+          {searching ? 'Recherche...' : 'Rechercher'}
+        </button>
+      </div>
+
+      {/* AD search results */}
+      {adResults.length > 0 && (
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, marginBottom: 16, overflow: 'hidden' }}>
+          <div style={{ padding: '8px 12px', background: '#f8fafc', fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+            Résultats AD ({adResults.length})
+          </div>
+          <div style={{ maxHeight: 250, overflow: 'auto' }}>
+            {adResults.map((u, i) => {
+              const username = u.sAMAccountName || u.username || u.mail?.split('@')[0] || '';
+              const alreadyVip = vipUsers.some(v => v.username?.toLowerCase() === username.toLowerCase());
+              return (
+                <div key={i} style={{ padding: '8px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{u.displayName || u.cn || u.name}</span>
+                    <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>{username}</span>
+                    {u.mail && <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>{u.mail}</span>}
+                  </div>
+                  {alreadyVip ? (
+                    <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>Déjà VIP</span>
+                  ) : (
+                    <button onClick={() => addVip(u)} disabled={adding !== null}
+                      style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                      + Ajouter VIP
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* VIP users list */}
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8 }}>
+        Utilisateurs VIP ({vipUsers.length})
+      </div>
+      {vipUsers.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>
+          Aucun utilisateur VIP. Recherchez dans l'AD pour en ajouter.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {vipUsers.map(v => (
+            <div key={v.id} style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>⭐ {v.display_name || v.username}</span>
+                <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>@{v.username}</span>
+                {v.email && <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>{v.email}</span>}
               </div>
+              <button onClick={() => removeVip(v.id)}
+                style={{ padding: '4px 10px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                Retirer
+              </button>
             </div>
-            <span style={{ fontSize: 12, padding: '3px 8px', borderRadius: 6, background: r.is_active ? '#dcfce7' : '#fef2f2', color: r.is_active ? '#16a34a' : '#dc2626' }}>
-              {r.is_active ? 'Actif' : 'Inactif'}
-            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RULE MANAGER
+// ─────────────────────────────────────────────────────────────────────────────
+function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) {
+  const token = localStorage.getItem('token');
+  const h = { Authorization: `Bearer ${token}` };
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [isNew, setIsNew] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
+
+  const [form, setForm] = useState({
+    name: '', match_type: 'any', match_value: '', assign_type: 'group', assign_to_id: 0, priority: 0, is_active: true,
+  });
+
+  useEffect(() => {
+    axios.get('/api/tickets/admin/categories', { headers: h }).then(r => setCategories(r.data)).catch(() => {});
+    axios.get('/api/tickets/admin/technicians', { headers: h }).then(r => setTechnicians(r.data)).catch(() => {});
+    axios.get('/api/tickets/admin/groups', { headers: h }).then(r => setGroups(r.data)).catch(() => {});
+  }, []); // eslint-disable-line
+
+  const sortedCategories = React.useMemo(() => {
+    const parents = categories.filter(c => !c.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.name.localeCompare(b.name));
+    const result: any[] = [];
+    for (const p of parents) {
+      result.push(p);
+      const children = categories.filter(c => c.parent_id === p.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.name.localeCompare(b.name));
+      result.push(...children);
+    }
+    const orphans = categories.filter(c => c.parent_id && !parents.find(p => p.id === c.parent_id));
+    result.push(...orphans);
+    return result;
+  }, [categories]);
+
+  function startCreate() {
+    setIsNew(true); setEditingId(null);
+    setForm({ name: '', match_type: 'any', match_value: '', assign_type: 'group', assign_to_id: 0, priority: data.length, is_active: true });
+  }
+
+  function startEdit(r: any) {
+    setIsNew(false); setEditingId(r.id);
+    setForm({
+      name: r.name || '', match_type: r.match_type || 'any', match_value: r.match_value || '',
+      assign_type: r.assign_type || 'group', assign_to_id: r.assign_to_id || 0,
+      priority: r.priority || 0, is_active: r.is_active !== false,
+    });
+  }
+
+  function cancel() { setEditingId(null); setIsNew(false); }
+
+  async function save() {
+    setSaving(true);
+    try {
+      if (isNew) {
+        await axios.post('/api/tickets/admin/assignment-rules', form, { headers: h });
+      } else {
+        await axios.put(`/api/tickets/admin/assignment-rules/${editingId}`, form, { headers: h });
+      }
+      cancel();
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setSaving(false);
+  }
+
+  async function remove(id: number) {
+    if (!confirm('Supprimer cette règle ?')) return;
+    try {
+      await axios.delete(`/api/tickets/admin/assignment-rules/${id}`, { headers: h });
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function toggleActive(r: any) {
+    try {
+      await axios.put(`/api/tickets/admin/assignment-rules/${r.id}`, { ...r, is_active: !r.is_active }, { headers: h });
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  function setField(key: string, value: any) {
+    setForm(prev => ({ ...prev, [key]: value }));
+  }
+
+  const matchTypeOptions = [
+    { value: 'any', label: 'Tous les tickets' },
+    { value: 'category', label: 'Catégorie' },
+    { value: 'priority', label: 'Priorité' },
+    { value: 'type', label: 'Type' },
+    { value: 'vip_requester', label: 'Demandeur VIP' },
+  ];
+
+  const priorityOptions = [
+    { value: '1', label: 'Très basse' }, { value: '2', label: 'Basse' },
+    { value: '3', label: 'Moyenne' }, { value: '4', label: 'Haute' }, { value: '5', label: 'Très haute' },
+  ];
+
+  const typeOptions = [
+    { value: '1', label: 'Incident' }, { value: '2', label: 'Demande' },
+  ];
+
+  function renderMatchValueSelect() {
+    if (form.match_type === 'category') {
+      return (
+        <select value={form.match_value} onChange={e => setField('match_value', e.target.value)} style={selectStyle}>
+          <option value="">— Choisir une catégorie —</option>
+          {sortedCategories.map((c: any) => (
+            <option key={c.id} value={String(c.id)}>
+              {c.parent_id ? '  └ ' : ''}{c.full_path || c.name}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    if (form.match_type === 'priority') {
+      return (
+        <select value={form.match_value} onChange={e => setField('match_value', e.target.value)} style={selectStyle}>
+          <option value="">— Choisir une priorité —</option>
+          {priorityOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      );
+    }
+    if (form.match_type === 'type') {
+      return (
+        <select value={form.match_value} onChange={e => setField('match_value', e.target.value)} style={selectStyle}>
+          <option value="">— Choisir un type —</option>
+          {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      );
+    }
+    if (form.match_type === 'vip_requester') {
+      return <span style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', padding: '4px 10px', borderRadius: 6 }}>Demandeur présent dans la liste VIP</span>;
+    }
+    return null;
+  }
+
+  function renderAssignToSelect() {
+    if (form.assign_type === 'technician') {
+      return (
+        <select value={form.assign_to_id} onChange={e => setField('assign_to_id', parseInt(e.target.value))} style={selectStyle}>
+          <option value={0}>— Choisir un technicien —</option>
+          {technicians.map((t: any) => <option key={t.user_id} value={t.user_id}>{t.display_name || t.username}</option>)}
+        </select>
+      );
+    }
+    return (
+      <select value={form.assign_to_id} onChange={e => setField('assign_to_id', parseInt(e.target.value))} style={selectStyle}>
+        <option value={0}>— Choisir un groupe —</option>
+        {groups.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+      </select>
+    );
+  }
+
+  function describeRule(r: any): string {
+    const condition = r.match_type === 'any' ? 'Tous les tickets'
+      : r.match_type === 'category' ? `Catégorie = ${sortedCategories.find((c: any) => String(c.id) === String(r.match_value))?.full_path || r.match_value}`
+      : r.match_type === 'priority' ? `Priorité = ${priorityOptions.find(o => o.value === String(r.match_value))?.label || r.match_value}`
+      : r.match_type === 'type' ? `Type = ${typeOptions.find(o => o.value === String(r.match_value))?.label || r.match_value}`
+      : r.match_type === 'vip_requester' ? 'Demandeur VIP'
+      : `${r.match_type} = ${r.match_value}`;
+    const target = r.assign_type === 'technician'
+      ? `Technicien : ${technicians.find((t: any) => t.user_id === r.assign_to_id)?.display_name || '#' + r.assign_to_id}`
+      : `Groupe : ${groups.find((g: any) => g.id === r.assign_to_id)?.name || '#' + r.assign_to_id}`;
+    return `${condition} → ${target}`;
+  }
+
+  const isEditing = editingId !== null || isNew;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Règles d'assignation automatique</h3>
+        {!isEditing && (
+          <button onClick={startCreate} style={{ padding: '6px 14px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            + Nouvelle règle
+          </button>
+        )}
+      </div>
+
+      <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b' }}>
+        Les règles sont évaluées par ordre de priorité (plus bas = plus prioritaire). La première règle qui correspond est appliquée.
+      </p>
+
+      {/* Edit / Create form */}
+      {isEditing && (
+        <div style={{ padding: 16, border: '2px solid #6366f1', borderRadius: 10, marginBottom: 16, background: '#fafaff' }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>{isNew ? 'Nouvelle règle' : 'Modifier la règle'}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={labelStyle}>Nom</label>
+              <input value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Ex : Incidents réseau → groupe ID"
+                style={{ flex: 1, ...inputStyle }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={labelStyle}>Si</label>
+              <select value={form.match_type} onChange={e => { setField('match_type', e.target.value); setField('match_value', ''); }}
+                style={{ ...selectStyle, minWidth: 160 }}>
+                {matchTypeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              {renderMatchValueSelect()}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={labelStyle}>Assigner à</label>
+              <select value={form.assign_type} onChange={e => { setField('assign_type', e.target.value); setField('assign_to_id', 0); }}
+                style={{ ...selectStyle, minWidth: 130 }}>
+                <option value="group">Groupe</option>
+                <option value="technician">Technicien</option>
+              </select>
+              {renderAssignToSelect()}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={labelStyle}>Priorité</label>
+              <input type="number" value={form.priority} onChange={e => setField('priority', parseInt(e.target.value) || 0)}
+                style={{ width: 70, ...inputStyle }} min={0} />
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>0 = plus prioritaire</span>
+              <label style={{ ...labelStyle, marginLeft: 16 }}>
+                <input type="checkbox" checked={form.is_active} onChange={e => setField('is_active', e.target.checked)}
+                  style={{ marginRight: 6, accentColor: '#6366f1' }} />
+                Active
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={cancel} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={save} disabled={saving || !form.name.trim() || !form.assign_to_id}
+                style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: (saving || !form.name.trim() || !form.assign_to_id) ? '#94a3b8' : '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                {saving ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rules list */}
+      <div style={{ display: 'grid', gap: 8 }}>
+        {data.length === 0 && !isEditing && (
+          <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucune règle définie</div>
+        )}
+        {data.map(r => (
+          <div key={r.id} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: r.is_active ? 1 : 0.5 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{r.name}</span>
+                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#f1f5f9', color: '#64748b', fontFamily: 'monospace' }}>P{r.priority}</span>
+                <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 6, background: r.is_active ? '#dcfce7' : '#fef2f2', color: r.is_active ? '#16a34a' : '#dc2626', cursor: 'pointer' }}
+                  onClick={() => toggleActive(r)}>
+                  {r.is_active ? 'Actif' : 'Inactif'}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{describeRule(r)}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => startEdit(r)} style={{ padding: '4px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>✎</button>
+              <button onClick={() => remove(r.id)} style={{ padding: '4px 10px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>✕</button>
+            </div>
           </div>
         ))}
       </div>
     </div>
   );
 }
+
+const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, minWidth: 80, flexShrink: 0 };
+const inputStyle: React.CSSProperties = { padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none' };
+const selectStyle: React.CSSProperties = { padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff', cursor: 'pointer' };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEMPLATE / TRIGGER MANAGERS

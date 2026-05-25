@@ -17,11 +17,11 @@ router.get('/categories', authenticateJWT, async (req, res) => {
 
 router.post('/categories', authenticateAdmin, async (req, res) => {
     try {
-        const { name, parent_id, sort_order } = req.body;
+        const { name, parent_id, sort_order, icon } = req.body;
         const result = await pgDb.run(`
-            INSERT INTO hub_tickets.ticket_categories (name, parent_id, full_path, sort_order)
-            VALUES ($1, $2, $3, $4)
-        `, [name, parent_id || null, name, sort_order || 0]);
+            INSERT INTO hub_tickets.ticket_categories (name, parent_id, full_path, sort_order, icon)
+            VALUES ($1, $2, $3, $4, $5)
+        `, [name, parent_id || null, name, sort_order || 0, icon || null]);
         const id = result.lastID;
         if (parent_id) {
             const parent = await pgDb.get('SELECT full_path FROM hub_tickets.ticket_categories WHERE id = $1', [parent_id]);
@@ -36,8 +36,8 @@ router.post('/categories', authenticateAdmin, async (req, res) => {
 
 router.put('/categories/:id', authenticateAdmin, async (req, res) => {
     try {
-        await pgDb.run('UPDATE hub_tickets.ticket_categories SET name = $1, sort_order = $2 WHERE id = $3',
-            [req.body.name, req.body.sort_order || 0, req.params.id]);
+        await pgDb.run('UPDATE hub_tickets.ticket_categories SET name = $1, sort_order = $2, icon = $3 WHERE id = $4',
+            [req.body.name, req.body.sort_order || 0, req.body.icon || null, req.params.id]);
         res.json({ message: 'Catégorie mise à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
@@ -290,6 +290,33 @@ router.delete('/assignment-rules/:id', authenticateAdmin, async (req, res) => {
     try {
         await pgDb.run('DELETE FROM hub_tickets.assignment_rules WHERE id = $1', [req.params.id]);
         res.json({ message: 'Règle supprimée' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// ─── VIP Users ────────────────────────────────────────────────────
+router.get('/vip-users', authenticateJWT, async (req, res) => {
+    try {
+        const vips = await pgDb.all('SELECT * FROM hub_tickets.vip_users ORDER BY display_name, username');
+        res.json(vips);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.post('/vip-users', authenticateAdmin, async (req, res) => {
+    try {
+        const { user_id, username, display_name, email } = req.body;
+        if (!username?.trim()) return res.status(400).json({ message: 'Username requis' });
+        const result = await pgDb.run(
+            `INSERT INTO hub_tickets.vip_users (user_id, username, display_name, email) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO NOTHING`,
+            [user_id || null, username.trim().toLowerCase(), display_name || username, email || null]
+        );
+        res.status(201).json({ id: result.lastID, message: 'Utilisateur VIP ajouté' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.delete('/vip-users/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await pgDb.run('DELETE FROM hub_tickets.vip_users WHERE id = $1', [req.params.id]);
+        res.json({ message: 'Utilisateur VIP retiré' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
