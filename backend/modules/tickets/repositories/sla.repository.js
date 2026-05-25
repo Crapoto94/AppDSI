@@ -73,11 +73,9 @@ module.exports = {
     async setFirstResponse(ticketId) {
         const sla = await pgDb.get('SELECT id, first_response_at, sla_status FROM hub_tickets.ticket_sla WHERE ticket_id = $1', [ticketId]);
         if (sla && !sla.first_response_at) {
-            const now = new Date();
-            const fmt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
             await pgDb.run(
                 "UPDATE hub_tickets.ticket_sla SET first_response_at = $1, sla_status = 'ok' WHERE id = $2",
-                [fmt, sla.id]
+                [new Date(), sla.id]
             );
         }
     },

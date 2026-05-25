@@ -98,10 +98,7 @@ function escapePgValue(val) {
     if (typeof val === 'number') return String(val);
     if (val instanceof Date) {
         const pad = n => String(n).padStart(2, '0');
-        const offset = -val.getTimezoneOffset();
-        const sign = offset >= 0 ? '+' : '-';
-        const absOff = Math.abs(offset);
-        return `'${val.getFullYear()}-${pad(val.getMonth() + 1)}-${pad(val.getDate())}T${pad(val.getHours())}:${pad(val.getMinutes())}:${pad(val.getSeconds())}${sign}${pad(Math.floor(absOff / 60))}:${pad(absOff % 60)}'`;
+        return `'${val.getFullYear()}-${pad(val.getMonth() + 1)}-${pad(val.getDate())} ${pad(val.getHours())}:${pad(val.getMinutes())}:${pad(val.getSeconds())}'`;
     }
     const s = String(val).replace(/'/g, "''");
     return `'${s}'`;
