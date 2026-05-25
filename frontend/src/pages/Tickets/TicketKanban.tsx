@@ -107,8 +107,8 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
       setMoving(true);
       try {
         const token = localStorage.getItem('token');
-        if (user?.id) {
-          await axios.post(`/api/tickets/${ticketId}/assign`, { technician_id: user.id }, {
+        if (user?.username) {
+          await axios.post(`/api/tickets/${ticketId}/assign`, { technician_username: user.username }, {
             headers: { Authorization: `Bearer ${token}` }
           });
         }

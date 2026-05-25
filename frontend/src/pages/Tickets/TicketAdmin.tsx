@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
-
-type Tab = 'categories' | 'sla' | 'rules' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params';
+type Tab = 'categories' | 'sla' | 'rules' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -20,6 +19,27 @@ export default function TicketAdmin() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [triggers, setTriggers] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
+  const [liveEnabled, setLiveEnabled] = useState<boolean | null>(null);
+  const [liveToggling, setLiveToggling] = useState(false);
+
+  // Load live config once
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    axios.get('/api/live/config', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setLiveEnabled(r.data.live_enabled))
+      .catch(() => setLiveEnabled(true));
+  }, []);
+
+  async function toggleLive() {
+    const token = localStorage.getItem('token');
+    const next = !liveEnabled;
+    setLiveToggling(true);
+    try {
+      await axios.put('/api/live/config', { live_enabled: next }, { headers: { Authorization: `Bearer ${token}` } });
+      setLiveEnabled(next);
+    } catch (e) { console.error(e); }
+    finally { setLiveToggling(false); }
+  }
 
   useEffect(() => {
     switch (tab) {
@@ -51,6 +71,7 @@ export default function TicketAdmin() {
     { key: 'escalade',    label: '⬆️ Escalade' },
     { key: 'roles',       label: '🔐 Rôles' },
     { key: 'params',      label: '⚙️ Paramètres' },
+    { key: 'live_config', label: '🟢 Live' },
   ];
 
   return (
@@ -75,6 +96,45 @@ export default function TicketAdmin() {
         {tab === 'escalade'    && <EscaladeManager />}
         {tab === 'roles'       && <RolePermissionsManager />}
         {tab === 'params'      && <TicketParamsManager />}
+        {tab === 'live_config' && (
+          /* ── Live chat toggle ──────────────────────────────────────── */
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: liveEnabled ? '#f0fdf4' : '#f8fafc',
+            border: `1px solid ${liveEnabled ? '#bbf7d0' : '#e2e8f0'}`,
+            borderRadius: 12, padding: '14px 20px',
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 2 }}>
+                {liveEnabled ? '🟢 Chat live activé' : '⚫ Chat live désactivé'}
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>
+                {liveEnabled
+                  ? 'Le widget de chat est visible pour tous les utilisateurs. Les sessions live sont accessibles depuis /tickets.'
+                  : 'Le widget de chat est masqué pour tous les utilisateurs.'}
+              </div>
+            </div>
+            <button
+              onClick={toggleLive}
+              disabled={liveToggling || liveEnabled === null}
+              style={{
+                width: 52, height: 28, borderRadius: 14, border: 'none', cursor: 'pointer',
+                background: liveEnabled ? '#22c55e' : '#cbd5e1',
+                position: 'relative', transition: 'background 0.2s',
+                opacity: liveToggling ? 0.6 : 1,
+              }}
+              title={liveEnabled ? 'Désactiver le chat live' : 'Activer le chat live'}
+            >
+              <span style={{
+                position: 'absolute', top: 3, left: liveEnabled ? 27 : 3,
+                width: 22, height: 22, borderRadius: '50%', background: '#fff',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                transition: 'left 0.2s',
+                display: 'block',
+              }} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

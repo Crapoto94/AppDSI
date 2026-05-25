@@ -200,6 +200,9 @@ async function setupPgDb() {
     `);
     // Ensure glpi_id has a unique constraint (FK requirement for ticket_assignments)
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD UNIQUE (glpi_id)'); } catch (e) {}
+    // Create sequence for atomic ID generation
+    try { await client.query('CREATE SEQUENCE IF NOT EXISTS hub_tickets.ticket_id_seq'); } catch (e) {}
+    try { await client.query(`SELECT setval('hub_tickets.ticket_id_seq', COALESCE((SELECT MAX(glpi_id) FROM hub_tickets.tickets), 10000000))`); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS is_vip BOOLEAN DEFAULT false'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS total_waiting_seconds DOUBLE PRECISION DEFAULT 0'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL'); } catch (e) {}
@@ -2866,6 +2869,41 @@ async function setupPgDb() {
       );
     `);
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_pmo_assign_pmo ON projets.pmo_assignments(pmo_username);`); } catch (e) {}
+
+    // ── Live chat ──────────────────────────────────────────────────────
+    try { await client.query(`ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS is_live BOOLEAN DEFAULT false`); } catch (e) {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.live_sessions (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER,
+        user_username VARCHAR(255),
+        user_display_name VARCHAR(255),
+        user_email VARCHAR(255),
+        tech_username VARCHAR(255),
+        tech_display_name VARCHAR(255),
+        status VARCHAR(50) DEFAULT 'waiting',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        claimed_at TIMESTAMPTZ,
+        closed_at TIMESTAMPTZ
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.live_messages (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES hub_tickets.live_sessions(id) ON DELETE CASCADE,
+        sender_type VARCHAR(10) DEFAULT 'user',
+        sender_name VARCHAR(255),
+        sender_username VARCHAR(255),
+        content TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_live_messages_session ON hub_tickets.live_messages(session_id);`); } catch (e) {}
+    // Attachments support (non-destructive migrations)
+    try { await client.query(`ALTER TABLE hub_tickets.live_messages ADD COLUMN IF NOT EXISTS attachment_url VARCHAR(500)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_messages ADD COLUMN IF NOT EXISTS attachment_name VARCHAR(255)`); } catch (e) {}
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

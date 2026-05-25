@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
+import { io } from 'socket.io-client';
 import Header from '../../components/Header';
 import TicketList from './TicketList';
 import TicketKanban from './TicketKanban';
+import TicketInbox from './TicketInbox';
+import LiveSessionsPanel from './LiveSessionsPanel';
 import { useAuth } from '../../contexts/AuthContext';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 
@@ -39,7 +42,7 @@ export default function TicketsDashboard() {
   const { user } = useAuth();
   const [resolvedRole, setResolvedRole] = useState<string | null>(null);
   const [canViewKpi, setCanViewKpi] = useState(true);
-  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'inbox' | 'live'>('table');
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
@@ -55,7 +58,8 @@ export default function TicketsDashboard() {
   const showRejectedRef = useRef(false);
   const [showResolved, setShowResolved] = useState(false);
   const showResolvedRef = useRef(false);
-  const viewModeRef = useRef<'table' | 'kanban'>('table');
+  const [selectedInboxId, setSelectedInboxId] = useState<number | null>(null);
+  const viewModeRef = useRef<'table' | 'kanban' | 'inbox' | 'live'>('table');
   useEffect(() => { viewModeRef.current = viewMode; }, [viewMode]);
   const [sortKey, setSortKey] = useState('date_creation');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -71,6 +75,8 @@ export default function TicketsDashboard() {
   const [activeSubcategory, setActiveSubcategory] = useState<number | null>(null);
   const [softwares, setSoftwares] = useState<{ id: number; name: string }[]>([]);
   const [activeSoftware, setActiveSoftware] = useState<number | null>(null);
+  const [liveNotif, setLiveNotif] = useState<{ count: number; lastSession: any } | null>(null);
+  const [activeLiveFilter, setActiveLiveFilter] = useState(false);
   const limit = 50;
 
   const loadData = useCallback(async (filter?: string | null, userFilter?: string | null, pageNum?: number, searchValue: string = search, categoryId?: number | null, subcategoryId?: number | null, softwareId?: number | null, requesterEmail?: string | null) => {
@@ -81,10 +87,10 @@ export default function TicketsDashboard() {
       if (filter && KPI_FILTERS[filter]?.params) {
         Object.assign(params, KPI_FILTERS[filter].params);
       } else if (!showRejectedRef.current && !showResolvedRef.current) {
-        params.status_in = viewModeRef.current === 'kanban' ? '1,2,3,4,5' : '1,2,3,4';
+        params.status_in = (viewModeRef.current === 'kanban' || viewModeRef.current === 'inbox') ? '1,2,3,4,5' : '1,2,3,4';
       } else if (!showRejectedRef.current && showResolvedRef.current) {
         params.status_in = '1,2,3,4,5,6';
-      } else if (viewModeRef.current === 'kanban') {
+      } else if (viewModeRef.current === 'kanban' || viewModeRef.current === 'inbox') {
         params.status_in = '1,2,3,4,5';
       }
       if (userFilter && USER_FILTERS[userFilter]) {
@@ -95,7 +101,7 @@ export default function TicketsDashboard() {
       }
       if (requesterEmail) {
         params.requester_email = requesterEmail;
-      } else if (viewModeRef.current === 'kanban') {
+      } else if (viewModeRef.current === 'kanban' || viewModeRef.current === 'inbox') {
         params.status_in = '1,2,3,4,5';
       }
       if (userFilter && USER_FILTERS[userFilter]) {
@@ -112,6 +118,10 @@ export default function TicketsDashboard() {
       }
       if (softwareId) {
         params.software_id = String(softwareId);
+      }
+      if (activeLiveFilter) {
+        params.is_live = 'true';
+        params.status_in = '1,2,3,4,5,6';
       }
       params.sort = sortKey;
       params.order = sortDir;
@@ -130,7 +140,7 @@ export default function TicketsDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, sortKey, sortDir]);
+  }, [page, search, sortKey, sortDir, activeLiveFilter]);
 
   const loadDataRef = useRef(loadData);
   useEffect(() => { loadDataRef.current = loadData; }, [loadData]);
@@ -237,6 +247,25 @@ export default function TicketsDashboard() {
 
   useEffect(() => { loadKpiHistory(kpiDays); }, [kpiDays]);
   useEffect(() => { loadDailyMetrics(); }, []);
+
+  // Live sessions socket listener — notif en temps réel pour les techs
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const socket = io({ auth: { token } });
+    socket.on('connect', () => socket.emit('tech_watch'));
+    socket.on('new_live_session', (session: any) => {
+      setLiveNotif(prev => ({ count: (prev?.count || 0) + 1, lastSession: session }));
+    });
+    socket.on('session_closed', () => {
+      setLiveNotif(prev => {
+        if (!prev) return null;
+        const c = prev.count - 1;
+        return c <= 0 ? null : { ...prev, count: c };
+      });
+    });
+    return () => { socket.disconnect(); };
+  }, []);
 
   function handleFilterClick(key: string) {
     if (activeFilter === key) {
@@ -397,6 +426,28 @@ export default function TicketsDashboard() {
         </div>
       </div>
 
+      {/* ── Bannière live ── */}
+      {liveNotif && liveNotif.count > 0 && (
+        <div style={{
+          marginBottom: 12, padding: '10px 16px',
+          background: '#f0fdf4', border: '1.5px solid #86efac', borderRadius: 10,
+          display: 'flex', alignItems: 'center', gap: 12,
+          animation: 'liveBannerIn 0.3s ease',
+        }}>
+          <style>{`@keyframes liveBannerIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }`}</style>
+          <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 0 3px rgba(34,197,94,0.3)', flexShrink: 0, display: 'inline-block' }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>
+            🟢 {liveNotif.count === 1 ? 'Une nouvelle session live' : `${liveNotif.count} sessions live`} en attente
+            {liveNotif.lastSession?.user_display_name && ` — ${liveNotif.lastSession.user_display_name}`}
+          </span>
+          <button onClick={() => { setViewMode('live'); viewModeRef.current = 'live'; setLiveNotif(null); }}
+            style={{ padding: '4px 14px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>
+            Voir
+          </button>
+          <button onClick={() => setLiveNotif(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16 }}>✕</button>
+        </div>
+      )}
+
       {/* ── Barre de filtres sur une ligne ── */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <button onClick={showAll}
@@ -456,6 +507,25 @@ export default function TicketsDashboard() {
           </button>
         )}
 
+        {/* Live filter button */}
+        <button onClick={() => {
+          const next = !activeLiveFilter;
+          setActiveLiveFilter(next);
+          setActiveFilter(null);
+          setActiveUserFilter(null);
+          setPage(1);
+          loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware);
+        }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', border: activeLiveFilter ? '1.5px solid #86efac' : 'none',
+            borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            background: activeLiveFilter ? '#f0fdf4' : '#f1f5f9',
+            color: activeLiveFilter ? '#15803d' : '#475569',
+          }}>
+          🟢 Live
+        </button>
+
         <div style={{ flex: 1 }} />
 
         {/* Recherche */}
@@ -510,15 +580,61 @@ export default function TicketsDashboard() {
           )}
         </form>
 
-        <div className="view-tabs">
-          <button className={`view-tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-            Tableau
-          </button>
-          <button className={`view-tab ${viewMode === 'kanban' ? 'active' : ''}`} onClick={() => setViewMode('kanban')}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-            Kanban
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="view-tabs">
+            <button className={`view-tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => { setViewMode('table'); viewModeRef.current = 'table'; setSelectedInboxId(null); if (showResolved) { setShowResolved(false); showResolvedRef.current = false; } loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+              Tableau
+            </button>
+            <button className={`view-tab ${viewMode === 'kanban' ? 'active' : ''}`} onClick={() => { setViewMode('kanban'); viewModeRef.current = 'kanban'; setSelectedInboxId(null); if (!showResolved) { setShowResolved(true); showResolvedRef.current = true; } loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+              Kanban
+            </button>
+            <button className={`view-tab ${viewMode === 'inbox' ? 'active' : ''}`} onClick={() => { setViewMode('inbox'); viewModeRef.current = 'inbox'; if (!showResolved) { setShowResolved(true); showResolvedRef.current = true; } setSelectedInboxId(null); loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 12h7l2-3 2 6 2-3h7"/></svg>
+              Boîte
+            </button>
+            {['superadmin','admin','supervisor','superviseur','technician','technician','tech'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+              <button
+                className={`view-tab ${viewMode === 'live' ? 'active' : ''}`}
+                onClick={() => { setViewMode('live'); viewModeRef.current = 'live'; }}
+                style={{ position: 'relative' }}
+              >
+                🟢 Live
+                {liveNotif && liveNotif.count > 0 && (
+                  <span style={{
+                    position: 'absolute', top: 2, right: 2,
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: '#ef4444', border: '1.5px solid #fff',
+                  }} />
+                )}
+              </button>
+            )}
+          </div>
+          {canViewKpi && ['superadmin','admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase()) && (
+            <>
+              <button disabled={!!kpiActionLoading} onClick={async () => {
+                setKpiActionLoading('snapshot');
+                try {
+                  const token = localStorage.getItem('token');
+                  await axios.post('/api/tickets/dashboard/kpi-snapshot/run', {}, { headers: { Authorization: `Bearer ${token}` } });
+                  loadKpiHistory(kpiDays);
+                } catch { /**/ } finally { setKpiActionLoading(null); }
+              }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#475569', opacity: kpiActionLoading ? 0.5 : 1, marginLeft: 'auto' }}>
+                {kpiActionLoading === 'snapshot' ? '⏳' : '📸'} Snapshot
+              </button>
+              <button disabled={!!kpiActionLoading} onClick={async () => {
+                setKpiActionLoading('backfill');
+                try {
+                  const token = localStorage.getItem('token');
+                  await axios.post(`/api/tickets/dashboard/kpi-backfill?days=${kpiDays}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+                  loadKpiHistory(kpiDays);
+                } catch { /**/ } finally { setKpiActionLoading(null); }
+              }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#7c3aed', opacity: kpiActionLoading ? 0.5 : 1 }}>
+                {kpiActionLoading === 'backfill' ? '⏳' : '🔄'} Rétro-calculer
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -575,32 +691,6 @@ export default function TicketsDashboard() {
 
         return (
           <div style={{ marginBottom: 24 }}>
-            {/* Barre admin actions */}
-            {isAdmin && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                <button disabled={!!kpiActionLoading} onClick={async () => {
-                  setKpiActionLoading('snapshot');
-                  try {
-                    const token = localStorage.getItem('token');
-                    await axios.post('/api/tickets/dashboard/kpi-snapshot/run', {}, { headers: { Authorization: `Bearer ${token}` } });
-                    loadKpiHistory(kpiDays);
-                  } catch { /**/ } finally { setKpiActionLoading(null); }
-                }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#475569', opacity: kpiActionLoading ? 0.5 : 1 }}>
-                  {kpiActionLoading === 'snapshot' ? '⏳' : '📸'} Snapshot
-                </button>
-                <button disabled={!!kpiActionLoading} onClick={async () => {
-                  setKpiActionLoading('backfill');
-                  try {
-                    const token = localStorage.getItem('token');
-                    await axios.post(`/api/tickets/dashboard/kpi-backfill?days=${kpiDays}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-                    loadKpiHistory(kpiDays);
-                  } catch { /**/ } finally { setKpiActionLoading(null); }
-                }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#7c3aed', opacity: kpiActionLoading ? 0.5 : 1 }}>
-                  {kpiActionLoading === 'backfill' ? '⏳' : '🔄'} Rétro-calculer
-                </button>
-              </div>
-            )}
-
             {/* Grille de cartes */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(148px, 1fr))', gap: 10 }}>
               {cards.map(card => {
@@ -682,7 +772,11 @@ export default function TicketsDashboard() {
         );
       })()}
 
-      {viewMode === 'table' ? (
+      {viewMode === 'live' ? (
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 24 }}>
+          <LiveSessionsPanel />
+        </div>
+      ) : viewMode === 'table' ? (
         <TicketList
           tickets={tickets}
           loading={loading}
@@ -694,7 +788,7 @@ export default function TicketsDashboard() {
           activeSubcategory={activeSubcategory}
           onCategoryFilter={handleCategoryFilter}
         />
-      ) : (
+      ) : viewMode === 'kanban' ? (
         <TicketKanban
           tickets={tickets}
           loading={loading}
@@ -704,8 +798,21 @@ export default function TicketsDashboard() {
           onPageChange={goToPage}
           onRefresh={() => loadData(activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory, activeSoftware)}
         />
+      ) : (
+        <TicketInbox
+          tickets={tickets}
+          loading={loading}
+          total={total}
+          totalPages={totalPages}
+          page={page}
+          onPageChange={goToPage}
+          onRefresh={() => loadData(activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory, activeSoftware)}
+          selectedId={selectedInboxId}
+          onTicketClick={setSelectedInboxId}
+        />
       )}
 
+      {viewMode !== 'inbox' && viewMode !== 'live' && (
       <div className="pagination">
         <button disabled={page <= 1} onClick={() => goToPage(page - 1)}>←</button>
         {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
@@ -726,6 +833,7 @@ export default function TicketsDashboard() {
         <button disabled={page >= totalPages} onClick={() => goToPage(page + 1)}>→</button>
         <span className="info">{total} tickets · page {page}/{totalPages}</span>
       </div>
+      )}
     </div>
     </>
   );

@@ -46,6 +46,7 @@ import TicketDetail from './pages/Tickets/TicketDetail';
 import TicketCreate from './pages/Tickets/TicketCreate';
 import TicketAdmin from './pages/Tickets/TicketAdmin';
 import PublicTicketReply from './pages/PublicTicketReply';
+import ChatWidget from './components/LiveChat/ChatWidget';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -98,6 +99,7 @@ function App() {
   return (
     <BrowserRouter>
       <AccessRequestOverlay />
+      <ChatWidget />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/request-access" element={<AccessRequestPage />} />

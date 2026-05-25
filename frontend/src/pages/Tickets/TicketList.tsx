@@ -260,6 +260,7 @@ export default function TicketList({
 
   return (
     <>
+      <style>{`@keyframes livePulseRow { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,197,94,0.4)} 50%{opacity:0.85;box-shadow:0 0 0 3px rgba(34,197,94,0)} }`}</style>
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, minWidth: 1200 }}>
           <thead>
@@ -321,7 +322,7 @@ export default function TicketList({
                   style={{
                     borderBottom: '1px solid #f1f5f9',
                     cursor: 'pointer',
-                    background: isSelected ? '#eef2ff' : t.is_vip ? '#fffbeb' : undefined,
+                    background: isSelected ? '#eef2ff' : t.is_live ? '#f0fdf4' : t.is_vip ? '#fffbeb' : undefined,
                     transition: 'background 0.1s'
                   }}
                   onClick={() => window.location.href = `/tickets/${t.id}`}>
@@ -364,8 +365,16 @@ export default function TicketList({
 
                   {/* Titre + Catégorie */}
                   <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 300 }}>
-                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {t.title}
+                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {t.is_live && (
+                        <span style={{
+                          flexShrink: 0, fontSize: 10, fontWeight: 800,
+                          background: '#22c55e', color: '#fff',
+                          borderRadius: 6, padding: '1px 6px', letterSpacing: '0.05em',
+                          animation: 'livePulseRow 2s infinite',
+                        }}>LIVE</span>
+                      )}
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
                     </div>
                     {(t.category_name || t.subcategory_name) && (
                       <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

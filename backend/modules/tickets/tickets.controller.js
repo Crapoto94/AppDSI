@@ -160,18 +160,18 @@ module.exports = {
     },
 
     // ─── Actions ────────────────────────────────────────────────
-    async assign(req, res) {
+async assign(req, res) {
         try {
-            const { technician_id, group_id } = req.body;
+            const { technician_id, technician_username, group_id } = req.body;
             const ticketId = parseInt(req.params.id);
-            console.log('[ASSIGN] ticketId=%d technician_id=%s user=%s(%s)', ticketId, technician_id, req.user?.username, req.user?.id);
-            await assignmentService.assign(ticketId, { technician_id, group_id }, req.user);
+            console.log('[ASSIGN] ticketId=%d technician_id=%s technician_username=%s user=%s(%s)', ticketId, technician_id, technician_username, req.user?.username, req.user?.id);
+            await assignmentService.assign(ticketId, { technician_id, technician_username, group_id }, req.user);
 
             // Propagation de l'assignation à tous les membres du groupe
             const siblingIds = await groupRepo.getSiblingIds(ticketId);
             for (const sibId of siblingIds) {
                 try {
-                    await assignmentService.assign(sibId, { technician_id, group_id }, req.user);
+                    await assignmentService.assign(sibId, { technician_id, technician_username, group_id }, req.user);
                 } catch (e) { console.error(`[GROUP] assign propagation to #${sibId} failed:`, e.message); }
             }
 
@@ -197,17 +197,42 @@ module.exports = {
             // Find least busy member as primary
             const leastBusy = await assignmentService.findLeastBusyInGroup(group_id);
 
+            // Resolve acting user
+            let resolvedUserId = req.user?.id;
+            if (resolvedUserId && req.user?.username) {
+                const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [resolvedUserId]);
+                if (!exists) {
+                    const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [req.user.username]);
+                    if (hubUser) resolvedUserId = hubUser.id;
+                }
+            }
+
             // Remove old assignments for this ticket first
             await pgDb.run('DELETE FROM hub_tickets.ticket_assignments WHERE ticket_id = $1', [ticketId]);
 
-            // Assign to all members of the group
+            // Log group escalade event
+            try {
+                await historyRepo.log(ticketId, resolvedUserId, 'assigned_group', 'group_id', '', String(group_id), `Escaladé au groupe ${group.name}`);
+            } catch (e) { console.error('[HISTORY] group escalade log failed:', e.message); }
+
+            // Assign to all members of the group (skip individual history)
             for (const member of members) {
                 const isPrimary = leastBusy && leastBusy.user_id === member.user_id;
                 await assignmentService.assignToMultiple(ticketId, {
                     user_id: member.user_id,
                     group_id,
-                    is_primary: isPrimary
+                    is_primary: isPrimary,
+                    skipHistory: true
                 }, req.user);
+            }
+
+            // Auto-change status if ticket is new
+            const ticket = await ticketRepo.findById(ticketId);
+            if (ticket && ticket.status === 1) {
+                await ticketRepo.update(ticketId, { status: 2 });
+                try {
+                    await historyRepo.log(ticketId, resolvedUserId, 'status_changed', 'status', '1', '2', 'Escalade automatique');
+                } catch (e) { console.error('[HISTORY] auto-status log failed:', e.message); }
             }
 
             // Propagate to sibling tickets
@@ -219,7 +244,8 @@ module.exports = {
                         await assignmentService.assignToMultiple(sibId, {
                             user_id: member.user_id,
                             group_id,
-                            is_primary: leastBusy && leastBusy.user_id === member.user_id
+                            is_primary: leastBusy && leastBusy.user_id === member.user_id,
+                            skipHistory: true
                         }, req.user);
                     }
                 } catch (e) { console.error(`[GROUP] assign propagation to #${sibId} failed:`, e.message); }

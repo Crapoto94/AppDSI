@@ -48,6 +48,7 @@ const VALID_TRANSITIONS: Record<number, { to: number; label: string; color: stri
 export default function TicketDetail() {
   const { id } = useParams();
   const { user } = useAuth();
+  const isEmbedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === '1';
   const [ticket, setTicket] = useState<any>(null);
   const [comments, setComments] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
@@ -323,8 +324,8 @@ export default function TicketDetail() {
     if (newStatus === 3) {
       try {
         const token = localStorage.getItem('token');
-        if (user?.id) {
-          await axios.post(`/api/tickets/${id}/assign`, { technician_id: user.id }, { headers: { Authorization: `Bearer ${token}` } });
+        if (user?.username) {
+          await axios.post(`/api/tickets/${id}/assign`, { technician_username: user.username }, { headers: { Authorization: `Bearer ${token}` } });
         }
         // Ne change le statut que si différent (évite 3→3 refusé par le backend)
         if (ticket.status?.id !== 3) {
@@ -659,10 +660,10 @@ export default function TicketDetail() {
 
   return (
     <>
-      <Header />
+      {!isEmbedded && <Header />}
       <div style={{
         display: 'flex', flexDirection: 'column',
-        height: 'calc(100vh - 80px)',
+        height: isEmbedded ? '100vh' : 'calc(100vh - 80px)',
         background: '#fafaf9',
         fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif',
         overflow: 'hidden', fontSize: 13, color: '#18181b'
@@ -674,11 +675,11 @@ export default function TicketDetail() {
           borderBottom: '1px solid #f4f4f5', background: '#fff',
           display: 'flex', alignItems: 'center', padding: '0 20px', gap: 8
         }}>
-          <a href="/tickets" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#71717a', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>
+          {!isEmbedded && (<a href="/tickets" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#71717a', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
             Retour
-          </a>
-          <span style={{ color: '#d4d4d8', fontSize: 16 }}>·</span>
+          </a>)}
+          {!isEmbedded && <span style={{ color: '#d4d4d8', fontSize: 16 }}>·</span>}
           <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: '#6366f1' }}>#{ticket.id}</span>
           {glpiTicketUrl && (
             <a href={`${glpiTicketUrl}${ticket.id}`} target="_blank" rel="noopener noreferrer"
@@ -768,7 +769,7 @@ export default function TicketDetail() {
         <div ref={bodyRef} style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
           {/* ── LEFT PANE ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: `${paneRatio * 100}%`, flexShrink: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: `${paneRatio * 100}%`, flexShrink: 0, background: '#fff' }}>
           <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
 
             {/* DESCRIPTION */}
@@ -1006,7 +1007,7 @@ export default function TicketDetail() {
           />
 
           {/* ── RIGHT SIDEBAR ── */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 20px', minWidth: 0 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 20px', minWidth: 0, background: '#fff' }}>
 
             {/* Sidebar top bar: Edit + Groupe + Journal */}
             <div style={{ padding: '10px 0 8px', borderBottom: '1px solid #f4f4f5', display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
@@ -1347,7 +1348,7 @@ export default function TicketDetail() {
                       {h.action === 'created' && '🎫 Ticket créé'}
                       {h.action === 'status_changed' && `🔄 Statut → ${STATUS_NAMES[parseInt(h.new_value)] || h.new_value}`}
 {h.action === 'assigned' && `👤 Assigné${h.new_value_label ? ' à ' + h.new_value_label : ''}`}
-                       {h.action === 'assigned_group' && `👥 Groupe assigné${h.new_value_label ? ' → ' + h.new_value_label : ''}`}
+                       {h.action === 'assigned_group' && `⬆️ Escaladé au groupe${h.new_value_label ? ' ' + h.new_value_label : ''}`}
                       {h.action === 'comment_added' && '💬 Commentaire ajouté'}
                       {h.action === 'comment_sent_to_requester' && '✉️ Envoyé au demandeur'}
                       {h.action === 'task_created' && '📋 Tâche créée'}

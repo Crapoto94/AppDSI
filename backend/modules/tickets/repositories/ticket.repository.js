@@ -10,9 +10,9 @@ SELECT t.*,
            tp.status as technician_status,
            mu.service_code as requester_service_code,
            mu.service_complement as requester_service,
-           tgm.group_id AS bundle_id,
-           tg.name AS bundle_name,
-           tg.problem_ticket_id AS bundle_problem_ticket_id,
+           tgm_sub.bundle_id,
+           tgm_sub.bundle_name,
+           tgm_sub.bundle_problem_ticket_id,
            ma.name as software_name,
            tc.name as category_name,
            tsc.name as subcategory_name,
@@ -30,14 +30,22 @@ LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.
      LEFT JOIN hub.users tu ON ta.technician_id = tu.id
      LEFT JOIN hub_tickets.technician_groups tg2 ON ta.group_id = tg2.id
      LEFT JOIN magapp.users mu ON LOWER(t.requester_email_22) = LOWER(mu.email)
-     LEFT JOIN hub_tickets.ticket_category_assignments tca ON t.glpi_id = tca.ticket_id
+     LEFT JOIN (SELECT DISTINCT ON (ticket_id) ticket_id, category_id FROM hub_tickets.ticket_category_assignments ORDER BY ticket_id) tca ON tca.ticket_id = t.glpi_id
      LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
-     LEFT JOIN hub_tickets.ticket_group_members tgm ON tgm.ticket_id = t.glpi_id
-     LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
+     LEFT JOIN (
+         SELECT DISTINCT ON (tgm.ticket_id)
+             tgm.ticket_id,
+             tgm.group_id AS bundle_id,
+             tg.name AS bundle_name,
+             tg.problem_ticket_id AS bundle_problem_ticket_id
+         FROM hub_tickets.ticket_group_members tgm
+         LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
+         ORDER BY tgm.ticket_id
+     ) tgm_sub ON tgm_sub.ticket_id = t.glpi_id
      LEFT JOIN magapp.apps ma ON t.software_id = ma.id
      LEFT JOIN hub_tickets.ticket_categories tc ON t.category_id = tc.id
      LEFT JOIN hub_tickets.ticket_categories tsc ON t.subcategory_id = tsc.id
-     LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
+     LEFT JOIN (SELECT DISTINCT ON (ticket_id) ticket_id, sla_status FROM hub_tickets.ticket_sla ORDER BY ticket_id) tsla ON tsla.ticket_id = t.glpi_id
 `;
 
 module.exports = {
@@ -130,6 +138,13 @@ module.exports = {
             conditions.push(`t.date_creation <= $${idx++}`);
             params.push(filters.date_to);
         }
+        if (filters.is_live === 'true' || filters.is_live === '1') {
+            conditions.push(`t.is_live = true`);
+        } else {
+            // Hide live tickets whose session is still open (status != 6 = not yet closed).
+            // Use IS NOT TRUE to handle NULL is_live (regular tickets) correctly — NOT (NULL = true) = NULL (falsy in WHERE).
+            conditions.push(`(t.is_live IS NOT TRUE OR t.status = 6)`);
+        }
 
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -165,8 +180,21 @@ module.exports = {
     },
 
     async create(data) {
-        const nextId = await pgDb.get(`SELECT COALESCE(MAX(glpi_id), 10000000) + 1 as next_id FROM hub_tickets.tickets`);
-        const id = nextId.next_id;
+        // Check for duplicate: same title + requester within 2 minutes
+        if (data.title && data.requester_email) {
+            const dup = await pgDb.get(
+                `SELECT glpi_id FROM hub_tickets.tickets WHERE title = $1 AND requester_email_22 = $2 AND date_creation > NOW() - INTERVAL '2 minutes' LIMIT 1`,
+                [data.title, data.requester_email]
+            );
+            if (dup) {
+                console.log('[TICKET] Duplicate detected: title=%s email=%s existing_id=%d', data.title, data.requester_email, dup.glpi_id);
+                return dup.glpi_id;
+            }
+        }
+
+        // Atomic ID generation using sequence
+        const seqResult = await pgDb.get(`SELECT nextval('hub_tickets.ticket_id_seq') as next_id`);
+        const id = seqResult.next_id;
 
         await pgDb.run(`
             INSERT INTO hub_tickets.tickets

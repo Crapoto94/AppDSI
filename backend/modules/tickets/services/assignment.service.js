@@ -4,16 +4,21 @@ const historyRepo = require('../repositories/history.repository');
 const notificationService = require('./notification.service');
 
 module.exports = {
-    async assign(ticketId, { technician_id, group_id }, user) {
+    async assign(ticketId, { technician_id, technician_username, group_id }, user) {
         const ticket = await ticketRepo.findById(ticketId);
         if (!ticket) throw new Error('Ticket non trouvé');
 
-        // Résoudre les IDs SQLite → PostgreSQL hub.users.id par username
-        let resolvedTechId = technician_id;
-        if (resolvedTechId) {
-            const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [resolvedTechId]);
-            if (!exists && user?.username) {
-                const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
+        // Resolve technician ID: prefer username lookup, then validate passed ID
+        let resolvedTechId = null;
+        if (technician_username) {
+            const hubUser = await pgDb.get('SELECT id, displayName FROM hub.users WHERE LOWER(username) = LOWER($1)', [technician_username]);
+            if (hubUser) { resolvedTechId = hubUser.id; }
+            else { console.log('[ASSIGN] WARNING: username %s not found in hub.users', technician_username); }
+        } else if (technician_id) {
+            const exists = await pgDb.get('SELECT id, displayName FROM hub.users WHERE id = $1', [technician_id]);
+            if (exists) { resolvedTechId = technician_id; }
+            else if (user?.username) {
+                const hubUser = await pgDb.get('SELECT id, displayName FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
                 if (hubUser) { resolvedTechId = hubUser.id; console.log('[ASSIGN] Resolved techId %s -> %d (by username)', technician_id, hubUser.id); }
                 else { console.log('[ASSIGN] WARNING: techId %s not found in hub.users and no username match for %s', technician_id, user.username); }
             }
@@ -62,7 +67,7 @@ module.exports = {
         }
     },
 
-    async assignToMultiple(ticketId, { user_id, group_id, is_primary }, user) {
+    async assignToMultiple(ticketId, { user_id, group_id, is_primary, skipHistory }, user) {
         const ticket = await ticketRepo.findById(ticketId);
         if (!ticket) throw new Error('Ticket non trouvé');
 
@@ -104,19 +109,23 @@ module.exports = {
             ON CONFLICT DO NOTHING
         `, [ticketId, resolvedUserId, group_id || null, resolvedAssignedBy, is_primary ? true : false]);
 
-        if (resolvedUserId) {
+        if (resolvedUserId && !skipHistory) {
             try {
                 await historyRepo.log(ticketId, resolvedAssignedBy, 'assigned', 'technician_id',
                     '', String(resolvedUserId));
             } catch (e) { console.error('[HISTORY] assign log failed:', e.message); }
+        }
 
-            if (is_primary && ticket.status === 1) {
-                await ticketRepo.update(ticketId, { status: 2 });
+        if (resolvedUserId && is_primary && ticket.status === 1) {
+            await ticketRepo.update(ticketId, { status: 2 });
+            if (!skipHistory) {
                 try {
                     await historyRepo.log(ticketId, resolvedAssignedBy, 'status_changed', 'status', '1', '2', 'Assignation automatique');
                 } catch (e) { console.error('[HISTORY] auto-status log failed:', e.message); }
             }
+        }
 
+        if (resolvedUserId) {
             await notificationService.trigger('ticket.assigned', { ticket_id: ticketId, user, technician_id: resolvedUserId });
         }
     },

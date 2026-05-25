@@ -1,4 +1,5 @@
 const express = require('express');
+const http = require('http');
 const jwt = require('jsonwebtoken');
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // Bypass SSL certificate verification globally
@@ -333,6 +334,10 @@ const reunionStorage = multer.diskStorage({
 const uploadReunion = multer({ storage: reunionStorage, limits: { fileSize: 50 * 1024 * 1024 } });
 
 const app = express();
+const httpServer = http.createServer(app);
+// Live chat socket.io
+const { setupSocket } = require('./modules/live/live.socket');
+setupSocket(httpServer);
 // PORT and SECRET_KEY moved to shared/config.js
 
 // Logger global : enregistre TOUTES les requêtes dans mouchard.log
@@ -2966,7 +2971,7 @@ setupDb().then(async database => {
         console.error('[Consommables] Error seeding email templates:', e.message);
     }
 
-    app.listen(PORT, '0.0.0.0', () => {
+    httpServer.listen(PORT, '0.0.0.0', () => {
         console.log(`Backend server running on http://0.0.0.0:${PORT}`);
     });
 }).catch(err => {
@@ -5075,6 +5080,12 @@ ticketsCtrl.setSendMail(sendMail);
 app.use('/api/tickets/groups', ticketGroupsRouter);
 app.use('/api/tickets/admin', ticketsAdminRouter);
 app.use('/api/tickets', ticketsRouter);
+
+// ── Live chat ─────────────────────────────────────────────────────────
+const liveRouter = require('./modules/live/live.routes');
+const liveCtrl = require('./modules/live/live.controller');
+liveCtrl.setSendMail(sendMail);
+app.use('/api/live', liveRouter);
 
 // Public reply routes (no auth)
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));
