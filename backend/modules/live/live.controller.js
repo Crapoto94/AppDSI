@@ -654,19 +654,16 @@ async function otpRequest(req, res) {
         );
 
         if (_sendMail) {
-            const html = `
-                <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
-                  <h2 style="color:#4f46e5">Support DSI — Code de vérification</h2>
-                  <p>Bonjour <strong>${adUser.displayName}</strong>,</p>
-                  <p>Voici votre code de connexion pour accéder au chat de support :</p>
-                  <div style="text-align:center;margin:28px 0">
-                    <span style="font-size:40px;font-weight:900;letter-spacing:12px;color:#4f46e5;background:#eef2ff;padding:16px 28px;border-radius:12px">${code}</span>
-                  </div>
-                  <p style="color:#64748b;font-size:13px">Ce code est valable <strong>5 minutes</strong> et ne peut être utilisé qu'une seule fois.</p>
-                  <p style="color:#94a3b8;font-size:12px">Si vous n'avez pas demandé ce code, ignorez cet e-mail.</p>
-                </div>`;
+            const content = `
+                <p style="font-size:15px;color:#1e293b">Bonjour <strong>${adUser.displayName}</strong>,</p>
+                <p style="color:#374151">Voici votre code de connexion pour accéder au <strong>chat de support DSI</strong> :</p>
+                <div style="text-align:center;margin:28px 0">
+                  <span style="font-size:44px;font-weight:900;letter-spacing:14px;color:#6366f1;background:#eef2ff;padding:16px 28px;border-radius:12px;display:inline-block">${code}</span>
+                </div>
+                <p style="color:#64748b;font-size:13px">Ce code est valable <strong>5 minutes</strong> et ne peut être utilisé qu'une seule fois.</p>
+                <p style="font-size:12px;color:#94a3b8;">Si vous n'avez pas demandé ce code, ignorez cet e-mail.</p>`;
             try {
-                await _sendMail(adUser.email, 'Votre code de connexion — Support DSI', html);
+                await _sendMail(adUser.email, '[DSI Support] Votre code de connexion', content, [], 'live_otp');
             } catch (mailErr) {
                 console.error('[LIVE] OTP mail failed:', mailErr.message);
             }
