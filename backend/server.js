@@ -5076,6 +5076,10 @@ app.use('/api/tickets/groups', ticketGroupsRouter);
 app.use('/api/tickets', ticketsRouter);
 app.use('/api/tickets/admin', ticketsAdminRouter);
 
+// Public reply routes (no auth)
+app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));
+app.post('/api/public/reply/:token', (req, res) => ticketsCtrl.submitPublicReply(req, res));
+
 // Charger les permissions tickets depuis la DB au démarrage
 const { loadPermissionsFromDb } = require('./modules/tickets/middleware/ticket-permissions');
 loadPermissionsFromDb().catch(e => console.error('[TICKETS] loadPermissions failed:', e.message));

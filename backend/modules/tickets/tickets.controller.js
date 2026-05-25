@@ -1,4 +1,4 @@
-const { pgDb, pool } = require('../../shared/database');
+const { pgDb, pool, getSqlite } = require('../../shared/database');
 const ticketRepo = require('./repositories/ticket.repository');
 const commentRepo = require('./repositories/comment.repository');
 const attachmentRepo = require('./repositories/attachment.repository');
@@ -15,8 +15,30 @@ const groupRepo = require('./repositories/ticket-group.repository');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const { SECRET_KEY } = require('../../shared/config');
 
 let _sendMail = null;
+
+function makeReplyToken(ticketId, requesterEmail) {
+    const ts = Date.now();
+    const payload = `${ticketId}|${requesterEmail}|${ts}`;
+    const sig = crypto.createHmac('sha256', SECRET_KEY).update(payload).digest('hex');
+    return Buffer.from(`${payload}|${sig}`).toString('base64url');
+}
+
+function verifyReplyToken(token) {
+    try {
+        const decoded = Buffer.from(token, 'base64url').toString('utf8');
+        const parts = decoded.split('|');
+        if (parts.length !== 4) return null;
+        const [ticketId, email, ts, sig] = parts;
+        const payload = `${ticketId}|${email}|${ts}`;
+        const expected = crypto.createHmac('sha256', SECRET_KEY).update(payload).digest('hex');
+        if (!crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'))) return null;
+        return { ticketId: parseInt(ticketId), email };
+    } catch { return null; }
+}
 
 const UPLOAD_DIR = path.join(__dirname, '../../file_tickets');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -306,7 +328,7 @@ module.exports = {
 
     async sendCommentToRequester(req, res) {
         try {
-            const { content, is_private = 0 } = req.body;
+            const { content, is_private = 0, cc_observers = false } = req.body;
             const ticketId = parseInt(req.params.id);
             const ticket = await ticketService.findById(ticketId, req.user);
             if (!ticket) return res.status(404).json({ message: 'Ticket non trouvé' });
@@ -322,6 +344,8 @@ module.exports = {
 
             if (_sendMail) {
                 const authorName = req.user.displayName || req.user.username;
+                const replyToken = makeReplyToken(ticketId, requesterEmail);
+                const replyUrl = `${process.env.APP_BASE_URL || 'http://localhost:5173'}/repondre/${replyToken}`;
                 const subject = `[Ticket #${ticketId}] Réponse à votre demande`;
                 const body = `
                     <p>Bonjour ${ticket.requester.name || ''},</p>
@@ -329,9 +353,24 @@ module.exports = {
                     <blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;">
                         ${content}
                     </blockquote>
+                    <p style="margin-top:16px;">
+                        <a href="${replyUrl}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">
+                            ↩ Répondre à ce message
+                        </a>
+                    </p>
+                    <p style="font-size:12px;color:#94a3b8;">Ou copiez ce lien : ${replyUrl}</p>
                     <p>Cordialement,<br>${authorName}</p>
                 `;
                 await _sendMail(requesterEmail, subject, body);
+
+                if (cc_observers) {
+                    const obs = await observerRepo.findByTicket(ticketId);
+                    for (const o of obs) {
+                        if (o.email && o.email !== requesterEmail) {
+                            try { await _sendMail(o.email, `[CC] ${subject}`, body); } catch { /**/ }
+                        }
+                    }
+                }
             }
 
             res.status(201).json(comment);
@@ -583,5 +622,93 @@ module.exports = {
         } catch (error) {
             res.status(400).json({ message: error.message });
         }
+    },
+
+    // ─── AI Reformulate ──────────────────────────────────────────
+    async reformulateText(req, res) {
+        try {
+            const { text } = req.body;
+            if (!text || !text.trim()) return res.status(400).json({ message: 'Texte requis' });
+
+            const sqlite = getSqlite();
+            const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model'];
+            const cfg = {};
+            for (const k of keys) {
+                const row = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]);
+                cfg[k] = row ? row.setting_value : '';
+            }
+
+            const provider = cfg.ai_provider || 'groq';
+            const prompt = `Reformule ce commentaire de manière professionnelle et claire, en conservant le sens exact. Réponds uniquement avec le texte reformulé, sans introduction ni commentaire.\n\nTexte original:\n${text}`;
+
+            let result = '';
+
+            if (provider === 'anthropic' && cfg.anthropic_api_key) {
+                const https = require('https');
+                const model = cfg.anthropic_model || 'claude-3-5-sonnet-20240620';
+                const body = JSON.stringify({ model, max_tokens: 1024, messages: [{ role: 'user', content: prompt }] });
+                result = await new Promise((resolve, reject) => {
+                    const reqOpts = { hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'x-api-key': cfg.anthropic_api_key, 'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(body) } };
+                    const r = https.request(reqOpts, resp => {
+                        let d = '';
+                        resp.on('data', c => d += c);
+                        resp.on('end', () => {
+                            try { resolve(JSON.parse(d).content?.[0]?.text || ''); } catch { reject(new Error('Réponse AI invalide')); }
+                        });
+                    });
+                    r.on('error', reject);
+                    r.write(body); r.end();
+                });
+            } else {
+                // Groq / OpenRouter fallback
+                const https = require('https');
+                const apiKey = provider === 'openrouter' ? cfg.openrouter_api_key : cfg.groq_api_key;
+                const hostname = provider === 'openrouter' ? 'openrouter.ai' : 'api.groq.com';
+                const pathUrl = provider === 'openrouter' ? '/api/v1/chat/completions' : '/openai/v1/chat/completions';
+                const model = cfg.default_model || (provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'llama-3.3-70b-versatile');
+                const body = JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 1024 });
+                result = await new Promise((resolve, reject) => {
+                    const reqOpts = { hostname, path: pathUrl, method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Content-Length': Buffer.byteLength(body) } };
+                    const r = https.request(reqOpts, resp => {
+                        let d = '';
+                        resp.on('data', c => d += c);
+                        resp.on('end', () => {
+                            try { resolve(JSON.parse(d).choices?.[0]?.message?.content || ''); } catch { reject(new Error('Réponse AI invalide')); }
+                        });
+                    });
+                    r.on('error', reject);
+                    r.write(body); r.end();
+                });
+            }
+
+            res.json({ result: result.trim() });
+        } catch (error) {
+            res.status(500).json({ message: error.message || 'Erreur lors de la reformulation' });
+        }
+    },
+
+    // ─── Public reply (no auth) ───────────────────────────────────
+    getReplyFormInfo: async function(req, res) {
+        const info = verifyReplyToken(req.params.token);
+        if (!info) return res.status(400).json({ message: 'Lien invalide ou expiré' });
+        const ticket = await ticketRepo.findById(info.ticketId);
+        if (!ticket) return res.status(404).json({ message: 'Ticket non trouvé' });
+        res.json({ ticketId: info.ticketId, title: ticket.title, email: info.email });
+    },
+
+    submitPublicReply: async function(req, res) {
+        const info = verifyReplyToken(req.params.token);
+        if (!info) return res.status(400).json({ message: 'Lien invalide ou expiré' });
+        const { content } = req.body;
+        if (!content || !content.trim()) return res.status(400).json({ message: 'Contenu requis' });
+
+        const ticket = await ticketRepo.findById(info.ticketId);
+        if (!ticket) return res.status(404).json({ message: 'Ticket non trouvé' });
+
+        const fakeUser = { displayName: ticket.requester_name || info.email, username: info.email, email: info.email, id: null };
+        await commentRepo.create(info.ticketId, { content, is_private: 0 }, fakeUser);
+        res.json({ message: 'Réponse envoyée avec succès' });
     },
 };

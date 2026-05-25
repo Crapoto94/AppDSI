@@ -94,6 +94,7 @@ module.exports = {
             group_id: ticket.group_id,
             observer_count: ticket.observer_count,
             history_count: ticket.history_count || 0,
+            followups_count: ticket.followups_count || 0,
             tasks_count: ticket.tasks_count || 0,
             impact: { id: ticket.impact, label: IMPACT_NAMES[ticket.impact] || null },
             is_vip: !!ticket.is_vip,

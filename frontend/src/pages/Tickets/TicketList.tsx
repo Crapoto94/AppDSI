@@ -156,7 +156,7 @@ const SORT_FIELDS: Record<string, (t: any) => any> = {
   priority:   t => t.priority?.id ?? 0,
   impact:     t => t.impact?.id ?? 0,
   type:       t => String(t.type || ''),
-  history:    t => t.history_count ?? 0,
+  comments:   t => t.followups_count ?? 0,
   tasks:      t => t.tasks_count ?? 0,
   observers:  t => t.observer_count ?? 0,
   active:     t => t.active_days ?? -1,
@@ -281,7 +281,7 @@ export default function TicketList({
                 { key: 'impact',     label: 'Impact',     align: 'center' },
                 { key: 'software',   label: 'Logiciel',   align: 'center' },
                 { key: 'type',       label: 'Type',       align: 'center' },
-                { key: 'history',    label: 'Journal',    align: 'center' },
+                { key: 'comments',   label: 'Comm.',      align: 'center' },
                 { key: 'tasks',      label: 'Tâches',     align: 'center' },
                 { key: 'observers',  label: 'Obs.',       align: 'center' },
                 { key: 'active',     label: 'Actif',      align: 'center' },
@@ -434,16 +434,16 @@ export default function TicketList({
                     </span>
                   </td>
 
-                  {/* Journal */}
+                  {/* Comm. */}
                   <td style={tdStyle}>
                     <span style={{
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                       minWidth: 22, height: 22, borderRadius: 11, padding: '0 6px',
                       fontSize: 11, fontWeight: 600,
-                      background: (t.history_count || 0) > 0 ? '#e0f2fe' : '#f1f5f9',
-                      color: (t.history_count || 0) > 0 ? '#0284c7' : '#94a3b8'
+                      background: (t.followups_count || 0) > 0 ? '#e0f2fe' : '#f1f5f9',
+                      color: (t.followups_count || 0) > 0 ? '#0284c7' : '#94a3b8'
                     }}>
-                      📋 {t.history_count || 0}
+                      💬 {t.followups_count || 0}
                     </span>
                   </td>
 

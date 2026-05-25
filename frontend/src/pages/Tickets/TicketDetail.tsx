@@ -90,6 +90,27 @@ export default function TicketDetail() {
   const [apps, setApps] = useState<any[]>([]);
   const [editForm, setEditForm] = useState<any>({});
 
+  // Resize panneau gauche/droite
+  const [paneRatio, setPaneRatio] = useState<number>(() => {
+    const v = localStorage.getItem('ticket-pane-ratio');
+    return v ? Math.min(0.85, Math.max(0.3, parseFloat(v))) : 0.667;
+  });
+  const isDragging = useRef(false);
+  const dragStartX = useRef(0);
+  const dragStartRatio = useRef(0);
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  // Reformule
+  const [reformulating, setReformulating] = useState(false);
+  const [reformulationProposal, setReformulationProposal] = useState<string | null>(null);
+
+  // CC observateurs à l'envoi
+  const [ccObservers, setCcObservers] = useState(false);
+
+  // Résolution en cascade
+  const [showCascadeModal, setShowCascadeModal] = useState(false);
+  const [cascadeSolution, setCascadeSolution] = useState('');
+
   useEffect(() => { loadTicket(); loadGroup(); loadCategoriesAndApps(); }, [id]);
 
   useEffect(() => {
@@ -325,6 +346,12 @@ export default function TicketDetail() {
       const token = localStorage.getItem('token');
       await axios.post(`/api/tickets/${id}/solution`, { solution: solutionText }, { headers: { Authorization: `Bearer ${token}` } });
       loadTicket();
+      // Proposer résolution en cascade si groupe avec d'autres tickets
+      const others = ticketGroup?.members?.filter((m: any) => m.ticket_id !== parseInt(id || '0')) || [];
+      if (others.length > 0) {
+        setCascadeSolution(solutionText);
+        setShowCascadeModal(true);
+      }
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erreur');
     }
@@ -421,10 +448,12 @@ export default function TicketDetail() {
       }
       await axios.post(`/api/tickets/${id}/comments/send`, {
         content,
-        is_private: 0
+        is_private: 0,
+        cc_observers: ccObservers
       }, { headers: { Authorization: `Bearer ${token}` } });
       setNewComment('');
       setCommentFile(null);
+      setCcObservers(false);
       loadTicket();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erreur envoi email');
@@ -463,6 +492,62 @@ export default function TicketDetail() {
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erreur');
     }
+  }
+
+  function startDrag(e: React.MouseEvent) {
+    isDragging.current = true;
+    dragStartX.current = e.clientX;
+    dragStartRatio.current = paneRatio;
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current || !bodyRef.current) return;
+      const totalW = bodyRef.current.offsetWidth;
+      if (!totalW) return;
+      const dx = ev.clientX - dragStartX.current;
+      const newRatio = Math.min(0.85, Math.max(0.3, dragStartRatio.current + dx / totalW));
+      setPaneRatio(newRatio);
+    };
+    const onUp = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      const totalW = bodyRef.current?.offsetWidth || 1;
+      const dx = ev.clientX - dragStartX.current;
+      const newRatio = Math.min(0.85, Math.max(0.3, dragStartRatio.current + dx / totalW));
+      localStorage.setItem('ticket-pane-ratio', String(newRatio));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  async function handleReformulate() {
+    const plainText = newComment.replace(/<[^>]*>/g, '').trim();
+    if (!plainText) return;
+    setReformulating(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/tickets/ai/reformulate', { text: plainText }, { headers: { Authorization: `Bearer ${token}` } });
+      setReformulationProposal(res.data.result);
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la reformulation');
+    } finally {
+      setReformulating(false);
+    }
+  }
+
+  async function handleCascadeResolve() {
+    if (!ticketGroup) return;
+    const token = localStorage.getItem('token');
+    const others = ticketGroup.members?.filter((m: any) => m.ticket_id !== parseInt(id || '0')) || [];
+    for (const m of others) {
+      try {
+        await axios.post(`/api/tickets/${m.ticket_id}/solution`,
+          { solution: cascadeSolution },
+          { headers: { Authorization: `Bearer ${token}` } });
+      } catch { /* skip failures */ }
+    }
+    setShowCascadeModal(false);
+    loadTicket();
   }
 
   if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#64748b', fontFamily: 'system-ui, sans-serif' }}>Chargement...</div>;
@@ -590,10 +675,10 @@ export default function TicketDetail() {
         </div>
 
         {/* ── BODY ── */}
-        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '2fr 1fr', overflow: 'hidden' }}>
+        <div ref={bodyRef} style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
           {/* ── LEFT PANE ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRight: '1px solid #f4f4f5' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: `${paneRatio * 100}%`, flexShrink: 0 }}>
           <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
 
             {/* DESCRIPTION */}
@@ -730,6 +815,23 @@ export default function TicketDetail() {
 
           {/* ── REPLY BAR (inside left pane) ── */}
           <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff', padding: '10px 20px' }}>
+            {/* Reformulation proposal */}
+            {reformulationProposal !== null && (
+              <div style={{ marginBottom: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', marginBottom: 6 }}>✨ Proposition de reformulation :</div>
+                <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{reformulationProposal}</div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={() => { setNewComment(reformulationProposal); setReformulationProposal(null); }}
+                    style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                    ✓ Accepter
+                  </button>
+                  <button onClick={() => setReformulationProposal(null)}
+                    style={{ padding: '4px 12px', background: 'transparent', color: '#6b7280', border: '1px solid #e4e4e7', borderRadius: 5, cursor: 'pointer', fontSize: 11 }}>
+                    ✕ Ignorer
+                  </button>
+                </div>
+              </div>
+            )}
             <div style={{ border: '1px solid #e4e4e7', borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
               <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire..."
                 modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
@@ -742,12 +844,18 @@ export default function TicketDetail() {
                 <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, color: '#71717a', cursor: 'pointer' }}>
                   <input type="checkbox" checked={commentPrivate} onChange={e => setCommentPrivate(e.target.checked)} />
-                  Commentaire interne
+                  Interne
                 </label>
+                {ticket.requester?.email && !commentPrivate && observers.length > 0 && (
+                  <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, color: '#71717a', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={ccObservers} onChange={e => setCcObservers(e.target.checked)} />
+                    CC observateurs
+                  </label>
+                )}
                 <button onClick={() => fileInputRef.current?.click()} title="Joindre un fichier"
                   style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
                   📎 Fichier
@@ -755,6 +863,11 @@ export default function TicketDetail() {
                 <input ref={fileInputRef} type="file" style={{ display: 'none' }}
                   onChange={e => setCommentFile(e.target.files?.[0] || null)}
                   accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
+                <button onClick={handleReformulate} disabled={isCommentEmpty(newComment) || reformulating}
+                  title="Reformuler avec l'IA"
+                  style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: isCommentEmpty(newComment) ? 'default' : 'pointer', fontSize: 11, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 3, opacity: isCommentEmpty(newComment) ? 0.4 : 1 }}>
+                  {reformulating ? '⏳' : '✨'} Reformuler
+                </button>
               </div>
               <div style={{ display: 'flex', gap: 7 }}>
                 {ticket.requester?.email && !commentPrivate && (
@@ -774,10 +887,18 @@ export default function TicketDetail() {
           </div>
           {/* end left pane */}
 
-
+          {/* ── DRAG HANDLE ── */}
+          <div onMouseDown={startDrag} style={{
+            width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent',
+            borderLeft: '1px solid #f4f4f5', borderRight: '1px solid #f4f4f5',
+            transition: 'background 0.15s'
+          }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#e0e7ff')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          />
 
           {/* ── RIGHT SIDEBAR ── */}
-          <div style={{ overflowY: 'auto', padding: '0 14px 20px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 20px', minWidth: 0 }}>
 
             {/* Sidebar top bar: Edit + Groupe + Journal */}
             <div style={{ padding: '10px 0 8px', borderBottom: '1px solid #f4f4f5', display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
@@ -1270,6 +1391,42 @@ export default function TicketDetail() {
               <button onClick={handleSolutionSubmit} disabled={!solutionText.trim()}
                 style={{ padding: '10px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                 Résoudre
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cascade Resolution Modal ────────────────────────────────────── */}
+      {showCascadeModal && ticketGroup && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500 }}
+          onClick={() => setShowCascadeModal(false)}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 500 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: 17, fontWeight: 700 }}>✅ Résolution en cascade</h3>
+            <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#64748b' }}>
+              Ce ticket fait partie d'un groupe. Voulez-vous résoudre les tickets liés avec la même solution ?
+            </p>
+            <div style={{ background: '#f9f9fb', borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
+              {ticketGroup.members?.filter((m: any) => m.ticket_id !== parseInt(id || '0')).map((m: any) => (
+                <div key={m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 13 }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#6366f1' }}>#{m.ticket_id}</span>
+                  <span style={{ color: '#3f3f46', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>Solution à appliquer</label>
+              <textarea value={cascadeSolution} onChange={e => setCascadeSolution(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 7, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', resize: 'vertical', minHeight: 60 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowCascadeModal(false)}
+                style={{ padding: '9px 20px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
+                Non, ignorer
+              </button>
+              <button onClick={handleCascadeResolve}
+                style={{ padding: '9px 20px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                ✓ Résoudre tous les tickets liés
               </button>
             </div>
           </div>

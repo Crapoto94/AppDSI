@@ -58,6 +58,9 @@ router.delete('/:id/watch', authenticateJWT, (req, res) => controller.removeWatc
 router.post('/:id/favorite', authenticateJWT, (req, res) => controller.addFavorite(req, res));
 router.delete('/:id/favorite', authenticateJWT, (req, res) => controller.removeFavorite(req, res));
 
+// ─── AI ───────────────────────────────────────────────────────────
+router.post('/ai/reformulate', authenticateJWT, (req, res) => controller.reformulateText(req, res));
+
 // ─── CRUD Tickets (doit être APRÈS les routes spécifiques) ────────
 router.get('/requester/:email', authenticateJWT, (req, res) => controller.getByRequester(req, res));
 router.delete('/bulk', authenticateJWT, (req, res) => controller.bulkDelete(req, res));
@@ -65,6 +68,7 @@ router.get('/', authenticateJWT, (req, res) => controller.getAll(req, res));
 router.get('/:id', authenticateJWT, (req, res) => controller.getById(req, res));
 router.post('/', authenticateJWT, (req, res) => controller.create(req, res));
 router.put('/:id', authenticateJWT, (req, res) => controller.update(req, res));
+router.patch('/:id', authenticateJWT, (req, res) => controller.update(req, res));
 router.delete('/:id', authenticateJWT, (req, res) => controller.delete(req, res));
 
 module.exports = router;
