@@ -448,7 +448,7 @@ export default function TicketsDashboard() {
             {/* Grille de cartes */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(148px, 1fr))', gap: 10 }}>
               {cards.map(card => {
-                const sparkData = kpiHistory.map(r => ({ v: r[card.histKey] || 0, d: new Date(r.snapshot_date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) }));
+                const sparkData = kpiHistory.map(r => ({ v: (card.histKey ? r[card.histKey] : 0) || 0, d: new Date(r.snapshot_date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) }));
                 const first = sparkData[0]?.v ?? 0;
                 const last  = sparkData[sparkData.length - 1]?.v ?? 0;
                 const delta = last - first;
