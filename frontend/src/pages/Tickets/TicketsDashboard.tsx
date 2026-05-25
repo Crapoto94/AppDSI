@@ -77,6 +77,7 @@ export default function TicketsDashboard() {
   const [activeSoftware, setActiveSoftware] = useState<number | null>(null);
   const [liveNotif, setLiveNotif] = useState<{ count: number; lastSession: any } | null>(null);
   const [activeLiveFilter, setActiveLiveFilter] = useState(false);
+  const [liveStats, setLiveStats] = useState<any>(null);
   const limit = 50;
 
   const loadData = useCallback(async (filter?: string | null, userFilter?: string | null, pageNum?: number, searchValue: string = search, categoryId?: number | null, subcategoryId?: number | null, softwareId?: number | null, requesterEmail?: string | null) => {
@@ -162,6 +163,9 @@ export default function TicketsDashboard() {
       .catch(() => {});
     axios.get('/api/tickets/has-permission/dashboard:view_kpi', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setCanViewKpi(r.data.allowed !== false))
+      .catch(() => {});
+    axios.get('/api/live/stats', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setLiveStats(r.data))
       .catch(() => {});
   }, []);
 
@@ -689,6 +693,9 @@ export default function TicketsDashboard() {
             sub: `${stats?.resolved_week_count || 0} cette semaine`, goodDown: false, isTime: true },
         ];
 
+        const LIVE_TECH_ROLES = ['superadmin','admin','supervisor','superviseur','technician','tech'];
+        const isLiveTech = LIVE_TECH_ROLES.includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim());
+
         return (
           <div style={{ marginBottom: 24 }}>
             {/* Grille de cartes */}
@@ -767,6 +774,101 @@ export default function TicketsDashboard() {
                   </div>
                 );
               })}
+            </div>
+
+            {/* ── Carte KPI live chat ─────────────────────────────── */}
+            {isLiveTech && liveStats && (
+              <div
+                onClick={() => { setViewMode('live'); viewModeRef.current = 'live'; }}
+                style={{
+                  marginTop: 10,
+                  background: '#fff',
+                  border: `1.5px solid ${liveStats.active > 0 ? '#86efac' : '#e2e8f0'}`,
+                  borderRadius: 12, padding: '12px 16px',
+                  cursor: 'pointer',
+                  boxShadow: liveStats.active > 0 ? '0 0 0 2px rgba(34,197,94,0.12)' : 'none',
+                  display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
+                  position: 'relative', overflow: 'hidden',
+                }}
+              >
+                {/* Mini area sparkline en fond */}
+                {liveStats.daily?.length >= 2 && (
+                  <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 180, opacity: 0.12, pointerEvents: 'none' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={liveStats.daily} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                        <Line type="monotone" dataKey="count" stroke="#22c55e" strokeWidth={2} dot={false} isAnimationActive={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Badge live */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <span style={{
+                    width: 10, height: 10, borderRadius: '50%', flexShrink: 0, display: 'inline-block',
+                    background: liveStats.active > 0 ? '#22c55e' : '#94a3b8',
+                    boxShadow: liveStats.active > 0 ? '0 0 0 3px rgba(34,197,94,0.25)' : 'none',
+                  }} />
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Chat live
+                  </span>
+                </div>
+
+                {/* Métriques */}
+                {[
+                  { label: 'En cours', value: liveStats.active,      color: liveStats.active > 0 ? '#22c55e' : '#94a3b8', big: true },
+                  { label: "Auj.", value: liveStats.today,            color: '#6366f1' },
+                  { label: 'Semaine', value: liveStats.this_week,     color: '#8b5cf6' },
+                  { label: 'Mois',    value: liveStats.this_month,    color: '#3b82f6' },
+                  { label: 'Durée moy.', value: liveStats.avg_duration_min ? `${liveStats.avg_duration_min}mn` : '—', color: '#f59e0b' },
+                  { label: 'Rép. moy.',  value: liveStats.avg_response_min  ? `${liveStats.avg_response_min}mn` : '—', color: '#f97316' },
+                ].map(m => (
+                  <div key={m.label} style={{ textAlign: 'center', flexShrink: 0 }}>
+                    <div style={{ fontSize: m.big ? 24 : 18, fontWeight: 800, color: m.color, lineHeight: 1 }}>{m.value}</div>
+                    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{m.label}</div>
+                  </div>
+                ))}
+
+                <div style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4, position: 'relative', zIndex: 1 }}>
+                  Voir les sessions →
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Live KPI card pour les rôles sans accès KPI mais avec accès live */}
+      {!canViewKpi && liveStats && (() => {
+        const LIVE_TECH_ROLES = ['superadmin','admin','supervisor','superviseur','technician','tech'];
+        const isLiveTech = LIVE_TECH_ROLES.includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim());
+        if (!isLiveTech) return null;
+        return (
+          <div style={{ marginBottom: 24 }}>
+            <div
+              onClick={() => { setViewMode('live'); viewModeRef.current = 'live'; }}
+              style={{
+                background: '#fff',
+                border: `1.5px solid ${liveStats.active > 0 ? '#86efac' : '#e2e8f0'}`,
+                borderRadius: 12, padding: '12px 16px',
+                cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
+              }}
+            >
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: liveStats.active > 0 ? '#22c55e' : '#94a3b8', display: 'inline-block' }} />
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Chat live</span>
+              {[
+                { label: 'En cours', value: liveStats.active, color: liveStats.active > 0 ? '#22c55e' : '#94a3b8' },
+                { label: "Auj.", value: liveStats.today, color: '#6366f1' },
+                { label: 'Semaine', value: liveStats.this_week, color: '#8b5cf6' },
+                { label: 'Durée moy.', value: liveStats.avg_duration_min ? `${liveStats.avg_duration_min}mn` : '—', color: '#f59e0b' },
+              ].map(m => (
+                <div key={m.label} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: m.color }}>{m.value}</div>
+                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{m.label}</div>
+                </div>
+              ))}
+              <div style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8' }}>Voir les sessions →</div>
             </div>
           </div>
         );
