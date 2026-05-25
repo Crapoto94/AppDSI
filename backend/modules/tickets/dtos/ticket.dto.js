@@ -113,6 +113,7 @@ module.exports = {
             subcategory_name: ticket.subcategory_name || null,
             active_days: computeActiveDays(ticket),
             waiting_reason: ticket.waiting_reason || null,
+            sla_status: ticket.sla_status || null,
         };
     },
 

@@ -68,7 +68,7 @@ export default function TicketAdmin() {
         {tab === 'sla'         && <SLAManager data={slas} onUpdate={() => loadData('/api/tickets/admin/sla', setSlas)} />}
         {tab === 'rules'       && <RuleManager data={rules} onUpdate={() => loadData('/api/tickets/admin/assignment-rules', setRules)} />}
         {tab === 'templates'   && <TemplateManager data={templates} onUpdate={() => loadData('/api/tickets/admin/notification-templates', setTemplates)} />}
-        {tab === 'triggers'    && <TriggerManager data={triggers} />}
+        {tab === 'triggers'    && <TriggerManager data={triggers} onUpdate={() => loadData('/api/tickets/admin/notification-triggers', setTriggers)} />}
         {tab === 'technicians' && <TeamManager data={technicians} onUpdate={() => loadData('/api/tickets/admin/technicians', setTechnicians)} />}
         {tab === 'escalade'    && <EscaladeManager />}
         {tab === 'roles'       && <RolePermissionsManager />}
@@ -307,46 +307,52 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
 // ─────────────────────────────────────────────────────────────────────────────
 type SlaTab = 'definitions' | 'calendars' | 'breaches';
 
-function SLAManager({ data: initialData }: { data: any[], onUpdate: () => void }) {
+function SLAManager({ data: initialData, onUpdate: parentOnUpdate }: { data: any[], onUpdate: () => void }) {
   const [subTab, setSubTab] = useState<SlaTab>('definitions');
   const [definitions, setDefinitions] = useState<any[]>(initialData);
   const [calendars, setCalendars] = useState<any[]>([]);
   const [breaches, setBreaches] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => { setDefinitions(initialData); }, [initialData]);
 
   useEffect(() => {
+    if (subTab === 'definitions') refreshDefinitions();
     if (subTab === 'calendars') loadCalendars();
     if (subTab === 'breaches') loadBreaches();
   }, [subTab]);
 
   async function loadCalendars() {
-    setLoading(true);
+    setLoading(true); setError('');
     try {
       const token = localStorage.getItem('token');
       const res = await axios.get('/api/tickets/admin/sla/calendars', { headers: { Authorization: `Bearer ${token}` } });
       setCalendars(res.data);
-    } catch (e) { console.error(e); }
+    } catch (e: any) { setError(e.response?.data?.message || e.message); }
     setLoading(false);
   }
 
   async function loadBreaches() {
-    setLoading(true);
+    setLoading(true); setError('');
     try {
       const token = localStorage.getItem('token');
       const res = await axios.get('/api/tickets/dashboard/sla-breaches', { headers: { Authorization: `Bearer ${token}` } });
       setBreaches(res.data);
-    } catch (e) { console.error(e); }
+    } catch (e: any) { setError(e.response?.data?.message || e.message); }
     setLoading(false);
   }
 
   async function refreshDefinitions() {
+    setError('');
     try {
       const token = localStorage.getItem('token');
       const res = await axios.get('/api/tickets/admin/sla', { headers: { Authorization: `Bearer ${token}` } });
       setDefinitions(res.data);
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      const msg = e.response?.data?.message || e.message;
+      setError(`GET /api/tickets/admin/sla → ${msg}`);
+    }
   }
 
   const subTabs: { key: SlaTab; label: string }[] = [
@@ -364,6 +370,11 @@ function SLAManager({ data: initialData }: { data: any[], onUpdate: () => void }
           </button>
         ))}
       </div>
+      {error && (
+        <div style={{ padding: '10px 14px', background: '#fef2f2', color: '#dc2626', borderRadius: 8, fontSize: 13, marginBottom: 16, border: '1px solid #fecaca' }}>
+          ⚠️ {error}
+        </div>
+      )}
       {subTab === 'definitions' && <SLADefinitions data={definitions} onUpdate={refreshDefinitions} />}
       {subTab === 'calendars' && <SLACalendars data={calendars} onUpdate={loadCalendars} loading={loading} />}
       {subTab === 'breaches' && <SLABreaches data={breaches} loading={loading} />}
@@ -458,10 +469,16 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Définitions SLA</h3>
-        <button onClick={() => setShowCreate(true)}
-          style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
-          + Nouveau SLA
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onUpdate} title="Rafraîchir"
+            style={{ padding: '8px 12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+            ⟳
+          </button>
+          <button onClick={() => setShowCreate(true)}
+            style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+            + Nouveau SLA
+          </button>
+        </div>
       </div>
 
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -747,6 +764,10 @@ function SLABreaches({ data, loading }: { data: any[], loading: boolean }) {
     warning: { label: 'Alerte', color: '#f59e0b', bg: '#fffbeb' },
     breached: { label: 'Dépassé', color: '#ef4444', bg: '#fef2f2' },
   };
+  const BREACH_LABELS: Record<string, string> = {
+    first_response: '1ère réponse',
+    resolution: 'Résolution',
+  };
 
   return (
     <div>
@@ -768,9 +789,22 @@ function SLABreaches({ data, loading }: { data: any[], loading: boolean }) {
                     {' — '}{s.title}
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                    Statut: {s.status_label || `#${s.status}`}
-                    {s.first_response_target && <> · 1ère réponse: {new Date(s.first_response_target).toLocaleString('fr-FR')}</>}
-                    {s.resolution_target && <> · Résolution: {new Date(s.resolution_target).toLocaleString('fr-FR')}</>}
+                    <span style={{ fontWeight: 500, color: '#ef4444' }}>{s.sla_name}</span>
+                    {' · '}
+                    <span style={{ fontWeight: 500, color: s.breach_type === 'first_response' ? '#dc2626' : s.breach_type === 'resolution' ? '#ea580c' : '#64748b' }}>
+                      {BREACH_LABELS[s.breach_type] || s.breach_type}
+                    </span>
+                    {' · Statut: '}{s.status_label || `#${s.status}`}
+                    {s.first_response_target && (
+                      <span style={{ color: s.breach_type === 'first_response' ? '#dc2626' : undefined, fontWeight: s.breach_type === 'first_response' ? 600 : undefined }}>
+                        {' · 1ère réponse: '}{new Date(s.first_response_target).toLocaleString('fr-FR')}
+                      </span>
+                    )}
+                    {s.resolution_target && (
+                      <span style={{ color: s.breach_type === 'resolution' ? '#ea580c' : undefined, fontWeight: s.breach_type === 'resolution' ? 600 : undefined }}>
+                        {' · Résolution: '}{new Date(s.resolution_target).toLocaleString('fr-FR')}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -907,16 +941,30 @@ function TemplateManager({ data, onUpdate }: { data: any[], onUpdate: () => void
   );
 }
 
-function TriggerManager({ data }: { data: any[] }) {
+function TriggerManager({ data, onUpdate }: { data: any[], onUpdate?: () => void }) {
+  const token = localStorage.getItem('token');
+  const h = { Authorization: `Bearer ${token}` };
+
+  async function toggleActive(t: any) {
+    try {
+      await axios.put(`/api/tickets/admin/notification-triggers/${t.id}`, { is_active: !t.is_active }, { headers: h });
+      onUpdate?.();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
   return (
     <div>
       <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Déclencheurs de notifications</h3>
       <div style={{ display: 'grid', gap: 8 }}>
         {data.map(t => (
           <div key={t.id} style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-            <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button onClick={() => toggleActive(t)}
+                style={{ width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', position: 'relative', background: t.is_active ? '#22c55e' : '#cbd5e1', transition: 'background 0.2s' }}>
+                <span style={{ position: 'absolute', top: 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', left: t.is_active ? 18 : 2 }} />
+              </button>
               <span style={{ fontWeight: 600 }}>{t.event}</span>
-              <span style={{ color: '#64748b', margin: '0 8px' }}>→</span>
+              <span style={{ color: '#64748b' }}>→</span>
               <span>{t.recipient_type}</span>
             </div>
             <span style={{ color: '#94a3b8', fontSize: 12 }}>{t.template_label}</span>

@@ -339,7 +339,7 @@ export default function TicketList({
                     />
                   </td>
 
-                  {/* ID + VIP + Groupe */}
+                  {/* ID + VIP + Groupe + SLA */}
                   <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 600, color: '#6366f1' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                       {t.is_vip && <span title="Ticket VIP" style={{ fontSize: 11 }}>⭐</span>}
@@ -354,6 +354,8 @@ export default function TicketList({
                           🔗
                         </span>
                       )}
+                      {t.sla_status === 'breached' && <span title="SLA dépassé" style={{ fontSize: 13, color: '#ef4444' }}>⚠️</span>}
+                      {t.sla_status === 'warning' && <span title="SLA en alerte" style={{ fontSize: 13, color: '#f59e0b' }}>⚠️</span>}
                       {t.id}
                     </div>
                   </td>

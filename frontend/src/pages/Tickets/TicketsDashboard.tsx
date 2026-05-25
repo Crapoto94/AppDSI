@@ -12,6 +12,7 @@ const KPI_FILTERS: Record<string, { label: string; params?: Record<string, strin
   waiting:   { label: 'En attente', params: { status_in: '4,5' } },
   critical:  { label: 'Critiques',  params: { status_in: '1,2,3', priority: '5' } },
   resolved:  { label: 'Résolus',    params: { status_in: '6' } },
+  sla_breached: { label: 'SLA dépassées', params: { sla_breached: '1' } },
 };
 
 const USER_FILTERS: Record<string, { label: string; icon?: string; getParams: () => Record<string, string> }> = {
@@ -387,6 +388,9 @@ export default function TicketsDashboard() {
             goodDown: false },
           { key: 'problems',     label: 'Problèmes',        color: '#7c3aed', filterKey: null,
             value: stats?.problems || 0, histKey: 'problems', sub: '', goodDown: true },
+          { key: 'sla_breached', label: 'SLA dépassés',     color: '#ef4444', filterKey: 'sla_breached',
+            value: stats?.sla_breached || 0, histKey: null,
+            sub: `${stats?.sla_warning || 0} en alerte`, goodDown: true },
           { key: 'age',          label: 'Âge moy. ouverts', color: '#f97316', filterKey: null,
             value: (stats?.avg_age_open_seconds > 0) ? formatDuration(stats.avg_age_open_seconds) : '-',
             histKey: 'avg_age_open_seconds', sub: 'depuis création', goodDown: true, isTime: true },

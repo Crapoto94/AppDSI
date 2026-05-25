@@ -40,9 +40,20 @@ module.exports = {
     async getActiveBreaches() {
         return pgDb.all(`
             SELECT ts.*, t.glpi_id, t.title, t.status, t.priority,
-                   s.label as status_label
+                   s.label as status_label,
+                   sd.name as sla_name,
+                   CASE
+                       WHEN ts.first_response_target IS NOT NULL
+                            AND ts.first_response_target < (NOW() AT TIME ZONE 'Europe/Paris')
+                       THEN 'first_response'
+                       WHEN ts.resolution_target IS NOT NULL
+                            AND ts.resolution_target < (NOW() AT TIME ZONE 'Europe/Paris')
+                       THEN 'resolution'
+                       ELSE 'unknown'
+                   END as breach_type
             FROM hub_tickets.ticket_sla ts
             JOIN hub_tickets.tickets t ON ts.ticket_id = t.glpi_id
+            JOIN hub_tickets.sla_definitions sd ON ts.sla_definition_id = sd.id
             LEFT JOIN hub_tickets.ticket_status s ON t.status = s.id
             WHERE ts.sla_status IN ('warning', 'breached')
               AND t.status NOT IN (7)

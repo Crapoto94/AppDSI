@@ -5073,8 +5073,8 @@ const slaService = require('./modules/tickets/services/sla.service');
 const ticketGroupsRouter = require('./modules/tickets/ticket-groups.routes');
 ticketsCtrl.setSendMail(sendMail);
 app.use('/api/tickets/groups', ticketGroupsRouter);
-app.use('/api/tickets', ticketsRouter);
 app.use('/api/tickets/admin', ticketsAdminRouter);
+app.use('/api/tickets', ticketsRouter);
 
 // Public reply routes (no auth)
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));

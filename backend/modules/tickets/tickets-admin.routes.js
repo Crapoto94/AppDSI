@@ -142,12 +142,9 @@ router.delete('/groups/:id/members/:mid', authenticateAdmin, async (req, res) =>
 // ─── SLA Definitions ────────────────────────────────────────────
 router.get('/sla', authenticateJWT, async (req, res) => {
     try {
-        const defs = await pgDb.all(`
-            SELECT sd.*, sc.name as calendar_name
-            FROM hub_tickets.sla_definitions sd
-            LEFT JOIN hub_tickets.sla_calendars sc ON sd.calendar_id = sc.id
-            ORDER BY sd.priority NULLS LAST
-        `);
+        const defs = await pgDb.all(
+            'SELECT * FROM hub_tickets.sla_definitions ORDER BY priority NULLS LAST'
+        );
         res.json(defs);
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
@@ -327,6 +324,14 @@ router.post('/notification-triggers', authenticateAdmin, async (req, res) => {
             VALUES ($1, $2, $3) ON CONFLICT (event, recipient_type) DO NOTHING
         `, [req.body.event, req.body.template_slug, req.body.recipient_type]);
         res.status(201).json({ message: 'Déclencheur créé' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.put('/notification-triggers/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const { is_active } = req.body;
+        await pgDb.run('UPDATE hub_tickets.notification_triggers SET is_active = $1 WHERE id = $2', [is_active, req.params.id]);
+        res.json({ message: 'Déclencheur mis à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 

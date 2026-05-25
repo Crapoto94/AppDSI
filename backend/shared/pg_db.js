@@ -96,7 +96,13 @@ function escapePgValue(val) {
     if (val === null || val === undefined) return 'NULL';
     if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
     if (typeof val === 'number') return String(val);
-    if (val instanceof Date) return `'${val.toISOString()}'`;
+    if (val instanceof Date) {
+        const pad = n => String(n).padStart(2, '0');
+        const offset = -val.getTimezoneOffset();
+        const sign = offset >= 0 ? '+' : '-';
+        const absOff = Math.abs(offset);
+        return `'${val.getFullYear()}-${pad(val.getMonth() + 1)}-${pad(val.getDate())}T${pad(val.getHours())}:${pad(val.getMinutes())}:${pad(val.getSeconds())}${sign}${pad(Math.floor(absOff / 60))}:${pad(absOff % 60)}'`;
+    }
     const s = String(val).replace(/'/g, "''");
     return `'${s}'`;
 }
@@ -408,6 +414,7 @@ async function setupPgDb() {
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sla_definitions_name ON hub_tickets.sla_definitions(name);
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_sla_def_prio ON hub_tickets.sla_definitions(priority)`);
 
@@ -2837,23 +2844,7 @@ async function setupPgDb() {
             ON CONFLICT (event, recipient_type) DO NOTHING
         `);
 
-        // Seed calendar
-        await client.query(`INSERT INTO hub_tickets.sla_calendars (id, name, description, timezone, is_default) VALUES (1, 'Calendrier standard', 'Lun-Ven 08-12 14-18', 'Europe/Paris', true) ON CONFLICT (id) DO NOTHING`);
-        for (const day of [1, 2, 3, 4, 5]) {
-            await client.query(`INSERT INTO hub_tickets.sla_calendar_hours (calendar_id, day_of_week, start_time, end_time) VALUES (1, $1, '08:00', '12:00'), (1, $1, '14:00', '18:00') ON CONFLICT DO NOTHING`, [day]);
-        }
-
-        // Seed SLA definitions
-        await client.query(`
-            INSERT INTO hub_tickets.sla_definitions (name, description, calendar_id, first_response_min, resolution_min, priority) VALUES
-            ('SLA P1 - Très haute', 'Incident critique', 1, 15, 60, 1),
-            ('SLA P2 - Haute', 'Incident majeur', 1, 30, 240, 2),
-            ('SLA P3 - Normale', 'Incident standard', 1, 120, 1440, 3),
-            ('SLA P4 - Basse', 'Demande simple', 1, 480, 4320, 4)
-            ON CONFLICT (id) DO NOTHING
-        `);
-
-        console.log('[PG DB] hub_tickets seed data inserted');
+        console.log('[PG DB] hub_tickets tables ready');
     } catch (e) {
         console.log('[PG DB] hub_tickets seed skip:', e.message);
     }

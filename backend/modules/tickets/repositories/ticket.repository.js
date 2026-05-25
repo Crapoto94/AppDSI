@@ -17,9 +17,10 @@ const BASE_SELECT = `
            (SELECT COUNT(*) FROM hub_tickets.ticket_history h WHERE h.ticket_id = t.glpi_id) as history_count,
            (SELECT COUNT(*) FROM hub_tickets.ticket_followups tf WHERE tf.ticket_id = t.glpi_id) as followups_count,
            (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count,
-           (SELECT h2.comment FROM hub_tickets.ticket_history h2
-            WHERE h2.ticket_id = t.glpi_id AND h2.action = 'status_changed' AND h2.new_value = '4'
-            ORDER BY h2.created_at DESC LIMIT 1) as waiting_reason
+            (SELECT h2.comment FROM hub_tickets.ticket_history h2
+             WHERE h2.ticket_id = t.glpi_id AND h2.action = 'status_changed' AND h2.new_value = '4'
+             ORDER BY h2.created_at DESC LIMIT 1) as waiting_reason,
+            tsla.sla_status
     FROM hub_tickets.tickets t
     LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id
     LEFT JOIN hub_tickets.technician_profiles tp ON ta.technician_id = tp.user_id
@@ -31,6 +32,7 @@ const BASE_SELECT = `
     LEFT JOIN magapp.apps ma ON t.software_id = ma.id
     LEFT JOIN hub_tickets.ticket_categories tc ON t.category_id = tc.id
     LEFT JOIN hub_tickets.ticket_categories tsc ON t.subcategory_id = tsc.id
+    LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
 `;
 
 module.exports = {
@@ -111,6 +113,9 @@ module.exports = {
         if (filters.favorites && user) {
             conditions.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_favorites WHERE user_id = $${idx++})`);
             params.push(user.id);
+        }
+        if (filters.sla_breached) {
+            conditions.push(`tsla.sla_status IN ('warning', 'breached')`);
         }
         if (filters.date_from) {
             conditions.push(`t.date_creation >= $${idx++}`);
@@ -245,8 +250,11 @@ module.exports = {
                 COUNT(*) FILTER (WHERE status = 6 AND type::text = '1') as resolved_incident,
                 COUNT(*) FILTER (WHERE status = 6 AND type::text = '2') as resolved_request,
                 COUNT(*) FILTER (WHERE is_vip = true) as vip_total,
-                COUNT(*) FILTER (WHERE type::text = '3' AND status IN (1,2,3,4,5)) as problems
-            FROM hub_tickets.tickets
+                COUNT(*) FILTER (WHERE type::text = '3' AND status IN (1,2,3,4,5)) as problems,
+                COUNT(*) FILTER (WHERE tsla.sla_status = 'breached') as sla_breached,
+                COUNT(*) FILTER (WHERE tsla.sla_status = 'warning') as sla_warning
+            FROM hub_tickets.tickets t
+            LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
         `);
         return stats;
     },
