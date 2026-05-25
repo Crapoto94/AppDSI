@@ -321,13 +321,11 @@ function SLAManager({ data: initialData }: { data: any[], onUpdate: () => void }
     if (subTab === 'breaches') loadBreaches();
   }, [subTab]);
 
-  const token = localStorage.getItem('token');
-  const h = { Authorization: `Bearer ${token}` };
-
   async function loadCalendars() {
     setLoading(true);
     try {
-      const res = await axios.get('/api/tickets/admin/sla/calendars', { headers: h });
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/tickets/admin/sla/calendars', { headers: { Authorization: `Bearer ${token}` } });
       setCalendars(res.data);
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -336,10 +334,19 @@ function SLAManager({ data: initialData }: { data: any[], onUpdate: () => void }
   async function loadBreaches() {
     setLoading(true);
     try {
-      const res = await axios.get('/api/tickets/dashboard/sla-breaches', { headers: h });
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/tickets/dashboard/sla-breaches', { headers: { Authorization: `Bearer ${token}` } });
       setBreaches(res.data);
     } catch (e) { console.error(e); }
     setLoading(false);
+  }
+
+  async function refreshDefinitions() {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/tickets/admin/sla', { headers: { Authorization: `Bearer ${token}` } });
+      setDefinitions(res.data);
+    } catch (e) { console.error(e); }
   }
 
   const subTabs: { key: SlaTab; label: string }[] = [
@@ -357,9 +364,7 @@ function SLAManager({ data: initialData }: { data: any[], onUpdate: () => void }
           </button>
         ))}
       </div>
-      {subTab === 'definitions' && <SLADefinitions data={definitions} onUpdate={() => {
-        axios.get('/api/tickets/admin/sla', { headers: h }).then(r => setDefinitions(r.data));
-      }} />}
+      {subTab === 'definitions' && <SLADefinitions data={definitions} onUpdate={refreshDefinitions} />}
       {subTab === 'calendars' && <SLACalendars data={calendars} onUpdate={loadCalendars} loading={loading} />}
       {subTab === 'breaches' && <SLABreaches data={breaches} loading={loading} />}
     </div>
@@ -568,6 +573,14 @@ function SLACalendars({ data, onUpdate, loading }: { data: any[], onUpdate: () =
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editTz, setEditTz] = useState('');
+  const [addingHour, setAddingHour] = useState<number | null>(null);
+  const [hourDay, setHourDay] = useState('1');
+  const [hourStart, setHourStart] = useState('08:00');
+  const [hourEnd, setHourEnd] = useState('12:00');
 
   const token = localStorage.getItem('token');
   const h = { Authorization: `Bearer ${token}` };
@@ -584,6 +597,43 @@ function SLACalendars({ data, onUpdate, loading }: { data: any[], onUpdate: () =
       onUpdate();
     } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
     setSaving(false);
+  }
+
+  function startEdit(c: any) {
+    setEditingId(c.id);
+    setEditName(c.name || '');
+    setEditDesc(c.description || '');
+    setEditTz(c.timezone || 'Europe/Paris');
+  }
+
+  async function saveEdit() {
+    if (!editingId || !editName.trim()) return;
+    setSaving(true);
+    try {
+      await axios.put(`/api/tickets/admin/sla/calendars/${editingId}`, { name: editName, description: editDesc, timezone: editTz }, { headers: h });
+      setEditingId(null);
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setSaving(false);
+  }
+
+  async function addHour(calendarId: number) {
+    setSaving(true);
+    try {
+      await axios.post(`/api/tickets/admin/sla/calendars/${calendarId}/hours`, { day_of_week: parseInt(hourDay), start_time: hourStart, end_time: hourEnd }, { headers: h });
+      setAddingHour(null);
+      setHourDay('1'); setHourStart('08:00'); setHourEnd('12:00');
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setSaving(false);
+  }
+
+  async function deleteHour(calendarId: number, hourId: number) {
+    if (!confirm('Supprimer cette plage horaire ?')) return;
+    try {
+      await axios.delete(`/api/tickets/admin/sla/calendars/${calendarId}/hours/${hourId}`, { headers: h });
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
   }
 
   return (
@@ -615,21 +665,70 @@ function SLACalendars({ data, onUpdate, loading }: { data: any[], onUpdate: () =
         <div style={{ display: 'grid', gap: 12 }}>
           {data.map(c => (
             <div key={c.id} style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' }}>
-              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{c.name}</div>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-                {c.description || '—'} · {c.timezone || 'Europe/Paris'}
-                {c.is_default && <span style={{ marginLeft: 8, color: '#6366f1', fontWeight: 600 }}>Défaut</span>}
-              </div>
-              {(c.hours || []).length > 0 ? (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {(c.hours as any[]).map((h: any, i: number) => (
-                    <span key={i} style={{ padding: '4px 10px', background: '#eef2ff', color: '#6366f1', borderRadius: 6, fontSize: 12 }}>
-                      {DAY_LABELS[h.day_of_week] || `J${h.day_of_week}`} {h.start_time?.substring(0, 5)}-{h.end_time?.substring(0, 5)}
-                    </span>
-                  ))}
+              {editingId === c.id ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Nom"
+                    style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+                  <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description"
+                    style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Fuseau:</span>
+                    <input value={editTz} onChange={e => setEditTz(e.target.value)}
+                      style={{ flex: 1, padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12 }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button onClick={() => setEditingId(null)}
+                      style={{ padding: '6px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>Annuler</button>
+                    <button onClick={saveEdit} disabled={saving}
+                      style={{ padding: '6px 14px', border: 'none', borderRadius: 6, background: saving ? '#94a3b8' : '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
+                      {saving ? '...' : 'Enregistrer'}
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucune plage horaire définie</div>
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div>
+                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                        {c.description || '—'} · {c.timezone || 'Europe/Paris'}
+                        {c.is_default && <span style={{ marginLeft: 8, color: '#6366f1', fontWeight: 600 }}>Défaut</span>}
+                      </div>
+                    </div>
+                    <button onClick={() => startEdit(c)} style={{ padding: '4px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>✎ Modifier</button>
+                  </div>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                    {(c.hours || []).map((hSlot: any) => (
+                      <span key={hSlot.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#eef2ff', color: '#6366f1', borderRadius: 6, fontSize: 12 }}>
+                        {DAY_LABELS[hSlot.day_of_week] || `J${hSlot.day_of_week}`} {hSlot.start_time?.substring(0, 5)}-{hSlot.end_time?.substring(0, 5)}
+                        <button onClick={() => deleteHour(c.id, hSlot.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 14, padding: 0, marginLeft: 2, lineHeight: 1 }}>×</button>
+                      </span>
+                    ))}
+                  </div>
+
+                  {addingHour === c.id ? (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: 8, background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                      <select value={hourDay} onChange={e => setHourDay(e.target.value)}
+                        style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12, background: '#fff' }}>
+                        {[1, 2, 3, 4, 5, 6, 7].map(d => <option key={d} value={d}>{DAY_LABELS[d]}</option>)}
+                      </select>
+                      <input type="time" value={hourStart} onChange={e => setHourStart(e.target.value)}
+                        style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12 }} />
+                      <span style={{ fontSize: 12, color: '#94a3b8' }}>-</span>
+                      <input type="time" value={hourEnd} onChange={e => setHourEnd(e.target.value)}
+                        style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12 }} />
+                      <button onClick={() => addHour(c.id)} disabled={saving}
+                        style={{ padding: '4px 10px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>+</button>
+                      <button onClick={() => setAddingHour(null)}
+                        style={{ padding: '4px 8px', background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>✕</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setAddingHour(c.id)} style={{ padding: '4px 10px', background: 'none', border: '1px dashed #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
+                      + Ajouter une plage horaire
+                    </button>
+                  )}
+                </>
               )}
             </div>
           ))}

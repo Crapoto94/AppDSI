@@ -214,6 +214,31 @@ router.post('/sla/calendars', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
+router.put('/sla/calendars/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await pgDb.run(
+            'UPDATE hub_tickets.sla_calendars SET name = $1, description = $2, timezone = $3 WHERE id = $4',
+            [req.body.name, req.body.description, req.body.timezone || 'Europe/Paris', req.params.id]);
+        res.json({ message: 'Calendrier mis à jour' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.delete('/sla/calendars/:id/hours/:hourId', authenticateAdmin, async (req, res) => {
+    try {
+        await pgDb.run('DELETE FROM hub_tickets.sla_calendar_hours WHERE id = $1', [req.params.hourId]);
+        res.json({ message: 'Plage horaire supprimée' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.post('/sla/calendars/:id/hours', authenticateAdmin, async (req, res) => {
+    try {
+        await pgDb.run(
+            'INSERT INTO hub_tickets.sla_calendar_hours (calendar_id, day_of_week, start_time, end_time) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+            [req.params.id, req.body.day_of_week, req.body.start_time, req.body.end_time]);
+        res.status(201).json({ message: 'Plage horaire ajoutée' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
 // ─── Assignment Rules ───────────────────────────────────────────
 router.get('/assignment-rules', authenticateJWT, async (req, res) => {
     try {
