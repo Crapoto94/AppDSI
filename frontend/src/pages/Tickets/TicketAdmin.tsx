@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 type Tab = 'categories' | 'sla' | 'rules' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config';
 
 const btn = (active: boolean): React.CSSProperties => ({
@@ -21,24 +22,63 @@ export default function TicketAdmin() {
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [liveEnabled, setLiveEnabled] = useState<boolean | null>(null);
   const [liveToggling, setLiveToggling] = useState(false);
+  const [liveUseSchedule, setLiveUseSchedule] = useState(false);
+  const [liveCalendarId, setLiveCalendarId] = useState<number | null>(null);
+  const [liveCalendars, setLiveCalendars] = useState<any[]>([]);
+  const [liveScheduleToggling, setLiveScheduleToggling] = useState(false);
+  const [liveStats, setLiveStats] = useState<any>(null);
+
+  const DAY_NAMES: Record<number, string> = { 1: 'Lun', 2: 'Mar', 3: 'Mer', 4: 'Jeu', 5: 'Ven', 6: 'Sam', 7: 'Dim' };
 
   // Load live config once
   useEffect(() => {
     const token = localStorage.getItem('token');
     axios.get('/api/live/config', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setLiveEnabled(r.data.live_enabled))
+      .then(r => {
+        setLiveEnabled(r.data.live_enabled);
+        setLiveUseSchedule(!!r.data.live_use_schedule);
+        setLiveCalendarId(r.data.live_calendar_id ?? null);
+      })
       .catch(() => setLiveEnabled(true));
+    axios.get('/api/live/calendars', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setLiveCalendars(r.data || []))
+      .catch(() => {});
+    axios.get('/api/live/stats', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setLiveStats(r.data))
+      .catch(() => {});
   }, []);
 
   async function toggleLive() {
+    if (liveUseSchedule) return; // controlled by schedule
     const token = localStorage.getItem('token');
     const next = !liveEnabled;
     setLiveToggling(true);
     try {
-      await axios.put('/api/live/config', { live_enabled: next }, { headers: { Authorization: `Bearer ${token}` } });
-      setLiveEnabled(next);
+      const r = await axios.put('/api/live/config', { live_enabled: next }, { headers: { Authorization: `Bearer ${token}` } });
+      setLiveEnabled(r.data.live_enabled);
     } catch (e) { console.error(e); }
     finally { setLiveToggling(false); }
+  }
+
+  async function toggleSchedule() {
+    const token = localStorage.getItem('token');
+    const next = !liveUseSchedule;
+    setLiveScheduleToggling(true);
+    try {
+      const r = await axios.put('/api/live/config', { live_use_schedule: next, live_calendar_id: liveCalendarId }, { headers: { Authorization: `Bearer ${token}` } });
+      setLiveUseSchedule(next);
+      setLiveEnabled(r.data.live_enabled);
+    } catch (e) { console.error(e); }
+    finally { setLiveScheduleToggling(false); }
+  }
+
+  async function changeCalendar(calId: number) {
+    const token = localStorage.getItem('token');
+    setLiveCalendarId(calId);
+    try {
+      const r = await axios.put('/api/live/config', { live_calendar_id: calId }, { headers: { Authorization: `Bearer ${token}` } });
+      setLiveEnabled(r.data.live_enabled);
+    } catch (e) { console.error(e); }
   }
 
   useEffect(() => {
@@ -97,42 +137,216 @@ export default function TicketAdmin() {
         {tab === 'roles'       && <RolePermissionsManager />}
         {tab === 'params'      && <TicketParamsManager />}
         {tab === 'live_config' && (
-          /* ── Live chat toggle ──────────────────────────────────────── */
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: liveEnabled ? '#f0fdf4' : '#f8fafc',
-            border: `1px solid ${liveEnabled ? '#bbf7d0' : '#e2e8f0'}`,
-            borderRadius: 12, padding: '14px 20px',
-          }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 2 }}>
-                {liveEnabled ? '🟢 Chat live activé' : '⚫ Chat live désactivé'}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* ── Toggle manuel ─────────────────────────────────────── */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: liveEnabled ? '#f0fdf4' : '#f8fafc',
+              border: `1px solid ${liveEnabled ? '#bbf7d0' : '#e2e8f0'}`,
+              borderRadius: 12, padding: '14px 20px',
+              opacity: liveUseSchedule ? 0.55 : 1,
+            }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 2 }}>
+                  {liveEnabled ? '🟢 Chat live activé' : '⚫ Chat live désactivé'}
+                </div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>
+                  {liveUseSchedule
+                    ? 'Contrôlé automatiquement par les horaires du calendrier ci-dessous.'
+                    : liveEnabled
+                      ? 'Le widget de chat est visible pour tous les utilisateurs.'
+                      : 'Le widget de chat est masqué pour tous les utilisateurs.'}
+                </div>
               </div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>
-                {liveEnabled
-                  ? 'Le widget de chat est visible pour tous les utilisateurs. Les sessions live sont accessibles depuis /tickets.'
-                  : 'Le widget de chat est masqué pour tous les utilisateurs.'}
-              </div>
+              <button
+                onClick={toggleLive}
+                disabled={liveToggling || liveEnabled === null || liveUseSchedule}
+                style={{
+                  width: 52, height: 28, borderRadius: 14, border: 'none',
+                  cursor: liveUseSchedule ? 'not-allowed' : 'pointer',
+                  background: liveEnabled ? '#22c55e' : '#cbd5e1',
+                  position: 'relative', transition: 'background 0.2s',
+                  opacity: liveToggling ? 0.6 : 1,
+                }}
+                title={liveUseSchedule ? 'Désactiver les horaires automatiques pour contrôler manuellement' : liveEnabled ? 'Désactiver' : 'Activer'}
+              >
+                <span style={{
+                  position: 'absolute', top: 3, left: liveEnabled ? 27 : 3,
+                  width: 22, height: 22, borderRadius: '50%', background: '#fff',
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.2)', transition: 'left 0.2s', display: 'block',
+                }} />
+              </button>
             </div>
-            <button
-              onClick={toggleLive}
-              disabled={liveToggling || liveEnabled === null}
-              style={{
-                width: 52, height: 28, borderRadius: 14, border: 'none', cursor: 'pointer',
-                background: liveEnabled ? '#22c55e' : '#cbd5e1',
-                position: 'relative', transition: 'background 0.2s',
-                opacity: liveToggling ? 0.6 : 1,
-              }}
-              title={liveEnabled ? 'Désactiver le chat live' : 'Activer le chat live'}
-            >
-              <span style={{
-                position: 'absolute', top: 3, left: liveEnabled ? 27 : 3,
-                width: 22, height: 22, borderRadius: '50%', background: '#fff',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
-                transition: 'left 0.2s',
-                display: 'block',
-              }} />
-            </button>
+
+            {/* ── Ouverture automatique par horaires ───────────────── */}
+            <div style={{
+              background: liveUseSchedule ? '#eff6ff' : '#f8fafc',
+              border: `1px solid ${liveUseSchedule ? '#bfdbfe' : '#e2e8f0'}`,
+              borderRadius: 12, padding: '16px 20px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: liveUseSchedule ? 16 : 0 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 2 }}>
+                    🕐 Ouverture automatique par horaires
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>
+                    Le live s'ouvre et se ferme automatiquement selon les plages horaires du calendrier SLA sélectionné.
+                  </div>
+                </div>
+                <button
+                  onClick={toggleSchedule}
+                  disabled={liveScheduleToggling}
+                  style={{
+                    width: 52, height: 28, borderRadius: 14, border: 'none', cursor: 'pointer',
+                    background: liveUseSchedule ? '#6366f1' : '#cbd5e1',
+                    position: 'relative', transition: 'background 0.2s',
+                    opacity: liveScheduleToggling ? 0.6 : 1, flexShrink: 0, marginLeft: 16,
+                  }}
+                >
+                  <span style={{
+                    position: 'absolute', top: 3, left: liveUseSchedule ? 27 : 3,
+                    width: 22, height: 22, borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.2)', transition: 'left 0.2s', display: 'block',
+                  }} />
+                </button>
+              </div>
+
+              {liveUseSchedule && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {/* Calendar selector */}
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
+                      Calendrier utilisé
+                    </label>
+                    <select
+                      value={liveCalendarId ?? ''}
+                      onChange={e => changeCalendar(Number(e.target.value))}
+                      style={{ padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, background: '#fff', minWidth: 200 }}
+                    >
+                      <option value="">— Calendrier par défaut —</option>
+                      {liveCalendars.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}{c.is_default ? ' (défaut)' : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Show hours for selected calendar */}
+                  {liveCalendars.filter(c => liveCalendarId ? c.id === liveCalendarId : c.is_default).map(cal => (
+                    <div key={cal.id}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                        Plages horaires — {cal.name} ({cal.timezone})
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {[1,2,3,4,5,6,7].map(d => {
+                          const slots = (cal.hours || []).filter((h: any) => h.day_of_week === d);
+                          return (
+                            <div key={d} style={{
+                              background: slots.length ? '#fff' : '#f1f5f9',
+                              border: `1px solid ${slots.length ? '#bfdbfe' : '#e2e8f0'}`,
+                              borderRadius: 8, padding: '6px 10px', minWidth: 80, textAlign: 'center',
+                            }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: slots.length ? '#1d4ed8' : '#94a3b8', marginBottom: 2 }}>
+                                {DAY_NAMES[d]}
+                              </div>
+                              {slots.length ? slots.map((s: any, i: number) => (
+                                <div key={i} style={{ fontSize: 10, color: '#374151' }}>
+                                  {s.start_time.substring(0,5)}–{s.end_time.substring(0,5)}
+                                </div>
+                              )) : (
+                                <div style={{ fontSize: 10, color: '#94a3b8' }}>Fermé</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  <div style={{ fontSize: 12, color: '#6366f1', background: '#e0e7ff', borderRadius: 8, padding: '8px 12px' }}>
+                    💡 Le statut est vérifié toutes les minutes. Les sessions en cours ne sont pas interrompues lors d'une fermeture automatique.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── KPIs live chat ────────────────────────────────────── */}
+            {liveStats && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>📊 Statistiques des sessions live</div>
+
+                {/* KPI counters row */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+                  {[
+                    { label: 'Total',        value: liveStats.total,            icon: '💬', color: '#6366f1' },
+                    { label: 'Ce mois',      value: liveStats.this_month,       icon: '📅', color: '#8b5cf6' },
+                    { label: 'Cette semaine',value: liveStats.this_week,        icon: '📆', color: '#3b82f6' },
+                    { label: "Aujourd'hui",  value: liveStats.today,            icon: '🌅', color: '#06b6d4' },
+                    { label: 'En cours',     value: liveStats.active,           icon: '🟢', color: '#22c55e' },
+                    { label: 'Durée moy.',   value: liveStats.avg_duration_min ? `${liveStats.avg_duration_min} min` : '—', icon: '⏱️', color: '#f59e0b' },
+                    { label: 'Rép. moy.',    value: liveStats.avg_response_min  ? `${liveStats.avg_response_min} min` : '—', icon: '⚡', color: '#f97316' },
+                  ].map(k => (
+                    <div key={k.label} style={{
+                      background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+                      padding: '12px 14px', textAlign: 'center',
+                    }}>
+                      <div style={{ fontSize: 18 }}>{k.icon}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: k.color, lineHeight: 1.2 }}>{k.value}</div>
+                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{k.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Daily trend chart */}
+                {liveStats.daily?.length > 0 && (
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 10 }}>
+                      Évolution des sessions — 30 derniers jours
+                    </div>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <AreaChart data={liveStats.daily} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="lgLive" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0.02} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="day" tick={{ fontSize: 10 }} tickFormatter={d => d.substring(5)} />
+                        <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                        <Tooltip formatter={(v: any) => [v, 'Sessions']} labelFormatter={l => `Jour : ${l}`} />
+                        <Area type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={2} fill="url(#lgLive)" dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* By tech table */}
+                {liveStats.by_tech?.length > 0 && (
+                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 10 }}>
+                      Sessions par technicien
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {liveStats.by_tech.map((t: any) => {
+                        const pct = Math.round(t.count / liveStats.total * 100);
+                        return (
+                          <div key={t.tech} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 120, fontSize: 12, color: '#374151', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {t.tech || '—'}
+                            </div>
+                            <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 6, height: 8, overflow: 'hidden' }}>
+                              <div style={{ width: `${pct}%`, background: '#6366f1', height: '100%', borderRadius: 6 }} />
+                            </div>
+                            <div style={{ width: 40, textAlign: 'right', fontSize: 12, fontWeight: 600, color: '#6366f1' }}>{t.count}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

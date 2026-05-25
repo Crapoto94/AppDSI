@@ -26,7 +26,9 @@ const uploadLive = multer({
 // ── Routes ─────────────────────────────────────────────────────────────
 router.get('/config',              authenticateJWT, (req, res) => controller.getConfig(req, res));
 router.put('/config',              authenticateJWT, (req, res) => controller.setConfig(req, res));
+router.get('/calendars',           authenticateJWT, (req, res) => controller.getCalendars(req, res));
 router.get('/count',               authenticateJWT, (req, res) => controller.getWaitingCount(req, res));
+router.get('/stats',               authenticateJWT, (req, res) => controller.getStats(req, res));
 router.get('/sessions',            authenticateJWT, (req, res) => controller.getSessions(req, res));
 router.post('/sessions',           authenticateJWT, (req, res) => controller.createSession(req, res));
 router.get('/sessions/:id',        authenticateJWT, (req, res) => controller.getSession(req, res));

@@ -5085,6 +5085,7 @@ app.use('/api/tickets', ticketsRouter);
 const liveRouter = require('./modules/live/live.routes');
 const liveCtrl = require('./modules/live/live.controller');
 liveCtrl.setSendMail(sendMail);
+liveCtrl.startScheduler();
 app.use('/api/live', liveRouter);
 
 // Public reply routes (no auth)

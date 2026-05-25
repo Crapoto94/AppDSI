@@ -213,6 +213,58 @@ async function closeSession(req, res) {
     }
 }
 
+// ── GET /api/live/stats ───────────────────────────────────────────────
+async function getStats(req, res) {
+    try {
+        const [totals, active, durations, byTech, daily] = await Promise.all([
+            pgDb.get(`
+                SELECT
+                    COUNT(*) FILTER (WHERE true) AS total,
+                    COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) AS today,
+                    COUNT(*) FILTER (WHERE created_at >= date_trunc('week', NOW())) AS this_week,
+                    COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW())) AS this_month
+                FROM hub_tickets.live_sessions
+            `),
+            pgDb.get(`SELECT COUNT(*) as count FROM hub_tickets.live_sessions WHERE status != 'closed'`),
+            pgDb.get(`
+                SELECT
+                    ROUND(AVG(EXTRACT(EPOCH FROM (closed_at - claimed_at)) / 60)::numeric, 1) AS avg_duration_min,
+                    ROUND(AVG(EXTRACT(EPOCH FROM (claimed_at - created_at)) / 60)::numeric, 1) AS avg_response_min
+                FROM hub_tickets.live_sessions
+                WHERE closed_at IS NOT NULL AND claimed_at IS NOT NULL
+            `),
+            pgDb.all(`
+                SELECT tech_display_name AS tech, COUNT(*) AS count
+                FROM hub_tickets.live_sessions
+                WHERE tech_username IS NOT NULL
+                GROUP BY tech_display_name ORDER BY count DESC LIMIT 10
+            `),
+            pgDb.all(`
+                SELECT TO_CHAR(created_at AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD') AS day,
+                       COUNT(*) AS count
+                FROM hub_tickets.live_sessions
+                WHERE created_at >= NOW() - INTERVAL '30 days'
+                GROUP BY day ORDER BY day
+            `),
+        ]);
+
+        res.json({
+            total:            parseInt(totals?.total  || 0),
+            today:            parseInt(totals?.today  || 0),
+            this_week:        parseInt(totals?.this_week || 0),
+            this_month:       parseInt(totals?.this_month || 0),
+            active:           parseInt(active?.count  || 0),
+            avg_duration_min: parseFloat(durations?.avg_duration_min || 0),
+            avg_response_min: parseFloat(durations?.avg_response_min || 0),
+            by_tech: (byTech || []).map(r => ({ tech: r.tech, count: parseInt(r.count) })),
+            daily:   (daily  || []).map(r => ({ day: r.day, count: parseInt(r.count) })),
+        });
+    } catch (e) {
+        console.error('[LIVE] getStats error:', e);
+        res.status(500).json({ message: e.message });
+    }
+}
+
 // ── GET /api/live/count ───────────────────────────────────────────────
 async function getWaitingCount(req, res) {
     try {
@@ -308,37 +360,148 @@ async function uploadAttachment(req, res) {
     }
 }
 
+// ── Schedule helpers ──────────────────────────────────────────────────
+// Returns true if current wall-clock time falls within a calendar's working hours.
+// day_of_week in DB: 1=Monday … 5=Friday (ISO weekday, JS getDay gives 0=Sun…6=Sat).
+async function isNowInCalendar(calendarId) {
+    const cal = await pgDb.get(
+        calendarId
+            ? `SELECT * FROM hub_tickets.sla_calendars WHERE id = $1`
+            : `SELECT * FROM hub_tickets.sla_calendars WHERE is_default = true LIMIT 1`,
+        calendarId ? [calendarId] : []
+    );
+    if (!cal) return false;
+
+    const tz = cal.timezone || 'Europe/Paris';
+    const now = new Date();
+
+    // Derive weekday (1=Mon…7=Sun, ISO) and HH:MM in the calendar timezone
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, weekday: 'short',
+        hour: '2-digit', minute: '2-digit', hour12: false
+    }).formatToParts(now);
+
+    const SHORT_DAY = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+    const dayName  = parts.find(p => p.type === 'weekday')?.value || '';
+    const dayNum   = SHORT_DAY[dayName] ?? 0;
+    const hourStr  = parts.find(p => p.type === 'hour')?.value   || '00';
+    const minStr   = parts.find(p => p.type === 'minute')?.value || '00';
+    const current  = `${String(hourStr).padStart(2, '0')}:${String(minStr).padStart(2, '0')}`;
+
+    const slots = await pgDb.all(
+        `SELECT start_time, end_time FROM hub_tickets.sla_calendar_hours
+         WHERE calendar_id = $1 AND day_of_week = $2`,
+        [cal.id, dayNum]
+    );
+    if (!slots.length) return false;
+
+    return slots.some(s =>
+        current >= s.start_time.substring(0, 5) &&
+        current <  s.end_time.substring(0, 5)
+    );
+}
+
+// Returns the effective live_enabled value (respects schedule when live_use_schedule=true)
+async function computeLiveEnabled() {
+    const rows = await pgDb.all(
+        `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id')`
+    );
+    const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    if (cfg.live_use_schedule === 'true') {
+        return isNowInCalendar(cfg.live_calendar_id ? parseInt(cfg.live_calendar_id) : null);
+    }
+    return cfg.live_enabled !== 'false';
+}
+
 // ── GET /api/live/config ──────────────────────────────────────────────
 async function getConfig(req, res) {
     try {
-        const row = await pgDb.get(
-            `SELECT value FROM hub_tickets.module_config WHERE key = 'live_enabled'`
+        const rows = await pgDb.all(
+            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id')`
         );
-        // Default to enabled if no row found
-        res.json({ live_enabled: row ? row.value !== 'false' : true });
+        const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
+        const useSchedule  = cfg.live_use_schedule === 'true';
+        const calendarId   = cfg.live_calendar_id ? parseInt(cfg.live_calendar_id) : null;
+        const live_enabled = useSchedule
+            ? await isNowInCalendar(calendarId)
+            : (cfg.live_enabled !== 'false');
+
+        res.json({ live_enabled, live_use_schedule: useSchedule, live_calendar_id: calendarId });
     } catch (e) {
-        res.json({ live_enabled: true });
+        res.json({ live_enabled: true, live_use_schedule: false, live_calendar_id: null });
     }
 }
 
 // ── PUT /api/live/config ──────────────────────────────────────────────
 async function setConfig(req, res) {
     try {
-        const { live_enabled } = req.body;
-        await pgDb.run(`
-            INSERT INTO hub_tickets.module_config (key, value)
-            VALUES ('live_enabled', $1)
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-        `, [live_enabled ? 'true' : 'false']);
+        const { live_enabled, live_use_schedule, live_calendar_id } = req.body;
 
-        // Broadcast new state to all connected clients
+        const upsert = (key, val) => pgDb.run(
+            `INSERT INTO hub_tickets.module_config (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+            [key, String(val)]
+        );
+
+        if (live_enabled  !== undefined) await upsert('live_enabled',      live_enabled  ? 'true' : 'false');
+        if (live_use_schedule !== undefined) await upsert('live_use_schedule', live_use_schedule ? 'true' : 'false');
+        if (live_calendar_id  !== undefined) await upsert('live_calendar_id',  live_calendar_id ?? '');
+
+        const effective = await computeLiveEnabled();
         const io = getIO();
-        if (io) io.emit('live_config', { live_enabled });
+        if (io) io.emit('live_config', { live_enabled: effective });
 
-        res.json({ live_enabled });
+        res.json({ live_enabled: effective, live_use_schedule: !!live_use_schedule, live_calendar_id: live_calendar_id ?? null });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, setSendMail, getConfig, setConfig, uploadAttachment };
+// ── GET /api/live/calendars ───────────────────────────────────────────
+async function getCalendars(req, res) {
+    try {
+        const cals = await pgDb.all(
+            `SELECT id, name, timezone, is_default FROM hub_tickets.sla_calendars ORDER BY is_default DESC, name`
+        );
+        // Attach hours per calendar for display
+        const hours = await pgDb.all(
+            `SELECT calendar_id, day_of_week, start_time, end_time FROM hub_tickets.sla_calendar_hours ORDER BY calendar_id, day_of_week, start_time`
+        );
+        const hoursByCalendar = {};
+        hours.forEach(h => {
+            if (!hoursByCalendar[h.calendar_id]) hoursByCalendar[h.calendar_id] = [];
+            hoursByCalendar[h.calendar_id].push(h);
+        });
+        res.json(cals.map(c => ({ ...c, hours: hoursByCalendar[c.id] || [] })));
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
+// ── Background schedule checker ───────────────────────────────────────
+// Emits live_config via socket when the schedule transitions open→closed or vice-versa.
+let _lastScheduledState = null;
+
+async function _checkScheduleTick() {
+    try {
+        const row = await pgDb.get(`SELECT value FROM hub_tickets.module_config WHERE key = 'live_use_schedule'`);
+        if (row?.value !== 'true') { _lastScheduledState = null; return; }
+
+        const nowEnabled = await computeLiveEnabled();
+        if (_lastScheduledState !== nowEnabled) {
+            _lastScheduledState = nowEnabled;
+            const io = getIO();
+            if (io) io.emit('live_config', { live_enabled: nowEnabled });
+            console.log(`[LIVE] Schedule transition → live_enabled=${nowEnabled}`);
+        }
+    } catch (e) {
+        console.error('[LIVE] schedule tick error:', e.message);
+    }
+}
+
+function startScheduler() {
+    _checkScheduleTick(); // immediate check at startup
+    setInterval(_checkScheduleTick, 60 * 1000); // then every minute
+}
+
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getCalendars, startScheduler, uploadAttachment };
