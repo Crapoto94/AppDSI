@@ -1103,17 +1103,19 @@ export default function TicketDetail() {
 
             {/* ASSIGNÉ */}
             <div style={SF}>
-              <span style={SL}>Assigné{assignees.length > 1 ? 's' : ''}</span>
-              {assignees.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {assignees.map((a: any) => (
-                    <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      <div style={{ flexShrink: 0, width: 20, height: 20, borderRadius: '50%', background: avatarColor(a.technician_name || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff' }}>{getInitials(a.technician_name || '?')}</div>
-                      <span style={SV}>{a.technician_name || a.username || '?'}</span>
-                      {a.group_name && <span style={{ fontSize: 10, color: '#6366f1', background: '#eff6ff', padding: '1px 5px', borderRadius: 4 }}>{a.group_name}</span>}
-                      {a.is_primary && assignees.length > 1 && <span style={{ fontSize: 9, color: '#16a34a', fontWeight: 600 }}>★</span>}
-                    </div>
-                  ))}
+              <span style={SL}>Assigné</span>
+              {assignees.length > 0 && assignees[0].group_name ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6, background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff' }}>👥</div>
+                  <div>
+                    <span style={{ ...SV, fontWeight: 600 }}>{assignees[0].group_name}</span>
+                    <span style={{ fontSize: 10, color: '#71717a', marginLeft: 6 }}>{assignees.length} membre{assignees.length > 1 ? 's' : ''}</span>
+                  </div>
+                </div>
+              ) : assignees.length > 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(assignees[0].technician_name || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(assignees[0].technician_name || '?')}</div>
+                  <span style={SV}>{assignees[0].technician_name || '?'}</span>
                 </div>
               ) : ticket.technician_name ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
