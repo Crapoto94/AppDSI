@@ -65,7 +65,7 @@ async function createSession(req, res) {
             INSERT INTO hub_tickets.tickets
                 (glpi_id, title, content, status, priority, urgency, impact,
                  type, date_creation, date_mod, source, requester_name, requester_email_22, is_live)
-            VALUES ($1, $2, $3, 1, 3, 3, 2, '1', NOW(), NOW(), 'live', $4, $5, true)
+             VALUES ($1, $2, $3, 1, 3, 3, 2, NULL, NOW(), NOW(), 'live', $4, $5, true)
         `, [ticketId,
             `💬 Live – ${user.displayName || user.username}`,
             content.trim(),
@@ -166,6 +166,14 @@ async function closeSession(req, res) {
 
         // Update ticket
         if (session.ticket_id) {
+            // Check type is set before closing
+            if (closeTicket !== false) {
+                const ticket = await pgDb.get(`SELECT type FROM hub_tickets.tickets WHERE glpi_id = $1`, [session.ticket_id]);
+                if (!ticket?.type) {
+                    return res.status(400).json({ message: 'Veuillez classer le ticket (Incident ou Demande) avant de le clôturer.' });
+                }
+            }
+
             const safeTitle = newTitle?.trim().replace(/'/g, "''") || null;
             if (closeTicket !== false) {
                 // Close ticket (status 6), optionally rename
@@ -676,6 +684,29 @@ async function createTask(req, res) {
     }
 }
 
+async function setTicketType(req, res) {
+    try {
+        const { id } = req.params;
+        const { type } = req.body || {};
+        if (!type || !['1', '2'].includes(String(type))) {
+            return res.status(400).json({ message: 'Type invalide (1=Incident, 2=Demande)' });
+        }
+
+        const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
+        if (!session) return res.status(404).json({ message: 'Session introuvable' });
+        if (!session.ticket_id) return res.status(400).json({ message: 'Aucun ticket associé' });
+
+        await pgDb.run(
+            `UPDATE hub_tickets.tickets SET type = $1, date_mod = NOW() WHERE glpi_id = $2`,
+            [String(type), session.ticket_id]
+        );
+
+        res.json({ success: true, type: String(type) });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
 // ── POST /api/live/guest-login (public) ───────────────────────────────────
 async function guestLogin(req, res) {
     try {
@@ -834,4 +865,4 @@ async function otpVerify(req, res) {
     }
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask };
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType };

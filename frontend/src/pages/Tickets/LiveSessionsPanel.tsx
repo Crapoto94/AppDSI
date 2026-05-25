@@ -51,6 +51,8 @@ export default function LiveSessionsPanel() {
   const [requesterTickets, setRequesterTickets] = useState<any[]>([]);
   const [loadingReqTickets, setLoadingReqTickets] = useState(false);
   const [openerMessage, setOpenerMessage] = useState<{ content: string; sender_name: string } | null>(null);
+  // Ticket type classification
+  const [ticketType, setTicketType] = useState<string | null>(null);
   // Task creation modal
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [taskDesc, setTaskDesc] = useState('');
@@ -186,15 +188,17 @@ export default function LiveSessionsPanel() {
       setRequesterTickets([]);
       setMessages([]);
       setOpenerMessage(null);
+      setTicketType(null);
       // Load history via REST immediately
       const msgs = await axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } });
       setMessages(msgs.data);
-      // Load ticket opener message
+      // Load ticket opener message + type
       if (r.data.ticket_id) {
         axios.get(`/api/tickets/${r.data.ticket_id}`, { headers: { Authorization: `Bearer ${token}` } })
           .then(tr => {
             const t = tr.data;
             if (t?.content) setOpenerMessage({ content: t.content, sender_name: t.requester_name || r.data.user_display_name || r.data.user_username });
+            if (t?.type) setTicketType(String(t.type));
           }).catch(() => {});
       }
       // Also join via socket for real-time updates
@@ -224,6 +228,7 @@ export default function LiveSessionsPanel() {
     setActiveSession(session);
     setMessages([]);
     setOpenerMessage(null);
+    setTicketType(null);
     setShowRename(false);
     setShowTakeover(false);
     setShowRequesterTickets(false);
@@ -231,12 +236,13 @@ export default function LiveSessionsPanel() {
     // Load messages via REST immediately (works even without socket)
     axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setMessages(r.data)).catch(() => {});
-    // Load ticket opener message
+    // Load ticket opener message + type
     if (session.ticket_id) {
       axios.get(`/api/tickets/${session.ticket_id}`, { headers: { Authorization: `Bearer ${token}` } })
         .then(tr => {
           const t = tr.data;
           if (t?.content) setOpenerMessage({ content: t.content, sender_name: t.requester_name || session.user_display_name || session.user_username });
+          if (t?.type) setTicketType(String(t.type));
         }).catch(() => {});
     }
     // Also join via socket for real-time
@@ -298,6 +304,20 @@ export default function LiveSessionsPanel() {
       alert(e.response?.data?.message || 'Erreur lors de la création de la tâche');
     } finally {
       setTaskSaving(false);
+    }
+  }
+
+  async function setTicketTypeApi(type: string) {
+    if (!activeSession) return;
+    try {
+      await axios.patch(
+        `/api/live/sessions/${activeSession.id}/type`,
+        { type },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setTicketType(type);
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors du classement');
     }
   }
 
@@ -457,15 +477,21 @@ export default function LiveSessionsPanel() {
                 Le ticket restera ouvert — le technicien pourra continuer à le traiter depuis la liste.
               </div>
             )}
+            {closeTicketOnEnd && !ticketType && (
+              <div style={{ marginTop: 6, padding: '6px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, fontSize: 12, color: '#dc2626', fontWeight: 600 }}>
+                ⚠️ Classez le ticket (Incident ou Demande) avant de clôturer.
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
               <button
                 onClick={() => confirmClose(renameTitle, closeTicketOnEnd)}
+                disabled={closeTicketOnEnd && !ticketType}
                 style={{
                   flex: 1, padding: '10px',
-                  background: closeTicketOnEnd ? '#6366f1' : '#f59e0b',
+                  background: closeTicketOnEnd && !ticketType ? '#d4d4d8' : closeTicketOnEnd ? '#6366f1' : '#f59e0b',
                   color: '#fff',
-                  border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 14,
+                  border: 'none', borderRadius: 10, fontWeight: 700, cursor: closeTicketOnEnd && !ticketType ? 'not-allowed' : 'pointer', fontSize: 14,
                 }}>
                 {closeTicketOnEnd ? '✅ Clôturer' : '📋 Terminer le chat'}
               </button>
@@ -663,6 +689,36 @@ export default function LiveSessionsPanel() {
                   }}>
                   📋 Tickets
                 </button>
+                {/* Ticket type classifier */}
+                {activeSession.status !== 'closed' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <button
+                      onClick={() => ticketType !== '1' && setTicketTypeApi('1')}
+                      title="Incident"
+                      style={{
+                        padding: '3px 9px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        border: ticketType === '1' ? '1.5px solid #dc2626' : '1px solid #e2e8f0',
+                        background: ticketType === '1' ? '#fef2f2' : '#f8fafc',
+                        color: ticketType === '1' ? '#dc2626' : '#71717a',
+                      }}>
+                      🔴 Incident
+                    </button>
+                    <button
+                      onClick={() => ticketType !== '2' && setTicketTypeApi('2')}
+                      title="Demande"
+                      style={{
+                        padding: '3px 9px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        border: ticketType === '2' ? '1.5px solid #2563eb' : '1px solid #e2e8f0',
+                        background: ticketType === '2' ? '#eff6ff' : '#f8fafc',
+                        color: ticketType === '2' ? '#2563eb' : '#71717a',
+                      }}>
+                      🔵 Demande
+                    </button>
+                    {!ticketType && (
+                      <span style={{ fontSize: 10, color: '#f59e0b', fontWeight: 600 }}>⚠ à classer</span>
+                    )}
+                  </div>
+                )}
                 {/* Status badge */}
                 <span style={{
                   padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,

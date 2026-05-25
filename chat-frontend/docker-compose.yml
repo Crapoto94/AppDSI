@@ -1,0 +1,10 @@
+# Déploiement chat-frontend en DMZ
+# Le backend tourne sur une autre machine (réseau interne)
+services:
+  chat-frontend:
+    build: .
+    ports:
+      - "5175:5175"
+    environment:
+      - BACKEND_URL=http://10.103.130.106:3001
+    restart: unless-stopped

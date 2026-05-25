@@ -706,9 +706,9 @@ export default function TicketDetail() {
           borderBottom: '1px solid #f4f4f5', background: '#fff',
           display: 'flex', alignItems: 'center', padding: '0 20px', gap: 8
         }}>
-          {!isEmbedded && (<a href="/tickets" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#71717a', textDecoration: 'none', fontSize: 13, fontWeight: 500 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
-            Retour
+          {!isEmbedded && (<a href="/tickets" title="Retour aux tickets" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#71717a', textDecoration: 'none', fontSize: 13, fontWeight: 500, padding: '2px 6px', borderRadius: 5, border: '1px solid #e4e4e7', background: '#fff' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            Accueil
           </a>)}
           {!isEmbedded && <span style={{ color: '#d4d4d8', fontSize: 16 }}>·</span>}
           <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: '#6366f1' }}>#{ticket.id}</span>
