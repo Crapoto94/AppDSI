@@ -16,25 +16,77 @@ const PRIORITY_COLORS: Record<number, string> = {
 
 const MIN_LEFT = 260;
 const MAX_LEFT = 600;
+const PAGE_SIZE = 50;
 
 interface InboxProps {
-  tickets: any[];
-  loading: boolean;
-  total: number;
-  totalPages: number;
-  page: number;
-  onPageChange: (p: number) => void;
-  onRefresh: () => void;
+  baseParams: Record<string, string>;
   onTicketClick?: (id: number) => void;
   selectedId?: number | null;
 }
 
-export default function TicketInbox({ tickets, loading, total, totalPages, page, onPageChange, onRefresh, onTicketClick, selectedId }: InboxProps) {
+export default function TicketInbox({ baseParams, onTicketClick, selectedId }: InboxProps) {
   const { user } = useAuth();
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [leftWidth, setLeftWidth] = useState(380);
   const dragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
+  const paramsKeyRef = useRef('');
+  const pageRef = useRef(1);
+
+  // Reset + fetch page 1 when baseParams change
+  useEffect(() => {
+    const key = JSON.stringify(baseParams);
+    if (key === paramsKeyRef.current) return;
+    paramsKeyRef.current = key;
+    pageRef.current = 1;
+    setPage(1);
+    setTickets([]);
+    setHasMore(true);
+    fetchPage(1, key, true);
+  }, [baseParams]); // eslint-disable-line
+
+  async function fetchPage(pageNum: number, expectedKey?: string, replace = false) {
+    if (loadingRef.current) return;
+    const key = expectedKey || paramsKeyRef.current;
+    const token = localStorage.getItem('token');
+    const params: Record<string, string> = { ...baseParams, limit: String(PAGE_SIZE), page: String(pageNum) };
+    loadingRef.current = true;
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams(params).toString();
+      const res = await axios.get(`/api/tickets?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+      // Discard if params changed since fetch started
+      if (key !== paramsKeyRef.current) return;
+      const newTickets = res.data.data || [];
+      const totalCount = res.data.pagination?.total || 0;
+      const totalPages = res.data.pagination?.totalPages || 1;
+      setTickets(prev => replace ? newTickets : [...prev, ...newTickets]);
+      setTotal(totalCount);
+      setHasMore(pageNum < totalPages);
+      pageRef.current = pageNum;
+      setPage(pageNum);
+    } catch (e) {
+      console.error('Inbox fetch error:', e);
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el || loadingRef.current || !hasMore) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
+      fetchPage(pageRef.current + 1);
+    }
+  }
 
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
@@ -91,7 +143,7 @@ export default function TicketInbox({ tickets, loading, total, totalPages, page,
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, fontSize: 13, color: '#475569', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{total} ticket{total !== 1 ? 's' : ''}</span>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto' }} onScroll={handleScroll}>
           {loading && tickets.length === 0 && (
             <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>Chargement...</div>
           )}
@@ -144,12 +196,16 @@ export default function TicketInbox({ tickets, loading, total, totalPages, page,
               </div>
             );
           })}
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 6, padding: '10px 16px', borderTop: '1px solid #e2e8f0' }}>
-              <button disabled={page <= 1} onClick={() => onPageChange(page - 1)} style={{ padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: page <= 1 ? 'default' : 'pointer', opacity: page <= 1 ? 0.5 : 1, fontSize: 12 }}>←</button>
-              <span style={{ fontSize: 12, color: '#64748b', lineHeight: '28px' }}>{page} / {totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} style={{ padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: page >= totalPages ? 'default' : 'pointer', opacity: page >= totalPages ? 0.5 : 1, fontSize: 12 }}>→</button>
+          {/* Infinite scroll footer */}
+          {loading && tickets.length > 0 && (
+            <div style={{ textAlign: 'center', padding: 14, color: '#94a3b8', fontSize: 12 }}>
+              <span style={{ display: 'inline-block', width: 18, height: 18, border: '2px solid #e2e8f0', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite', verticalAlign: 'middle', marginRight: 8 }} />
+              Chargement…
+            </div>
+          )}
+          {!loading && tickets.length > 0 && (
+            <div style={{ textAlign: 'center', padding: 10, color: '#94a3b8', fontSize: 11 }}>
+              {hasMore ? `${tickets.length} / ${total}` : `${total} ticket${total !== 1 ? 's' : ''} — fin de la liste`}
             </div>
           )}
         </div>

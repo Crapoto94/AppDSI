@@ -10,7 +10,7 @@ interface LiveSession {
   user_email: string;
   tech_username: string | null;
   tech_display_name: string | null;
-  status: 'waiting' | 'active' | 'closed';
+  status: 'waiting' | 'active' | 'closed' | 'pre_closed';
   created_at: string;
   claimed_at: string | null;
   auth_method?: string;
@@ -723,17 +723,20 @@ export default function LiveSessionsPanel() {
                 <span style={{
                   padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
                   background: activeSession.status === 'waiting' ? '#fef3c7'
+                    : activeSession.status === 'pre_closed' ? '#fef9c3'
                     : isLockedByOther ? '#fce7f3' : '#dcfce7',
                   color: activeSession.status === 'waiting' ? '#92400e'
+                    : activeSession.status === 'pre_closed' ? '#854d0e'
                     : isLockedByOther ? '#9d174d' : '#15803d',
                 }}>
                   {activeSession.status === 'waiting' ? '⏳ En attente'
+                    : activeSession.status === 'pre_closed' ? '📤 Demandeur parti'
                     : isLockedByOther ? `🔒 ${activeSession.tech_display_name}`
                     : '🟢 Actif'}
                 </span>
 
                 {/* My session: close button */}
-                {activeSession.status === 'active' && isMySession && (
+                {(activeSession.status === 'active' || activeSession.status === 'pre_closed') && isMySession && (
                   <button onClick={requestClose} style={{
                     padding: '4px 12px', background: '#fef2f2', color: '#dc2626',
                     border: '1px solid #fecaca', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
@@ -895,7 +898,7 @@ export default function LiveSessionsPanel() {
                 {reformulationProposal !== null && (
                   <div style={{ padding: '10px 14px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#15803d', marginBottom: 6 }}>✨ Proposition de reformulation :</div>
-                    <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{reformulationProposal}</div>
+                    <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8, maxHeight: 150, overflowY: 'auto' }}>{reformulationProposal}</div>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
                         onClick={() => { setInput(reformulationProposal); setReformulationProposal(null); inputRef.current?.focus(); }}

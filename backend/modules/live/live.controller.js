@@ -14,7 +14,7 @@ async function getSessions(req, res) {
             SELECT ls.*, t.title as ticket_title
             FROM hub_tickets.live_sessions ls
             LEFT JOIN hub_tickets.tickets t ON ls.ticket_id = t.glpi_id
-            WHERE ls.status != 'closed'
+            WHERE ls.status NOT IN ('closed', 'pre_closed')
             ORDER BY ls.created_at DESC
         `);
         res.json(rows);
@@ -152,12 +152,66 @@ async function closeSession(req, res) {
     try {
         const { id } = req.params;
         const { newTitle, closeTicket = true } = req.body || {};
+        const user = req.user;
 
         const session = await pgDb.get(
             `SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]
         );
         if (!session) return res.status(404).json({ message: 'Session introuvable' });
 
+        const isTech = session.tech_username && (
+            session.tech_username.toLowerCase() === (user.username || '').toLowerCase() ||
+            ['superadmin', 'admin'].includes(user.role)
+        );
+
+        // ── Requester closing: pre-close only (tech can still finalize) ──
+        if (!isTech) {
+            // Store transcript
+            if (session.ticket_id) {
+                const messages = await pgDb.all(
+                    `SELECT * FROM hub_tickets.live_messages WHERE session_id = $1 ORDER BY created_at ASC`, [id]
+                );
+                if (messages.length > 0) {
+                    const ticket = await pgDb.get(`SELECT title, content FROM hub_tickets.tickets WHERE glpi_id = $1`, [session.ticket_id]);
+                    const transcriptHtml = buildTranscriptHtml(messages, session, ticket);
+                    await pgDb.run(`
+                        INSERT INTO hub_tickets.ticket_followups
+                            (ticket_id, content, author_name, author_email, is_private, sent_to_user, date_creation)
+                        VALUES ($1, $2, 'Système (Live)', '', 0, 0, NOW())
+                    `, [session.ticket_id, transcriptHtml]);
+                }
+
+                // Send summary email
+                if (_sendMail && session.user_email) {
+                    try {
+                        const messages = await pgDb.all(
+                            `SELECT * FROM hub_tickets.live_messages WHERE session_id = $1 ORDER BY created_at ASC`, [id]
+                        );
+                        if (messages.length > 0) {
+                            const html = buildSummaryEmail(messages, session, `💬 Live – ${session.user_display_name || session.user_username}`);
+                            await _sendMail(session.user_email, `[DSI Support] Résumé de votre échange live — Ticket #${session.ticket_id}`, html);
+                        }
+                    } catch (emailErr) {
+                        console.error('[LIVE] summary email failed:', emailErr.message);
+                    }
+                }
+            }
+
+            // Pre-close: session is closed for chat but ticket stays open
+            await pgDb.run(
+                `UPDATE hub_tickets.live_sessions SET status = 'pre_closed', closed_at = NOW(), close_reason = 'user_left' WHERE id = $1`, [id]
+            );
+
+            const io = getIO();
+            if (io) {
+                io.to(`live:session:${id}`).emit('session_closed', { sessionId: Number(id), reason: 'user_left' });
+                io.to('live:techs').emit('session_updated', { sessionId: Number(id), status: 'pre_closed' });
+            }
+
+            return res.json({ success: true, preClosed: true });
+        }
+
+        // ── Tech closing: full close ──
         // Collect transcript before closing
         const messages = await pgDb.all(
             `SELECT * FROM hub_tickets.live_messages WHERE session_id = $1 ORDER BY created_at ASC`,
@@ -176,41 +230,51 @@ async function closeSession(req, res) {
 
             const safeTitle = newTitle?.trim().replace(/'/g, "''") || null;
             if (closeTicket !== false) {
-                // Close ticket (status 6), optionally rename
                 const titleClause = safeTitle ? `, title = '${safeTitle}'` : '';
                 await pgDb.run(
                     `UPDATE hub_tickets.tickets SET status = 6, date_mod = NOW()${titleClause} WHERE glpi_id = $1`,
                     [session.ticket_id]
                 );
             } else if (safeTitle) {
-                // Just rename, leave ticket open
                 await pgDb.run(
                     `UPDATE hub_tickets.tickets SET title = '${safeTitle}', date_mod = NOW() WHERE glpi_id = $1`,
                     [session.ticket_id]
                 );
             }
 
-            // Store transcript as a followup on the ticket
+            // Store transcript as a followup on the ticket (if not already done by pre-close)
             if (messages.length > 0) {
-                const ticket = await pgDb.get(`SELECT title, content FROM hub_tickets.tickets WHERE glpi_id = $1`, [session.ticket_id]);
-                const transcriptHtml = buildTranscriptHtml(messages, session, ticket);
-                await pgDb.run(`
-                    INSERT INTO hub_tickets.ticket_followups
-                        (ticket_id, content, author_name, author_email, is_private, sent_to_user, date_creation)
-                    VALUES ($1, $2, 'Système (Live)', '', 0, 0, NOW())
-                `, [session.ticket_id, transcriptHtml]);
+                const existingFollowup = await pgDb.get(
+                    `SELECT id FROM hub_tickets.ticket_followups WHERE ticket_id = $1 AND author_name = 'Système (Live)' LIMIT 1`,
+                    [session.ticket_id]
+                );
+                if (!existingFollowup) {
+                    const ticket = await pgDb.get(`SELECT title, content FROM hub_tickets.tickets WHERE glpi_id = $1`, [session.ticket_id]);
+                    const transcriptHtml = buildTranscriptHtml(messages, session, ticket);
+                    await pgDb.run(`
+                        INSERT INTO hub_tickets.ticket_followups
+                            (ticket_id, content, author_name, author_email, is_private, sent_to_user, date_creation)
+                        VALUES ($1, $2, 'Système (Live)', '', 0, 0, NOW())
+                    `, [session.ticket_id, transcriptHtml]);
+                }
             }
 
-            // Send summary email to requester
+            // Send summary email to requester (if not already sent by pre-close)
             if (_sendMail && session.user_email && messages.length > 0) {
                 try {
-                    const finalTitle = newTitle?.trim() || `💬 Live – ${session.user_display_name || session.user_username}`;
-                    const html = buildSummaryEmail(messages, session, finalTitle);
-                    await _sendMail(
-                        session.user_email,
-                        `[DSI Support] Résumé de votre échange live — Ticket #${session.ticket_id}`,
-                        html
+                    const existingMail = await pgDb.get(
+                        `SELECT id FROM hub_tickets.notification_logs WHERE ticket_id = $1 AND event = 'live_summary' LIMIT 1`,
+                        [session.ticket_id]
                     );
+                    if (!existingMail) {
+                        const finalTitle = newTitle?.trim() || `💬 Live – ${session.user_display_name || session.user_username}`;
+                        const html = buildSummaryEmail(messages, session, finalTitle);
+                        await _sendMail(
+                            session.user_email,
+                            `[DSI Support] Résumé de votre échange live — Ticket #${session.ticket_id}`,
+                            html
+                        );
+                    }
                 } catch (emailErr) {
                     console.error('[LIVE] summary email failed:', emailErr.message);
                 }
@@ -246,7 +310,7 @@ async function getStats(req, res) {
                     COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW())) AS this_month
                 FROM hub_tickets.live_sessions
             `),
-            pgDb.get(`SELECT COUNT(*) as count FROM hub_tickets.live_sessions WHERE status != 'closed'`),
+            pgDb.get(`SELECT COUNT(*) as count FROM hub_tickets.live_sessions WHERE status NOT IN ('closed', 'pre_closed')`),
             pgDb.get(`
                 SELECT
                     ROUND(AVG(EXTRACT(EPOCH FROM (closed_at - claimed_at)) / 60)::numeric, 1) AS avg_duration_min,
@@ -594,20 +658,20 @@ async function _autoCloseInactiveSessions() {
     try {
         const inactive = await pgDb.all(`
             SELECT * FROM hub_tickets.live_sessions
-            WHERE status != 'closed'
+            WHERE status NOT IN ('closed', 'pre_closed')
             AND COALESCE(last_activity_at, created_at) < NOW() - INTERVAL '15 minutes'
         `);
         const io = getIO();
         for (const session of inactive) {
             await pgDb.run(
-                `UPDATE hub_tickets.live_sessions SET status = 'closed', closed_at = NOW(), close_reason = 'inactivity' WHERE id = $1`,
+                `UPDATE hub_tickets.live_sessions SET status = 'pre_closed', closed_at = NOW(), close_reason = 'inactivity' WHERE id = $1`,
                 [session.id]
             );
             if (io) {
                 io.to(`live:session:${session.id}`).emit('session_closed', { sessionId: session.id, reason: 'inactivity' });
-                io.to('live:techs').emit('session_closed', { sessionId: session.id });
+                io.to('live:techs').emit('session_updated', { sessionId: session.id, status: 'pre_closed' });
             }
-            console.log(`[LIVE] Auto-closed inactive session ${session.id}`);
+            console.log(`[LIVE] Pre-closed inactive session ${session.id}`);
         }
     } catch (e) {
         console.error('[LIVE] auto-close inactivity error:', e.message);

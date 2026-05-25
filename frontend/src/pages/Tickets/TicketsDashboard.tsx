@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import Header from '../../components/Header';
@@ -79,6 +79,42 @@ export default function TicketsDashboard() {
   const [activeLiveFilter, setActiveLiveFilter] = useState(false);
   const [liveStats, setLiveStats] = useState<any>(null);
   const limit = 50;
+
+  const inboxParams = React.useMemo(() => {
+    const params: Record<string, string> = {};
+    if (activeFilter && KPI_FILTERS[activeFilter]?.params) {
+      Object.assign(params, KPI_FILTERS[activeFilter].params);
+    } else if (!showRejected && !showResolved) {
+      params.status_in = '1,2,3,4,5';
+    } else if (!showRejected && showResolved) {
+      params.status_in = '1,2,3,4,5,6';
+    }
+    if (activeUserFilter && USER_FILTERS[activeUserFilter]) {
+      Object.assign(params, USER_FILTERS[activeUserFilter].getParams());
+    }
+    if (search.trim()) {
+      params.search = search.trim();
+    }
+    if (activeRequesterEmail) {
+      params.requester_email = activeRequesterEmail;
+    }
+    if (activeCategory) {
+      params.category_id = String(activeCategory);
+    }
+    if (activeSubcategory) {
+      params.subcategory_id = String(activeSubcategory);
+    }
+    if (activeSoftware) {
+      params.software_id = String(activeSoftware);
+    }
+    if (activeLiveFilter) {
+      params.is_live = 'true';
+      params.status_in = '1,2,3,4,5,6';
+    }
+    params.sort = sortKey;
+    params.order = sortDir;
+    return params;
+  }, [activeFilter, activeUserFilter, search, activeRequesterEmail, activeCategory, activeSubcategory, activeSoftware, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
 
   const loadData = useCallback(async (filter?: string | null, userFilter?: string | null, pageNum?: number, searchValue: string = search, categoryId?: number | null, subcategoryId?: number | null, softwareId?: number | null, requesterEmail?: string | null) => {
     setLoading(true);
@@ -320,7 +356,7 @@ export default function TicketsDashboard() {
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
     setPage(1);
-    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, activeRequesterEmail);
   }
 
   const getKpiValue = (key: string) =>
@@ -902,13 +938,7 @@ export default function TicketsDashboard() {
         />
       ) : (
         <TicketInbox
-          tickets={tickets}
-          loading={loading}
-          total={total}
-          totalPages={totalPages}
-          page={page}
-          onPageChange={goToPage}
-          onRefresh={() => loadData(activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory, activeSoftware)}
+          baseParams={inboxParams}
           selectedId={selectedInboxId}
           onTicketClick={setSelectedInboxId}
         />
