@@ -650,6 +650,7 @@ async function setupPgDb() {
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS resolution_method TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS knowledge_article TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.ticket_followups ADD COLUMN IF NOT EXISTS sent_to_user INTEGER DEFAULT 0"); } catch (e) {}
+    try { await client.query("ALTER TABLE hub_tickets.technician_groups ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE"); } catch (e) {}
 
     // ── Historique quotidien des KPI ────────────────────────────────
     await client.query(`

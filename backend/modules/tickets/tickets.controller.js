@@ -182,32 +182,28 @@ module.exports = {
         }
     },
 
-    async assignToService(req, res) {
+    async assignToGroup(req, res) {
         try {
-            const { service_code } = req.body;
+            const { group_id } = req.body;
             const ticketId = parseInt(req.params.id);
-            if (!service_code) return res.status(400).json({ message: 'service_code requis' });
+            if (!group_id) return res.status(400).json({ message: 'group_id requis' });
 
-            // Trouver un technicien du service
-            const technicianRepo = require('./repositories/technician.repository');
-            const techs = await technicianRepo.findAvailable();
-            const match = techs.find(t =>
-                t.service_code === service_code &&
-                (t.module_role || 'technician') === 'technician' &&
-                !t.is_deleted
-            );
-            if (!match) return res.status(404).json({ message: `Aucun technicien trouvé pour le service ${service_code}` });
+            const group = await groupRepo.findById(group_id);
+            if (!group) return res.status(404).json({ message: 'Groupe non trouvé' });
 
-            await assignmentService.assign(ticketId, { technician_id: match.user_id }, req.user);
+            const tech = await assignmentService.findLeastBusyInGroup(group_id);
+            if (!tech) return res.status(404).json({ message: `Aucun technicien disponible dans le groupe ${group.name}` });
+
+            await assignmentService.assign(ticketId, { technician_id: tech.user_id, group_id }, req.user);
 
             const siblingIds = await groupRepo.getSiblingIds(ticketId);
             for (const sibId of siblingIds) {
                 try {
-                    await assignmentService.assign(sibId, { technician_id: match.user_id }, req.user);
+                    await assignmentService.assign(sibId, { technician_id: tech.user_id, group_id }, req.user);
                 } catch (e) { console.error(`[GROUP] assign propagation to #${sibId} failed:`, e.message); }
             }
 
-            res.json({ message: `Ticket escaladé vers ${match.displayname || match.displayName}` });
+            res.json({ message: `Ticket escaladé vers le groupe ${group.name} (${tech.displayName || 'technicien assigné'})` });
         } catch (error) {
             res.status(400).json({ message: error.message });
         }

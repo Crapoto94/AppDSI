@@ -86,14 +86,14 @@ router.get('/groups', authenticateJWT, async (req, res) => {
     try {
         const groups = await pgDb.all(`
             SELECT g.*,
-                   COALESCE(json_agg(json_build_object('id', m.id, 'user_id', m.user_id, 'displayName', u.displayName))
+                   COALESCE(json_agg(json_build_object('id', m.id, 'user_id', m.user_id, 'displayName', u.displayName, 'username', u.username))
                        FILTER (WHERE m.id IS NOT NULL), '[]') as members
             FROM hub_tickets.technician_groups g
             LEFT JOIN hub_tickets.technician_group_members m ON g.id = m.group_id
             LEFT JOIN hub.users u ON m.user_id = u.id
             WHERE g.is_active = true
             GROUP BY g.id
-            ORDER BY g.name
+            ORDER BY g.is_default DESC, g.name
         `);
         res.json(groups);
     } catch (e) { res.status(500).json({ message: e.message }); }
@@ -101,17 +101,25 @@ router.get('/groups', authenticateJWT, async (req, res) => {
 
 router.post('/groups', authenticateAdmin, async (req, res) => {
     try {
+        const { name, description, is_default } = req.body;
+        if (is_default) {
+            await pgDb.run('UPDATE hub_tickets.technician_groups SET is_default = false WHERE is_default = true');
+        }
         const result = await pgDb.run(
-            'INSERT INTO hub_tickets.technician_groups (name, description) VALUES ($1, $2)',
-            [req.body.name, req.body.description || '']);
+            'INSERT INTO hub_tickets.technician_groups (name, description, is_default) VALUES ($1, $2, $3)',
+            [name, description || '', is_default ? true : false]);
         res.status(201).json({ id: result.lastID, message: 'Groupe créé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
 router.put('/groups/:id', authenticateAdmin, async (req, res) => {
     try {
-        await pgDb.run('UPDATE hub_tickets.technician_groups SET name = $1, description = $2 WHERE id = $3',
-            [req.body.name, req.body.description, req.params.id]);
+        const { name, description, is_default } = req.body;
+        if (is_default) {
+            await pgDb.run('UPDATE hub_tickets.technician_groups SET is_default = false WHERE is_default = true');
+        }
+        await pgDb.run('UPDATE hub_tickets.technician_groups SET name = $1, description = $2, is_default = $3 WHERE id = $4',
+            [name, description, is_default ? true : false, req.params.id]);
         res.json({ message: 'Groupe mis à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
@@ -120,6 +128,14 @@ router.delete('/groups/:id', authenticateAdmin, async (req, res) => {
     try {
         await pgDb.run('UPDATE hub_tickets.technician_groups SET is_active = false WHERE id = $1', [req.params.id]);
         res.json({ message: 'Groupe désactivé' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.post('/groups/:id/set-default', authenticateAdmin, async (req, res) => {
+    try {
+        await pgDb.run('UPDATE hub_tickets.technician_groups SET is_default = false WHERE is_default = true');
+        await pgDb.run('UPDATE hub_tickets.technician_groups SET is_default = true WHERE id = $1', [req.params.id]);
+        res.json({ message: 'Groupe par défaut mis à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
@@ -503,6 +519,13 @@ router.get('/escalade/agent-service', authenticateAdmin, async (req, res) => {
     try {
         const username = (req.query.username || '').trim();
         if (!username) return res.json({ service: null });
+        // D'abord chercher dans la base (magapp.users puis hub.users)
+        const dbUser = await pgDb.get('SELECT service_code, service_complement FROM magapp.users WHERE LOWER(username) = LOWER($1)', [username])
+            || await pgDb.get('SELECT service_code, service_complement FROM hub.users WHERE LOWER(username) = LOWER($1)', [username]);
+        if (dbUser && dbUser.service_code) {
+            return res.json({ service: dbUser.service_complement || dbUser.service_code, service_code: dbUser.service_code });
+        }
+        // Sinon chercher dans l'AD
         const db = getSqlite();
         const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
         if (!adSettings || !adSettings.is_enabled) return res.json({ service: null });
@@ -512,16 +535,20 @@ router.get('/escalade/agent-service', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.get('/escalade/services', authenticateAdmin, async (req, res) => {
+router.get('/escalade/groups', authenticateAdmin, async (req, res) => {
     try {
-        const rows = await pgDb.all(`
-            SELECT DISTINCT service_code, service_complement
-            FROM magapp.users
-            WHERE service_code IS NOT NULL AND service_code != ''
-              AND service_code != 'None'
-            ORDER BY service_code
+        const groups = await pgDb.all(`
+            SELECT g.id, g.name, g.description, g.is_default,
+                   COALESCE(json_agg(json_build_object('id', m.id, 'user_id', m.user_id, 'displayName', u.displayName, 'username', u.username))
+                       FILTER (WHERE m.id IS NOT NULL), '[]') as members
+            FROM hub_tickets.technician_groups g
+            LEFT JOIN hub_tickets.technician_group_members m ON g.id = m.group_id
+            LEFT JOIN hub.users u ON m.user_id = u.id
+            WHERE g.is_active = true AND g.is_default = false
+            GROUP BY g.id
+            ORDER BY g.name
         `);
-        res.json(rows);
+        res.json(groups);
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 

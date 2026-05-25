@@ -3,7 +3,7 @@ import axios from 'axios';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
-type Tab = 'categories' | 'sla' | 'rules' | 'templates' | 'triggers' | 'technicians' | 'roles' | 'escalade' | 'params';
+type Tab = 'categories' | 'sla' | 'rules' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -47,6 +47,7 @@ export default function TicketAdmin() {
     { key: 'templates',   label: 'Templates' },
     { key: 'triggers',    label: 'Déclencheurs' },
     { key: 'technicians', label: 'Équipe' },
+    { key: 'groups',      label: '👥 Groupes' },
     { key: 'escalade',    label: '⬆️ Escalade' },
     { key: 'roles',       label: '🔐 Rôles' },
     { key: 'params',      label: '⚙️ Paramètres' },
@@ -70,6 +71,7 @@ export default function TicketAdmin() {
         {tab === 'templates'   && <TemplateManager data={templates} onUpdate={() => loadData('/api/tickets/admin/notification-templates', setTemplates)} />}
         {tab === 'triggers'    && <TriggerManager data={triggers} onUpdate={() => loadData('/api/tickets/admin/notification-triggers', setTriggers)} />}
         {tab === 'technicians' && <TeamManager data={technicians} onUpdate={() => loadData('/api/tickets/admin/technicians', setTechnicians)} />}
+        {tab === 'groups'      && <GroupManager />}
         {tab === 'escalade'    && <EscaladeManager />}
         {tab === 'roles'       && <RolePermissionsManager />}
         {tab === 'params'      && <TicketParamsManager />}
@@ -1411,19 +1413,16 @@ function RolePermissionsManager() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ESCALADE MANAGER
+// GROUP MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
-function EscaladeManager() {
-  const [supportAgents, setSupportAgents] = useState<any[]>([]);
-  const [escaladeTargets, setEscaladeTargets] = useState<any[]>([]);
+function GroupManager() {
+  const [groups, setGroups] = useState<any[]>([]);
   const [technicians, setTechnicians] = useState<any[]>([]);
-  const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [targetType, setTargetType] = useState<'agent' | 'service'>('agent');
-  const [selectedTargetService, setSelectedTargetService] = useState('');
-  const [adServices, setAdServices] = useState<Record<string, string | null>>({});
-  const [verifying, setVerifying] = useState(false);
-  const [verifyingAgent, setVerifyingAgent] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [editingGroup, setEditingGroup] = useState<any>(null);
+  const [addingMember, setAddingMember] = useState<number | null>(null);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -1432,40 +1431,188 @@ function EscaladeManager() {
     try {
       const token = localStorage.getItem('token');
       const h = { Authorization: `Bearer ${token}` };
-      const [cfgRes, techRes, svcRes] = await Promise.all([
-        axios.get('/api/tickets/admin/escalade', { headers: h }),
+      const [gRes, tRes] = await Promise.all([
+        axios.get('/api/tickets/admin/groups', { headers: h }),
         axios.get('/api/tickets/admin/technicians', { headers: h }),
-        axios.get('/api/tickets/admin/escalade/services', { headers: h }),
       ]);
-      setSupportAgents(cfgRes.data.support_agents || []);
-      setEscaladeTargets(cfgRes.data.escalade_targets || []);
-      setTechnicians(techRes.data || []);
-      setServices(svcRes.data || []);
+      setGroups(gRes.data || []);
+      setTechnicians(tRes.data || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }
 
-  async function verifyServices(techs: any[]) {
-    if (verifying || techs.length === 0) return;
-    setVerifying(true);
-    setAdServices({});
-    const token = localStorage.getItem('token');
-    for (const tech of techs) {
-      const username = tech.username;
-      if (!username) continue;
-      setVerifyingAgent(username);
-      try {
-        const res = await axios.get(
-          `/api/tickets/admin/escalade/agent-service?username=${encodeURIComponent(username)}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        setAdServices(prev => ({ ...prev, [username]: res.data.service || null }));
-      } catch {
-        setAdServices(prev => ({ ...prev, [username]: null }));
-      }
-    }
-    setVerifyingAgent(null);
-    setVerifying(false);
+  async function createGroup() {
+    if (!newName.trim()) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('/api/tickets/admin/groups', { name: newName.trim(), description: newDesc.trim() }, { headers: { Authorization: `Bearer ${token}` } });
+      setNewName(''); setNewDesc('');
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function updateGroup(id: number, name: string, description: string, is_default: boolean) {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`/api/tickets/admin/groups/${id}`, { name, description, is_default }, { headers: { Authorization: `Bearer ${token}` } });
+      setEditingGroup(null);
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function deleteGroup(id: number) {
+    if (!confirm('Désactiver ce groupe ?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`/api/tickets/admin/groups/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function setDefault(id: number) {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`/api/tickets/admin/groups/${id}/set-default`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function addMember(groupId: number, userId: number) {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`/api/tickets/admin/groups/${groupId}/members`, { user_id: userId }, { headers: { Authorization: `Bearer ${token}` } });
+      setAddingMember(null);
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function removeMember(groupId: number, memberRowId: number) {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`/api/tickets/admin/groups/${groupId}/members/${memberRowId}`, { headers: { Authorization: `Bearer ${token}` } });
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>;
+
+  return (
+    <div>
+      <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 700 }}>Groupes de technicians</h3>
+      <p style={{ margin: '0 0 20px', fontSize: 13, color: '#71717a' }}>
+        Créez des groupes pour organiser l'escalade. Le groupe par défaut (Support) reçoit les tickets en premier et ne peut pas être cible d'escalade.
+      </p>
+
+      {/* Créer un groupe */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, alignItems: 'flex-end' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#71717a', marginBottom: 4 }}>Nom du groupe</div>
+          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Ex: Support N2" style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#71717a', marginBottom: 4 }}>Description</div>
+          <input value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Optionnel" style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+        </div>
+        <button onClick={createGroup} disabled={!newName.trim()} style={{ padding: '8px 20px', background: newName.trim() ? '#6366f1' : '#e4e4e7', color: newName.trim() ? '#fff' : '#94a3b8', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: newName.trim() ? 'pointer' : 'default' }}>
+          + Créer
+        </button>
+      </div>
+
+      {/* Liste des groupes */}
+      {groups.length === 0 && <div style={{ fontSize: 13, color: '#a1a1aa', fontStyle: 'italic' }}>Aucun groupe configuré</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {groups.map((g: any) => (
+          <div key={g.id} style={{ border: `1px solid ${g.is_default ? '#6366f180' : '#e2e8f0'}`, borderRadius: 12, background: g.is_default ? '#eff6ff' : '#fff', overflow: 'hidden' }}>
+            {/* En-tête du groupe */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: g.is_default ? '#dbeafe40' : '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+              {editingGroup?.id === g.id ? (
+                <div style={{ display: 'flex', gap: 8, flex: 1 }}>
+                  <input value={editingGroup.name} onChange={e => setEditingGroup({ ...editingGroup, name: e.target.value })} style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, flex: 1 }} />
+                  <input value={editingGroup.description || ''} onChange={e => setEditingGroup({ ...editingGroup, description: e.target.value })} placeholder="Description" style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, flex: 1 }} />
+                  <button onClick={() => updateGroup(g.id, editingGroup.name, editingGroup.description, editingGroup.is_default)} style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>✓</button>
+                  <button onClick={() => setEditingGroup(null)} style={{ padding: '4px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>✕</button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#18181b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {g.name}
+                      {g.is_default && <span style={{ fontSize: 10, fontWeight: 600, background: '#6366f1', color: '#fff', padding: '2px 8px', borderRadius: 4 }}>PAR DÉFAUT</span>}
+                    </div>
+                    {g.description && <div style={{ fontSize: 12, color: '#71717a', marginTop: 2 }}>{g.description}</div>}
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{(g.members || []).length} membre{(g.members || []).length !== 1 ? 's' : ''}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {!g.is_default && <button onClick={() => setDefault(g.id)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #6366f120', fontSize: 11, fontWeight: 600, background: '#fff', color: '#6366f1', cursor: 'pointer' }}>☆ Par défaut</button>}
+                    <button onClick={() => setEditingGroup(g)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #e4e4e7', fontSize: 11, fontWeight: 600, background: '#fff', color: '#475569', cursor: 'pointer' }}>✎ Modifier</button>
+                    <button onClick={() => deleteGroup(g.id)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #fca5a5', fontSize: 11, fontWeight: 600, background: '#fff', color: '#dc2626', cursor: 'pointer' }}>🗑 Désactiver</button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Membres du groupe */}
+            <div style={{ padding: '12px 16px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {(g.members || []).map((m: any) => (
+                  <span key={m.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, background: g.is_default ? '#c7d2fe' : '#f0fdf4', fontSize: 12, fontWeight: 500, color: g.is_default ? '#3730a3' : '#166534' }}>
+                    {m.displayName || m.username || `#${m.user_id}`}
+                    <button onClick={() => removeMember(g.id, m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+                  </span>
+                ))}
+                {(g.members || []).length === 0 && <span style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Aucun membre</span>}
+              </div>
+
+              {/* Ajouter un membre */}
+              {addingMember === g.id ? (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <select onChange={e => { const uid = parseInt(e.target.value); if (uid) addMember(g.id, uid); }} style={{ flex: 1, padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12 }}>
+                    <option value="">— Choisir un technicien —</option>
+                    {technicians.filter((t: any) => !(g.members || []).some((m: any) => m.user_id === t.user_id)).map((t: any) => (
+                      <option key={t.user_id} value={t.user_id}>{t.displayname || t.displayName} {t.service_complement ? `(${t.service_complement})` : ''}</option>
+                    ))}
+                  </select>
+                  <button onClick={() => setAddingMember(null)} style={{ padding: '6px 12px', background: '#f1f5f9', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>Annuler</button>
+                </div>
+              ) : (
+                <button onClick={() => setAddingMember(g.id)} style={{ padding: '4px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, color: '#475569', cursor: 'pointer' }}>+ Ajouter un membre</button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ESCALADE MANAGER
+// ─────────────────────────────────────────────────────────────────────────────
+function EscaladeManager() {
+  const [supportAgents, setSupportAgents] = useState<any[]>([]);
+  const [escaladeTargets, setEscaladeTargets] = useState<any[]>([]);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [targetType, setTargetType] = useState<'agent' | 'group'>('agent');
+
+  useEffect(() => { loadAll(); }, []);
+
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const h = { Authorization: `Bearer ${token}` };
+      const [cfgRes, techRes, grpRes] = await Promise.all([
+        axios.get('/api/tickets/admin/escalade', { headers: h }),
+        axios.get('/api/tickets/admin/technicians', { headers: h }),
+        axios.get('/api/tickets/admin/escalade/groups', { headers: h }),
+      ]);
+      setSupportAgents(cfgRes.data.support_agents || []);
+      setEscaladeTargets(cfgRes.data.escalade_targets || []);
+      setTechnicians(techRes.data || []);
+      setGroups(grpRes.data || []);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   }
 
   async function toggleSupportAgent(tech: any) {
@@ -1500,19 +1647,6 @@ function EscaladeManager() {
     } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
   }
 
-  async function addTargetService() {
-    const svc = services.find(s => s.service_code === selectedTargetService);
-    if (!svc) return;
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post('/api/tickets/admin/escalade/target', {
-        target_type: 'service', service_code: svc.service_code, service_label: svc.service_complement || svc.service_code
-      }, { headers: { Authorization: `Bearer ${token}` } });
-      setSelectedTargetService('');
-      loadAll();
-    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
-  }
-
   async function removeTarget(id: number) {
     if (!confirm('Retirer cette cible ?')) return;
     try {
@@ -1526,66 +1660,35 @@ function EscaladeManager() {
 
   const activeTechs = technicians.filter(t => t.status === 'active');
 
-  const techRow = (tech: any, isIn: boolean, onToggle: () => void, activeColor: string) => {
-    const username = tech.username || '';
-    const isChecked = username in adServices;
-    const adService = adServices[username];
-    const isCurrentlyVerifying = verifyingAgent === username;
-    return (
-      <div key={tech.user_id} style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-        border: `1px solid ${isIn ? activeColor + '40' : '#e4e4e7'}`,
-        borderRadius: 8, background: isIn ? activeColor + '08' : '#fff',
-      }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b', display: 'flex', alignItems: 'center', gap: 6 }}>
-            {tech.displayname || tech.displayName}
-            {isCurrentlyVerifying && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 400 }}>⟳ vérification…</span>}
-          </div>
-          <div style={{ fontSize: 11, color: '#71717a', display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 1 }}>
-            <span>{tech.service_complement || tech.service_code || tech.email}</span>
-            {isChecked && !isCurrentlyVerifying && (
-              adService
-                ? <span style={{ color: '#6366f1', fontWeight: 600 }}>🏢 {adService}</span>
-                : <span style={{ color: '#f59e0b', fontStyle: 'italic' }}>⚠️ non trouvé dans l'AD</span>
-            )}
-          </div>
-        </div>
-        <button onClick={onToggle} style={{
-          padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
-          fontSize: 12, fontWeight: 600,
-          background: isIn ? '#fef2f2' : '#f0fdf4',
-          color: isIn ? '#dc2626' : '#16a34a',
-          whiteSpace: 'nowrap',
-        }}>
-          {isIn ? '✕ Retirer' : '+ Ajouter'}
-        </button>
+  const techRow = (tech: any, isIn: boolean, onToggle: () => void, activeColor: string) => (
+    <div key={tech.user_id} style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+      border: `1px solid ${isIn ? activeColor + '40' : '#e4e4e7'}`,
+      borderRadius: 8, background: isIn ? activeColor + '08' : '#fff',
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>{tech.displayname || tech.displayName}</div>
+        <div style={{ fontSize: 11, color: '#71717a' }}>{tech.service_complement || tech.service_code || tech.email}</div>
       </div>
-    );
-  };
+      <button onClick={onToggle} style={{
+        padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+        fontSize: 12, fontWeight: 600,
+        background: isIn ? '#fef2f2' : '#f0fdf4',
+        color: isIn ? '#dc2626' : '#16a34a',
+        whiteSpace: 'nowrap',
+      }}>
+        {isIn ? '✕ Retirer' : '+ Ajouter'}
+      </button>
+    </div>
+  );
+
+  const nonDefaultGroups = groups.filter(g => !g.is_default);
 
   return (
-    <div>
-      {/* ── Header avec bouton vérifier ── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-        <button onClick={() => verifyServices(activeTechs)} disabled={verifying || activeTechs.length === 0}
-          style={{
-            padding: '7px 16px', borderRadius: 7, border: '1px solid #e4e4e7', cursor: verifying ? 'default' : 'pointer',
-            fontSize: 12, fontWeight: 600, background: verifying ? '#f1f5f9' : '#fff',
-            color: verifying ? '#94a3b8' : '#6366f1', display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-          {verifying
-            ? <>⟳ Vérification… ({Object.keys(adServices).length}/{activeTechs.length})</>
-            : <>🔍 Vérifier services (AD)</>}
-        </button>
-      </div>
-
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-
-      {/* ── Équipe support ── */}
       <div>
         <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Équipe support</h3>
-        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#71717a' }}>Agents disponibles pour recevoir des escalades.</p>
+        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#71717a' }}>Agents configurés comme cibles d'escalade individuelle.</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {activeTechs.length === 0 && <div style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Aucun technicien actif</div>}
           {activeTechs.map(tech => {
@@ -1595,19 +1698,18 @@ function EscaladeManager() {
         </div>
       </div>
 
-      {/* ── Cibles d'escalade ── */}
       <div>
         <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Cibles d'escalade</h3>
-        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#71717a' }}>Agents ou services vers lesquels escalader un ticket.</p>
+        <p style={{ margin: '0 0 16px', fontSize: 12, color: '#71717a' }}>Agents ou groupes vers lesquels escalader un ticket.</p>
 
         <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
           <button onClick={() => setTargetType('agent')}
             style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 12, background: targetType === 'agent' ? '#6366f1' : '#f1f5f9', color: targetType === 'agent' ? '#fff' : '#475569' }}>
             👤 Agent
           </button>
-          <button onClick={() => setTargetType('service')}
-            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 12, background: targetType === 'service' ? '#6366f1' : '#f1f5f9', color: targetType === 'service' ? '#fff' : '#475569' }}>
-            🏢 Service
+          <button onClick={() => setTargetType('group')}
+            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 12, background: targetType === 'group' ? '#6366f1' : '#f1f5f9', color: targetType === 'group' ? '#fff' : '#475569' }}>
+            👥 Groupe
           </button>
         </div>
 
@@ -1620,38 +1722,30 @@ function EscaladeManager() {
             })}
           </div>
         ) : (
-          <>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <select value={selectedTargetService} onChange={e => setSelectedTargetService(e.target.value)}
-                style={{ flex: 1, padding: '8px 10px', border: '1px solid #e4e4e7', borderRadius: 8, fontSize: 13, background: '#fff' }}>
-                <option value="">— Choisir un service —</option>
-                {services.filter(s => !escaladeTargets.some(t => t.target_type === 'service' && t.service_code === s.service_code)).map(s => (
-                  <option key={s.service_code} value={s.service_code}>{s.service_complement || s.service_code}</option>
-                ))}
-              </select>
-              <button onClick={addTargetService} disabled={!selectedTargetService}
-                style={{ padding: '8px 16px', background: selectedTargetService ? '#6366f1' : '#e4e4e7', color: selectedTargetService ? '#fff' : '#94a3b8', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: selectedTargetService ? 'pointer' : 'default' }}>
-                + Ajouter
-              </button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {escaladeTargets.filter(t => t.target_type === 'service').length === 0 && (
-                <div style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Aucun service configuré</div>
-              )}
-              {escaladeTargets.filter(t => t.target_type === 'service').map(t => (
-                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', border: '1px solid #f59e0b40', borderRadius: 8, background: '#f59e0b08' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>🏢 {t.service_label || t.service_code}</div>
-                    <div style={{ fontSize: 11, color: '#71717a' }}>{t.service_code}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {nonDefaultGroups.length === 0 && (
+              <div style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>
+                Aucun groupe d'escalade configuré.<br />
+                <span style={{ fontSize: 11 }}>Créez des groupes dans l'onglet « Groupes » (les groupes par défaut ne sont pas disponibles pour l'escalade).</span>
+              </div>
+            )}
+            {nonDefaultGroups.map(g => (
+                <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #22c55e40', background: '#f0fdf4' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 6, background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#fff', flexShrink: 0 }}>
+                    👥
                   </div>
-                  <button onClick={() => removeTarget(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 16, padding: 0 }}>×</button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#14532d' }}>{g.name}</div>
+                    <div style={{ fontSize: 11, color: '#16a34a' }}>
+                      {(g.members || []).length} membre{(g.members || []).length !== 1 ? 's' : ''}
+                      {g.description ? ` · ${g.description}` : ''}
+                    </div>
+                  </div>
                 </div>
               ))}
-            </div>
-          </>
+          </div>
         )}
       </div>
-    </div>
     </div>
   );
 }

@@ -518,7 +518,10 @@ export default function TicketDetail() {
       setTechnicians(techRes.data);
       try {
         const escRes = await axios.get('/api/tickets/escalade/targets', { headers: h });
-        setEscaladeTargets(escRes.data?.targets || escRes.data || []);
+        const escData = escRes.data || {};
+        const agents = escData.agents || [];
+        const groups = escData.groups || [];
+        setEscaladeTargets([...agents, ...groups.map((g: any) => ({ ...g, target_type: 'group' }))]);
       } catch (e) {
         console.warn('[OPEN_ASSIGN] Escalade targets failed, continuing without them:', e.message);
         setEscaladeTargets([]);
@@ -1507,16 +1510,16 @@ export default function TicketDetail() {
                 <>
                   {(() => {
                     const agents = escaladeTargets.filter((t: any) => t.target_type === 'agent');
-                    const services = escaladeTargets.filter((t: any) => t.target_type === 'service');
+                    const groups = escaladeTargets.filter((t: any) => t.target_type === 'group');
                     return (
                       <>
                         <div style={{ fontSize: 11, color: '#71717a', marginBottom: 10, lineHeight: 1.5 }}>
-                          Escalader vers un agent ou service configuré dans l'admin. L'escalade transfère le ticket au destinataire choisi.
+                          Escalader vers un agent ou un groupe. Le ticket sera assigné au technicien le moins occupé du groupe.
                         </div>
                         {agents.length > 0 && (
                           <>
                             <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>👤 Agents d'escalade</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: agents.length > 0 && services.length > 0 ? 12 : 0 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: agents.length > 0 && groups.length > 0 ? 12 : 0 }}>
                               {agents.map((t: any) => (
                                 <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #c4b5fd', background: '#faf5ff' }}>
                                   <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0, fontWeight: 700 }}>
@@ -1535,30 +1538,30 @@ export default function TicketDetail() {
                             </div>
                           </>
                         )}
-                        {services.length > 0 && (
+                        {groups.length > 0 && (
                           <>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>🏢 Services d'escalade</div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>👥 Groupes d'escalade</div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              {services.map((t: any) => (
-                                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #fde68a', background: '#fffbeb' }}>
-                                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#fff', flexShrink: 0 }}>
-                                    🏢
+                              {groups.map((g: any) => (
+                                <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #86efac', background: '#f0fdf4' }}>
+                                  <div style={{ width: 28, height: 28, borderRadius: 6, background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#fff', flexShrink: 0 }}>
+                                    👥
                                   </div>
                                   <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#78350f' }}>{t.service_label || t.service_code}</div>
-                                    <div style={{ fontSize: 11, color: '#b45309' }}>Service {t.service_code} · Assignation automatique au technicien disponible</div>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#14532d' }}>{g.name}</div>
+                                    <div style={{ fontSize: 11, color: '#16a34a' }}>{(g.members || []).length} membre{(g.members || []).length !== 1 ? 's' : ''} · Assignation automatique au technicien le moins occupé</div>
                                   </div>
                                   <button onClick={async () => {
                                     try {
                                       const token = localStorage.getItem('token');
-                                      await axios.post(`/api/tickets/${id}/assign-to-service`, { service_code: t.service_code }, { headers: { Authorization: `Bearer ${token}` } });
+                                      await axios.post(`/api/tickets/${id}/assign-to-group`, { group_id: g.id }, { headers: { Authorization: `Bearer ${token}` } });
                                       setShowAssignModal(false);
                                       loadTicket();
                                     } catch (err: any) {
                                       alert('Erreur escalation: ' + (err.response?.data?.message || err.message));
                                     }
                                   }}
-                                    style={{ padding: '5px 12px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
+                                    style={{ padding: '5px 12px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
                                     Escalader
                                   </button>
                                 </div>
@@ -1566,8 +1569,8 @@ export default function TicketDetail() {
                             </div>
                           </>
                         )}
-                        {agents.length === 0 && services.length === 0 && (
-                          <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucune cible d'escalade configurée.<br /><span style={{ fontSize: 11 }}>Configurez-les dans Admin → Escalade.</span></div>
+                        {agents.length === 0 && groups.length === 0 && (
+                          <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucune cible d'escalade configurée.<br /><span style={{ fontSize: 11 }}>Configurez des groupes dans Admin → Groupes.</span></div>
                         )}
                       </>
                     );

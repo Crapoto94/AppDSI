@@ -26,9 +26,22 @@ router.get('/has-permission/:action', authenticateJWT, async (req, res) => {
 // ─── Escalade targets ───────────────────────────────────────────
 router.get('/escalade/targets', authenticateJWT, async (req, res) => {
     try {
-        const targets = await pgDb.all(`SELECT * FROM hub_tickets.escalade_config WHERE type = 'escalade_target' ORDER BY display_name, service_label`);
-        res.json(targets);
-    } catch (e) { res.status(500).json({ targets: [] }); }
+        const [agents, groups] = await Promise.all([
+            pgDb.all(`SELECT * FROM hub_tickets.escalade_config WHERE type = 'escalade_target' AND target_type = 'agent' ORDER BY display_name`),
+            pgDb.all(`
+                SELECT g.id, g.name, g.description, g.is_default,
+                       COALESCE(json_agg(json_build_object('user_id', m.user_id, 'displayName', u.displayName, 'username', u.username))
+                           FILTER (WHERE m.id IS NOT NULL), '[]') as members
+                FROM hub_tickets.technician_groups g
+                LEFT JOIN hub_tickets.technician_group_members m ON g.id = m.group_id
+                LEFT JOIN hub.users u ON m.user_id = u.id
+                WHERE g.is_active = true AND g.is_default = false
+                GROUP BY g.id
+                ORDER BY g.name
+            `),
+        ]);
+        res.json({ agents, groups });
+    } catch (e) { res.status(500).json({ agents: [], groups: [] }); }
 });
 
 // ─── Dashboard & Stats ───────────────────────────────────────────
@@ -63,7 +76,7 @@ router.get('/:id/sla', authenticateJWT, (req, res) => controller.getSLA(req, res
 
 // ─── Actions ──────────────────────────────────────────────────────
 router.post('/:id/assign', authenticateJWT, (req, res) => controller.assign(req, res));
-router.post('/:id/assign-to-service', authenticateJWT, (req, res) => controller.assignToService(req, res));
+router.post('/:id/assign-to-group', authenticateJWT, (req, res) => controller.assignToGroup(req, res));
 router.post('/:id/status', authenticateJWT, (req, res) => controller.changeStatus(req, res));
 router.post('/:id/solution', authenticateJWT, (req, res) => controller.setSolution(req, res));
 router.post('/:id/reopen', authenticateJWT, (req, res) => controller.reopen(req, res));
