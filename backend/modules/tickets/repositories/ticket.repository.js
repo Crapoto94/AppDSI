@@ -29,7 +29,7 @@ LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.
      LEFT JOIN hub_tickets.technician_profiles tp ON ta.technician_id = tp.user_id
      LEFT JOIN hub.users tu ON ta.technician_id = tu.id
      LEFT JOIN hub_tickets.technician_groups tg2 ON ta.group_id = tg2.id
-     LEFT JOIN magapp.users mu ON LOWER(t.requester_email_22) = LOWER(mu.email)
+     LEFT JOIN (SELECT DISTINCT ON (LOWER(email)) email, service_code, service_complement FROM magapp.users ORDER BY LOWER(email)) mu ON LOWER(t.requester_email_22) = LOWER(mu.email)
      LEFT JOIN (SELECT DISTINCT ON (ticket_id) ticket_id, category_id FROM hub_tickets.ticket_category_assignments ORDER BY ticket_id) tca ON tca.ticket_id = t.glpi_id
      LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
      LEFT JOIN (
