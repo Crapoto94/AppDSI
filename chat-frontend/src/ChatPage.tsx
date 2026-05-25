@@ -182,16 +182,15 @@ export default function ChatPage({ token, user, onLogout }: Props) {
       setListening(false)
       return
     }
-    const SR = (window as unknown as Record<string, unknown>)['SpeechRecognition'] as (new () => SpeechRecognition) | undefined
-      || (window as unknown as Record<string, unknown>)['webkitSpeechRecognition'] as (new () => SpeechRecognition) | undefined
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (!SR) { alert('Dictée vocale non supportée par ce navigateur'); return }
     const rec = new SR()
     rec.lang = 'fr-FR'
     rec.continuous = true
     rec.interimResults = false
     recognitionRef.current = rec
-    rec.onresult = (e: SpeechRecognitionEvent) => {
-      const t = Array.from(e.results).slice(e.resultIndex).map(r => r[0].transcript).join(' ')
+    rec.onresult = (e: any) => {
+      const t = Array.from(e.results as any[]).slice(e.resultIndex).map((r: any) => r[0].transcript).join(' ')
       setter(prev => prev + (prev ? ' ' : '') + t)
     }
     rec.onend = () => setListening(false)
