@@ -145,11 +145,11 @@ async function claimSession(req, res) {
 }
 
 // ── POST /api/live/sessions/:id/close ─────────────────────────────────
-// body: { newTitle?: string }  — optionally rename the ticket
+// body: { newTitle?: string, closeTicket?: boolean }
 async function closeSession(req, res) {
     try {
         const { id } = req.params;
-        const { newTitle } = req.body || {};
+        const { newTitle, closeTicket = true } = req.body || {};
 
         const session = await pgDb.get(
             `SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]
@@ -164,13 +164,21 @@ async function closeSession(req, res) {
 
         // Update ticket
         if (session.ticket_id) {
-            const titleUpdate = newTitle?.trim()
-                ? `, title = '${newTitle.trim().replace(/'/g, "''")}'`
-                : '';
-            await pgDb.run(
-                `UPDATE hub_tickets.tickets SET status = 6, date_mod = NOW()${titleUpdate} WHERE glpi_id = $1`,
-                [session.ticket_id]
-            );
+            const safeTitle = newTitle?.trim().replace(/'/g, "''") || null;
+            if (closeTicket !== false) {
+                // Close ticket (status 6), optionally rename
+                const titleClause = safeTitle ? `, title = '${safeTitle}'` : '';
+                await pgDb.run(
+                    `UPDATE hub_tickets.tickets SET status = 6, date_mod = NOW()${titleClause} WHERE glpi_id = $1`,
+                    [session.ticket_id]
+                );
+            } else if (safeTitle) {
+                // Just rename, leave ticket open
+                await pgDb.run(
+                    `UPDATE hub_tickets.tickets SET title = '${safeTitle}', date_mod = NOW() WHERE glpi_id = $1`,
+                    [session.ticket_id]
+                );
+            }
 
             // Store transcript as a followup on the ticket
             if (messages.length > 0) {

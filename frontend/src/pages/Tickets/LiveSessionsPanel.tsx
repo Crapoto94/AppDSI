@@ -35,8 +35,11 @@ export default function LiveSessionsPanel() {
   // Rename dialog
   const [showRename, setShowRename] = useState(false);
   const [renameTitle, setRenameTitle] = useState('');
+  const [closeTicketOnEnd, setCloseTicketOnEnd] = useState(true);
   // Takeover confirmation
   const [showTakeover, setShowTakeover] = useState(false);
+  // Dictée vocale
+  const [listening, setListening] = useState(false);
   // Reformulation IA
   const [reformulating, setReformulating] = useState(false);
   const [reformulationProposal, setReformulationProposal] = useState<string | null>(null);
@@ -52,6 +55,7 @@ export default function LiveSessionsPanel() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   const token = localStorage.getItem('token');
   const userStr = localStorage.getItem('user') || '{}';
@@ -240,26 +244,49 @@ export default function LiveSessionsPanel() {
   // Open rename dialog before closing
   function requestClose() {
     setRenameTitle('');
+    setCloseTicketOnEnd(true);
     setShowRename(true);
   }
 
-  async function confirmClose(title?: string) {
+  async function confirmClose(title?: string, closeTicket = true) {
     if (!activeSession) return;
     setShowRename(false);
     try {
       await axios.post(
         `/api/live/sessions/${activeSession.id}/close`,
-        { newTitle: title?.trim() || undefined },
+        { newTitle: title?.trim() || undefined, closeTicket },
         { headers: { Authorization: `Bearer ${token}` } }
       );
     } catch (e) {
-      // If REST fails, fallback to socket
       if (socketRef.current) {
         socketRef.current.emit('close_session', { sessionId: activeSession.id });
       }
     }
     setActiveSession(null);
     setMessages([]);
+  }
+
+  function toggleDictation() {
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { alert('Dictée vocale non supportée par ce navigateur'); return; }
+    const rec = new SR();
+    rec.lang = 'fr-FR';
+    rec.continuous = true;
+    rec.interimResults = false;
+    recognitionRef.current = rec;
+    rec.onresult = (e: any) => {
+      const t = Array.from(e.results).slice(e.resultIndex).map((r: any) => r[0].transcript).join(' ');
+      setInput(prev => prev + (prev ? ' ' : '') + t);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    rec.start();
+    setListening(true);
   }
 
   async function handleReformulate() {
@@ -349,7 +376,7 @@ export default function LiveSessionsPanel() {
               type="text"
               value={renameTitle}
               onChange={e => setRenameTitle(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') confirmClose(renameTitle); if (e.key === 'Escape') setShowRename(false); }}
+              onKeyDown={e => { if (e.key === 'Enter') confirmClose(renameTitle, closeTicketOnEnd); if (e.key === 'Escape') setShowRename(false); }}
               placeholder="Ex : Problème VPN accès distant…"
               autoFocus
               style={{
@@ -361,14 +388,33 @@ export default function LiveSessionsPanel() {
               onFocus={e => e.target.style.borderColor = '#6366f1'}
               onBlur={e => e.target.style.borderColor = '#e2e8f0'}
             />
+
+            {/* Ticket close option */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={closeTicketOnEnd}
+                onChange={e => setCloseTicketOnEnd(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#6366f1' }}
+              />
+              <span style={{ fontSize: 13, color: '#374151' }}>Clôturer le ticket associé</span>
+            </label>
+            {!closeTicketOnEnd && (
+              <div style={{ marginTop: 6, padding: '6px 10px', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 8, fontSize: 12, color: '#92400e' }}>
+                Le ticket restera ouvert — le technicien pourra continuer à le traiter depuis la liste.
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
               <button
-                onClick={() => confirmClose(renameTitle)}
+                onClick={() => confirmClose(renameTitle, closeTicketOnEnd)}
                 style={{
-                  flex: 1, padding: '10px', background: '#6366f1', color: '#fff',
+                  flex: 1, padding: '10px',
+                  background: closeTicketOnEnd ? '#6366f1' : '#f59e0b',
+                  color: '#fff',
                   border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 14,
                 }}>
-                ✅ Clôturer
+                {closeTicketOnEnd ? '✅ Clôturer' : '📋 Terminer le chat'}
               </button>
               <button
                 onClick={() => setShowRename(false)}
@@ -730,6 +776,17 @@ export default function LiveSessionsPanel() {
                       fontSize: 16, lineHeight: 1, opacity: uploading ? 0.5 : 1, flexShrink: 0,
                     }}>
                     {uploading ? '⏳' : '📎'}
+                  </button>
+                  {/* Mic button */}
+                  <button onClick={toggleDictation} title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}
+                    style={{
+                      padding: '8px 10px',
+                      background: listening ? '#fef2f2' : '#f1f5f9',
+                      color: listening ? '#dc2626' : '#475569',
+                      border: `1.5px solid ${listening ? '#fca5a5' : '#e2e8f0'}`,
+                      borderRadius: 10, cursor: 'pointer', fontSize: 16, lineHeight: 1, flexShrink: 0,
+                    }}>
+                    🎤
                   </button>
                   <textarea
                     ref={inputRef}
