@@ -60,7 +60,7 @@ router.get('/tags', authenticateJWT, async (req, res) => {
 router.post('/tags', authenticateAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(
-            'INSERT INTO hub_tickets.ticket_tags (name, color) VALUES ($1, $2) RETURNING id',
+            'INSERT INTO hub_tickets.ticket_tags (name, color) VALUES ($1, $2)',
             [req.body.name, req.body.color || '#6366f1']);
         res.status(201).json({ id: result.lastID, message: 'Tag créé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
@@ -102,7 +102,7 @@ router.get('/groups', authenticateJWT, async (req, res) => {
 router.post('/groups', authenticateAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(
-            'INSERT INTO hub_tickets.technician_groups (name, description) VALUES ($1, $2) RETURNING id',
+            'INSERT INTO hub_tickets.technician_groups (name, description) VALUES ($1, $2)',
             [req.body.name, req.body.description || '']);
         res.status(201).json({ id: result.lastID, message: 'Groupe créé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
@@ -157,7 +157,7 @@ router.post('/sla', authenticateAdmin, async (req, res) => {
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.sla_definitions
                 (name, description, calendar_id, first_response_min, resolution_min, escalation_min, priority, type, category_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         `, [req.body.name, req.body.description, req.body.calendar_id || 1,
             req.body.first_response_min, req.body.resolution_min, req.body.escalation_min,
             req.body.priority, req.body.type, req.body.category_id || null]);
@@ -208,7 +208,7 @@ router.get('/sla/calendars', authenticateJWT, async (req, res) => {
 router.post('/sla/calendars', authenticateAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(
-            'INSERT INTO hub_tickets.sla_calendars (name, description, timezone) VALUES ($1, $2, $3) RETURNING id',
+            'INSERT INTO hub_tickets.sla_calendars (name, description, timezone) VALUES ($1, $2, $3)',
             [req.body.name, req.body.description, req.body.timezone || 'Europe/Paris']);
         res.status(201).json({ id: result.lastID, message: 'Calendrier créé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
@@ -227,7 +227,7 @@ router.post('/assignment-rules', authenticateAdmin, async (req, res) => {
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.assignment_rules
                 (name, match_type, match_value, assign_type, assign_to_id, priority)
-            VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+            VALUES ($1, $2, $3, $4, $5, $6)
         `, [req.body.name, req.body.match_type || 'any', req.body.match_value || '',
             req.body.assign_type, req.body.assign_to_id, req.body.priority || 0]);
         res.status(201).json({ id: result.lastID, message: 'Règle créée' });
@@ -267,7 +267,7 @@ router.post('/notification-templates', authenticateAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html)
-            VALUES ($1, $2, $3, $4) RETURNING id
+            VALUES ($1, $2, $3, $4)
         `, [req.body.slug, req.body.label, req.body.subject, req.body.body_html]);
         res.status(201).json({ id: result.lastID, message: 'Template créé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
