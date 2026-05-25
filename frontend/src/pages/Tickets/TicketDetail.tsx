@@ -39,7 +39,7 @@ const STATUS_NAMES: Record<number, string> = {
 const VALID_TRANSITIONS: Record<number, { to: number; label: string; color: string }[]> = {
   1: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }],
   2: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }, { to: 1, label: 'Réinitialiser', color: '#64748b' }],
-  3: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }, { to: 4, label: 'En attente', color: '#f97316' }, { to: 5, label: 'Résoudre', color: '#22c55e' }],
+  3: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }, { to: 4, label: 'Mettre en pause', color: '#f97316' }, { to: 5, label: 'Résoudre', color: '#22c55e' }],
   4: [{ to: 3, label: 'Reprendre', color: '#f59e0b' }, { to: 5, label: 'Résoudre', color: '#22c55e' }],
   5: [{ to: 6, label: 'Fermer', color: '#64748b' }, { to: 3, label: 'Réouvrir', color: '#f59e0b' }],
   6: [{ to: 3, label: 'Réouvrir', color: '#f59e0b' }],
