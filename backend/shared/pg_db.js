@@ -2909,6 +2909,7 @@ async function setupPgDb() {
     try { await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.live_otp_codes (
         id SERIAL PRIMARY KEY,
+        username VARCHAR(100),
         email VARCHAR(255) NOT NULL,
         display_name VARCHAR(255),
         code VARCHAR(4) NOT NULL,
@@ -2917,6 +2918,7 @@ async function setupPgDb() {
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_otp_codes ADD COLUMN IF NOT EXISTS username VARCHAR(100)`); } catch (e) {}
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

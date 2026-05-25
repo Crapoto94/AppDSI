@@ -103,4 +103,66 @@ async function authenticateAD(username, password, config) {
     });
 }
 
-module.exports = { authenticateAD };
+// Lookup only — no password check. Returns user info or null.
+async function lookupADUser(username, config) {
+    return new Promise((resolve, reject) => {
+        if (!config.is_enabled) return resolve(null);
+
+        const client = ldap.createClient({
+            url: `ldap://${config.host}:${config.port}`,
+            connectTimeout: 10000,
+            timeout: 10000,
+        });
+
+        client.on('error', (err) => {
+            log(`Client error (lookup): ${err.message}`);
+            resolve(null);
+        });
+
+        client.bind(config.bind_dn, config.bind_password, (err) => {
+            if (err) {
+                client.destroy();
+                return reject(new Error('Erreur de liaison AD : ' + err.message));
+            }
+
+            const opts = {
+                filter: `(sAMAccountName=${username})`,
+                scope: 'sub',
+                attributes: ['dn', 'cn', 'mail', 'displayName'],
+                referrals: false,
+                paged: false,
+            };
+
+            client.search(config.base_dn, opts, (err, res) => {
+                if (err) {
+                    client.destroy();
+                    return reject(new Error('Erreur de recherche AD : ' + err.message));
+                }
+
+                let userEntry = null;
+
+                res.on('searchEntry', (entry) => {
+                    userEntry = flattenLDAPEntry(entry);
+                });
+
+                res.on('error', (err) => {
+                    client.destroy();
+                    reject(new Error('Erreur lors de la recherche AD : ' + err.message));
+                });
+
+                res.on('end', () => {
+                    client.destroy();
+                    if (!userEntry) return resolve(null);
+                    resolve({
+                        username,
+                        displayName: userEntry.displayName || userEntry.cn || username,
+                        email: userEntry.mail || null,
+                        dn: userEntry.dn,
+                    });
+                });
+            });
+        });
+    });
+}
+
+module.exports = { authenticateAD, lookupADUser };

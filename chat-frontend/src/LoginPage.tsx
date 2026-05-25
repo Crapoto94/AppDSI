@@ -19,8 +19,8 @@ export default function LoginPage({ onLogin }: Props) {
   const [adPassword, setAdPassword] = useState('')
 
   // OTP fields
-  const [otpName, setOtpName] = useState('')
-  const [otpEmail, setOtpEmail] = useState('')
+  const [otpUsername, setOtpUsername] = useState('')
+  const [otpEmailHint, setOtpEmailHint] = useState('')
   const [otpCode, setOtpCode] = useState('')
   const [otpStep, setOtpStep] = useState<'request' | 'verify'>('request')
   const otpInputRef = useRef<HTMLInputElement>(null)
@@ -37,7 +37,7 @@ export default function LoginPage({ onLogin }: Props) {
   const canSubmit = !loading && (() => {
     if (tab === 'ad') return adUsername.trim().length > 0 && adPassword.length > 0
     if (tab === 'otp') return otpStep === 'request'
-      ? otpName.trim().length > 0 && otpEmail.trim().length > 0
+      ? otpUsername.trim().length > 0
       : otpCode.trim().length === 4
     return guestName.trim().length > 0 && guestEmail.trim().length > 0
   })()
@@ -53,12 +53,13 @@ export default function LoginPage({ onLogin }: Props) {
         onLogin(res.data.token as string, res.data.user as UserInfo, remember)
       } else if (tab === 'otp') {
         if (otpStep === 'request') {
-          await axios.post('/api/live/auth/otp/request', { displayName: otpName.trim(), email: otpEmail.trim() })
+          const res = await axios.post('/api/live/auth/otp/request', { username: otpUsername.trim() })
+          setOtpEmailHint(res.data.emailHint || '')
           setOtpStep('verify')
           setOtpCode('')
           setTimeout(() => otpInputRef.current?.focus(), 100)
         } else {
-          const res = await axios.post('/api/live/auth/otp/verify', { email: otpEmail.trim(), code: otpCode.trim() })
+          const res = await axios.post('/api/live/auth/otp/verify', { username: otpUsername.trim(), code: otpCode.trim() })
           onLogin(res.data.token as string, res.data.user as UserInfo, remember)
         }
       } else {
@@ -180,26 +181,15 @@ export default function LoginPage({ onLogin }: Props) {
 
           {/* ── OTP tab ─────────────────────────────────────────── */}
           {tab === 'otp' && otpStep === 'request' && (
-            <>
-              <Field label="Nom et prénom">
-                <input
-                  type="text" value={otpName} onChange={e => setOtpName(e.target.value)}
-                  placeholder="Jean Dupont" required autoFocus autoComplete="name"
-                  style={inputStyle}
-                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
-                  onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-                />
-              </Field>
-              <Field label="Adresse e-mail">
-                <input
-                  type="email" value={otpEmail} onChange={e => setOtpEmail(e.target.value)}
-                  placeholder="jean.dupont@exemple.fr" required autoComplete="email"
-                  style={inputStyle}
-                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
-                  onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-                />
-              </Field>
-            </>
+            <Field label="Identifiant Windows">
+              <input
+                type="text" value={otpUsername} onChange={e => setOtpUsername(e.target.value)}
+                placeholder="prenom.nom" required autoFocus autoComplete="username"
+                style={inputStyle}
+                onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+              />
+            </Field>
           )}
 
           {tab === 'otp' && otpStep === 'verify' && (
@@ -209,7 +199,7 @@ export default function LoginPage({ onLogin }: Props) {
                 borderRadius: 10, padding: '10px 14px', marginBottom: 18,
                 fontSize: 13, color: '#166534',
               }}>
-                ✅ Code envoyé à <strong>{otpEmail}</strong> — vérifiez votre boîte mail.
+                ✅ Code envoyé à <strong>{otpEmailHint}</strong> — vérifiez votre boîte mail.
               </div>
               <Field label="Code à 4 chiffres">
                 <input
@@ -228,7 +218,7 @@ export default function LoginPage({ onLogin }: Props) {
                 onClick={() => { setOtpStep('request'); setOtpCode(''); setError('') }}
                 style={{ background: 'none', border: 'none', color: '#6366f1', fontSize: 12, cursor: 'pointer', padding: '0 0 14px', textDecoration: 'underline' }}
               >
-                ← Modifier l'email
+                ← Modifier l'identifiant
               </button>
             </>
           )}
