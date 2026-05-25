@@ -1255,7 +1255,7 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
   const [groups, setGroups] = useState<any[]>([]);
 
   const [form, setForm] = useState({
-    name: '', match_type: 'any', match_value: '', assign_type: 'group', assign_to_id: 0, priority: 0, is_active: true,
+    name: '', match_type: 'any', match_value: '', assign_type: 'group', assign_to_id: 0, assign_to_value: '', priority: 0, is_active: true,
   });
 
   useEffect(() => {
@@ -1279,14 +1279,14 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
 
   function startCreate() {
     setIsNew(true); setEditingId(null);
-    setForm({ name: '', match_type: 'any', match_value: '', assign_type: 'group', assign_to_id: 0, priority: data.length, is_active: true });
+    setForm({ name: '', match_type: 'any', match_value: '', assign_type: 'group', assign_to_id: 0, assign_to_value: '', priority: data.length, is_active: true });
   }
 
   function startEdit(r: any) {
     setIsNew(false); setEditingId(r.id);
     setForm({
       name: r.name || '', match_type: r.match_type || 'any', match_value: r.match_value || '',
-      assign_type: r.assign_type || 'group', assign_to_id: r.assign_to_id || 0,
+      assign_type: r.assign_type || 'group', assign_to_id: r.assign_to_id || 0, assign_to_value: r.assign_to_value || '',
       priority: r.priority || 0, is_active: r.is_active !== false,
     });
   }
@@ -1387,12 +1387,51 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
         </select>
       );
     }
-    return (
-      <select value={form.assign_to_id} onChange={e => setField('assign_to_id', parseInt(e.target.value))} style={selectStyle}>
-        <option value={0}>— Choisir un groupe —</option>
-        {groups.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
-      </select>
-    );
+    if (form.assign_type === 'group') {
+      return (
+        <select value={form.assign_to_id} onChange={e => setField('assign_to_id', parseInt(e.target.value))} style={selectStyle}>
+          <option value={0}>— Choisir un groupe —</option>
+          {groups.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </select>
+      );
+    }
+    if (form.assign_type === 'set_category') {
+      return (
+        <select value={form.assign_to_id} onChange={e => setField('assign_to_id', parseInt(e.target.value))} style={selectStyle}>
+          <option value={0}>— Choisir une catégorie —</option>
+          {sortedCategories.map((c: any) => (
+            <option key={c.id} value={c.id}>{c.parent_id ? '  └ ' : ''}{c.full_path || c.name}</option>
+          ))}
+        </select>
+      );
+    }
+    if (form.assign_type === 'set_type') {
+      return (
+        <select value={form.assign_to_value} onChange={e => setField('assign_to_value', e.target.value)} style={selectStyle}>
+          <option value="">— Choisir un type —</option>
+          {typeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      );
+    }
+    if (form.assign_type === 'add_tag') {
+      return (
+        <input value={form.assign_to_value} onChange={e => setField('assign_to_value', e.target.value)}
+          placeholder="Nom du tag à ajouter" style={{ ...inputStyle, flex: 1 }} />
+      );
+    }
+    return null;
+  }
+
+  function describeAction(r: any): string {
+    const t = r.assign_type;
+    if (t === 'technician') return `→ Technicien : ${technicians.find((x: any) => x.user_id === r.assign_to_id)?.display_name || '#' + r.assign_to_id}`;
+    if (t === 'group') return `→ Groupe : ${groups.find((x: any) => x.id === r.assign_to_id)?.name || '#' + r.assign_to_id}`;
+    if (t === 'set_vip') return '→ ⭐ Définir VIP';
+    if (t === 'boost_priority') return '→ 🔺 Augmenter priorité +1';
+    if (t === 'set_type') return `→ Type : ${typeOptions.find(o => o.value === String(r.assign_to_value))?.label || r.assign_to_value || '?'}`;
+    if (t === 'add_tag') return `→ 🏷 Ajouter tag : ${r.assign_to_value || '?'}`;
+    if (t === 'set_category') return `→ Catégorie : ${sortedCategories.find((c: any) => String(c.id) === String(r.assign_to_id))?.full_path || '#' + r.assign_to_id}`;
+    return `→ ${t}`;
   }
 
   function describeRule(r: any): string {
@@ -1402,10 +1441,7 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
       : r.match_type === 'type' ? `Type = ${typeOptions.find(o => o.value === String(r.match_value))?.label || r.match_value}`
       : r.match_type === 'vip_requester' ? 'Demandeur VIP'
       : `${r.match_type} = ${r.match_value}`;
-    const target = r.assign_type === 'technician'
-      ? `Technicien : ${technicians.find((t: any) => t.user_id === r.assign_to_id)?.display_name || '#' + r.assign_to_id}`
-      : `Groupe : ${groups.find((g: any) => g.id === r.assign_to_id)?.name || '#' + r.assign_to_id}`;
-    return `${condition} → ${target}`;
+    return `${condition} ${describeAction(r)}`;
   }
 
   const isEditing = editingId !== null || isNew;
@@ -1422,7 +1458,7 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
       </div>
 
       <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b' }}>
-        Les règles sont évaluées par ordre de priorité (plus bas = plus prioritaire). La première règle qui correspond est appliquée.
+        Les règles sont évaluées par ordre de priorité (plus bas = plus prioritaire). Les actions ⭐ VIP, 🔺 priorité, 🏷 tag, 📋 type et 📁 catégorie s'accumulent. Seule la première assignation (groupe/technicien) est appliquée.
       </p>
 
       {/* Edit / Create form */}
@@ -1444,11 +1480,16 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
               {renderMatchValueSelect()}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <label style={labelStyle}>Assigner à</label>
-              <select value={form.assign_type} onChange={e => { setField('assign_type', e.target.value); setField('assign_to_id', 0); }}
-                style={{ ...selectStyle, minWidth: 130 }}>
-                <option value="group">Groupe</option>
-                <option value="technician">Technicien</option>
+              <label style={labelStyle}>Action</label>
+              <select value={form.assign_type} onChange={e => { setField('assign_type', e.target.value); setField('assign_to_id', 0); setField('assign_to_value', ''); }}
+                style={{ ...selectStyle, minWidth: 160 }}>
+                <option value="group">Assigner à un groupe</option>
+                <option value="technician">Assigner à un technicien</option>
+                <option value="set_vip">⭐ Définir VIP</option>
+                <option value="boost_priority">🔺 Augmenter la priorité</option>
+                <option value="set_type">📋 Définir le type</option>
+                <option value="set_category">📁 Définir la catégorie</option>
+                <option value="add_tag">🏷 Ajouter un tag</option>
               </select>
               {renderAssignToSelect()}
             </div>
@@ -1465,8 +1506,8 @@ function RuleManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={cancel} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-              <button onClick={save} disabled={saving || !form.name.trim() || !form.assign_to_id}
-                style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: (saving || !form.name.trim() || !form.assign_to_id) ? '#94a3b8' : '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+              <button onClick={save} disabled={saving || !form.name.trim() || (!form.assign_to_id && !['set_vip','boost_priority'].includes(form.assign_type)) && form.assign_type !== 'add_tag' && form.assign_type !== 'set_type'}
+                style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: (saving || !form.name.trim()) ? '#94a3b8' : '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
                 {saving ? 'Enregistrement...' : 'Enregistrer'}
               </button>
             </div>

@@ -264,10 +264,10 @@ router.post('/assignment-rules', authenticateAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.assignment_rules
-                (name, match_type, match_value, assign_type, assign_to_id, priority)
-            VALUES ($1, $2, $3, $4, $5, $6)
+                (name, match_type, match_value, assign_type, assign_to_id, assign_to_value, priority)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
         `, [req.body.name, req.body.match_type || 'any', req.body.match_value || '',
-            req.body.assign_type, req.body.assign_to_id, req.body.priority || 0]);
+            req.body.assign_type, req.body.assign_to_id || null, req.body.assign_to_value || null, req.body.priority || 0]);
         res.status(201).json({ id: result.lastID, message: 'Règle créée' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
@@ -277,11 +277,11 @@ router.put('/assignment-rules/:id', authenticateAdmin, async (req, res) => {
         await pgDb.run(`
             UPDATE hub_tickets.assignment_rules SET
                 name = $1, match_type = $2, match_value = $3,
-                assign_type = $4, assign_to_id = $5, priority = $6, is_active = $7
-            WHERE id = $8
+                assign_type = $4, assign_to_id = $5, assign_to_value = $6, priority = $7, is_active = $8
+            WHERE id = $9
         `, [req.body.name, req.body.match_type, req.body.match_value,
-            req.body.assign_type, req.body.assign_to_id, req.body.priority,
-            req.body.is_active ?? true, req.params.id]);
+            req.body.assign_type, req.body.assign_to_id || null, req.body.assign_to_value || null,
+            req.body.priority, req.body.is_active ?? true, req.params.id]);
         res.json({ message: 'Règle mise à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });

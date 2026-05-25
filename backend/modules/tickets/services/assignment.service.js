@@ -131,7 +131,6 @@ module.exports = {
     },
 
     async autoAssign(ticket) {
-        // Check VIP requester first — mark ticket as VIP regardless of rules
         await this.checkVipRequester(ticket);
 
         const rules = await pgDb.all(`
@@ -140,17 +139,50 @@ module.exports = {
             ORDER BY priority ASC
         `);
 
+        let assigned = false;
         for (const rule of rules) {
             if (!this.matchesRule(ticket, rule)) continue;
 
-            if (rule.assign_type === 'technician') {
+            const action = rule.assign_type;
+
+            if (action === 'set_vip') {
+                await ticketRepo.update(ticket.glpi_id, { is_vip: true });
+                try { await historyRepo.log(ticket.glpi_id, null, 'set_vip', 'is_vip', 'false', 'true', 'Règle : ' + rule.name); } catch (e) {}
+            } else if (action === 'boost_priority') {
+                const newP = Math.min((ticket.priority || 3) + 1, 5);
+                await ticketRepo.update(ticket.glpi_id, { priority: newP });
+                try { await historyRepo.log(ticket.glpi_id, null, 'priority_changed', 'priority', String(ticket.priority || 3), String(newP), 'Règle : ' + rule.name); } catch (e) {}
+            } else if (action === 'set_type') {
+                const newType = rule.assign_to_value || rule.match_value;
+                if (newType) {
+                    await ticketRepo.update(ticket.glpi_id, { type: newType });
+                    try { await historyRepo.log(ticket.glpi_id, null, 'type_changed', 'type', String(ticket.type || ''), String(newType), 'Règle : ' + rule.name); } catch (e) {}
+                }
+            } else if (action === 'add_tag') {
+                const tagName = rule.assign_to_value;
+                if (tagName) {
+                    let tag = await pgDb.get('SELECT id FROM hub_tickets.ticket_tags WHERE name = $1', [tagName]);
+                    if (!tag) {
+                        const r = await pgDb.run('INSERT INTO hub_tickets.ticket_tags (name, color) VALUES ($1, $2)', [tagName, '#6366f1']);
+                        tag = { id: r.lastID };
+                    }
+                    await pgDb.run('INSERT INTO hub_tickets.ticket_tag_links (ticket_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [ticket.glpi_id, tag.id]);
+                    try { await historyRepo.log(ticket.glpi_id, null, 'tag_added', 'tag', '', tagName, 'Règle : ' + rule.name); } catch (e) {}
+                }
+            } else if (action === 'set_category') {
+                const catId = rule.assign_to_id;
+                if (catId) {
+                    await ticketRepo.update(ticket.glpi_id, { category_id: catId });
+                    try { await historyRepo.log(ticket.glpi_id, null, 'category_changed', 'category_id', String(ticket.category_id || ''), String(catId), 'Règle : ' + rule.name); } catch (e) {}
+                }
+            } else if (action === 'technician' && !assigned) {
                 await this.assign(ticket.glpi_id, { technician_id: rule.assign_to_id }, { id: null, username: 'system' });
-                return;
-            } else if (rule.assign_type === 'group') {
+                assigned = true;
+            } else if (action === 'group' && !assigned) {
                 const tech = await this.findLeastBusyInGroup(rule.assign_to_id);
                 if (tech) {
                     await this.assign(ticket.glpi_id, { technician_id: tech.user_id, group_id: rule.assign_to_id }, { id: null, username: 'system' });
-                    return;
+                    assigned = true;
                 }
             }
         }

@@ -208,6 +208,8 @@ async function setupPgDb() {
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS subcategory_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.ticket_categories ADD COLUMN IF NOT EXISTS icon VARCHAR(50)'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.assignment_rules ALTER COLUMN assign_to_id DROP NOT NULL'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.assignment_rules ADD COLUMN IF NOT EXISTS assign_to_value VARCHAR(255)'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS software_id INTEGER REFERENCES magapp.apps(id) ON DELETE SET NULL'); } catch (e) {}
 
     // Supprimer la FK sur user_id (hub.users est vidée à chaque restart)
@@ -528,7 +530,8 @@ async function setupPgDb() {
         match_type VARCHAR(50),
         match_value VARCHAR(255),
         assign_type VARCHAR(50) NOT NULL,
-        assign_to_id INTEGER NOT NULL,
+        assign_to_id INTEGER,
+        assign_to_value VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
