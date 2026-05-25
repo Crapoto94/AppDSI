@@ -525,7 +525,7 @@ export default function TicketDetail() {
         const agents = escData.agents || [];
         const groups = escData.groups || [];
         setEscaladeTargets([...agents, ...groups.map((g: any) => ({ ...g, target_type: 'group' }))]);
-      } catch (e) {
+      } catch (e: any) {
         console.warn('[OPEN_ASSIGN] Escalade targets failed, continuing without them:', e.message);
         setEscaladeTargets([]);
       }
