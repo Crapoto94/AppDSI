@@ -158,10 +158,10 @@ export default function LoginPage({ onLogin }: Props) {
           {/* ── AD tab ─────────────────────────────────────────── */}
           {tab === 'ad' && (
             <>
-              <Field label="Identifiant réseau">
+              <Field label="Identifiant">
                 <input
                   type="text" value={adUsername} onChange={e => setAdUsername(e.target.value)}
-                  placeholder="prenom.nom" required autoFocus autoComplete="username"
+                  required autoFocus autoComplete="username"
                   style={inputStyle}
                   onFocus={e => (e.target.style.borderColor = '#6366f1')}
                   onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
@@ -170,7 +170,7 @@ export default function LoginPage({ onLogin }: Props) {
               <Field label="Mot de passe">
                 <input
                   type="password" value={adPassword} onChange={e => setAdPassword(e.target.value)}
-                  placeholder="••••••••" required autoComplete="current-password"
+                  required autoComplete="current-password"
                   style={inputStyle}
                   onFocus={e => (e.target.style.borderColor = '#6366f1')}
                   onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
