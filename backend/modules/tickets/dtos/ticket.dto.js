@@ -92,6 +92,7 @@ module.exports = {
             technician_name: ticket.technician_name,
             technician_status: ticket.technician_status,
             group_id: ticket.group_id,
+            assignee_group_name: ticket.assignee_group_name || null,
             observer_count: ticket.observer_count,
             history_count: ticket.history_count || 0,
             followups_count: ticket.followups_count || 0,
