@@ -22,6 +22,14 @@ router.get('/has-permission/:action', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ allowed: false }); }
 });
 
+// ─── Escalade targets ───────────────────────────────────────────
+router.get('/escalade/targets', authenticateJWT, async (req, res) => {
+    try {
+        const targets = await pgDb.all(`SELECT * FROM hub_tickets.escalade_config WHERE type = 'escalade_target' ORDER BY display_name, service_label`);
+        res.json(targets);
+    } catch (e) { res.status(500).json({ targets: [] }); }
+});
+
 // ─── Dashboard & Stats ───────────────────────────────────────────
 router.get('/ticket-stats', authenticateJWT, (req, res) => controller.getTicketCountsBySoftware(req, res));
 router.get('/dashboard/stats', authenticateJWT, (req, res) => controller.getDashboardStats(req, res));
@@ -54,6 +62,7 @@ router.get('/:id/sla', authenticateJWT, (req, res) => controller.getSLA(req, res
 
 // ─── Actions ──────────────────────────────────────────────────────
 router.post('/:id/assign', authenticateJWT, (req, res) => controller.assign(req, res));
+router.post('/:id/assign-to-service', authenticateJWT, (req, res) => controller.assignToService(req, res));
 router.post('/:id/status', authenticateJWT, (req, res) => controller.changeStatus(req, res));
 router.post('/:id/solution', authenticateJWT, (req, res) => controller.setSolution(req, res));
 router.post('/:id/reopen', authenticateJWT, (req, res) => controller.reopen(req, res));

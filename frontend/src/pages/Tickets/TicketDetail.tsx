@@ -79,6 +79,8 @@ export default function TicketDetail() {
   const [observerSearch, setObserverSearch] = useState('');
   const [observerResults, setObserverResults] = useState<any[]>([]);
   const [observerSearching, setObserverSearching] = useState(false);
+  const [escaladeTargets, setEscaladeTargets] = useState<any[]>([]);
+  const [assignTab, setAssignTab] = useState<'tech' | 'escalade'>('tech');
 
   // Panels latéraux
   const [showJournalPanel, setShowJournalPanel] = useState(false);
@@ -322,7 +324,7 @@ export default function TicketDetail() {
           await axios.post(`/api/tickets/${id}/assign`, { technician_id: user.id }, { headers: { Authorization: `Bearer ${token}` } });
         }
         // Ne change le statut que si différent (évite 3→3 refusé par le backend)
-        if (ticket.status !== 3) {
+        if (ticket.status?.id !== 3) {
           await doChangeStatus(3);
         }
         loadTicket();
@@ -510,8 +512,14 @@ export default function TicketDetail() {
   async function openAssignModal() {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('/api/tickets/admin/technicians/available', { headers: { Authorization: `Bearer ${token}` } });
-      setTechnicians(res.data);
+      const h = { Authorization: `Bearer ${token}` };
+      const [techRes, escRes] = await Promise.all([
+        axios.get('/api/tickets/admin/technicians/available', { headers: h }),
+        axios.get('/api/tickets/escalade/targets', { headers: h }),
+      ]);
+      setTechnicians(techRes.data);
+      setEscaladeTargets(escRes.data?.targets || escRes.data || []);
+      setAssignTab('tech');
       setShowAssignModal(true);
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erreur');
@@ -1403,74 +1411,131 @@ export default function TicketDetail() {
             </div>
             {/* Content */}
             <div style={{ overflowY: 'auto', padding: '16px 20px 12px', flex: 1 }}>
-              {technicians.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucun technicien disponible</div>
+              {/* Tabs */}
+              <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+                <button onClick={() => setAssignTab('tech')}
+                  style={{ padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 11, background: assignTab === 'tech' ? '#6366f1' : '#f1f5f9', color: assignTab === 'tech' ? '#fff' : '#475569' }}>
+                  🔧 Techniciens
+                </button>
+                <button onClick={() => setAssignTab('escalade')}
+                  style={{ padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 11, background: assignTab === 'escalade' ? '#8b5cf6' : '#f1f5f9', color: assignTab === 'escalade' ? '#fff' : '#475569' }}>
+                  ⬆️ Escalade
+                </button>
+              </div>
+
+              {assignTab === 'tech' ? (
+                technicians.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucun technicien disponible</div>
+                ) : (
+                  <>
+                    {/* Suggéré */}
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Suggéré</div>
+                    {(() => {
+                      const best = technicians[0];
+                      const load = parseInt(best.active_tickets || '0');
+                      const loadColor = load === 0 ? '#22c55e' : load <= 3 ? '#f59e0b' : '#ef4444';
+                      return (
+                        <div style={{ border: '2px solid #fca5a5', borderRadius: 12, padding: '14px 16px', marginBottom: 16, background: '#fff5f5' }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Moins chargé de l'équipe</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                            <div style={{ width: 38, height: 38, borderRadius: '50%', background: avatarColor(best.displayname || best.displayName || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                              {getInitials(best.displayname || best.displayName || '')}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: '#18181b' }}>{best.displayname || best.displayName}</div>
+                              <div style={{ fontSize: 11, color: '#71717a', marginTop: 1 }}>{best.module_role || 'technicien'} · {load} ticket{load !== 1 ? 's' : ''} actif{load !== 1 ? 's' : ''}</div>
+                            </div>
+                            <button onClick={() => assignTechnician(best.user_id)}
+                              style={{ padding: '7px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>
+                              Assigner
+                            </button>
+                          </div>
+                          <div style={{ height: 4, background: '#fee2e2', borderRadius: 2 }}>
+                            <div style={{ height: '100%', width: `${Math.min(100, load * 12.5)}%`, background: loadColor, borderRadius: 2 }} />
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {/* Disponibles */}
+                    {technicians.length > 1 && (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Disponibles</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {technicians.slice(1).map((t: any) => {
+                            const load = parseInt(t.active_tickets || '0');
+                            const loadColor = load === 0 ? '#22c55e' : load <= 3 ? '#f59e0b' : '#ef4444';
+                            return (
+                              <div key={t.user_id}
+                                className="assign-row"
+                                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #f4f4f5', background: '#fff', cursor: 'pointer', position: 'relative' }}
+                                onMouseEnter={e => { e.currentTarget.style.background = '#f9f9fb'; (e.currentTarget.querySelector('.assign-hover-btn') as HTMLElement).style.opacity = '1'; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = '#fff'; (e.currentTarget.querySelector('.assign-hover-btn') as HTMLElement).style.opacity = '0'; }}>
+                                <div style={{ width: 30, height: 30, borderRadius: '50%', background: avatarColor(t.displayname || t.displayName || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                  {getInitials(t.displayname || t.displayName || '')}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>{t.displayname || t.displayName}</div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
+                                    <span style={{ fontSize: 10, color: '#a1a1aa' }}>{t.module_role || 'technicien'}</span>
+                                    <div style={{ width: 50, height: 3, background: '#f4f4f5', borderRadius: 2 }}>
+                                      <div style={{ height: '100%', width: `${Math.min(100, load * 12.5)}%`, background: loadColor, borderRadius: 2 }} />
+                                    </div>
+                                    <span style={{ fontSize: 10, color: '#71717a' }}>{load}</span>
+                                  </div>
+                                </div>
+                                <button className="assign-hover-btn" onClick={() => assignTechnician(t.user_id)}
+                                  style={{ padding: '5px 12px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0, opacity: 0, transition: 'opacity 0.15s' }}>
+                                  Assigner
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )
               ) : (
                 <>
-                  {/* Suggéré */}
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Suggéré</div>
-                  {(() => {
-                    const best = technicians[0];
-                    const load = parseInt(best.active_tickets || '0');
-                    const loadColor = load === 0 ? '#22c55e' : load <= 3 ? '#f59e0b' : '#ef4444';
-                    return (
-                      <div style={{ border: '2px solid #fca5a5', borderRadius: 12, padding: '14px 16px', marginBottom: 16, background: '#fff5f5' }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Moins chargé de l'équipe</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                          <div style={{ width: 38, height: 38, borderRadius: '50%', background: avatarColor(best.displayname || best.displayName || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                            {getInitials(best.displayname || best.displayName || '')}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: '#18181b' }}>{best.displayname || best.displayName}</div>
-                            <div style={{ fontSize: 11, color: '#71717a', marginTop: 1 }}>{best.module_role || 'technicien'} · {load} ticket{load !== 1 ? 's' : ''} actif{load !== 1 ? 's' : ''}</div>
-                          </div>
-                          <button onClick={() => assignTechnician(best.user_id)}
-                            style={{ padding: '7px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>
-                            Assigner
-                          </button>
-                        </div>
-                        <div style={{ height: 4, background: '#fee2e2', borderRadius: 2 }}>
-                          <div style={{ height: '100%', width: `${Math.min(100, load * 12.5)}%`, background: loadColor, borderRadius: 2 }} />
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  {/* Disponibles */}
-                  {technicians.length > 1 && (
-                    <>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Disponibles</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {technicians.slice(1).map((t: any) => {
-                          const load = parseInt(t.active_tickets || '0');
-                          const loadColor = load === 0 ? '#22c55e' : load <= 3 ? '#f59e0b' : '#ef4444';
-                          return (
-                            <div key={t.user_id}
-                              className="assign-row"
-                              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #f4f4f5', background: '#fff', cursor: 'pointer', position: 'relative' }}
-                              onMouseEnter={e => { e.currentTarget.style.background = '#f9f9fb'; (e.currentTarget.querySelector('.assign-hover-btn') as HTMLElement).style.opacity = '1'; }}
-                              onMouseLeave={e => { e.currentTarget.style.background = '#fff'; (e.currentTarget.querySelector('.assign-hover-btn') as HTMLElement).style.opacity = '0'; }}>
-                              <div style={{ width: 30, height: 30, borderRadius: '50%', background: avatarColor(t.displayname || t.displayName || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                                {getInitials(t.displayname || t.displayName || '')}
-                              </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>{t.displayname || t.displayName}</div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
-                                  <span style={{ fontSize: 10, color: '#a1a1aa' }}>{t.module_role || 'technicien'}</span>
-                                  <div style={{ width: 50, height: 3, background: '#f4f4f5', borderRadius: 2 }}>
-                                    <div style={{ height: '100%', width: `${Math.min(100, load * 12.5)}%`, background: loadColor, borderRadius: 2 }} />
-                                  </div>
-                                  <span style={{ fontSize: 10, color: '#71717a' }}>{load}</span>
-                                </div>
-                              </div>
-                              <button className="assign-hover-btn" onClick={() => assignTechnician(t.user_id)}
-                                style={{ padding: '5px 12px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0, opacity: 0, transition: 'opacity 0.15s' }}>
-                                Assigner
-                              </button>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Cibles d'escalade</div>
+                  {escaladeTargets.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucune cible d'escalade configurée</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {escaladeTargets.map((t: any) => {
+                        const isAgent = t.target_type === 'agent';
+                        return (
+                          <div key={t.id}
+                            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #e4e4e7', background: '#fff' }}>
+                            <div style={{ width: 30, height: 30, borderRadius: '50%', background: isAgent ? '#8b5cf6' : '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#fff', flexShrink: 0 }}>
+                              {isAgent ? '👤' : '🏢'}
                             </div>
-                          );
-                        })}
-                      </div>
-                    </>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>{isAgent ? (t.display_name || t.username) : (t.service_label || t.service_code)}</div>
+                              <div style={{ fontSize: 11, color: '#71717a' }}>{isAgent ? t.email || t.username : `Service ${t.service_code}`}</div>
+                            </div>
+                            <button onClick={async () => {
+                              if (isAgent) {
+                                await assignTechnician(t.user_id);
+                              } else {
+                                // Escalade vers service : on passe par un appel API spécial
+                                try {
+                                  const token = localStorage.getItem('token');
+                                  await axios.post(`/api/tickets/${id}/assign-to-service`, { service_code: t.service_code }, { headers: { Authorization: `Bearer ${token}` } });
+                                  setShowAssignModal(false);
+                                  loadTicket();
+                                } catch (err: any) {
+                                  alert(err.response?.data?.message || 'Erreur');
+                                }
+                              }
+                            }}
+                              style={{ padding: '5px 12px', background: isAgent ? '#8b5cf6' : '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
+                              Escalader
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </>
               )}
@@ -1480,7 +1545,7 @@ export default function TicketDetail() {
               <span style={{ fontSize: 11, color: '#a1a1aa' }}>
                 {ticket.category_name ? `Auto-assign : ${ticket.category_name}` : ''}
               </span>
-              <span style={{ fontSize: 11, color: '#a1a1aa', fontFamily: 'monospace' }}>esc: annuler · ↵: assigner</span>
+              <span style={{ fontSize: 11, color: '#a1a1aa', fontFamily: 'monospace' }}>esc: annuler</span>
             </div>
           </div>
         </div>

@@ -514,11 +514,11 @@ router.get('/escalade/agent-service', authenticateAdmin, async (req, res) => {
 
 router.get('/escalade/services', authenticateAdmin, async (req, res) => {
     try {
-        const db = getSqlite();
-        const rows = await db.all(`
+        const rows = await pgDb.all(`
             SELECT DISTINCT service_code, service_complement
-            FROM users
+            FROM magapp.users
             WHERE service_code IS NOT NULL AND service_code != ''
+              AND service_code != 'None'
             ORDER BY service_code
         `);
         res.json(rows);
