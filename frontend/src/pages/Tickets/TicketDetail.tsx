@@ -514,12 +514,15 @@ export default function TicketDetail() {
     try {
       const token = localStorage.getItem('token');
       const h = { Authorization: `Bearer ${token}` };
-      const [techRes, escRes] = await Promise.all([
-        axios.get('/api/tickets/admin/technicians/available', { headers: h }),
-        axios.get('/api/tickets/escalade/targets', { headers: h }),
-      ]);
+      const techRes = await axios.get('/api/tickets/admin/technicians/available', { headers: h });
       setTechnicians(techRes.data);
-      setEscaladeTargets(escRes.data?.targets || escRes.data || []);
+      try {
+        const escRes = await axios.get('/api/tickets/escalade/targets', { headers: h });
+        setEscaladeTargets(escRes.data?.targets || escRes.data || []);
+      } catch (e) {
+        console.warn('[OPEN_ASSIGN] Escalade targets failed, continuing without them:', e.message);
+        setEscaladeTargets([]);
+      }
       setAssignTab('tech');
       setShowAssignModal(true);
     } catch (err: any) {

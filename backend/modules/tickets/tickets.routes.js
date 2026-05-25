@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware');
+const { pgDb } = require('../../shared/database');
 const { requireTicketPermission } = require('./middleware/ticket-permissions');
 const controller = require('./tickets.controller');
 
