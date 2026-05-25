@@ -587,7 +587,7 @@ async function adLogin(req, res) {
             return res.status(400).json({ message: 'Identifiants requis' });
         }
         const db = getSqlite();
-        const adSettings = db.prepare('SELECT * FROM ad_settings WHERE id = 1').get();
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
         if (!adSettings || !adSettings.is_enabled) {
             return res.status(503).json({ message: 'Authentification AD non disponible' });
         }
@@ -627,7 +627,7 @@ async function otpRequest(req, res) {
             return res.status(400).json({ message: 'Identifiant Windows requis' });
         }
         const db = getSqlite();
-        const adSettings = db.prepare('SELECT * FROM ad_settings WHERE id = 1').get();
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
         if (!adSettings || !adSettings.is_enabled) {
             return res.status(503).json({ message: 'Service AD non disponible — contactez le support' });
         }
