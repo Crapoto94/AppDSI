@@ -164,6 +164,7 @@ module.exports = {
         try {
             const { technician_id, group_id } = req.body;
             const ticketId = parseInt(req.params.id);
+            console.log('[ASSIGN] ticketId=%d technician_id=%s user=%s(%s)', ticketId, technician_id, req.user?.username, req.user?.id);
             await assignmentService.assign(ticketId, { technician_id, group_id }, req.user);
 
             // Propagation de l'assignation à tous les membres du groupe
@@ -176,7 +177,8 @@ module.exports = {
 
             res.json({ message: 'Ticket assigné' });
         } catch (error) {
-            res.status(400).json({ message: error.message });
+            console.error('[ASSIGN] Error:', error.message, error.stack?.split('\n')[1]);
+            res.status(400).json({ message: error.message || 'Erreur lors de l\'assignation' });
         }
     },
 

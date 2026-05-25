@@ -14,7 +14,8 @@ module.exports = {
             const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [resolvedTechId]);
             if (!exists && user?.username) {
                 const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
-                if (hubUser) resolvedTechId = hubUser.id;
+                if (hubUser) { resolvedTechId = hubUser.id; console.log('[ASSIGN] Resolved techId %s -> %d (by username)', technician_id, hubUser.id); }
+                else { console.log('[ASSIGN] WARNING: techId %s not found in hub.users and no username match for %s', technician_id, user.username); }
             }
         }
 
@@ -23,7 +24,7 @@ module.exports = {
             const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [resolvedUserId]);
             if (!exists) {
                 const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
-                if (hubUser) resolvedUserId = hubUser.id;
+                if (hubUser) { resolvedUserId = hubUser.id; console.log('[ASSIGN] Resolved userId %s -> %d (by username %s)', user.id, hubUser.id, user.username); }
             }
         }
 
