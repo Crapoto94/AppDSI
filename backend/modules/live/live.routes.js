@@ -33,7 +33,8 @@ router.get('/sessions',            authenticateJWT, (req, res) => controller.get
 router.post('/sessions',           authenticateJWT, (req, res) => controller.createSession(req, res));
 router.get('/sessions/:id',        authenticateJWT, (req, res) => controller.getSession(req, res));
 router.get('/sessions/:id/messages', authenticateJWT, (req, res) => controller.getMessages(req, res));
-router.post('/sessions/:id/claim', authenticateJWT, (req, res) => controller.claimSession(req, res));
+router.post('/sessions/:id/claim',    authenticateJWT, (req, res) => controller.claimSession(req, res));
+router.post('/sessions/:id/messages', authenticateJWT, (req, res) => controller.sendMessage(req, res));
 router.post('/sessions/:id/close', authenticateJWT, (req, res) => controller.closeSession(req, res));
 router.post('/sessions/:id/upload', authenticateJWT, uploadLive.single('file'), (req, res) => controller.uploadAttachment(req, res));
 

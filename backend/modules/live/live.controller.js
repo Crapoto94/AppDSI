@@ -312,6 +312,45 @@ function buildSummaryEmail(messages, session, title) {
     </div>`;
 }
 
+// ── POST /api/live/sessions/:id/messages ─────────────────────────────
+// REST fallback for sending messages (used when socket.io is unavailable)
+async function sendMessage(req, res) {
+    try {
+        const { id } = req.params;
+        const { content } = req.body;
+        const user = req.user;
+        if (!content?.trim()) return res.status(400).json({ message: 'Contenu requis' });
+
+        const session = await pgDb.get(
+            `SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]
+        );
+        if (!session) return res.status(404).json({ message: 'Session introuvable' });
+        if (session.status === 'closed') return res.status(400).json({ message: 'Session terminée' });
+
+        const isTech = session.tech_username === user.username ||
+            ['superadmin', 'admin'].includes(user.role);
+        const senderType = isTech ? 'tech' : 'user';
+
+        const result = await pgDb.run(
+            `INSERT INTO hub_tickets.live_messages
+                (session_id, sender_type, sender_name, sender_username, content, created_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            [id, senderType, user.displayName || user.username, user.username, content.trim()]
+        );
+
+        const message = await pgDb.get(
+            `SELECT * FROM hub_tickets.live_messages WHERE id = $1`, [result.lastID]
+        );
+
+        const io = getIO();
+        if (io) io.to(`live:session:${id}`).emit('new_message', message);
+
+        res.json(message);
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
 // ── POST /api/live/sessions/:id/upload ───────────────────────────────
 async function uploadAttachment(req, res) {
     try {
@@ -504,4 +543,4 @@ function startScheduler() {
     setInterval(_checkScheduleTick, 60 * 1000); // then every minute
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getCalendars, startScheduler, uploadAttachment };
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getCalendars, startScheduler, uploadAttachment, sendMessage };

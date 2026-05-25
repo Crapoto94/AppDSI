@@ -44,6 +44,7 @@ export default function LiveSessionsPanel() {
   const [uploading, setUploading] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -127,21 +128,54 @@ export default function LiveSessionsPanel() {
     }
   }, [activeSession?.id]);
 
-  function claimSession(session: LiveSession, force = false) {
-    if (!socketRef.current) return;
-    if (force) {
-      // Use REST for force claim (bypass socket logic)
-      axios.post(`/api/live/sessions/${session.id}/claim?force=true`, {},
-        { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => {
-          setActiveSession(r.data);
-          setShowTakeover(false);
-        }).catch(() => {});
-    } else {
-      socketRef.current.emit('claim_session', { sessionId: session.id });
+  // REST polling — messages for active session (2.5s), sessions list (5s)
+  useEffect(() => {
+    if (!activeSession) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      return;
     }
-    setActiveSession(session);
-    setMessages([]);
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => {
+      axios.get(`/api/live/sessions/${activeSession.id}/messages`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => {
+          setMessages(prev => {
+            const ids = new Set(prev.map((m: LiveMessage) => m.id));
+            const fresh = (r.data as LiveMessage[]).filter(m => !ids.has(m.id));
+            return fresh.length ? [...prev, ...fresh] : prev;
+          });
+        }).catch(() => {});
+      // Also refresh session status
+      axios.get(`/api/live/sessions/${activeSession.id}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => setActiveSession(prev => prev?.id === r.data.id ? r.data : prev))
+        .catch(() => {});
+    }, 2500);
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  }, [activeSession?.id]);
+
+  // Sessions list refresh every 5s (fallback for when socket not connected)
+  useEffect(() => {
+    const t = setInterval(() => {
+      axios.get('/api/live/sessions', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => setSessions(r.data)).catch(() => {});
+    }, 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  async function claimSession(session: LiveSession, force = false) {
+    try {
+      const url = `/api/live/sessions/${session.id}/claim${force ? '?force=true' : ''}`;
+      const r = await axios.post(url, {}, { headers: { Authorization: `Bearer ${token}` } });
+      setActiveSession(r.data);
+      setShowTakeover(false);
+      setMessages([]);
+      // Load history via REST immediately
+      const msgs = await axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } });
+      setMessages(msgs.data);
+      // Also join via socket for real-time updates
+      if (socketRef.current) socketRef.current.emit('join_session', { sessionId: session.id });
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la prise en charge');
+    }
   }
 
   function openSession(session: LiveSession) {
@@ -149,16 +183,33 @@ export default function LiveSessionsPanel() {
     setMessages([]);
     setShowRename(false);
     setShowTakeover(false);
-    if (socketRef.current) {
-      socketRef.current.emit('join_session', { sessionId: session.id });
-    }
+    // Load messages via REST immediately (works even without socket)
+    axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setMessages(r.data)).catch(() => {});
+    // Also join via socket for real-time
+    if (socketRef.current) socketRef.current.emit('join_session', { sessionId: session.id });
   }
 
-  function sendMessage() {
+  async function sendMessage() {
     const text = input.trim();
-    if (!text || !activeSession || !socketRef.current) return;
-    socketRef.current.emit('send_message', { sessionId: activeSession.id, content: text });
-    setInput('');
+    if (!text || !activeSession) return;
+    // Try socket first (instant delivery), fall back to REST
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('send_message', { sessionId: activeSession.id, content: text });
+      setInput('');
+    } else {
+      try {
+        const r = await axios.post(
+          `/api/live/sessions/${activeSession.id}/messages`,
+          { content: text },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        setMessages(prev => prev.find(m => m.id === r.data.id) ? prev : [...prev, r.data]);
+        setInput('');
+      } catch (e: any) {
+        alert(e.response?.data?.message || 'Erreur lors de l\'envoi');
+      }
+    }
     inputRef.current?.focus();
   }
 

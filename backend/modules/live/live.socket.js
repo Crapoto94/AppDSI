@@ -10,7 +10,7 @@ function setupSocket(server) {
     const { Server } = require('socket.io');
     const io = new Server(server, {
         cors: {
-            origin: ['http://localhost:5173', 'http://localhost:5174', 'http://dsihub.ivry.local', 'http://po22038:5173'],
+            origin: true,   // reflect origin — allows any Docker/intranet host
             credentials: true
         }
     });
