@@ -5051,8 +5051,8 @@ const doctrinesController = require('./controllers/doctrinesController');
 app.get('/api/doctrines', authenticateJWT, doctrinesController.getAllDoctrines);
 app.get('/api/doctrines/:id', authenticateJWT, doctrinesController.getDoctrine);
 app.post('/api/doctrines', authenticateJWT, doctrinesController.createDoctrine);
-app.put('/api/doctrines/:id', authenticateAdmin, doctrinesController.updateDoctrine);
-app.delete('/api/doctrines/:id', authenticateAdmin, doctrinesController.deleteDoctrine);
+app.put('/api/doctrines/:id', authenticateJWT, doctrinesController.updateDoctrine);
+app.delete('/api/doctrines/:id', authenticateJWT, doctrinesController.deleteDoctrine);
 
 // ============================================
 // PROJETS - Gestion de portefeuille
