@@ -4,16 +4,30 @@ module.exports = {
     async findByTicket(ticketId) {
         try {
             const rows = await pgDb.all(`
-                SELECT o.*, COALESCE(u.displayname, NULLIF(o.name, ''), NULLIF(o.login, ''), 'Utilisateur #' || o.user_id) as display_name
+                SELECT o.*,
+                       COALESCE(
+                         u.displayname,
+                         NULLIF(o.name, ''),
+                         NULLIF(o.login, ''),
+                         NULLIF(o.email, ''),
+                         'Utilisateur #' || o.user_id
+                       ) as display_name
                 FROM hub_tickets.observers o
-                LEFT JOIN hub.users u ON o.login = u.username
+                LEFT JOIN hub.users u ON LOWER(o.login) = LOWER(u.username) OR (o.login IS NULL AND LOWER(o.email) = LOWER(u.email))
                 WHERE o.ticket_id = $1 AND o.is_active = 1
             `, [ticketId]);
             if (rows.length === 0) {
                 const allRows = await pgDb.all(`
-                    SELECT o.*, COALESCE(u.displayname, NULLIF(o.name, ''), NULLIF(o.login, ''), 'Utilisateur #' || o.user_id) as display_name
+                    SELECT o.*,
+                           COALESCE(
+                             u.displayname,
+                             NULLIF(o.name, ''),
+                             NULLIF(o.login, ''),
+                             NULLIF(o.email, ''),
+                             'Utilisateur #' || o.user_id
+                           ) as display_name
                     FROM hub_tickets.observers o
-                    LEFT JOIN hub.users u ON o.login = u.username
+                    LEFT JOIN hub.users u ON LOWER(o.login) = LOWER(u.username) OR (o.login IS NULL AND LOWER(o.email) = LOWER(u.email))
                     WHERE o.ticket_id = $1
                 `, [ticketId]);
                 if (allRows.length > 0) {

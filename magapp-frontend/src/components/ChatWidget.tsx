@@ -37,7 +37,7 @@ export default function ChatWidget({ liveEnabled }: Props) {
   const [checking, setChecking] = useState(true);
   const [rating, setRating] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
-  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [listening, setListening] = useState(false);
@@ -225,7 +225,7 @@ export default function ChatWidget({ liveEnabled }: Props) {
         });
       }
     } catch { /* ignore */ }
-    setRatingSubmitted(true);
+
     setState('ended');
   };
 
@@ -246,7 +246,7 @@ export default function ChatWidget({ liveEnabled }: Props) {
     setInput('');
     setRating(0);
     setRatingComment('');
-    setRatingSubmitted(false);
+
   };
 
   // ── Guards ───────────────────────────────────────────────────────────
@@ -303,7 +303,7 @@ export default function ChatWidget({ liveEnabled }: Props) {
           boxShadow: '0 4px 20px rgba(99,102,241,0.45)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: '#fff', transition: 'transform 0.2s',
-          fontSize: 24, position: 'fixed' as any,
+          fontSize: 24,
         }}
         onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.1)'; }}
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
