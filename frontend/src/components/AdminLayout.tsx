@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, Users, MessageSquare, ShieldCheck,
   Mail, Settings, LayoutGrid, Activity,
-  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, Network
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, Network, HardDrive
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -55,6 +55,7 @@ const AdminLayout: React.FC = () => {
     { title: "Tickets", icon: Inbox, path: "/admin/tickets" },
     { title: "Synchronisations", icon: Database, path: "/admin/glpi" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
+    { title: "GED / Alfresco", icon: HardDrive, path: "/admin/ged" },
     { title: "Logs Système", icon: Activity, path: "/mouchard", external: true },
   ];
 

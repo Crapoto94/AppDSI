@@ -5141,6 +5141,9 @@ liveCtrl.setSendMail(sendMail);
 liveCtrl.startScheduler();
 app.use('/api/live', liveRouter);
 
+// GED / Alfresco
+app.use('/api/ged', require('./modules/ged/ged.routes'));
+
 // Public reply routes (no auth)
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));
 app.post('/api/public/reply/:token', (req, res) => ticketsCtrl.submitPublicReply(req, res));
