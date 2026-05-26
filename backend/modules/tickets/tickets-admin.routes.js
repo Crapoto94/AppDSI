@@ -638,6 +638,47 @@ router.put('/config/:key', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
+router.get('/config-all', authenticateAdmin, async (req, res) => {
+    try {
+        const rows = await pgDb.all('SELECT key, value FROM hub_tickets.module_config');
+        const config: Record<string, string> = {};
+        for (const r of rows) config[r.key] = r.value;
+        res.json(config);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.put('/config-bulk', authenticateAdmin, async (req, res) => {
+    try {
+        const updates = req.body;
+        if (typeof updates !== 'object' || Array.isArray(updates)) return res.status(400).json({ message: 'Object key/value expected' });
+        for (const [key, value] of Object.entries(updates)) {
+            await technicianRepo.setConfig(key, String(value));
+        }
+        res.json({ message: 'Configuration mise à jour' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// ─── Journal (ticket history) ─────────────────────────────────────
+router.get('/journal', authenticateAdmin, async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+        const offset = parseInt(req.query.offset) || 0;
+        const rows = await pgDb.all(`
+            SELECT h.id, h.ticket_id, h.action, h.field_name, h.old_value, h.new_value, h.comment, h.created_at,
+                   h.user_id,
+                   COALESCE(u.displayName, CASE WHEN h.user_id IS NULL THEN 'Système' ELSE '#' || h.user_id END) as user_name,
+                   t.title as ticket_title
+            FROM hub_tickets.ticket_history h
+            LEFT JOIN hub.users u ON h.user_id = u.id
+            LEFT JOIN hub_tickets.tickets t ON h.ticket_id = t.glpi_id
+            ORDER BY h.created_at DESC
+            LIMIT $1 OFFSET $2
+        `, [limit, offset]);
+        const count = await pgDb.get('SELECT COUNT(*) as total FROM hub_tickets.ticket_history');
+        res.json({ rows, total: parseInt(count.total) });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // ─── Rôle d'un membre de l'équipe ────────────────────────────────
 router.put('/technicians/:id/role', authenticateAdmin, async (req, res) => {
     try {

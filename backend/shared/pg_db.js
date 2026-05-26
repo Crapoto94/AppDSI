@@ -2954,6 +2954,8 @@ async function setupPgDb() {
     `); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_tickets.live_otp_codes ADD COLUMN IF NOT EXISTS username VARCHAR(100)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS app_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.technician_profiles ADD COLUMN IF NOT EXISTS mobile_phone VARCHAR(30)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.technician_profiles ADD COLUMN IF NOT EXISTS is_emergency_contact BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.live_satisfaction (
         id SERIAL PRIMARY KEY,

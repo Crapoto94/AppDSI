@@ -3,7 +3,7 @@ import axios from 'axios';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-type Tab = 'categories' | 'sla' | 'rules' | 'vip' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction';
+type Tab = 'categories' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -117,6 +117,7 @@ export default function TicketAdmin() {
     { key: 'sla',         label: 'SLA' },
     { key: 'rules',       label: 'Règles' },
     { key: 'vip',         label: '⭐ VIP' },
+    { key: 'journal',     label: '📜 Journal' },
     { key: 'templates',   label: 'Templates' },
     { key: 'triggers',    label: 'Déclencheurs' },
     { key: 'technicians', label: 'Équipe' },
@@ -144,6 +145,7 @@ export default function TicketAdmin() {
         {tab === 'sla'         && <SLAManager data={slas} onUpdate={() => loadData('/api/tickets/admin/sla', setSlas)} />}
         {tab === 'rules'       && <RuleManager data={rules} onUpdate={() => loadData('/api/tickets/admin/assignment-rules', setRules)} />}
         {tab === 'vip'         && <VipManager />}
+        {tab === 'journal'     && <JournalTab />}
         {tab === 'templates'   && <TemplateManager data={templates} onUpdate={() => loadData('/api/tickets/admin/notification-templates', setTemplates)} />}
         {tab === 'triggers'    && <TriggerManager data={triggers} onUpdate={() => loadData('/api/tickets/admin/notification-triggers', setTriggers)} />}
         {tab === 'technicians' && <TeamManager data={technicians} onUpdate={() => loadData('/api/tickets/admin/technicians', setTechnicians)} />}
@@ -1160,6 +1162,154 @@ function SLABreaches({ data, loading }: { data: any[], loading: boolean }) {
               ✅ Aucun dépassement SLA en cours
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// JOURNAL TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function JournalTab() {
+  const token = localStorage.getItem('token');
+  const h = { Authorization: `Bearer ${token}` };
+  const [rows, setRows] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 100;
+  const [filterAction, setFilterAction] = useState('');
+  const [filterTicket, setFilterTicket] = useState('');
+
+  useEffect(() => { loadJournal(); }, [page]);
+
+  async function loadJournal() {
+    setLoading(true);
+    try {
+      let offset = page * PAGE_SIZE;
+      let url = `/api/tickets/admin/journal?limit=${PAGE_SIZE}&offset=${offset}`;
+      const res = await axios.get(url, { headers: h });
+      setRows(res.data.rows || []);
+      setTotal(res.data.total || 0);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }
+
+  const filtered = rows.filter(r => {
+    if (filterAction && !(r.action || '').toLowerCase().includes(filterAction.toLowerCase())) return false;
+    if (filterTicket && !String(r.ticket_id).includes(filterTicket) && !(r.ticket_title || '').toLowerCase().includes(filterTicket.toLowerCase())) return false;
+    return true;
+  });
+
+  function formatAction(action: string): { label: string; color: string; icon: string } {
+    switch (action) {
+      case 'created': return { label: 'Créé', color: '#6366f1', icon: '✦' };
+      case 'status_changed': return { label: 'Statut modifié', color: '#f59e0b', icon: '↻' };
+      case 'assigned': return { label: 'Assigné', color: '#3b82f6', icon: '👤' };
+      case 'assigned_group': return { label: 'Assigné (groupe)', color: '#3b82f6', icon: '👥' };
+      case 'priority_changed': return { label: 'Priorité modifiée', color: '#ef4444', icon: '🔺' };
+      case 'type_changed': return { label: 'Type modifié', color: '#8b5cf6', icon: '📋' };
+      case 'category_changed': return { label: 'Catégorie modifiée', color: '#14b8a6', icon: '📁' };
+      case 'set_vip': return { label: 'VIP activé', color: '#d97706', icon: '⭐' };
+      case 'tag_added': return { label: 'Tag ajouté', color: '#6366f1', icon: '🏷' };
+      case 'comment_added': return { label: 'Commentaire', color: '#22c55e', icon: '💬' };
+      case 'closed': return { label: 'Fermé', color: '#64748b', icon: '✓' };
+      default: return { label: action, color: '#64748b', icon: '•' };
+    }
+  }
+
+  function formatFieldLabel(field: string): string {
+    const map: Record<string, string> = {
+      status: 'Statut', priority: 'Priorité', type: 'Type', category_id: 'Catégorie',
+      technician_id: 'Technicien', group_id: 'Groupe', is_vip: 'VIP', tag: 'Tag',
+    };
+    return map[field] || field;
+  }
+
+  const STATUS_MAP: Record<string, string> = {
+    '1': 'Nouveau', '2': 'En cours', '3': 'En attente', '4': 'Résolu', '5': 'Fermé', '6': 'Clos', '8': 'Rejeté',
+  };
+
+  const PRIORITY_MAP: Record<string, string> = {
+    '1': 'Très basse', '2': 'Basse', '3': 'Moyenne', '4': 'Haute', '5': 'Très haute',
+  };
+
+  function formatValue(field: string, val: string): string {
+    if (field === 'status') return STATUS_MAP[val] || val;
+    if (field === 'priority') return PRIORITY_MAP[val] || val;
+    return val;
+  }
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  return (
+    <div>
+      <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>📜 Journal des tickets</h3>
+      <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b' }}>
+        Historique séquentiel de toutes les actions sur les tickets ({total} entrées)
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input value={filterAction} onChange={e => setFilterAction(e.target.value)} placeholder="Filtrer par action..."
+          style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+        <input value={filterTicket} onChange={e => setFilterTicket(e.target.value)} placeholder="Filtrer par ticket (# ou titre)..."
+          style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+      </div>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Chargement...</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 13 }}>Aucune entrée</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {filtered.map(r => {
+            const a = formatAction(r.action);
+            const isAuto = !r.user_id || r.user_name === 'Système';
+            return (
+              <div key={r.id} style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: '1px solid #f1f5f9', alignItems: 'flex-start' }}>
+                <div style={{ width: 32, textAlign: 'center', flexShrink: 0, fontSize: 16, paddingTop: 2 }}>{a.icon}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: a.color }}>{a.label}</span>
+                    <span style={{ fontSize: 12, color: '#6366f1', cursor: 'pointer' }} title={r.ticket_title}>
+                      #{r.ticket_id}
+                    </span>
+                    {r.ticket_title && <span style={{ fontSize: 12, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>{r.ticket_title}</span>}
+                  </div>
+                  {(r.field_name || r.comment) && (
+                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                      {r.field_name && (
+                        <>
+                          <span style={{ fontWeight: 600 }}>{formatFieldLabel(r.field_name)}</span>
+                          {r.old_value !== null && r.old_value !== '' && <span> : {formatValue(r.field_name, r.old_value)}</span>}
+                          {r.new_value !== null && r.new_value !== '' && <span> → <strong>{formatValue(r.field_name, r.new_value)}</strong></span>}
+                        </>
+                      )}
+                      {r.comment && <span> — {r.comment}</span>}
+                    </div>
+                  )}
+                </div>
+                <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 120 }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>
+                    {r.created_at ? new Date(r.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                  </div>
+                  <div style={{ fontSize: 11, color: isAuto ? '#94a3b8' : '#475569', fontStyle: isAuto ? 'italic' : 'normal' }}>
+                    {isAuto ? '🤖 Automatique' : `👤 ${r.user_name}`}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16, alignItems: 'center' }}>
+          <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}
+            style={{ padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: page === 0 ? 'default' : 'pointer', opacity: page === 0 ? 0.5 : 1 }}>← Précédent</button>
+          <span style={{ fontSize: 13, color: '#64748b' }}>Page {page + 1} / {totalPages}</span>
+          <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1}
+            style={{ padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: page >= totalPages - 1 ? 'default' : 'pointer', opacity: page >= totalPages - 1 ? 0.5 : 1 }}>Suivant →</button>
         </div>
       )}
     </div>
@@ -2544,25 +2694,32 @@ function EscaladeManager() {
 // TICKET PARAMS MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
 function TicketParamsManager() {
-  const [aiReformulation, setAiReformulation] = useState(true);
+  const [config, setConfig] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
-    axios.get('/api/tickets/config/public', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setAiReformulation(r.data.ai_reformulation_enabled !== false))
+    axios.get('/api/tickets/admin/config-all', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setConfig(r.data || {}))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  async function save(val: boolean) {
+  function get(key: string, fallback: string = ''): string {
+    return config[key] ?? fallback;
+  }
+
+  function set(key: string, value: string) {
+    setConfig(prev => ({ ...prev, [key]: value }));
+  }
+
+  async function save() {
     setSaving(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.put('/api/tickets/admin/config/ai_reformulation_enabled', { value: String(val) }, { headers: { Authorization: `Bearer ${token}` } });
-      setAiReformulation(val);
+      await axios.put('/api/tickets/admin/config-bulk', config, { headers: { Authorization: `Bearer ${token}` } });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
@@ -2571,35 +2728,123 @@ function TicketParamsManager() {
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>;
 
-  const toggle = (checked: boolean) => save(checked);
+  const sectionStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 10, padding: 20, marginBottom: 16, background: '#f8fafc' };
+  const sectionTitleStyle: React.CSSProperties = { fontSize: 14, fontWeight: 700, marginBottom: 14, color: '#18181b' };
+  const rowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 };
+  const lblStyle: React.CSSProperties = { fontSize: 13, fontWeight: 500, minWidth: 200, flexShrink: 0, color: '#374151' };
 
   return (
     <div>
-      <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 700 }}>Paramètres du module tickets</h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>⚙️ Paramètres du module tickets</h3>
+        <button onClick={save} disabled={saving}
+          style={{ padding: '8px 20px', background: saving ? '#94a3b8' : '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          {saving ? 'Enregistrement...' : 'Enregistrer tout'}
+        </button>
+      </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' }}>
+      {saved && <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600, marginBottom: 12 }}>✓ Paramètres enregistrés</div>}
+
+      {/* Live Chat */}
+      <div style={sectionStyle}>
+        <div style={sectionTitleStyle}>🟢 Live Chat</div>
+        <div style={rowStyle}>
+          <label style={lblStyle}>Nom du chat</label>
+          <input value={get('chat_name', 'Support DSI')} onChange={e => set('chat_name', e.target.value)}
+            style={{ ...inputStyle, flex: 1 }} />
+        </div>
+        <div style={rowStyle}>
+          <label style={lblStyle}>Logo du chat (URL ou emoji)</label>
+          <input value={get('chat_logo', '💬')} onChange={e => set('chat_logo', e.target.value)}
+            style={{ ...inputStyle, flex: 1 }} placeholder="https://... ou emoji" />
+          {get('chat_logo') && <span style={{ fontSize: 28 }}>{get('chat_logo').startsWith('http') ? <img src={get('chat_logo')} style={{ height: 28 }} /> : get('chat_logo')}</span>}
+        </div>
+      </div>
+
+      {/* Couleurs */}
+      <div style={sectionStyle}>
+        <div style={sectionTitleStyle}>🎨 Apparence</div>
+        <div style={rowStyle}>
+          <label style={lblStyle}>Couleur principale</label>
+          <input type="color" value={get('primary_color', '#6366f1')} onChange={e => set('primary_color', e.target.value)}
+            style={{ width: 44, height: 36, border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', padding: 2 }} />
+          <input value={get('primary_color', '#6366f1')} onChange={e => set('primary_color', e.target.value)}
+            style={{ ...inputStyle, width: 100 }} />
+          <div style={{ width: 40, height: 24, borderRadius: 6, background: get('primary_color', '#6366f1') }} />
+        </div>
+        <div style={rowStyle}>
+          <label style={lblStyle}>Couleur secondaire</label>
+          <input type="color" value={get('secondary_color', '#818cf8')} onChange={e => set('secondary_color', e.target.value)}
+            style={{ width: 44, height: 36, border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', padding: 2 }} />
+          <input value={get('secondary_color', '#818cf8')} onChange={e => set('secondary_color', e.target.value)}
+            style={{ ...inputStyle, width: 100 }} />
+          <div style={{ width: 40, height: 24, borderRadius: 6, background: `linear-gradient(135deg, ${get('primary_color', '#6366f1')}, ${get('secondary_color', '#818cf8')})` }} />
+        </div>
+      </div>
+
+      {/* Active Directory */}
+      <div style={sectionStyle}>
+        <div style={sectionTitleStyle}>🏢 Active Directory</div>
+        <div style={rowStyle}>
+          <label style={lblStyle}>Nom de l'annuaire AD</label>
+          <input value={get('ad_name', 'Active Directory')} onChange={e => set('ad_name', e.target.value)}
+            style={{ ...inputStyle, flex: 1 }} placeholder="Ex: Annuaire Ivry, Active Directory..." />
+        </div>
+        <div style={rowStyle}>
+          <label style={lblStyle}>Valeur par défaut identifiant</label>
+          <input value={get('ad_default_username', 'windows')} onChange={e => set('ad_default_username', e.target.value)}
+            style={{ ...inputStyle, flex: 1 }} placeholder="Ex: windows, session..." />
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>Utilisé comme placeholder dans le champ identifiant</span>
+        </div>
+      </div>
+
+      {/* Tickets */}
+      <div style={sectionStyle}>
+        <div style={sectionTitleStyle}>🎫 Tickets</div>
+        <div style={rowStyle}>
+          <label style={lblStyle}>Temps de clôture automatique (jours)</label>
+          <input type="number" value={get('auto_close_days', '7')} onChange={e => set('auto_close_days', e.target.value)}
+            style={{ ...inputStyle, width: 80 }} min={0} />
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>0 = désactivé. Les tickets résolus seront fermés après ce délai.</span>
+        </div>
+      </div>
+
+      {/* Fonctionnalités */}
+      <div style={sectionStyle}>
+        <div style={sectionTitleStyle}>✨ Fonctionnalités</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', marginBottom: 8 }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#18181b', marginBottom: 2 }}>✨ Reformulation IA</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>Reformulation IA</div>
             <div style={{ fontSize: 12, color: '#64748b' }}>Affiche le bouton de reformulation IA dans la zone de commentaire</div>
           </div>
-          <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: saving ? 'default' : 'pointer', flexShrink: 0 }}>
-            <input type="checkbox" checked={aiReformulation} onChange={e => toggle(e.target.checked)} disabled={saving}
+          <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: 'pointer', flexShrink: 0 }}>
+            <input type="checkbox" checked={get('ai_reformulation_enabled', 'true') !== 'false'} onChange={e => set('ai_reformulation_enabled', String(e.target.checked))}
               style={{ opacity: 0, width: 0, height: 0 }} />
-            <span style={{
-              position: 'absolute', inset: 0, borderRadius: 24, transition: 'background 0.2s',
-              background: aiReformulation ? '#6366f1' : '#cbd5e1',
-            }}>
-              <span style={{
-                position: 'absolute', top: 3, left: aiReformulation ? 23 : 3,
-                width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-              }} />
+            <span style={{ position: 'absolute', inset: 0, borderRadius: 24, transition: 'background 0.2s', background: get('ai_reformulation_enabled', 'true') !== 'false' ? '#6366f1' : '#cbd5e1' }}>
+              <span style={{ position: 'absolute', top: 3, left: get('ai_reformulation_enabled', 'true') !== 'false' ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
             </span>
           </label>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>Dictée vocale</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>Affiche le bouton de dictée vocale dans la zone de commentaire</div>
+          </div>
+          <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: 'pointer', flexShrink: 0 }}>
+            <input type="checkbox" checked={get('voice_dictation_enabled', 'true') !== 'false'} onChange={e => set('voice_dictation_enabled', String(e.target.checked))}
+              style={{ opacity: 0, width: 0, height: 0 }} />
+            <span style={{ position: 'absolute', inset: 0, borderRadius: 24, transition: 'background 0.2s', background: get('voice_dictation_enabled', 'true') !== 'false' ? '#6366f1' : '#cbd5e1' }}>
+              <span style={{ position: 'absolute', top: 3, left: get('voice_dictation_enabled', 'true') !== 'false' ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+            </span>
+          </label>
+        </div>
+      </div>
 
-        {saved && <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ Paramètre enregistré</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+        <button onClick={save} disabled={saving}
+          style={{ padding: '8px 20px', background: saving ? '#94a3b8' : '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          {saving ? 'Enregistrement...' : 'Enregistrer tout'}
+        </button>
       </div>
     </div>
   );
