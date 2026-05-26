@@ -71,6 +71,11 @@ const ConsommablesManagement: React.FC = () => {
       user.authorized_urls.includes('*')
     ));
 
+  console.log('[Consommables] User:', user?.username);
+  console.log('[Consommables] Role:', user?.role);
+  console.log('[Consommables] Authorized URLs:', user?.authorized_urls);
+  console.log('[Consommables] isAdminForConsommables:', isAdminForConsommables);
+
   const [activeTab, setActiveTab] = useState<'requests' | 'catalog' | 'images' | 'recap'>('requests');
   const [requests, setRequests] = useState<ConsumableRequest[]>([]);
   const [catalogArticles, setCatalogArticles] = useState<ConsumableArticle[]>([]);
