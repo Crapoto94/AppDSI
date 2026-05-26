@@ -153,21 +153,17 @@ const FrizbiSettings: React.FC = () => {
             </div>
 
             <div className="form-group">
-              <label>Plateforme</label>
-              <div className="env-selector">
-                <button 
-                  className={settings.api_url === 'https://apiv2.frizbi.evolnet.fr' ? 'active' : ''}
-                  onClick={() => setSettings({...settings, api_url: 'https://apiv2.frizbi.evolnet.fr'})}
-                >
-                  <Globe size={14} /> Pré-production
-                </button>
-                <button 
-                  className={settings.api_url === 'https://apiv3.frizbi.evolnet.fr' ? 'active' : ''}
-                  onClick={() => setSettings({...settings, api_url: 'https://apiv3.frizbi.evolnet.fr'})}
-                >
-                  <Globe size={14} /> Production
-                </button>
+              <label>URL de l'API</label>
+              <div className="input-wrapper">
+                <Globe size={16} className="input-icon" />
+                <input
+                  type="url"
+                  value={settings.api_url}
+                  onChange={e => setSettings({...settings, api_url: e.target.value})}
+                  placeholder="https://apiv2.frizbi.evolnet.fr"
+                />
               </div>
+              <small>Ex. préprod : https://apiv2.frizbi.evolnet.fr — prod : https://www.lesmsagile.com</small>
             </div>
 
             <div className="form-group">
@@ -437,38 +433,7 @@ const FrizbiSettings: React.FC = () => {
           color: #334155;
         }
 
-        .env-selector {
-          display: flex;
-          gap: 10px;
-          background: #f1f5f9;
-          padding: 5px;
-          border-radius: 10px;
-        }
-
-        .env-selector button {
-          flex: 1;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          padding: 8px;
-          border: none;
-          background: transparent;
-          border-radius: 7px;
-          font-size: 0.85rem;
-          font-weight: 700;
-          color: #64748b;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .env-selector button.active {
-          background: white;
-          color: #1e293b;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-        }
-
-        .input-wrapper {
+.input-wrapper {
           position: relative;
           display: flex;
           align-items: center;
