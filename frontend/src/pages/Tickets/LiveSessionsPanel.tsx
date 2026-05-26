@@ -548,6 +548,75 @@ export default function LiveSessionsPanel() {
         </div>
       )}
 
+      {/* ── Task creation modal ───────────────────────────────────────── */}
+      {showTaskModal && activeSession && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: 28, width: 420,
+            boxShadow: '0 8px 40px rgba(0,0,0,0.18)', fontFamily: 'system-ui, sans-serif',
+          }}>
+            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6, color: '#1e293b' }}>
+              ✅ Créer une tâche
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 14 }}>
+              Visible uniquement par vous — non transmise au demandeur.
+            </div>
+            <textarea
+              value={taskDesc}
+              onChange={e => setTaskDesc(e.target.value)}
+              placeholder="Description de la tâche…"
+              rows={3}
+              autoFocus
+              style={{
+                width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0',
+                borderRadius: 10, fontSize: 14, fontFamily: 'inherit', resize: 'none',
+                outline: 'none', boxSizing: 'border-box',
+              }}
+              onFocus={e => (e.target.style.borderColor = '#6366f1')}
+              onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+              onKeyDown={e => { if (e.key === 'Escape') { setShowTaskModal(false); setTaskDesc(''); setTaskEcheance(''); } }}
+            />
+            <div style={{ marginTop: 12 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 5 }}>
+                Échéance (optionnel)
+              </label>
+              <input
+                type="date" value={taskEcheance} onChange={e => setTaskEcheance(e.target.value)}
+                style={{ padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none' }}
+                onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+              <button
+                onClick={saveTask}
+                disabled={!taskDesc.trim() || taskSaving}
+                style={{
+                  flex: 1, padding: '10px',
+                  background: taskDesc.trim() ? '#6366f1' : '#a5b4fc',
+                  color: '#fff', border: 'none', borderRadius: 10,
+                  fontWeight: 700, cursor: taskDesc.trim() ? 'pointer' : 'default', fontSize: 14,
+                }}
+              >
+                {taskSaving ? '⏳…' : '✅ Créer la tâche'}
+              </button>
+              <button
+                onClick={() => { setShowTaskModal(false); setTaskDesc(''); setTaskEcheance(''); }}
+                style={{
+                  padding: '10px 20px', background: '#f1f5f9', color: '#475569',
+                  border: 'none', borderRadius: 10, fontWeight: 600, cursor: 'pointer', fontSize: 14,
+                }}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Session List (left panel) ──────────────────────────────────── */}
       <div style={{ width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -622,16 +691,30 @@ export default function LiveSessionsPanel() {
                   </div>
 
                   {isWaiting && (
-                    <button
-                      onClick={e => { e.stopPropagation(); claimSession(s); }}
-                      style={{
-                        marginTop: 8, width: '100%', padding: '6px',
-                        background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8,
-                        fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                      }}
-                    >
-                      🖐 Prendre en charge
-                    </button>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                      <button
+                        onClick={e => { e.stopPropagation(); claimSession(s); }}
+                        style={{
+                          flex: 1, padding: '6px',
+                          background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8,
+                          fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        🖐 Prendre en charge
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); rejectSession(s); }}
+                        style={{
+                          padding: '6px 10px',
+                          background: '#fef2f2', color: '#dc2626',
+                          border: '1px solid #fecaca', borderRadius: 8,
+                          fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        }}
+                        title="Refuser (pas de ticket)"
+                      >
+                        🚫
+                      </button>
+                    </div>
                   )}
                 </div>
               );
@@ -927,6 +1010,17 @@ export default function LiveSessionsPanel() {
                       fontSize: 16, lineHeight: 1, opacity: uploading ? 0.5 : 1, flexShrink: 0,
                     }}>
                     {uploading ? '⏳' : '📎'}
+                  </button>
+                  {/* Task button */}
+                  <button
+                    onClick={() => setShowTaskModal(true)}
+                    title="Créer une tâche (privée)"
+                    style={{
+                      padding: '8px 10px', background: '#f1f5f9', color: '#475569',
+                      border: '1.5px solid #e2e8f0', borderRadius: 10,
+                      cursor: 'pointer', fontSize: 15, lineHeight: 1, flexShrink: 0,
+                    }}>
+                    ✅
                   </button>
                   {/* Mic button */}
                   <button onClick={toggleDictation} title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}

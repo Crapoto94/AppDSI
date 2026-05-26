@@ -39,6 +39,9 @@ export default function ChatPage({ token, user, onLogout }: Props) {
   const [techName, setTechName] = useState('')
   const [error, setError] = useState('')
   const [listening, setListening] = useState(false)
+  const [closingMessage, setClosingMessage] = useState('')
+  const [liveEnabled, setLiveEnabled] = useState(true)
+  const [closeReason, setCloseReason] = useState<'normal' | 'rejected' | 'inactivity'>('normal')
 
   const socketRef = useRef<Socket | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -84,6 +87,16 @@ export default function ChatPage({ token, user, onLogout }: Props) {
     pollRef.current = setInterval(tick, 2500)
   }, [token, stopPolling]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch public config (closing message, live_enabled)
+  useEffect(() => {
+    axios.get('/api/live/public-config')
+      .then(r => {
+        setLiveEnabled(r.data.live_enabled !== false)
+        setClosingMessage(r.data.closing_message || '')
+      })
+      .catch(() => {})
+  }, [])
+
   // Restore session on mount
   useEffect(() => {
     const stored = localStorage.getItem(SESSION_KEY)
@@ -111,8 +124,11 @@ export default function ChatPage({ token, user, onLogout }: Props) {
     socket.on('session_claimed', ({ tech }: { tech: { displayName: string } }) => {
       setTechName(tech.displayName); setState('active')
     })
-    socket.on('session_closed', () => {
-      stopPolling(); localStorage.removeItem(SESSION_KEY); setState('ended')
+    socket.on('session_closed', ({ reason }: { reason?: string } = {}) => {
+      stopPolling()
+      localStorage.removeItem(SESSION_KEY)
+      setCloseReason(reason === 'rejected' ? 'rejected' : reason === 'inactivity' ? 'inactivity' : 'normal')
+      setState('ended')
     })
 
     return () => { stopPolling(); socket.disconnect(); socketRef.current = null }
@@ -252,6 +268,16 @@ export default function ChatPage({ token, user, onLogout }: Props) {
 
           {state === 'idle' && (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', animation: 'slideUp 0.3s ease' }}>
+              {!liveEnabled && closingMessage && (
+                <div style={{
+                  width: '100%', maxWidth: 520, marginBottom: 16,
+                  background: '#fff7ed', border: '1px solid #fed7aa',
+                  borderRadius: 12, padding: '12px 18px',
+                  fontSize: 14, color: '#92400e', lineHeight: 1.6,
+                }}>
+                  ⏰ {closingMessage}
+                </div>
+              )}
               <div style={{
                 background: '#fff', borderRadius: 20, padding: '36px 32px', width: '100%', maxWidth: 520,
                 boxShadow: '0 8px 32px rgba(99,102,241,0.12)',
@@ -421,12 +447,33 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                 background: '#fff', borderRadius: 20, padding: '40px 32px', textAlign: 'center',
                 boxShadow: '0 8px 32px rgba(0,0,0,0.08)', maxWidth: 400, width: '100%',
               }}>
-                <div style={{ fontSize: 52, marginBottom: 16 }}>✅</div>
-                <h2 style={{ margin: '0 0 10px', fontSize: 22, fontWeight: 800, color: '#15803d' }}>Session terminée</h2>
-                <p style={{ margin: '0 0 28px', fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
-                  Merci d'avoir contacté le support DSI.<br />
-                  Un récapitulatif a été créé dans notre système.
-                </p>
+                {closeReason === 'rejected' ? (
+                  <>
+                    <div style={{ fontSize: 52, marginBottom: 16 }}>🚫</div>
+                    <h2 style={{ margin: '0 0 10px', fontSize: 22, fontWeight: 800, color: '#dc2626' }}>Demande refusée</h2>
+                    <p style={{ margin: '0 0 28px', fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
+                      Votre demande n'a pas pu être prise en charge pour le moment.<br />
+                      Aucun ticket n'a été créé.
+                    </p>
+                  </>
+                ) : closeReason === 'inactivity' ? (
+                  <>
+                    <div style={{ fontSize: 52, marginBottom: 16 }}>⏱️</div>
+                    <h2 style={{ margin: '0 0 10px', fontSize: 22, fontWeight: 800, color: '#92400e' }}>Session expirée</h2>
+                    <p style={{ margin: '0 0 28px', fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
+                      La session a été fermée après 15 minutes d'inactivité.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 52, marginBottom: 16 }}>✅</div>
+                    <h2 style={{ margin: '0 0 10px', fontSize: 22, fontWeight: 800, color: '#15803d' }}>Session terminée</h2>
+                    <p style={{ margin: '0 0 28px', fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
+                      Merci d'avoir contacté le support DSI.<br />
+                      Un récapitulatif a été créé dans notre système.
+                    </p>
+                  </>
+                )}
                 <button onClick={startNew} style={{
                   padding: '12px 28px', background: '#6366f1', color: '#fff',
                   border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer',
