@@ -66,8 +66,10 @@ const ConsommablesManagement: React.FC = () => {
   const isAdminForConsommables =
     user?.role === 'admin' ||
     user?.role === 'superadmin' ||
-    (user?.authorized_urls?.some((url: string) => '/consommables' === url || '/consommables'.startsWith(url + '/')) &&
-     user?.authorized_urls?.includes('/consommables'));
+    (user?.authorized_urls && (
+      user.authorized_urls.includes('/consommables') ||
+      user.authorized_urls.includes('*')
+    ));
 
   const [activeTab, setActiveTab] = useState<'requests' | 'catalog' | 'images' | 'recap'>('requests');
   const [requests, setRequests] = useState<ConsumableRequest[]>([]);
