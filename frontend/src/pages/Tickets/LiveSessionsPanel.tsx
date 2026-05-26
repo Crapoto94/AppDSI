@@ -62,6 +62,11 @@ export default function LiveSessionsPanel() {
   const [showAppPicker, setShowAppPicker] = useState(false);
   const [appSearch, setAppSearch] = useState('');
   const [appSaving, setAppSaving] = useState(false);
+  // Emergency message
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [emergencyMsg, setEmergencyMsg] = useState('');
+  const [emergencySending, setEmergencySending] = useState(false);
+  const [emergencyResult, setEmergencyResult] = useState<{ sent: boolean; detail: string } | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -314,6 +319,30 @@ export default function LiveSessionsPanel() {
       setAppSaving(false);
       setShowAppPicker(false);
       setAppSearch('');
+    }
+  }
+
+  async function sendEmergencyMessageApi() {
+    if (!activeSession || !emergencyMsg.trim()) return;
+    setEmergencySending(true);
+    setEmergencyResult(null);
+    try {
+      const r = await axios.post(
+        `/api/live/sessions/${activeSession.id}/emergency`,
+        { message: emergencyMsg.trim() },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const d = r.data;
+      const parts: string[] = [];
+      if (d.results?.email?.length) parts.push(`📧 ${d.results.email.length} email(s)`);
+      if (d.results?.sms?.length) parts.push(`📱 ${d.results.sms.length} SMS`);
+      if (d.results?.whatsapp?.length) parts.push(`💬 ${d.results.whatsapp.length} WhatsApp`);
+      setEmergencyResult({ sent: true, detail: parts.length ? parts.join(', ') : `${d.contacts} contact(s) notifié(s)` });
+      setEmergencyMsg('');
+    } catch (e: any) {
+      setEmergencyResult({ sent: false, detail: e.response?.data?.message || 'Erreur lors de l\'envoi' });
+    } finally {
+      setEmergencySending(false);
     }
   }
 
@@ -641,6 +670,74 @@ export default function LiveSessionsPanel() {
             >
               Fermer
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Emergency message modal ─────────────────────────────────── */}
+      {showEmergencyModal && activeSession && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: 28, width: 460,
+            boxShadow: '0 8px 40px rgba(0,0,0,0.22)', fontFamily: 'system-ui, sans-serif',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 24 }}>🚨</span>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#dc2626' }}>Message d'urgence</div>
+            </div>
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 14, lineHeight: 1.5 }}>
+              Ce message sera envoyé par <strong>email</strong>, <strong>SMS</strong> et <strong>WhatsApp</strong> à tous les membres de l'équipe marqués comme contacts d'urgence.
+            </div>
+            <textarea
+              value={emergencyMsg}
+              onChange={e => setEmergencyMsg(e.target.value)}
+              placeholder="Décrivez la situation d'urgence…"
+              rows={4}
+              autoFocus
+              style={{
+                width: '100%', padding: '10px 12px',
+                border: '1.5px solid #fecaca', borderRadius: 10,
+                fontSize: 13, fontFamily: 'inherit', resize: 'vertical', outline: 'none',
+                boxSizing: 'border-box', background: '#fff7f7',
+              }}
+              onFocus={e => e.target.style.borderColor = '#dc2626'}
+              onBlur={e => e.target.style.borderColor = '#fecaca'}
+            />
+            {emergencyResult && (
+              <div style={{
+                marginTop: 10, padding: '8px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                background: emergencyResult.sent ? '#f0fdf4' : '#fef2f2',
+                color: emergencyResult.sent ? '#15803d' : '#dc2626',
+                border: `1px solid ${emergencyResult.sent ? '#86efac' : '#fecaca'}`,
+              }}>
+                {emergencyResult.sent ? `✅ Envoyé — ${emergencyResult.detail}` : `❌ ${emergencyResult.detail}`}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button
+                onClick={sendEmergencyMessageApi}
+                disabled={!emergencyMsg.trim() || emergencySending}
+                style={{
+                  flex: 1, padding: '10px',
+                  background: emergencyMsg.trim() && !emergencySending ? '#dc2626' : '#d4d4d8',
+                  color: '#fff', border: 'none', borderRadius: 10,
+                  fontWeight: 700, cursor: emergencyMsg.trim() && !emergencySending ? 'pointer' : 'not-allowed',
+                  fontSize: 14,
+                }}>
+                {emergencySending ? '⏳ Envoi…' : '🚨 Envoyer le message d\'urgence'}
+              </button>
+              <button
+                onClick={() => { setShowEmergencyModal(false); setEmergencyMsg(''); setEmergencyResult(null); }}
+                style={{
+                  padding: '10px 20px', background: '#f1f5f9', color: '#475569',
+                  border: 'none', borderRadius: 10, fontWeight: 600, cursor: 'pointer', fontSize: 14,
+                }}>
+                Fermer
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1070,6 +1167,17 @@ export default function LiveSessionsPanel() {
                       borderRadius: 10, cursor: 'pointer', fontSize: 15, lineHeight: 1, flexShrink: 0,
                     }}>
                     🔧
+                  </button>
+                  {/* Emergency button */}
+                  <button
+                    onClick={() => { setShowEmergencyModal(true); setEmergencyResult(null); }}
+                    title="Envoyer un message d'urgence aux contacts d'astreinte"
+                    style={{
+                      padding: '8px 10px', background: '#fef2f2', color: '#dc2626',
+                      border: '1.5px solid #fecaca', borderRadius: 10,
+                      cursor: 'pointer', fontSize: 15, lineHeight: 1, flexShrink: 0,
+                    }}>
+                    🚨
                   </button>
                   {/* Mic button */}
                   <button onClick={toggleDictation} title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}

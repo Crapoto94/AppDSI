@@ -495,10 +495,17 @@ router.put('/technicians/:id/status', authenticateAdmin, async (req, res) => {
 
 router.put('/technicians/:id', authenticateAdmin, async (req, res) => {
     try {
-        const { notes } = req.body;
+        const { notes, mobile_phone, is_emergency_contact } = req.body;
+        const sets = ['updated_at = CURRENT_TIMESTAMP'];
+        const vals = [];
+        let idx = 1;
+        if (notes                !== undefined) { sets.push(`notes = $${idx++}`);                vals.push(notes); }
+        if (mobile_phone         !== undefined) { sets.push(`mobile_phone = $${idx++}`);         vals.push(mobile_phone || null); }
+        if (is_emergency_contact !== undefined) { sets.push(`is_emergency_contact = $${idx++}`); vals.push(!!is_emergency_contact); }
+        vals.push(parseInt(req.params.id));
         await pgDb.run(
-            'UPDATE hub_tickets.technician_profiles SET notes = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
-            [notes, parseInt(req.params.id)]
+            `UPDATE hub_tickets.technician_profiles SET ${sets.join(', ')} WHERE user_id = $${idx}`,
+            vals
         );
         res.json({ message: 'Technicien mis à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }

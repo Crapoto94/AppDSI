@@ -1,6 +1,7 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { getIO } = require('./live.socket');
 const jwt = require('jsonwebtoken');
+const axios = require('axios');
 const { SECRET_KEY } = require('../../shared/config');
 const { authenticateAD, lookupADUser } = require('../../shared/ad_auth');
 
@@ -570,7 +571,7 @@ async function getPublicConfig(req, res) {
 async function getConfig(req, res) {
     try {
         const rows = await pgDb.all(
-            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message')`
+            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message','whatsapp_enabled','whatsapp_phone_number_id','whatsapp_access_token')`
         );
         const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
         const useSchedule  = cfg.live_use_schedule === 'true';
@@ -579,16 +580,23 @@ async function getConfig(req, res) {
             ? await isNowInCalendar(calendarId)
             : (cfg.live_enabled !== 'false');
 
-        res.json({ live_enabled, live_use_schedule: useSchedule, live_calendar_id: calendarId, closing_message: cfg.live_closing_message || '' });
+        res.json({
+            live_enabled, live_use_schedule: useSchedule, live_calendar_id: calendarId,
+            closing_message: cfg.live_closing_message || '',
+            whatsapp_enabled: cfg.whatsapp_enabled === 'true',
+            whatsapp_phone_number_id: cfg.whatsapp_phone_number_id || '',
+            whatsapp_access_token: cfg.whatsapp_access_token || '',
+        });
     } catch (e) {
-        res.json({ live_enabled: true, live_use_schedule: false, live_calendar_id: null, closing_message: '' });
+        res.json({ live_enabled: true, live_use_schedule: false, live_calendar_id: null, closing_message: '', whatsapp_enabled: false, whatsapp_phone_number_id: '', whatsapp_access_token: '' });
     }
 }
 
 // ── PUT /api/live/config ──────────────────────────────────────────────
 async function setConfig(req, res) {
     try {
-        const { live_enabled, live_use_schedule, live_calendar_id, closing_message } = req.body;
+        const { live_enabled, live_use_schedule, live_calendar_id, closing_message,
+                whatsapp_enabled, whatsapp_phone_number_id, whatsapp_access_token } = req.body;
 
         const upsert = (key, val) => pgDb.run(
             `INSERT INTO hub_tickets.module_config (key, value) VALUES ($1, $2)
@@ -596,10 +604,13 @@ async function setConfig(req, res) {
             [key, String(val ?? '')]
         );
 
-        if (live_enabled      !== undefined) await upsert('live_enabled',          live_enabled ? 'true' : 'false');
-        if (live_use_schedule !== undefined) await upsert('live_use_schedule',      live_use_schedule ? 'true' : 'false');
-        if (live_calendar_id  !== undefined) await upsert('live_calendar_id',       live_calendar_id ?? '');
-        if (closing_message   !== undefined) await upsert('live_closing_message',   closing_message);
+        if (live_enabled              !== undefined) await upsert('live_enabled',              live_enabled ? 'true' : 'false');
+        if (live_use_schedule         !== undefined) await upsert('live_use_schedule',          live_use_schedule ? 'true' : 'false');
+        if (live_calendar_id          !== undefined) await upsert('live_calendar_id',           live_calendar_id ?? '');
+        if (closing_message           !== undefined) await upsert('live_closing_message',       closing_message);
+        if (whatsapp_enabled          !== undefined) await upsert('whatsapp_enabled',           whatsapp_enabled ? 'true' : 'false');
+        if (whatsapp_phone_number_id  !== undefined) await upsert('whatsapp_phone_number_id',   whatsapp_phone_number_id || '');
+        if (whatsapp_access_token     !== undefined) await upsert('whatsapp_access_token',      whatsapp_access_token || '');
 
         const effective = await computeLiveEnabled();
         const io = getIO();
@@ -844,6 +855,129 @@ async function getSatisfactionStats(req, res) {
     }
 }
 
+// ── POST /api/live/sessions/:id/emergency ─────────────────────────────
+async function sendEmergencyMessage(req, res) {
+    try {
+        const { id } = req.params;
+        const { message } = req.body || {};
+        if (!message?.trim()) return res.status(400).json({ message: 'Message requis' });
+
+        const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
+        if (!session) return res.status(404).json({ message: 'Session introuvable' });
+
+        // Fetch emergency contacts
+        const contacts = await pgDb.all(`
+            SELECT tp.mobile_phone, u."displayName" as display_name, u.email
+            FROM hub_tickets.technician_profiles tp
+            JOIN hub.users u ON tp.user_id = u.id
+            WHERE tp.is_emergency_contact = true AND tp.status = 'active'
+        `);
+        if (contacts.length === 0) {
+            return res.status(400).json({ message: 'Aucun contact d\'urgence défini dans l\'équipe' });
+        }
+
+        const results = { email: [], sms: [], whatsapp: [], errors: [] };
+        const msgText = message.trim();
+        const subject = `🚨 [DSI Live] Message d'urgence — Session #${id}`;
+        const htmlBody = `
+            <div style="font-family:sans-serif;max-width:600px">
+                <div style="background:#dc2626;padding:16px 20px;color:#fff;border-radius:8px 8px 0 0">
+                    <h2 style="margin:0;font-size:18px">🚨 Message d'urgence DSI Chat Live</h2>
+                </div>
+                <div style="padding:20px;background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
+                    <p style="font-size:14px;color:#374151">Session <strong>#${id}</strong> — Ticket <strong>#${session.ticket_id || 'N/A'}</strong></p>
+                    <p style="font-size:14px;color:#374151">Demandeur : <strong>${session.user_display_name || session.user_username}</strong></p>
+                    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;margin:12px 0">
+                        <p style="color:#1e293b;font-size:14px;margin:0;white-space:pre-wrap">${msgText}</p>
+                    </div>
+                    <a href="http://dsihub.ivry.local/admin/tickets" style="color:#6366f1;font-size:13px">→ Accéder au tableau de bord live</a>
+                </div>
+            </div>`;
+
+        // Email to all emergency contacts
+        if (_sendMail) {
+            for (const c of contacts) {
+                if (!c.email) continue;
+                try {
+                    await _sendMail(c.email, subject, htmlBody);
+                    results.email.push(c.email);
+                } catch (e) {
+                    results.errors.push(`Email ${c.email}: ${e.message}`);
+                }
+            }
+        }
+
+        // SMS via Frizbi (contacts with mobile_phone)
+        const smsContacts = contacts.filter(c => c.mobile_phone);
+        if (smsContacts.length > 0) {
+            try {
+                const db = getSqlite();
+                const frizbi = await db.get('SELECT * FROM frizbi_settings WHERE id = 1');
+                if (frizbi?.is_enabled && frizbi.client_id && frizbi.client_secret) {
+                    const loginRes = await axios.post(`${frizbi.api_url}/api/auth/login`, {
+                        login: frizbi.client_id, password: frizbi.client_secret
+                    });
+                    const frizbiToken = loginRes.data?.token;
+                    if (frizbiToken) {
+                        await axios.post(`${frizbi.api_url}/api/sms/send`, {
+                            customerSmsId: `live_urg_${id}_${Date.now()}`,
+                            date: new Date().toISOString(),
+                            title: 'Urgence DSI',
+                            message: `[DSI URGENCE] Session #${id}: ${msgText}`,
+                            customerSenderId: frizbi.sender_id || 'IVRY',
+                            smsContacts: smsContacts.map(c => ({
+                                customerSmsContactId: `urg_${(c.mobile_phone || '').replace(/\D/g, '')}`,
+                                mobile: (c.mobile_phone || '').replace(/\D/g, ''),
+                                firstName: (c.display_name || '').split(' ')[0] || 'Tech',
+                                lastName: (c.display_name || '').split(' ').slice(1).join(' ') || '',
+                            })),
+                        }, { headers: { Authorization: `Bearer ${frizbiToken}` } });
+                        results.sms = smsContacts.map(c => c.mobile_phone);
+                    }
+                }
+            } catch (e) {
+                results.errors.push(`SMS Frizbi: ${e.message}`);
+                console.error('[LIVE] emergency SMS error:', e.message);
+            }
+        }
+
+        // WhatsApp via Meta Cloud API
+        const waCfgRows = await pgDb.all(
+            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('whatsapp_enabled','whatsapp_phone_number_id','whatsapp_access_token')`
+        );
+        const waCfg = Object.fromEntries(waCfgRows.map(r => [r.key, r.value]));
+        if (waCfg.whatsapp_enabled === 'true' && waCfg.whatsapp_phone_number_id && waCfg.whatsapp_access_token) {
+            for (const c of smsContacts) {
+                const raw = (c.mobile_phone || '').replace(/\D/g, '');
+                if (!raw) continue;
+                // Normalize to international format (French: 06... → 336...)
+                const phone = raw.startsWith('33') ? raw : `33${raw.replace(/^0/, '')}`;
+                try {
+                    await axios.post(
+                        `https://graph.facebook.com/v19.0/${waCfg.whatsapp_phone_number_id}/messages`,
+                        {
+                            messaging_product: 'whatsapp',
+                            to: phone,
+                            type: 'text',
+                            text: { body: `🚨 [DSI URGENCE] Session #${id} - Ticket #${session.ticket_id || 'N/A'}\n${msgText}` },
+                        },
+                        { headers: { Authorization: `Bearer ${waCfg.whatsapp_access_token}`, 'Content-Type': 'application/json' } }
+                    );
+                    results.whatsapp.push(phone);
+                } catch (e) {
+                    results.errors.push(`WhatsApp ${phone}: ${e.message}`);
+                    console.error('[LIVE] emergency WhatsApp error:', e.message);
+                }
+            }
+        }
+
+        res.json({ success: true, contacts: contacts.length, results });
+    } catch (e) {
+        console.error('[LIVE] sendEmergencyMessage error:', e);
+        res.status(500).json({ message: e.message });
+    }
+}
+
 async function setTicketType(req, res) {
     try {
         const { id } = req.params;
@@ -1025,4 +1159,4 @@ async function otpVerify(req, res) {
     }
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setSessionApp, submitSatisfaction, getSatisfactionStats };
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setSessionApp, submitSatisfaction, getSatisfactionStats, sendEmergencyMessage };

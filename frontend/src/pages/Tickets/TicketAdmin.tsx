@@ -29,6 +29,10 @@ export default function TicketAdmin() {
   const [liveStats, setLiveStats] = useState<any>(null);
   const [closingMessage, setClosingMessage] = useState('');
   const [closingMessageSaving, setClosingMessageSaving] = useState(false);
+  const [waEnabled, setWaEnabled] = useState(false);
+  const [waPhoneNumberId, setWaPhoneNumberId] = useState('');
+  const [waAccessToken, setWaAccessToken] = useState('');
+  const [waSaving, setWaSaving] = useState(false);
 
   const DAY_NAMES: Record<number, string> = { 1: 'Lun', 2: 'Mar', 3: 'Mer', 4: 'Jeu', 5: 'Ven', 6: 'Sam', 7: 'Dim' };
 
@@ -41,6 +45,9 @@ export default function TicketAdmin() {
         setLiveUseSchedule(!!r.data.live_use_schedule);
         setLiveCalendarId(r.data.live_calendar_id ?? null);
         setClosingMessage(r.data.closing_message || '');
+        setWaEnabled(!!r.data.whatsapp_enabled);
+        setWaPhoneNumberId(r.data.whatsapp_phone_number_id || '');
+        setWaAccessToken(r.data.whatsapp_access_token || '');
       })
       .catch(() => setLiveEnabled(true));
     axios.get('/api/live/calendars', { headers: { Authorization: `Bearer ${token}` } })
@@ -91,6 +98,19 @@ export default function TicketAdmin() {
       await axios.put('/api/live/config', { closing_message: closingMessage }, { headers: { Authorization: `Bearer ${token}` } });
     } catch (e) { console.error(e); }
     finally { setClosingMessageSaving(false); }
+  }
+
+  async function saveWhatsAppConfig() {
+    const token = localStorage.getItem('token');
+    setWaSaving(true);
+    try {
+      await axios.put('/api/live/config', {
+        whatsapp_enabled: waEnabled,
+        whatsapp_phone_number_id: waPhoneNumberId,
+        whatsapp_access_token: waAccessToken,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) { console.error(e); }
+    finally { setWaSaving(false); }
   }
 
   useEffect(() => {
@@ -327,6 +347,86 @@ export default function TicketAdmin() {
                   }}
                 >
                   {closingMessageSaving ? '⏳ Enregistrement…' : '💾 Enregistrer'}
+                </button>
+              </div>
+            </div>
+
+            {/* ── WhatsApp / Messages d'urgence ────────────────────── */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: 12, padding: '16px 20px',
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>
+                💬 WhatsApp (Meta Cloud API) — Messages d'urgence
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 14 }}>
+                Configurez l'API WhatsApp Business pour envoyer des messages d'urgence aux contacts d'astreinte directement depuis le chat live.
+              </div>
+
+              {/* Toggle */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer', userSelect: 'none' }}>
+                <div
+                  onClick={() => setWaEnabled(v => !v)}
+                  style={{
+                    width: 44, height: 24, borderRadius: 12, position: 'relative', cursor: 'pointer',
+                    background: waEnabled ? '#6366f1' : '#d1d5db', transition: 'background 0.2s',
+                  }}>
+                  <div style={{
+                    position: 'absolute', top: 3, left: waEnabled ? 23 : 3, width: 18, height: 18,
+                    borderRadius: '50%', background: '#fff', transition: 'left 0.2s',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                  }} />
+                </div>
+                <span style={{ fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                  {waEnabled ? '✅ WhatsApp activé' : '⬜ WhatsApp désactivé'}
+                </span>
+              </label>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, opacity: waEnabled ? 1 : 0.5, pointerEvents: waEnabled ? 'auto' : 'none' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                    Phone Number ID
+                  </label>
+                  <input
+                    type="text"
+                    value={waPhoneNumberId}
+                    onChange={e => setWaPhoneNumberId(e.target.value)}
+                    placeholder="Ex : 123456789012345"
+                    style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                    onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                    onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                    Access Token (Bearer)
+                  </label>
+                  <input
+                    type="password"
+                    value={waAccessToken}
+                    onChange={e => setWaAccessToken(e.target.value)}
+                    placeholder="EAAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                    onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                    onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={saveWhatsAppConfig}
+                  disabled={waSaving}
+                  style={{
+                    padding: '8px 20px',
+                    background: waSaving ? '#a5b4fc' : '#6366f1',
+                    color: '#fff', border: 'none', borderRadius: 8,
+                    fontWeight: 600, cursor: 'pointer', fontSize: 13,
+                    opacity: waSaving ? 0.7 : 1,
+                  }}
+                >
+                  {waSaving ? '⏳ Enregistrement…' : '💾 Enregistrer'}
                 </button>
               </div>
             </div>
@@ -1939,6 +2039,10 @@ function TeamManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
   const [adResults, setAdResults] = useState<any[]>([]);
   const [selectedAdUser, setSelectedAdUser] = useState<any>(null);
   const [pauseModal, setPauseModal] = useState<any>(null);
+  const [editingPhone, setEditingPhone] = useState<number | null>(null);
+  const [phoneValue, setPhoneValue] = useState('');
+  const [savingPhone, setSavingPhone] = useState(false);
+  const [savingEmergency, setSavingEmergency] = useState<number | null>(null);
 
   const filtered = filter === 'all' ? data : data.filter(t => t.status === filter);
 
@@ -1999,6 +2103,27 @@ function TeamManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
     } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
   }
 
+  async function savePhone(userId: number) {
+    setSavingPhone(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`/api/tickets/admin/technicians/${userId}`, { mobile_phone: phoneValue }, { headers: { Authorization: `Bearer ${token}` } });
+      setEditingPhone(null);
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    finally { setSavingPhone(false); }
+  }
+
+  async function toggleEmergency(userId: number, current: boolean) {
+    setSavingEmergency(userId);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`/api/tickets/admin/technicians/${userId}`, { is_emergency_contact: !current }, { headers: { Authorization: `Bearer ${token}` } });
+      onUpdate();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    finally { setSavingEmergency(null); }
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
@@ -2021,7 +2146,7 @@ function TeamManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
           const memberRole = t.module_role || t.role || 'technician';
           const roleConf = MODULE_ROLE_CONFIG[memberRole] || MODULE_ROLE_CONFIG.technician;
           return (
-            <div key={t.user_id} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12, background: '#f8fafc' }}>
+            <div key={t.user_id} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12, background: '#f8fafc', flexWrap: 'wrap' }}>
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: TECH_STATUS_COLORS[t.status] || '#94a3b8', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{t.displayname || t.displayName || `User #${t.user_id}`}</div>
@@ -2034,6 +2159,51 @@ function TeamManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
                     </span>
                   )}
                 </div>
+                {/* Mobile phone inline editor */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
+                  <span style={{ fontSize: 11, color: '#94a3b8' }}>📱</span>
+                  {editingPhone === t.user_id ? (
+                    <>
+                      <input
+                        type="tel"
+                        value={phoneValue}
+                        onChange={e => setPhoneValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') savePhone(t.user_id); if (e.key === 'Escape') setEditingPhone(null); }}
+                        placeholder="Ex : 0612345678"
+                        autoFocus
+                        style={{ padding: '2px 8px', border: '1.5px solid #6366f1', borderRadius: 6, fontSize: 12, outline: 'none', width: 130 }}
+                      />
+                      <button onClick={() => savePhone(t.user_id)} disabled={savingPhone}
+                        style={{ padding: '2px 8px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+                        {savingPhone ? '…' : '✓'}
+                      </button>
+                      <button onClick={() => setEditingPhone(null)}
+                        style={{ padding: '2px 6px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>
+                        ✕
+                      </button>
+                    </>
+                  ) : (
+                    <span
+                      onClick={() => { setEditingPhone(t.user_id); setPhoneValue(t.mobile_phone || ''); }}
+                      style={{ fontSize: 12, color: t.mobile_phone ? '#1e293b' : '#94a3b8', cursor: 'pointer', borderBottom: '1px dashed #cbd5e1' }}
+                      title="Cliquer pour modifier">
+                      {t.mobile_phone || 'Ajouter un numéro…'}
+                    </span>
+                  )}
+                </div>
+                {/* Emergency contact checkbox */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, cursor: 'pointer', userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!t.is_emergency_contact}
+                    disabled={savingEmergency === t.user_id}
+                    onChange={() => toggleEmergency(t.user_id, !!t.is_emergency_contact)}
+                    style={{ width: 13, height: 13, cursor: 'pointer', accentColor: '#dc2626' }}
+                  />
+                  <span style={{ fontSize: 11, color: t.is_emergency_contact ? '#dc2626' : '#94a3b8', fontWeight: t.is_emergency_contact ? 700 : 400 }}>
+                    {t.is_emergency_contact ? '🚨 Contact d\'urgence' : 'Joindre en cas d\'urgence'}
+                  </span>
+                </label>
               </div>
 
               {/* Role selector */}
