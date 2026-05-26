@@ -736,7 +736,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
           );
         })()}
 
-        {user?.role === 'admin' && (
+        {isAdminForConsommables && (
           <div style={{ display: 'flex', gap: 4, marginBottom: 28, background: 'white', borderRadius: 12, padding: 4, width: 'fit-content', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
             <button
               onClick={() => { setActiveTab('catalog'); setSelectedType(null); setSearchTerm(''); }}
@@ -1523,7 +1523,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                         )}
 
                         {/* Admin Actions */}
-                        {user?.role === 'admin' && (
+                        {isAdminForConsommables && (
                           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f1f5f9', display: 'flex', gap: 8 }}>
                             {request.archived ? (
                               <button onClick={() => handleUnarchiveRequest(request.id)}
