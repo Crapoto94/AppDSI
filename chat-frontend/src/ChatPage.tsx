@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import axios from 'axios'
-import type { UserInfo } from './App'
+import type { UserInfo, AppConfig } from './App'
 
 interface Message {
   id: number
@@ -28,9 +28,13 @@ interface Props {
   token: string
   user: UserInfo
   onLogout: () => void
+  config: AppConfig
 }
 
-export default function ChatPage({ token, user, onLogout }: Props) {
+export default function ChatPage({ token, user, onLogout, config }: Props) {
+  const { chat_name, chat_logo, primary_color, secondary_color, live_enabled: liveEnabled, closing_message: closingMessage } = config
+  const gradient = `linear-gradient(135deg, ${primary_color}, ${secondary_color})`
+
   const [state, setState] = useState<ChatState>('checking')
   const [sessionId, setSessionId] = useState<number | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -39,8 +43,6 @@ export default function ChatPage({ token, user, onLogout }: Props) {
   const [techName, setTechName] = useState('')
   const [error, setError] = useState('')
   const [listening, setListening] = useState(false)
-  const [closingMessage, setClosingMessage] = useState('')
-  const [liveEnabled, setLiveEnabled] = useState(true)
   const [closeReason, setCloseReason] = useState<'normal' | 'rejected' | 'inactivity'>('normal')
   // Satisfaction survey
   const [surveyRating, setSurveyRating] = useState(0)
@@ -91,16 +93,6 @@ export default function ChatPage({ token, user, onLogout }: Props) {
     tick()
     pollRef.current = setInterval(tick, 2500)
   }, [token, stopPolling]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fetch public config (closing message, live_enabled)
-  useEffect(() => {
-    axios.get('/api/live/public-config')
-      .then(r => {
-        setLiveEnabled(r.data.live_enabled !== false)
-        setClosingMessage(r.data.closing_message || '')
-      })
-      .catch(() => {})
-  }, [])
 
   // Restore session on mount
   useEffect(() => {
@@ -238,6 +230,10 @@ export default function ChatPage({ token, user, onLogout }: Props) {
     setListening(true)
   }
 
+  const logoContent = (chat_logo.startsWith('http') || chat_logo.startsWith('/'))
+    ? <img src={chat_logo} alt="" style={{ width: 24, height: 24, objectFit: 'contain', borderRadius: 4 }} />
+    : <span style={{ fontSize: 20 }}>{chat_logo}</span>
+
   // ── Layout ────────────────────────────────────────────────────────────
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: '#f0f4ff' }}>
@@ -250,18 +246,18 @@ export default function ChatPage({ token, user, onLogout }: Props) {
 
       {/* Header */}
       <header style={{
-        background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+        background: gradient,
         padding: '0 24px', height: 64, display: 'flex', alignItems: 'center',
         justifyContent: 'space-between', flexShrink: 0,
-        boxShadow: '0 2px 16px rgba(79,70,229,0.3)',
+        boxShadow: `0 2px 16px ${primary_color}4d`,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{
             width: 38, height: 38, background: 'rgba(255,255,255,0.2)',
-            borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
-          }}>💬</div>
+            borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>{logoContent}</div>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: '#fff', letterSpacing: -0.3 }}>Support DSI</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: '#fff', letterSpacing: -0.3 }}>{chat_name}</div>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>
               {state === 'active' ? `En ligne · ${techName}` : state === 'waiting' ? 'En attente d\'un technicien…' : 'Chat en direct'}
             </div>
@@ -285,7 +281,7 @@ export default function ChatPage({ token, user, onLogout }: Props) {
 
           {state === 'checking' && (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ width: 36, height: 36, border: '4px solid #e0e7ff', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              <div style={{ width: 36, height: 36, border: `4px solid ${primary_color}33`, borderTopColor: primary_color, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
             </div>
           )}
 
@@ -303,7 +299,7 @@ export default function ChatPage({ token, user, onLogout }: Props) {
               )}
               <div style={{
                 background: '#fff', borderRadius: 20, padding: '36px 32px', width: '100%', maxWidth: 520,
-                boxShadow: '0 8px 32px rgba(99,102,241,0.12)',
+                boxShadow: `0 8px 32px ${primary_color}1f`,
               }}>
                 <div style={{ fontSize: 40, marginBottom: 12, textAlign: 'center' }}>👋</div>
                 <h2 style={{ margin: '0 0 8px', textAlign: 'center', fontSize: 20, fontWeight: 800, color: '#1e293b' }}>
@@ -330,7 +326,7 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                         width: '100%', padding: '12px 14px', border: '1.5px solid #e2e8f0',
                         borderRadius: 12, fontSize: 14, fontFamily: 'inherit', resize: 'none', outline: 'none',
                       }}
-                      onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                      onFocus={e => (e.target.style.borderColor = primary_color)}
                       onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                       autoFocus
                     />
@@ -349,10 +345,10 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                   <button type="submit" disabled={!initMsg.trim()}
                     style={{
                       width: '100%', padding: '13px',
-                      background: initMsg.trim() ? 'linear-gradient(135deg, #6366f1, #818cf8)' : '#a5b4fc',
+                      background: initMsg.trim() ? gradient : '#a5b4fc',
                       color: '#fff', border: 'none', borderRadius: 12,
                       fontSize: 15, fontWeight: 700, cursor: initMsg.trim() ? 'pointer' : 'default',
-                      boxShadow: '0 4px 14px rgba(99,102,241,0.3)',
+                      boxShadow: `0 4px 14px ${primary_color}4d`,
                     }}>
                     🚀 Démarrer le chat
                   </button>
@@ -366,8 +362,8 @@ export default function ChatPage({ token, user, onLogout }: Props) {
 
           {state === 'starting' && (
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ textAlign: 'center', color: '#6366f1' }}>
-                <div style={{ width: 36, height: 36, border: '4px solid #e0e7ff', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+              <div style={{ textAlign: 'center', color: primary_color }}>
+                <div style={{ width: 36, height: 36, border: `4px solid ${primary_color}33`, borderTopColor: primary_color, borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Connexion en cours…</div>
               </div>
             </div>
@@ -399,7 +395,7 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                   </div>
                 )}
                 {messages.map(msg => (
-                  <MessageBubble key={msg.id} msg={msg} isSelf={msg.sender_type === 'user'} />
+                  <MessageBubble key={msg.id} msg={msg} isSelf={msg.sender_type === 'user'} primaryColor={primary_color} />
                 ))}
                 <div ref={bottomRef} />
               </div>
@@ -430,14 +426,14 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                         flex: 1, padding: '9px 13px', border: '1.5px solid #e2e8f0',
                         borderRadius: 10, fontSize: 14, fontFamily: 'inherit', resize: 'none', outline: 'none',
                       }}
-                      onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                      onFocus={e => (e.target.style.borderColor = primary_color)}
                       onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                       autoFocus
                     />
                     <button onClick={() => void sendMessage()} disabled={!input.trim()}
                       style={{
                         padding: '9px 18px',
-                        background: input.trim() ? '#6366f1' : '#e2e8f0',
+                        background: input.trim() ? primary_color : '#e2e8f0',
                         color: input.trim() ? '#fff' : '#94a3b8',
                         border: 'none', borderRadius: 10, fontWeight: 700,
                         cursor: input.trim() ? 'pointer' : 'default', fontSize: 18, flexShrink: 0,
@@ -500,7 +496,7 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                 </div>
 
                 {surveyRating > 0 && (
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#6366f1', marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: primary_color, marginBottom: 16 }}>
                     {['', 'Très insatisfait 😞', 'Insatisfait 😕', 'Correct 😐', 'Satisfait 🙂', 'Très satisfait 😄'][surveyRating]}
                   </div>
                 )}
@@ -517,7 +513,7 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                     fontSize: 13, fontFamily: 'inherit', resize: 'none', outline: 'none',
                     marginBottom: 16, boxSizing: 'border-box',
                   }}
-                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                  onFocus={e => (e.target.style.borderColor = primary_color)}
                   onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                 />
 
@@ -526,12 +522,12 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                   disabled={surveyRating === 0 || surveySubmitting}
                   style={{
                     width: '100%', padding: '12px',
-                    background: surveyRating ? '#6366f1' : '#a5b4fc',
+                    background: surveyRating ? primary_color : '#a5b4fc',
                     color: '#fff', border: 'none', borderRadius: 12,
                     fontSize: 14, fontWeight: 700,
                     cursor: surveyRating ? 'pointer' : 'default',
                     marginBottom: 10,
-                    boxShadow: surveyRating ? '0 4px 14px rgba(99,102,241,0.3)' : 'none',
+                    boxShadow: surveyRating ? `0 4px 14px ${primary_color}4d` : 'none',
                   }}
                 >
                   {surveySubmitting ? '⏳ Envoi…' : '📤 Envoyer mon avis'}
@@ -583,9 +579,9 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                   </>
                 )}
                 <button onClick={startNew} style={{
-                  padding: '12px 28px', background: '#6366f1', color: '#fff',
+                  padding: '12px 28px', background: primary_color, color: '#fff',
                   border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                  boxShadow: '0 4px 14px rgba(99,102,241,0.3)',
+                  boxShadow: `0 4px 14px ${primary_color}4d`,
                 }}>
                   Nouvelle conversation
                 </button>
@@ -607,7 +603,7 @@ export default function ChatPage({ token, user, onLogout }: Props) {
   )
 }
 
-function MessageBubble({ msg, isSelf }: { msg: Message; isSelf: boolean }) {
+function MessageBubble({ msg, isSelf, primaryColor }: { msg: Message; isSelf: boolean; primaryColor: string }) {
   const time = new Date(msg.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
   return (
     <div style={{ display: 'flex', flexDirection: isSelf ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 6 }}>
@@ -618,7 +614,7 @@ function MessageBubble({ msg, isSelf }: { msg: Message; isSelf: boolean }) {
       )}
       <div style={{
         maxWidth: '75%',
-        background: isSelf ? '#6366f1' : '#fff',
+        background: isSelf ? primaryColor : '#fff',
         color: isSelf ? '#fff' : '#1e293b',
         borderRadius: isSelf ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
         padding: '9px 14px', fontSize: 14, lineHeight: 1.5,
@@ -627,11 +623,11 @@ function MessageBubble({ msg, isSelf }: { msg: Message; isSelf: boolean }) {
         wordBreak: 'break-word',
       }}>
         {!isSelf && (
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', marginBottom: 3 }}>{msg.sender_name}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: primaryColor, marginBottom: 3 }}>{msg.sender_name}</div>
         )}
         {msg.attachment_url ? (
           <a href={msg.attachment_url} target="_blank" rel="noreferrer"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, color: isSelf ? '#fff' : '#6366f1', textDecoration: 'none' }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 6, color: isSelf ? '#fff' : primaryColor, textDecoration: 'none' }}>
             <span>📎</span>
             <span style={{ textDecoration: 'underline', wordBreak: 'break-all', fontSize: 13 }}>{msg.attachment_name || msg.content}</span>
           </a>

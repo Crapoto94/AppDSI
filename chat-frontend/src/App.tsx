@@ -1,10 +1,29 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import axios from 'axios'
 import LoginPage from './LoginPage'
 import ChatPage from './ChatPage'
 
 export interface UserInfo {
   displayName: string
   email: string
+}
+
+export interface AppConfig {
+  live_enabled: boolean
+  closing_message: string
+  chat_name: string
+  chat_logo: string
+  primary_color: string
+  secondary_color: string
+}
+
+const DEFAULT_CONFIG: AppConfig = {
+  live_enabled: true,
+  closing_message: '',
+  chat_name: 'Support DSI',
+  chat_logo: '💬',
+  primary_color: '#6366f1',
+  secondary_color: '#818cf8',
 }
 
 const TOKEN_KEY = 'chat_dmz_token'
@@ -23,6 +42,13 @@ function loadAuth(): { token: string; user: UserInfo } | null {
 
 export default function App() {
   const [auth, setAuth] = useState<{ token: string; user: UserInfo } | null>(loadAuth)
+  const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
+
+  useEffect(() => {
+    axios.get<AppConfig>('/api/live/public-config')
+      .then(r => setConfig({ ...DEFAULT_CONFIG, ...r.data }))
+      .catch(() => {})
+  }, [])
 
   function handleLogin(token: string, user: UserInfo, remember: boolean) {
     const storage = remember ? localStorage : sessionStorage
@@ -39,6 +65,6 @@ export default function App() {
     setAuth(null)
   }
 
-  if (!auth) return <LoginPage onLogin={handleLogin} />
-  return <ChatPage token={auth.token} user={auth.user} onLogout={handleLogout} />
+  if (!auth) return <LoginPage onLogin={handleLogin} config={config} />
+  return <ChatPage token={auth.token} user={auth.user} onLogout={handleLogout} config={config} />
 }

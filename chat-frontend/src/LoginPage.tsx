@@ -1,14 +1,18 @@
 import { useState, useRef, type FormEvent } from 'react'
 import axios from 'axios'
-import type { UserInfo } from './App'
+import type { UserInfo, AppConfig } from './App'
 
 interface Props {
   onLogin: (token: string, user: UserInfo, remember: boolean) => void
+  config: AppConfig
 }
 
 type Tab = 'ad' | 'otp' | 'guest'
 
-export default function LoginPage({ onLogin }: Props) {
+export default function LoginPage({ onLogin, config }: Props) {
+  const { chat_name, chat_logo, primary_color, secondary_color } = config
+  const gradient = `linear-gradient(135deg, ${primary_color}, ${secondary_color})`
+
   const [tab, setTab] = useState<Tab>('otp')
   const [remember, setRemember] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -86,6 +90,10 @@ export default function LoginPage({ onLogin }: Props) {
     : tab === 'otp' ? '✅ Vérifier le code'
     : '💬 Démarrer le chat'
 
+  const logoContent = (chat_logo.startsWith('http') || chat_logo.startsWith('/'))
+    ? <img src={chat_logo} alt="" style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 6 }} />
+    : <span>{chat_logo}</span>
+
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -102,13 +110,13 @@ export default function LoginPage({ onLogin }: Props) {
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{
             width: 64, height: 64,
-            background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+            background: gradient,
             borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 32, margin: '0 auto 14px',
-            boxShadow: '0 8px 24px rgba(99,102,241,0.35)',
-          }}>💬</div>
+            boxShadow: `0 8px 24px ${primary_color}59`,
+          }}>{logoContent}</div>
           <h1 style={{ margin: '0 0 5px', fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.5 }}>
-            Support DSI
+            {chat_name}
           </h1>
           <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
             Choisissez votre mode d'identification
@@ -127,7 +135,7 @@ export default function LoginPage({ onLogin }: Props) {
                 background: tab === t.id ? '#fff' : 'transparent',
                 border: 'none', borderRadius: 9, cursor: 'pointer',
                 fontSize: 11, fontWeight: tab === t.id ? 700 : 500,
-                color: tab === t.id ? '#6366f1' : '#64748b',
+                color: tab === t.id ? primary_color : '#64748b',
                 boxShadow: tab === t.id ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
                 transition: 'all 0.15s', lineHeight: 1.4,
               }}
@@ -163,7 +171,7 @@ export default function LoginPage({ onLogin }: Props) {
                   type="text" value={adUsername} onChange={e => setAdUsername(e.target.value)}
                   required autoFocus autoComplete="username"
                   style={inputStyle}
-                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                  onFocus={e => (e.target.style.borderColor = primary_color)}
                   onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                 />
               </Field>
@@ -172,7 +180,7 @@ export default function LoginPage({ onLogin }: Props) {
                   type="password" value={adPassword} onChange={e => setAdPassword(e.target.value)}
                   required autoComplete="current-password"
                   style={inputStyle}
-                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                  onFocus={e => (e.target.style.borderColor = primary_color)}
                   onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                 />
               </Field>
@@ -186,7 +194,7 @@ export default function LoginPage({ onLogin }: Props) {
                 type="text" value={otpUsername} onChange={e => setOtpUsername(e.target.value)}
                 placeholder="prenom.nom" required autoFocus autoComplete="username"
                 style={inputStyle}
-                onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                onFocus={e => (e.target.style.borderColor = primary_color)}
                 onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
               />
               <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>
@@ -212,14 +220,14 @@ export default function LoginPage({ onLogin }: Props) {
                   onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
                   placeholder="1234" required autoFocus autoComplete="one-time-code"
                   style={{ ...inputStyle, textAlign: 'center', fontSize: 28, fontWeight: 800, letterSpacing: 14 }}
-                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                  onFocus={e => (e.target.style.borderColor = primary_color)}
                   onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                 />
               </Field>
               <button
                 type="button"
                 onClick={() => { setOtpStep('request'); setOtpCode(''); setError('') }}
-                style={{ background: 'none', border: 'none', color: '#6366f1', fontSize: 12, cursor: 'pointer', padding: '0 0 14px', textDecoration: 'underline' }}
+                style={{ background: 'none', border: 'none', color: primary_color, fontSize: 12, cursor: 'pointer', padding: '0 0 14px', textDecoration: 'underline' }}
               >
                 ← Modifier l'identifiant
               </button>
@@ -241,7 +249,7 @@ export default function LoginPage({ onLogin }: Props) {
                   type="text" value={guestName} onChange={e => setGuestName(e.target.value)}
                   placeholder="Jean Dupont" required autoFocus autoComplete="name"
                   style={inputStyle}
-                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                  onFocus={e => (e.target.style.borderColor = primary_color)}
                   onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                 />
               </Field>
@@ -250,7 +258,7 @@ export default function LoginPage({ onLogin }: Props) {
                   type="email" value={guestEmail} onChange={e => setGuestEmail(e.target.value)}
                   placeholder="jean.dupont@exemple.fr" required autoComplete="email"
                   style={inputStyle}
-                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                  onFocus={e => (e.target.style.borderColor = primary_color)}
                   onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                 />
               </Field>
@@ -262,7 +270,7 @@ export default function LoginPage({ onLogin }: Props) {
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
               <input
                 type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)}
-                style={{ width: 17, height: 17, cursor: 'pointer', accentColor: '#6366f1', flexShrink: 0 }}
+                style={{ width: 17, height: 17, cursor: 'pointer', accentColor: primary_color, flexShrink: 0 }}
               />
               <span style={{ fontSize: 14, color: '#475569' }}>Rester connecté</span>
             </label>
@@ -273,7 +281,7 @@ export default function LoginPage({ onLogin }: Props) {
             disabled={!canSubmit}
             style={{
               width: '100%', padding: '13px',
-              background: canSubmit ? 'linear-gradient(135deg, #6366f1, #818cf8)' : '#a5b4fc',
+              background: canSubmit ? gradient : '#a5b4fc',
               color: '#fff', border: 'none', borderRadius: 12,
               fontSize: 15, fontWeight: 700, cursor: canSubmit ? 'pointer' : 'default',
               boxShadow: '0 4px 16px rgba(99,102,241,0.3)',

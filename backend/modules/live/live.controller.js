@@ -554,16 +554,23 @@ async function computeLiveEnabled() {
 async function getPublicConfig(req, res) {
     try {
         const rows = await pgDb.all(
-            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message')`
+            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message','chat_name','chat_logo','primary_color','secondary_color')`
         );
         const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
         const useSchedule = cfg.live_use_schedule === 'true';
         const live_enabled = useSchedule
             ? await isNowInCalendar(cfg.live_calendar_id ? parseInt(cfg.live_calendar_id) : null)
             : (cfg.live_enabled !== 'false');
-        res.json({ live_enabled, closing_message: cfg.live_closing_message || '' });
+        res.json({
+            live_enabled,
+            closing_message: cfg.live_closing_message || '',
+            chat_name: cfg.chat_name || 'Support DSI',
+            chat_logo: cfg.chat_logo || '💬',
+            primary_color: cfg.primary_color || '#6366f1',
+            secondary_color: cfg.secondary_color || '#818cf8',
+        });
     } catch (e) {
-        res.json({ live_enabled: true, closing_message: '' });
+        res.json({ live_enabled: true, closing_message: '', chat_name: 'Support DSI', chat_logo: '💬', primary_color: '#6366f1', secondary_color: '#818cf8' });
     }
 }
 
