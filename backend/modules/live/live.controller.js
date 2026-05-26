@@ -748,6 +748,102 @@ async function createTask(req, res) {
     }
 }
 
+// ── PATCH /api/live/sessions/:id/app ─────────────────────────────────
+async function setSessionApp(req, res) {
+    try {
+        const { id } = req.params;
+        const { app_id } = req.body || {};
+
+        const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
+        if (!session) return res.status(404).json({ message: 'Session introuvable' });
+
+        await pgDb.run(
+            `UPDATE hub_tickets.live_sessions SET app_id = $1 WHERE id = $2`,
+            [app_id || null, id]
+        );
+
+        const io = getIO();
+        if (io) io.to('live:techs').emit('session_updated', { ...session, app_id: app_id || null });
+
+        res.json({ success: true, app_id: app_id || null });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
+// ── POST /api/live/sessions/:id/satisfaction (authenticated) ──────────
+async function submitSatisfaction(req, res) {
+    try {
+        const { id } = req.params;
+        const { rating, comment } = req.body || {};
+
+        if (!rating || parseInt(rating) < 1 || parseInt(rating) > 5) {
+            return res.status(400).json({ message: 'Note invalide (1-5)' });
+        }
+
+        const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
+        if (!session) return res.status(404).json({ message: 'Session introuvable' });
+
+        const existing = await pgDb.get(
+            `SELECT id FROM hub_tickets.live_satisfaction WHERE session_id = $1`, [id]
+        );
+        if (existing) return res.status(400).json({ message: 'Satisfaction déjà soumise' });
+
+        await pgDb.run(
+            `INSERT INTO hub_tickets.live_satisfaction (session_id, ticket_id, rating, comment)
+             VALUES ($1, $2, $3, $4)`,
+            [id, session.ticket_id || null, parseInt(rating), comment?.trim() || null]
+        );
+
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
+// ── GET /api/live/satisfaction ────────────────────────────────────────
+async function getSatisfactionStats(req, res) {
+    try {
+        const [summary, distribution, recent, daily] = await Promise.all([
+            pgDb.get(`
+                SELECT ROUND(AVG(rating)::numeric, 2) AS avg_rating, COUNT(*) AS total
+                FROM hub_tickets.live_satisfaction
+            `),
+            pgDb.all(`
+                SELECT rating, COUNT(*) AS count
+                FROM hub_tickets.live_satisfaction
+                GROUP BY rating ORDER BY rating
+            `),
+            pgDb.all(`
+                SELECT s.rating, s.comment, s.created_at,
+                       ls.user_display_name, ls.tech_display_name, ls.ticket_id
+                FROM hub_tickets.live_satisfaction s
+                LEFT JOIN hub_tickets.live_sessions ls ON s.session_id = ls.id
+                ORDER BY s.created_at DESC LIMIT 30
+            `),
+            pgDb.all(`
+                SELECT TO_CHAR(created_at AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD') AS day,
+                       ROUND(AVG(rating)::numeric, 2) AS avg_rating,
+                       COUNT(*) AS count
+                FROM hub_tickets.live_satisfaction
+                WHERE created_at >= NOW() - INTERVAL '30 days'
+                GROUP BY day ORDER BY day
+            `),
+        ]);
+
+        res.json({
+            avg_rating:   parseFloat(summary?.avg_rating || 0),
+            total:        parseInt(summary?.total || 0),
+            distribution: (distribution || []).map(r => ({ rating: parseInt(r.rating), count: parseInt(r.count) })),
+            recent:       recent || [],
+            daily:        (daily || []).map(r => ({ day: r.day, avg_rating: parseFloat(r.avg_rating), count: parseInt(r.count) })),
+        });
+    } catch (e) {
+        console.error('[LIVE] getSatisfactionStats error:', e);
+        res.status(500).json({ message: e.message });
+    }
+}
+
 async function setTicketType(req, res) {
     try {
         const { id } = req.params;
@@ -929,4 +1025,4 @@ async function otpVerify(req, res) {
     }
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType };
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setSessionApp, submitSatisfaction, getSatisfactionStats };

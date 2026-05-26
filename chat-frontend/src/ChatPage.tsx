@@ -20,7 +20,7 @@ interface Session {
   tech_display_name: string | null
 }
 
-type ChatState = 'checking' | 'idle' | 'starting' | 'waiting' | 'active' | 'ended'
+type ChatState = 'checking' | 'idle' | 'starting' | 'waiting' | 'active' | 'survey' | 'ended'
 
 const SESSION_KEY = 'chat_dmz_session_id'
 
@@ -42,6 +42,11 @@ export default function ChatPage({ token, user, onLogout }: Props) {
   const [closingMessage, setClosingMessage] = useState('')
   const [liveEnabled, setLiveEnabled] = useState(true)
   const [closeReason, setCloseReason] = useState<'normal' | 'rejected' | 'inactivity'>('normal')
+  // Satisfaction survey
+  const [surveyRating, setSurveyRating] = useState(0)
+  const [surveyHover, setSurveyHover] = useState(0)
+  const [surveyComment, setSurveyComment] = useState('')
+  const [surveySubmitting, setSurveySubmitting] = useState(false)
 
   const socketRef = useRef<Socket | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -127,8 +132,14 @@ export default function ChatPage({ token, user, onLogout }: Props) {
     socket.on('session_closed', ({ reason }: { reason?: string } = {}) => {
       stopPolling()
       localStorage.removeItem(SESSION_KEY)
-      setCloseReason(reason === 'rejected' ? 'rejected' : reason === 'inactivity' ? 'inactivity' : 'normal')
-      setState('ended')
+      const r = reason === 'rejected' ? 'rejected' : reason === 'inactivity' ? 'inactivity' : 'normal'
+      setCloseReason(r)
+      if (r === 'rejected') {
+        setState('ended')
+      } else {
+        setSurveyRating(0); setSurveyHover(0); setSurveyComment('')
+        setState('survey')
+      }
     })
 
     return () => { stopPolling(); socket.disconnect(); socketRef.current = null }
@@ -185,6 +196,18 @@ export default function ChatPage({ token, user, onLogout }: Props) {
     stopPolling()
     localStorage.removeItem(SESSION_KEY)
     try { await axios.post(`/api/live/sessions/${sessionId}/close`, {}, { headers }) } catch { /* ignore */ }
+    setCloseReason('normal')
+    setSurveyRating(0); setSurveyHover(0); setSurveyComment('')
+    setState('survey')
+  }
+
+  async function submitSurvey() {
+    if (!surveyRating || !sessionId) return
+    setSurveySubmitting(true)
+    try {
+      await axios.post(`/api/live/sessions/${sessionId}/satisfaction`, { rating: surveyRating, comment: surveyComment }, { headers })
+    } catch { /* ignore */ }
+    setSurveySubmitting(false)
     setState('ended')
   }
 
@@ -438,6 +461,91 @@ export default function ChatPage({ token, user, onLogout }: Props) {
                   </span>
                 </div>
               )}
+            </div>
+          )}
+
+          {state === 'survey' && (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'slideUp 0.3s ease' }}>
+              <div style={{
+                background: '#fff', borderRadius: 20, padding: '36px 32px', textAlign: 'center',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.08)', maxWidth: 440, width: '100%',
+              }}>
+                <div style={{ fontSize: 48, marginBottom: 10 }}>
+                  {closeReason === 'inactivity' ? '⏱️' : '⭐'}
+                </div>
+                <h2 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 800, color: '#1e293b' }}>
+                  {closeReason === 'inactivity' ? 'Session expirée' : 'Session terminée'}
+                </h2>
+                <p style={{ margin: '0 0 24px', fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
+                  Comment évaluez-vous la qualité du support reçu ?
+                </p>
+
+                {/* Stars */}
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 20 }}>
+                  {[1, 2, 3, 4, 5].map(i => (
+                    <button
+                      key={i}
+                      onClick={() => setSurveyRating(i)}
+                      onMouseEnter={() => setSurveyHover(i)}
+                      onMouseLeave={() => setSurveyHover(0)}
+                      style={{
+                        fontSize: 36, background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                        opacity: i <= (surveyHover || surveyRating) ? 1 : 0.2,
+                        transform: i <= (surveyHover || surveyRating) ? 'scale(1.15)' : 'scale(1)',
+                        transition: 'all 0.15s',
+                        filter: i <= (surveyHover || surveyRating) ? 'drop-shadow(0 0 4px rgba(250,204,21,0.6))' : 'none',
+                      }}
+                    >⭐</button>
+                  ))}
+                </div>
+
+                {surveyRating > 0 && (
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#6366f1', marginBottom: 16 }}>
+                    {['', 'Très insatisfait 😞', 'Insatisfait 😕', 'Correct 😐', 'Satisfait 🙂', 'Très satisfait 😄'][surveyRating]}
+                  </div>
+                )}
+
+                {/* Comment */}
+                <textarea
+                  value={surveyComment}
+                  onChange={e => setSurveyComment(e.target.value)}
+                  placeholder="Commentaire optionnel — partagez votre expérience…"
+                  rows={3}
+                  style={{
+                    width: '100%', padding: '10px 14px',
+                    border: '1.5px solid #e2e8f0', borderRadius: 10,
+                    fontSize: 13, fontFamily: 'inherit', resize: 'none', outline: 'none',
+                    marginBottom: 16, boxSizing: 'border-box',
+                  }}
+                  onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                  onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                />
+
+                <button
+                  onClick={() => void submitSurvey()}
+                  disabled={surveyRating === 0 || surveySubmitting}
+                  style={{
+                    width: '100%', padding: '12px',
+                    background: surveyRating ? '#6366f1' : '#a5b4fc',
+                    color: '#fff', border: 'none', borderRadius: 12,
+                    fontSize: 14, fontWeight: 700,
+                    cursor: surveyRating ? 'pointer' : 'default',
+                    marginBottom: 10,
+                    boxShadow: surveyRating ? '0 4px 14px rgba(99,102,241,0.3)' : 'none',
+                  }}
+                >
+                  {surveySubmitting ? '⏳ Envoi…' : '📤 Envoyer mon avis'}
+                </button>
+                <button
+                  onClick={() => setState('ended')}
+                  style={{
+                    background: 'none', border: 'none', color: '#94a3b8',
+                    cursor: 'pointer', fontSize: 13, textDecoration: 'underline',
+                  }}
+                >
+                  Passer
+                </button>
+              </div>
             </div>
           )}
 

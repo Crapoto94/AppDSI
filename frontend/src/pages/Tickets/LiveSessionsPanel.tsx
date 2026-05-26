@@ -15,6 +15,7 @@ interface LiveSession {
   created_at: string;
   claimed_at: string | null;
   auth_method?: string;
+  app_id?: number | null;
 }
 
 interface LiveMessage {
@@ -56,6 +57,11 @@ export default function LiveSessionsPanel() {
   const [ticketType, setTicketType] = useState<string | null>(null);
   // Task creation modal
   const [showTaskModal, setShowTaskModal] = useState(false);
+  // App association picker
+  const [apps, setApps] = useState<any[]>([]);
+  const [showAppPicker, setShowAppPicker] = useState(false);
+  const [appSearch, setAppSearch] = useState('');
+  const [appSaving, setAppSaving] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -128,6 +134,11 @@ export default function LiveSessionsPanel() {
 
     axios.get('/api/live/sessions', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setSessions(r.data))
+      .catch(() => {});
+
+    // Load MagApp apps for association picker
+    axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setApps((r.data || []).filter((a: any) => a.present_magapp === 'oui' || a.is_active)))
       .catch(() => {});
 
     return () => {
@@ -283,6 +294,26 @@ export default function LiveSessionsPanel() {
       await axios.post(`/api/live/sessions/${session.id}/reject`, {}, { headers: { Authorization: `Bearer ${token}` } });
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors du refus');
+    }
+  }
+
+  async function setSessionAppApi(appId: number | null) {
+    if (!activeSession) return;
+    setAppSaving(true);
+    try {
+      await axios.patch(
+        `/api/live/sessions/${activeSession.id}/app`,
+        { app_id: appId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setActiveSession(prev => prev ? { ...prev, app_id: appId } : prev);
+      setSessions(prev => prev.map(s => s.id === activeSession.id ? { ...s, app_id: appId } : s));
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de l\'association');
+    } finally {
+      setAppSaving(false);
+      setShowAppPicker(false);
+      setAppSearch('');
     }
   }
 
@@ -540,6 +571,80 @@ export default function LiveSessionsPanel() {
         />
       )}
 
+      {/* ── App association picker ───────────────────────────────────── */}
+      {showAppPicker && activeSession && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 16, padding: 24, width: 440,
+            boxShadow: '0 8px 40px rgba(0,0,0,0.18)', fontFamily: 'system-ui, sans-serif',
+            display: 'flex', flexDirection: 'column', maxHeight: '80vh',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: '#1e293b' }}>
+              🔧 Associer une application
+            </div>
+            {activeSession.app_id && (() => {
+              const cur = apps.find(a => a.id === activeSession.app_id);
+              return cur ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '6px 10px', background: '#eef2ff', borderRadius: 8, fontSize: 13 }}>
+                  <span style={{ color: '#6366f1', fontWeight: 600 }}>Actuel : {cur.name}</span>
+                  <button onClick={() => setSessionAppApi(null)} disabled={appSaving} style={{ marginLeft: 'auto', padding: '2px 8px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+                    Retirer
+                  </button>
+                </div>
+              ) : null;
+            })()}
+            <input
+              type="text"
+              value={appSearch}
+              onChange={e => setAppSearch(e.target.value)}
+              placeholder="Rechercher une application…"
+              autoFocus
+              style={{ padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none', marginBottom: 10 }}
+              onFocus={e => (e.target.style.borderColor = '#6366f1')}
+              onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+            />
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320 }}>
+              {apps
+                .filter(a => !appSearch || a.name?.toLowerCase().includes(appSearch.toLowerCase()) || a.category_name?.toLowerCase().includes(appSearch.toLowerCase()))
+                .map(app => (
+                  <div
+                    key={app.id}
+                    onClick={() => setSessionAppApi(app.id)}
+                    style={{
+                      padding: '8px 12px', borderRadius: 8, cursor: 'pointer',
+                      background: activeSession.app_id === app.id ? '#eef2ff' : '#f8fafc',
+                      border: activeSession.app_id === app.id ? '1.5px solid #c7d2fe' : '1px solid #f1f5f9',
+                      display: 'flex', alignItems: 'center', gap: 8,
+                    }}
+                    onMouseEnter={e => { if (activeSession.app_id !== app.id) (e.currentTarget as HTMLElement).style.background = '#f0f4ff'; }}
+                    onMouseLeave={e => { if (activeSession.app_id !== app.id) (e.currentTarget as HTMLElement).style.background = '#f8fafc'; }}
+                  >
+                    {app.icon_url && <img src={app.icon_url} alt="" style={{ width: 20, height: 20, objectFit: 'contain', borderRadius: 4 }} />}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{app.name}</div>
+                      {app.category_name && <div style={{ fontSize: 11, color: '#94a3b8' }}>{app.category_name}</div>}
+                    </div>
+                    {activeSession.app_id === app.id && <span style={{ fontSize: 12, color: '#6366f1', fontWeight: 700 }}>✓</span>}
+                  </div>
+                ))
+              }
+              {apps.filter(a => !appSearch || a.name?.toLowerCase().includes(appSearch.toLowerCase())).length === 0 && (
+                <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, padding: 20 }}>Aucune application trouvée</div>
+              )}
+            </div>
+            <button
+              onClick={() => { setShowAppPicker(false); setAppSearch(''); }}
+              style={{ marginTop: 12, padding: '8px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Session List (left panel) ──────────────────────────────────── */}
       <div style={{ width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -671,14 +776,22 @@ export default function LiveSessionsPanel() {
                     </span>
                     {activeSession.auth_method && renderAuthBadge(activeSession.auth_method, 'normal')}
                   </div>
-                  <div style={{ fontSize: 11, color: '#64748b' }}>
-                    {activeSession.user_email}
+                  <div style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                    <span>{activeSession.user_email}</span>
                     {activeSession.ticket_id && (
                       <a href={`/tickets/${activeSession.ticket_id}`} target="_blank" rel="noreferrer"
-                        style={{ marginLeft: 8, color: '#6366f1', textDecoration: 'none' }}>
+                        style={{ color: '#6366f1', textDecoration: 'none' }}>
                         → Ticket #{activeSession.ticket_id}
                       </a>
                     )}
+                    {activeSession.app_id && (() => {
+                      const app = apps.find(a => a.id === activeSession.app_id);
+                      return app ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 7px', background: '#f0fdf4', color: '#15803d', border: '1px solid #86efac', borderRadius: 10, fontSize: 10, fontWeight: 700 }}>
+                          🔧 {app.name}
+                        </span>
+                      ) : null;
+                    })()}
                   </div>
                 </div>
               </div>
@@ -944,6 +1057,19 @@ export default function LiveSessionsPanel() {
                       cursor: 'pointer', fontSize: 15, lineHeight: 1, flexShrink: 0,
                     }}>
                     ✅
+                  </button>
+                  {/* App picker button */}
+                  <button
+                    onClick={() => { setShowAppPicker(true); setAppSearch(''); }}
+                    title={activeSession.app_id ? `Application associée : ${apps.find(a => a.id === activeSession.app_id)?.name || '#' + activeSession.app_id}` : 'Associer une application'}
+                    style={{
+                      padding: '8px 10px',
+                      background: activeSession.app_id ? '#f0fdf4' : '#f1f5f9',
+                      color: activeSession.app_id ? '#15803d' : '#475569',
+                      border: `1.5px solid ${activeSession.app_id ? '#86efac' : '#e2e8f0'}`,
+                      borderRadius: 10, cursor: 'pointer', fontSize: 15, lineHeight: 1, flexShrink: 0,
+                    }}>
+                    🔧
                   </button>
                   {/* Mic button */}
                   <button onClick={toggleDictation} title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}

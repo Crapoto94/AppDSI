@@ -2953,6 +2953,17 @@ async function setupPgDb() {
       )
     `); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_tickets.live_otp_codes ADD COLUMN IF NOT EXISTS username VARCHAR(100)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS app_id INTEGER`); } catch (e) {}
+    try { await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.live_satisfaction (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES hub_tickets.live_sessions(id) ON DELETE CASCADE,
+        ticket_id INTEGER,
+        rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        comment TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `); } catch (e) {}
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

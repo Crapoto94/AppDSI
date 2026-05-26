@@ -43,7 +43,10 @@ router.post('/sessions/:id/messages', authenticateJWT, (req, res) => controller.
 router.post('/sessions/:id/close',  authenticateJWT, (req, res) => controller.closeSession(req, res));
 router.post('/sessions/:id/reject', authenticateJWT, (req, res) => controller.rejectSession(req, res));
 router.post('/sessions/:id/task',   authenticateJWT, (req, res) => controller.createTask(req, res));
-router.patch('/sessions/:id/type',  authenticateJWT, (req, res) => controller.setTicketType(req, res));
-router.post('/sessions/:id/upload', authenticateJWT, uploadLive.single('file'), (req, res) => controller.uploadAttachment(req, res));
+router.patch('/sessions/:id/type',         authenticateJWT, (req, res) => controller.setTicketType(req, res));
+router.patch('/sessions/:id/app',          authenticateJWT, (req, res) => controller.setSessionApp(req, res));
+router.post('/sessions/:id/satisfaction',  authenticateJWT, (req, res) => controller.submitSatisfaction(req, res));
+router.post('/sessions/:id/upload',        authenticateJWT, uploadLive.single('file'), (req, res) => controller.uploadAttachment(req, res));
+router.get('/satisfaction',                authenticateJWT, (req, res) => controller.getSatisfactionStats(req, res));
 
 module.exports = router;

@@ -3,7 +3,7 @@ import axios from 'axios';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-type Tab = 'categories' | 'sla' | 'rules' | 'vip' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config';
+type Tab = 'categories' | 'sla' | 'rules' | 'vip' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -124,7 +124,8 @@ export default function TicketAdmin() {
     { key: 'escalade',    label: '⬆️ Escalade' },
     { key: 'roles',       label: '🔐 Rôles' },
     { key: 'params',      label: '⚙️ Paramètres' },
-    { key: 'live_config', label: '🟢 Live' },
+    { key: 'live_config',  label: '🟢 Live' },
+    { key: 'satisfaction', label: '⭐ Satisfaction' },
   ];
 
   return (
@@ -149,7 +150,8 @@ export default function TicketAdmin() {
         {tab === 'groups'      && <GroupManager />}
         {tab === 'escalade'    && <EscaladeManager />}
         {tab === 'roles'       && <RolePermissionsManager />}
-        {tab === 'params'      && <TicketParamsManager />}
+        {tab === 'params'       && <TicketParamsManager />}
+        {tab === 'satisfaction' && <SatisfactionTab />}
         {tab === 'live_config' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -2599,6 +2601,190 @@ function TicketParamsManager() {
 
         {saved && <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ Paramètre enregistré</div>}
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SATISFACTION TAB
+// ─────────────────────────────────────────────────────────────────────────────
+function SatisfactionTab() {
+  const token = localStorage.getItem('token');
+  const h = { Authorization: `Bearer ${token}` };
+  const [stats, setStats] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    setLoading(true);
+    axios.get('/api/live/satisfaction', { headers: h })
+      .then(r => setStats(r.data))
+      .catch(() => setStats(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  function starLabel(r: number) {
+    return ['', 'Très insatisfait', 'Insatisfait', 'Correct', 'Satisfait', 'Très satisfait'][r] || '';
+  }
+
+  function starEmoji(r: number) {
+    return r >= 5 ? '😄' : r === 4 ? '🙂' : r === 3 ? '😐' : r === 2 ? '😕' : '😞';
+  }
+
+  const avgColor = !stats?.avg_rating ? '#94a3b8'
+    : stats.avg_rating >= 4 ? '#16a34a'
+    : stats.avg_rating >= 3 ? '#d97706'
+    : '#dc2626';
+
+  if (loading) return (
+    <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement…</div>
+  );
+
+  if (!stats || stats.total === 0) return (
+    <div style={{ padding: 48, textAlign: 'center' }}>
+      <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: '#64748b' }}>Aucune évaluation pour l'instant</div>
+      <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 6 }}>Les avis des utilisateurs apparaîtront ici après chaque session live.</div>
+    </div>
+  );
+
+  const maxCount = Math.max(...(stats.distribution || []).map((d: any) => d.count), 1);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+      {/* ── KPI row ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '18px 20px', textAlign: 'center' }}>
+          <div style={{ fontSize: 38, fontWeight: 900, color: avgColor, lineHeight: 1 }}>
+            {stats.avg_rating > 0 ? stats.avg_rating.toFixed(1) : '—'}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 2, margin: '6px 0 4px' }}>
+            {[1,2,3,4,5].map(i => (
+              <span key={i} style={{ fontSize: 16, opacity: i <= Math.round(stats.avg_rating) ? 1 : 0.2 }}>⭐</span>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: '#64748b' }}>Note moyenne</div>
+        </div>
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '18px 20px', textAlign: 'center' }}>
+          <div style={{ fontSize: 36, fontWeight: 800, color: '#6366f1', lineHeight: 1 }}>{stats.total}</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>Évaluations</div>
+        </div>
+        {stats.distribution?.filter((d: any) => d.rating >= 4).length > 0 && (() => {
+          const satisfied = stats.distribution.filter((d: any) => d.rating >= 4).reduce((sum: number, d: any) => sum + d.count, 0);
+          const pct = Math.round(satisfied / stats.total * 100);
+          return (
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '18px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 36, fontWeight: 800, color: '#16a34a', lineHeight: 1 }}>{pct}%</div>
+              <div style={{ fontSize: 12, color: '#15803d', marginTop: 8 }}>Satisfaits (4★+)</div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── Distribution bars ── */}
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '18px 20px' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>Répartition des notes</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {[5,4,3,2,1].map(star => {
+            const d = stats.distribution?.find((x: any) => x.rating === star);
+            const count = d?.count || 0;
+            const pct = Math.round(count / maxCount * 100);
+            const barColor = star >= 4 ? '#22c55e' : star === 3 ? '#f59e0b' : '#ef4444';
+            return (
+              <div key={star} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 60, display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                  {[1,2,3,4,5].map(i => <span key={i} style={{ fontSize: 12, opacity: i <= star ? 1 : 0.15 }}>⭐</span>)}
+                </div>
+                <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 6, height: 10, overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, background: barColor, height: '100%', borderRadius: 6, transition: 'width 0.4s' }} />
+                </div>
+                <div style={{ width: 28, textAlign: 'right', fontSize: 12, fontWeight: 600, color: '#475569', flexShrink: 0 }}>{count}</div>
+                <div style={{ width: 60, fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>{starLabel(star)}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Trend chart ── */}
+      {stats.daily?.length > 1 && (
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '18px 20px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>Évolution de la satisfaction — 30 derniers jours</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 80, overflowX: 'auto' }}>
+            {stats.daily.map((d: any) => {
+              const h = Math.round((d.avg_rating / 5) * 70);
+              const c = d.avg_rating >= 4 ? '#22c55e' : d.avg_rating >= 3 ? '#f59e0b' : '#ef4444';
+              return (
+                <div key={d.day} title={`${d.day} — ★ ${d.avg_rating} (${d.count} avis)`}
+                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flex: 1, minWidth: 20 }}>
+                  <div style={{ width: '100%', height: h, background: c, borderRadius: '3px 3px 0 0', opacity: 0.85, minHeight: 3 }} />
+                  <div style={{ fontSize: 8, color: '#94a3b8', writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                    {d.day.substring(5)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Recent comments ── */}
+      {stats.recent?.filter((r: any) => r.comment).length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '18px 20px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>Commentaires récents</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {stats.recent.filter((r: any) => r.comment).map((r: any, i: number) => (
+              <div key={i} style={{ padding: '12px 14px', background: '#f8fafc', borderRadius: 10, border: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 16 }}>{starEmoji(r.rating)}</span>
+                  <div style={{ display: 'flex', gap: 2 }}>
+                    {[1,2,3,4,5].map(i => <span key={i} style={{ fontSize: 12, opacity: i <= r.rating ? 1 : 0.2 }}>⭐</span>)}
+                  </div>
+                  <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 'auto' }}>
+                    {new Date(r.created_at).toLocaleDateString('fr-FR')}
+                  </span>
+                  {r.ticket_id && (
+                    <a href={`/tickets/${r.ticket_id}`} target="_blank" rel="noreferrer"
+                      style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none', fontWeight: 600 }}>
+                      #{r.ticket_id}
+                    </a>
+                  )}
+                </div>
+                <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, fontStyle: 'italic' }}>
+                  "{r.comment}"
+                </div>
+                {(r.user_display_name || r.tech_display_name) && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: '#94a3b8' }}>
+                    👤 {r.user_display_name || '—'}
+                    {r.tech_display_name && <span> · 👨‍💻 {r.tech_display_name}</span>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── All ratings (no comment) ── */}
+      {stats.recent?.filter((r: any) => !r.comment).length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '18px 20px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>Évaluations sans commentaire</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {stats.recent.filter((r: any) => !r.comment).map((r: any, i: number) => (
+              <span key={i} title={`${r.user_display_name || '—'} · ${new Date(r.created_at).toLocaleDateString('fr-FR')}`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '3px 10px', borderRadius: 20, fontSize: 12,
+                  background: r.rating >= 4 ? '#f0fdf4' : r.rating >= 3 ? '#fffbeb' : '#fef2f2',
+                  color: r.rating >= 4 ? '#15803d' : r.rating >= 3 ? '#92400e' : '#dc2626',
+                  border: `1px solid ${r.rating >= 4 ? '#86efac' : r.rating >= 3 ? '#fde68a' : '#fecaca'}`,
+                }}>
+                {[...Array(r.rating)].map((_, i) => <span key={i} style={{ fontSize: 11 }}>⭐</span>)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
