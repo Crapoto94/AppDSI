@@ -1,3 +1,4 @@
+const { pgDb } = require('../../../shared/database');
 const ticketRepo = require('../repositories/ticket.repository');
 const historyRepo = require('../repositories/history.repository');
 const slaRepo = require('../repositories/sla.repository');
@@ -53,8 +54,21 @@ module.exports = {
         if (data.observer_ids && Array.isArray(data.observer_ids)) {
             for (const obs of data.observer_ids) {
                 try {
-                    if (obs.user_id) {
-                        await observerRepo.add(ticketId, obs.user_id, { displayName: obs.name, username: obs.username, email: obs.email });
+                    let userId = obs.user_id;
+                    if (!userId) {
+                        const existing = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [obs.username || '']);
+                        if (existing) {
+                            userId = existing.id;
+                        } else {
+                            const result = await pgDb.run(
+                                'INSERT INTO hub.users (username, "displayName", email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET "displayName" = EXCLUDED."displayName" RETURNING id',
+                                [obs.username || obs.name, obs.name || obs.username, obs.email || '', 'user']
+                            );
+                            userId = result.lastID || result.id;
+                        }
+                    }
+                    if (userId) {
+                        await observerRepo.add(ticketId, userId, { displayName: obs.name, username: obs.username, email: obs.email });
                     }
                 } catch (e) {
                     console.error('[TICKET] add observer failed:', e.message);
@@ -105,9 +119,22 @@ module.exports = {
 
             // Ajouter les nouveaux
             for (const obs of data.observer_ids) {
-                if (obs.user_id && !existingIds.includes(obs.user_id)) {
+                let userId = obs.user_id;
+                if (!userId) {
+                    const existing = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [obs.username || '']);
+                    if (existing) {
+                        userId = existing.id;
+                    } else {
+                        const result = await pgDb.run(
+                            'INSERT INTO hub.users (username, "displayName", email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET "displayName" = EXCLUDED."displayName" RETURNING id',
+                            [obs.username || obs.name, obs.name || obs.username, obs.email || '', 'user']
+                        );
+                        userId = result.lastID || result.id;
+                    }
+                }
+                if (userId && !existingIds.includes(userId)) {
                     try {
-                        await observerRepo.add(id, obs.user_id, { displayName: obs.name, username: obs.username, email: obs.email });
+                        await observerRepo.add(id, userId, { displayName: obs.name, username: obs.username, email: obs.email });
                     } catch (e) { console.error('[TICKET] add observer failed:', e.message); }
                 }
             }

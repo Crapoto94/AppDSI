@@ -878,6 +878,12 @@ async function setupDb() {
         try { await db.exec("ALTER TABLE glpi_settings ADD COLUMN login TEXT"); } catch (e) {}
     try { await db.run("ALTER TABLE glpi_settings ADD COLUMN password TEXT"); } catch (e) {}
 
+    // PostgreSQL Settings migrations
+    try { await db.run("ALTER TABLE postgres_settings ADD COLUMN ssl_mode TEXT DEFAULT 'disable'"); } catch (e) {}
+    try { await db.run("ALTER TABLE postgres_settings ADD COLUMN connect_timeout INTEGER DEFAULT 10"); } catch (e) {}
+    try { await db.run("ALTER TABLE postgres_settings ADD COLUMN application_name TEXT DEFAULT 'DSIHub'"); } catch (e) {}
+    try { await db.run("ALTER TABLE postgres_settings ADD COLUMN schema_name TEXT DEFAULT 'public'"); } catch (e) {}
+
 
     try {
         try { await db.exec(`DROP VIEW IF EXISTS main.v_orders`); } catch(e) {}

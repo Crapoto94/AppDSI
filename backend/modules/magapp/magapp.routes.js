@@ -83,15 +83,18 @@ mainRouter.get('/postgres-settings', authenticateMagappControl, async (req, res)
 mainRouter.post('/postgres-settings', authenticateMagappControl, async (req, res) => {
     try {
         const db = getSqlite();
-        const { host, port, database, username, password, is_enabled } = req.body;
+        const { host, port, database, username, password, is_enabled, ssl_mode, connect_timeout, application_name, schema_name } = req.body;
         const b64Password = password ? Buffer.from(password).toString('base64') : null;
-        
+
         await db.run(`
-            UPDATE postgres_settings 
-            SET host = ?, port = ?, database = ?, username = ?, password = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP
+            UPDATE postgres_settings
+            SET host = ?, port = ?, database = ?, username = ?, password = ?, is_enabled = ?,
+                ssl_mode = ?, connect_timeout = ?, application_name = ?, schema_name = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = 1
-        `, [host, port || 5432, database, username, b64Password, is_enabled ? 1 : 0]);
-        
+        `, [host, port || 5432, database, username, b64Password, is_enabled ? 1 : 0,
+            ssl_mode || 'disable', connect_timeout || 10, application_name || 'DSIHub', schema_name || 'public']);
+
         res.json({ message: 'Configuration PostgreSQL mise à jour' });
     } catch (err) {
         res.status(500).json({ message: err.message });

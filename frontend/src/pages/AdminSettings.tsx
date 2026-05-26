@@ -82,21 +82,27 @@ const AdminSettings: React.FC = () => {
         setEditMode('new');
     };
 
-    if (loading) return <div className="p-4">Chargement...</div>;
+    if (loading) return <div style={{ padding: 24, color: '#64748b', fontSize: '0.875rem' }}>Chargement...</div>;
 
     return (
-        <div className="admin-settings-container">
-            <div className="header-flex">
-                <div className="title-block">
-                    <Sliders size={24} className="text-blue-500" />
-                    <h2>Paramètres Systèmes (Variables)</h2>
+        <div className="as-root">
+            <div className="as-header">
+                <span className="as-header-icon">
+                    <Sliders size={16} />
+                </span>
+                <div>
+                    <h1 className="as-title">Paramètres système</h1>
+                    <p className="as-desc">Variables de configuration globales de l'application</p>
                 </div>
-                <button className="btn-primary" onClick={startNew} disabled={editMode !== null}>
-                    <Plus size={16} /> Ajouter une variable
+            </div>
+
+            <div className="as-toolbar">
+                <button className="as-btn-add" onClick={startNew} disabled={editMode !== null}>
+                    <Plus size={14} /> Ajouter une variable
                 </button>
             </div>
 
-            <div className="table-card">
+            <div className="as-table-card">
                 <table className="settings-table">
                     <thead>
                         <tr>
@@ -135,8 +141,8 @@ const AdminSettings: React.FC = () => {
                                     <td className="font-mono text-sm">{s.setting_value}</td>
                                     <td className="text-gray-500">{s.description}</td>
                                     <td className="actions-cell">
-                                        <button className="btn-icon text-blue-500" onClick={() => startEdit(s)} disabled={editMode !== null}><Edit2 size={16} /></button>
-                                        <button className="btn-icon text-red-500" onClick={() => handleDelete(s.setting_key)} disabled={editMode !== null}><Trash2 size={16} /></button>
+                                        <button className="btn-icon" style={{ color: '#3b82f6' }} onClick={() => startEdit(s)} disabled={editMode !== null}><Edit2 size={15} /></button>
+                                        <button className="btn-icon" style={{ color: '#ef4444' }} onClick={() => handleDelete(s.setting_key)} disabled={editMode !== null}><Trash2 size={15} /></button>
                                     </td>
                                 </tr>
                             )
@@ -149,46 +155,68 @@ const AdminSettings: React.FC = () => {
             </div>
 
             <style>{`
-                .admin-settings-container {
-                    max-width: 1000px;
-                    margin: 0 auto;
-                }
-                .header-flex {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 24px;
-                }
-                .title-block {
+                .as-root { display: flex; flex-direction: column; min-height: 0; }
+
+                .as-header {
                     display: flex;
                     align-items: center;
                     gap: 12px;
+                    padding-bottom: 18px;
+                    border-bottom: 1px solid #e8edf3;
+                    margin-bottom: 0;
                 }
-                .title-block h2 {
+
+                .as-header-icon {
+                    width: 34px; height: 34px;
+                    border-radius: 7px;
+                    background: #eff6ff;
+                    color: #2563eb;
+                    border: 1px solid #bfdbfe;
+                    display: flex; align-items: center; justify-content: center;
+                    flex-shrink: 0;
+                }
+
+                .as-title {
+                    font-size: 0.9375rem;
+                    font-weight: 700;
+                    color: #0f172a;
+                    margin: 0 0 2px 0;
+                    line-height: 1.3;
+                }
+
+                .as-desc {
+                    font-size: 0.78rem;
+                    color: #94a3b8;
                     margin: 0;
-                    color: #1e293b;
-                    font-size: 1.25rem;
+                    line-height: 1.4;
                 }
-                .btn-primary {
-                    background-color: #3b82f6;
+
+                .as-toolbar {
+                    display: flex;
+                    justify-content: flex-end;
+                    margin: 18px 0 14px 0;
+                }
+
+                .as-btn-add {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 7px 14px;
+                    background: #2563eb;
                     color: white;
                     border: none;
-                    padding: 8px 16px;
-                    border-radius: 8px;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
+                    border-radius: 6px;
+                    font-size: 0.8125rem;
+                    font-weight: 600;
                     cursor: pointer;
-                    font-weight: 500;
-                    transition: background 0.2s;
+                    transition: background .15s;
                 }
-                .btn-primary:hover:not(:disabled) { background-color: #2563eb; }
-                .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-                
-                .table-card {
+                .as-btn-add:hover:not(:disabled) { background: #1d4ed8; }
+                .as-btn-add:disabled { opacity: 0.5; cursor: not-allowed; }
+
+                .as-table-card {
                     background: white;
-                    border-radius: 12px;
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                    border-radius: 8px;
                     overflow: hidden;
                     border: 1px solid #e2e8f0;
                 }
@@ -196,67 +224,75 @@ const AdminSettings: React.FC = () => {
                     width: 100%;
                     border-collapse: collapse;
                 }
+                .settings-table { width: 100%; border-collapse: collapse; }
                 .settings-table th {
-                    background-color: #f8fafc;
-                    padding: 12px 16px;
+                    background: #f8fafc;
+                    padding: 10px 16px;
                     text-align: left;
-                    font-size: 0.85rem;
+                    font-size: 0.73rem;
+                    font-weight: 700;
                     text-transform: uppercase;
+                    letter-spacing: 0.06em;
                     color: #64748b;
                     border-bottom: 1px solid #e2e8f0;
                 }
                 .settings-table td {
-                    padding: 12px 16px;
+                    padding: 10px 16px;
                     border-bottom: 1px solid #f1f5f9;
                     vertical-align: middle;
+                    font-size: 0.8125rem;
                 }
+                .settings-table tr:last-child td { border-bottom: none; }
                 .actions-cell {
                     text-align: right;
                     display: flex;
                     justify-content: flex-end;
-                    gap: 8px;
+                    gap: 6px;
                 }
                 .btn-icon {
                     background: none;
                     border: none;
                     cursor: pointer;
-                    padding: 6px;
-                    border-radius: 6px;
+                    padding: 5px;
+                    border-radius: 5px;
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
                 }
-                .btn-icon:hover:not(:disabled) { background-color: #f1f5f9; }
+                .btn-icon:hover:not(:disabled) { background: #f1f5f9; }
                 .btn-icon:disabled { opacity: 0.3; cursor: not-allowed; }
-                
-                .edit-row td { background-color: #f8fafc; }
+
+                .edit-row td { background: #f8fafc; }
                 .edit-row input {
                     width: 100%;
-                    padding: 8px 12px;
+                    padding: 6px 10px;
                     border: 1px solid #cbd5e1;
-                    border-radius: 6px;
-                    font-size: 0.9rem;
+                    border-radius: 5px;
+                    font-size: 0.8125rem;
                     outline: none;
+                    box-sizing: border-box;
                 }
-                .edit-row input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
+                .edit-row input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,.1); }
                 .btn-save {
-                    background-color: #22c55e;
+                    background: #22c55e;
                     color: white;
                     border: none;
-                    padding: 6px 12px;
-                    border-radius: 6px;
+                    padding: 5px 10px;
+                    border-radius: 5px;
                     cursor: pointer;
                     display: inline-flex;
                     align-items: center;
+                    font-size: 0.8rem;
                 }
                 .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
                 .btn-cancel {
-                    background-color: white;
+                    background: white;
                     border: 1px solid #cbd5e1;
-                    padding: 6px 12px;
-                    border-radius: 6px;
+                    padding: 5px 10px;
+                    border-radius: 5px;
                     cursor: pointer;
-                    font-size: 0.85rem;
+                    font-size: 0.8rem;
+                    color: #475569;
                 }
             `}</style>
         </div>

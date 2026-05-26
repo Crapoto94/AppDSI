@@ -18,6 +18,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { SECRET_KEY } = require('../../shared/config');
 const axios = require('axios');
+const { searchADUsersByQuery } = require('../../shared/ad_helper');
 
 let _sendMail = null;
 
@@ -741,13 +742,35 @@ async assign(req, res) {
         try {
             const q = req.query.q || '';
             if (q.length < 2) return res.json([]);
-            const rows = await pgDb.all(`
-                SELECT id, "displayName", email, username
-                FROM hub.users
-                WHERE LOWER(email) LIKE LOWER($1) OR LOWER("displayName") LIKE LOWER($1)
-                LIMIT 20
-            `, [`%${q}%`]);
-            res.json(rows.map(r => ({ id: r.id, name: r.displayName, email: r.email, username: r.username })));
+            const [rows, adResults] = await Promise.all([
+                pgDb.all(`
+                    SELECT id, "displayName", email, username
+                    FROM hub.users
+                    WHERE LOWER(email) LIKE LOWER($1) OR LOWER("displayName") LIKE LOWER($1)
+                    LIMIT 20
+                `, [`%${q}%`]),
+                (async () => {
+                    try {
+                        const sqlite = getSqlite();
+                        const adSettings = await sqlite?.get('SELECT * FROM ad_settings WHERE id = 1');
+                        if (!adSettings?.is_enabled) return [];
+                        return await searchADUsersByQuery(q, adSettings);
+                    } catch { return []; }
+                })(),
+            ]);
+            const hubMap = new Map(rows.map(r => [r.username.toLowerCase(), r]));
+            const seen = new Set(rows.map(r => r.username.toLowerCase()));
+            const merged = [
+                ...rows.map(r => ({ id: r.id, name: r.displayName, email: r.email, username: r.username })),
+                ...adResults
+                    .filter(u => !seen.has(u.username.toLowerCase()))
+                    .map(u => {
+                        seen.add(u.username.toLowerCase());
+                        const match = hubMap.get(u.username.toLowerCase());
+                        return { id: match?.id || null, name: u.displayName, email: u.email, username: u.username };
+                    }),
+            ];
+            res.json(merged);
         } catch (error) {
             res.status(500).json({ message: error.message });
         }
@@ -757,10 +780,23 @@ async assign(req, res) {
     async addObserver(req, res) {
         try {
             const { user_id, name, email, username } = req.body;
-            if (!user_id) return res.status(400).json({ message: 'user_id requis' });
             const ticketId = parseInt(req.params.id);
-            await observerRepo.add(ticketId, user_id, { displayName: name, username, email });
-            await historyRepo.log(ticketId, req.user.id, 'observer_added', 'observer', null, String(user_id), 'Observateur ajouté');
+            let finalUserId = user_id;
+            if (!finalUserId) {
+                const existing = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [username || '']);
+                if (existing) {
+                    finalUserId = existing.id;
+                } else {
+                    const result = await pgDb.run(
+                        'INSERT INTO hub.users (username, "displayName", email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET "displayName" = EXCLUDED."displayName" RETURNING id',
+                        [username || name, name || username, email || '', 'user']
+                    );
+                    finalUserId = result.lastID || result.id;
+                }
+            }
+            if (!finalUserId) return res.status(400).json({ message: 'Impossible de déterminer l\'utilisateur' });
+            await observerRepo.add(ticketId, finalUserId, { displayName: name, username, email });
+            await historyRepo.log(ticketId, req.user.id, 'observer_added', 'observer', null, String(finalUserId), 'Observateur ajouté');
             res.json({ message: 'Observateur ajouté' });
         } catch (error) {
             res.status(400).json({ message: error.message });
@@ -866,5 +902,57 @@ async assign(req, res) {
         const fakeUser = { displayName: ticket.requester_name || info.email, username: info.email, email: info.email, id: null };
         await commentRepo.create(info.ticketId, { content, is_private: 0 }, fakeUser);
         res.json({ message: 'Réponse envoyée avec succès' });
+    },
+
+    // ── GET /api/tickets/dashboard/live-stats ──────────────────────
+    async getLiveStats(req, res) {
+        try {
+            const [totals, active, durations, byTech, daily] = await Promise.all([
+                pgDb.get(`
+                    SELECT
+                        COUNT(*) FILTER (WHERE true) AS total,
+                        COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) AS today,
+                        COUNT(*) FILTER (WHERE created_at >= date_trunc('week', NOW())) AS this_week,
+                        COUNT(*) FILTER (WHERE created_at >= date_trunc('month', NOW())) AS this_month
+                    FROM hub_tickets.live_sessions
+                `),
+                pgDb.get(`SELECT COUNT(*) as count FROM hub_tickets.live_sessions WHERE status NOT IN ('closed', 'pre_closed')`),
+                pgDb.get(`
+                    SELECT
+                        ROUND(AVG(EXTRACT(EPOCH FROM (closed_at - claimed_at)) / 60)::numeric, 1) AS avg_duration_min,
+                        ROUND(AVG(EXTRACT(EPOCH FROM (claimed_at - created_at)) / 60)::numeric, 1) AS avg_response_min
+                    FROM hub_tickets.live_sessions
+                    WHERE closed_at IS NOT NULL AND claimed_at IS NOT NULL
+                `),
+                pgDb.all(`
+                    SELECT tech_display_name AS tech, COUNT(*) AS count
+                    FROM hub_tickets.live_sessions
+                    WHERE tech_username IS NOT NULL
+                    GROUP BY tech_display_name ORDER BY count DESC LIMIT 10
+                `),
+                pgDb.all(`
+                    SELECT TO_CHAR(created_at AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD') AS day,
+                           COUNT(*) AS count
+                    FROM hub_tickets.live_sessions
+                    WHERE created_at >= NOW() - INTERVAL '30 days'
+                    GROUP BY day ORDER BY day
+                `),
+            ]);
+
+            res.json({
+                total:            parseInt(totals?.total  || 0),
+                today:            parseInt(totals?.today  || 0),
+                this_week:        parseInt(totals?.this_week || 0),
+                this_month:       parseInt(totals?.this_month || 0),
+                active:           parseInt(active?.count  || 0),
+                avg_duration_min: parseFloat(durations?.avg_duration_min || 0),
+                avg_response_min: parseFloat(durations?.avg_response_min || 0),
+                by_tech: (byTech || []).map(r => ({ tech: r.tech, count: parseInt(r.count) })),
+                daily:   (daily  || []).map(r => ({ day: r.day, count: parseInt(r.count) })),
+            });
+        } catch (e) {
+            console.error('[LIVE] getStats error:', e);
+            res.status(500).json({ message: e.message });
+        }
     },
 };

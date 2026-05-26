@@ -706,7 +706,7 @@ export default function TicketDetail() {
           borderBottom: '1px solid #f4f4f5', background: '#fff',
           display: 'flex', alignItems: 'center', padding: '0 20px', gap: 8
         }}>
-          {!isEmbedded && (<a href="/tickets" title="Retour aux tickets" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#71717a', textDecoration: 'none', fontSize: 13, fontWeight: 500, padding: '2px 6px', borderRadius: 5, border: '1px solid #e4e4e7', background: '#fff' }}>
+          {!isEmbedded && (<a href="/tickets" title="Retour aux tickets" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#dc2626', textDecoration: 'none', fontSize: 13, fontWeight: 600, padding: '2px 8px', borderRadius: 5, border: '1px solid #fca5a5', background: '#fef2f2' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
             Accueil
           </a>)}
@@ -1268,7 +1268,7 @@ export default function TicketDetail() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   {observers.map(o => (
                     <div key={o.user_id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-                      <span style={{ color: '#3f3f46', flex: 1 }}>{o.name || o.login}</span>
+                      <span style={{ color: '#3f3f46', flex: 1 }}>{o.display_name || o.name || o.login || o.email || `#${o.user_id}`}</span>
                       <span onClick={() => handleRemoveObserver(o.user_id)} style={{ cursor: 'pointer', color: '#a1a1aa', fontSize: 14 }}>×</span>
                     </div>
                   ))}

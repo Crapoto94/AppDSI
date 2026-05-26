@@ -3,7 +3,10 @@ const { pgDb } = require('../../../shared/database');
 module.exports = {
     async findByTicket(ticketId) {
         return pgDb.all(`
-            SELECT * FROM hub_tickets.observers WHERE ticket_id = $1 AND is_active = 1
+            SELECT o.*, COALESCE(u."displayName", NULLIF(o.name, ''), NULLIF(o.login, ''), 'Utilisateur #' || o.user_id) as display_name
+            FROM hub_tickets.observers o
+            LEFT JOIN hub.users u ON o.login = u.username
+            WHERE o.ticket_id = $1 AND o.is_active = 1
         `, [ticketId]);
     },
 

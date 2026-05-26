@@ -466,8 +466,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           required_group: data.required_group || '',
           bind_dn: data.bind_dn || '',
           // Si un mot de passe est déjÃ  enregistré, on affiche un masque
-          // Le backend préserve le mdp existant si on renvoie 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢'
-          bind_password: data.bind_password ? 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' : ''
+          // Le backend préserve le mdp existant si on renvoie '••••••••'
+          bind_password: data.bind_password ? '••••••••' : ''
         });
       }
     } catch (error) {
@@ -486,7 +486,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           is_enabled: !!data.is_enabled,
           tenant_id: data.tenant_id || '',
           client_id: data.client_id || '',
-          client_secret: data.client_secret ? 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' : '',
+          client_secret: data.client_secret ? '••••••••' : '',
           redirect_uri: data.redirect_uri || (window.location.origin + '/api/auth/azure/callback')
         });
       }
@@ -513,12 +513,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       if (response.ok) {
         const data = await response.json();
         setTranscriptConfig({
-          groq_api_key: data.groq_api_key ? 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' : '',
+          groq_api_key: data.groq_api_key ? '••••••••' : '',
           default_model: data.default_model || 'llama-3.3-70b-versatile',
           ai_provider: data.ai_provider || 'groq',
-          gemini_api_key: data.gemini_api_key ? 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' : '',
-          openrouter_api_key: data.openrouter_api_key ? 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' : '',
-          anthropic_api_key: data.anthropic_api_key ? 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' : '',
+          gemini_api_key: data.gemini_api_key ? '••••••••' : '',
+          openrouter_api_key: data.openrouter_api_key ? '••••••••' : '',
+          anthropic_api_key: data.anthropic_api_key ? '••••••••' : '',
           ollama_host: data.ollama_host || 'http://localhost:11434',
           anthropic_model: data.anthropic_model || 'claude-3-5-sonnet-20240620',
           custom_prompt: data.custom_prompt || '',
@@ -537,8 +537,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     const nextTime = new Date(nextSyncTime);
     const diff = nextTime.getTime() - now.getTime();
 
-    // If time has passed but is within 1 minute, show "Ã€ peu près maintenant"
-    if (diff <= 0 && diff > -60000) return 'Ã€ peu près maintenant';
+    // If time has passed but is within 1 minute, show "À peu près maintenant"
+    if (diff <= 0 && diff > -60000) return 'À peu près maintenant';
     // If time is significantly in the past, return "Dépassé"
     if (diff < -60000) return 'Dépassé - en attente de mise Ã  jour';
 
@@ -1801,7 +1801,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             <td onClick={() => setActiveFieldConfig(col)} style={{ cursor: 'pointer' }}>
                               <div style={{ display: 'flex', flexDirection: 'column' }}>
                                 <span style={{ fontFamily: 'monospace', fontWeight: 'bold', fontSize: '12px', color: isActive ? '#2563eb' : '#334155' }}>{col}</span>
-                                <span style={{ fontSize: '9px', color: '#94a3b8' }}>âžœ {activeSelectionModal.table.toUpperCase()}_{col}</span>
+                                <span style={{ fontSize: '9px', color: '#94a3b8' }}>→ {activeSelectionModal.table.toUpperCase()}_{col}</span>
                               </div>
                             </td>
                             <td>
@@ -1934,7 +1934,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             <div style={{ color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', fontWeight: '900' }}>Résultat de la jointure (Concaténé) :</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <span style={{ color: '#94a3b8' }}>{String(tablePreviews[`${activeSelectionModal.type}:${activeSelectionModal.table}`]?.[activeFieldConfig])}</span>
-                              <span style={{ color: '#10b981' }}>âžœ</span>
+                              <span style={{ color: '#10b981' }}>→</span>
                               <span style={{ color: joinPreviewResult === "XXXXX" ? '#ef4444' : '#10b981', fontWeight: 'bold', fontSize: '11px' }}>
                                 {joinPreviewResult || "Choisir des champs..."}
                               </span>
@@ -2117,7 +2117,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                     }}
                                   />
                                   <span className="tile-checkbox-title">{tile.title}</span>
-                                  <span className="tile-checkbox-icon">{isAuth ? 'âœ“' : ''}</span>
+                                  <span className="tile-checkbox-icon">{isAuth ? '✓' : ''}</span>
                                 </label>
                               )
                             })}
@@ -2393,7 +2393,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         className="admin-input font-mono text-xs"
                                         value={azureConfig.client_secret} 
                                         onChange={e => setAzureConfig({...azureConfig, client_secret: e.target.value})} 
-                                        placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                                        placeholder="••••••••••••••••"
                                     />
                                 </div>
                                 <div className="form-field full-width">
@@ -2592,7 +2592,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           onChange={e => setTranscriptConfig({ ...transcriptConfig, max_chars_context: e.target.value })}
                         />
                         <span style={{ fontSize: '0.85rem', color: '#6d28d9' }}>
-                          â‰ˆ {Math.round(parseInt(transcriptConfig.max_chars_context || String(MAX_CHARS_BY_PROVIDER[transcriptConfig.ai_provider] || 24000)) / 4).toLocaleString('fr-FR')} tokens
+                          ≈ {Math.round(parseInt(transcriptConfig.max_chars_context || String(MAX_CHARS_BY_PROVIDER[transcriptConfig.ai_provider] || 24000)) / 4).toLocaleString('fr-FR')} tokens
                           {!transcriptConfig.max_chars_context && (
                             <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: '#94A3B8' }}>(défaut {transcriptConfig.ai_provider})</span>
                           )}
@@ -2746,9 +2746,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     }
                   }}
                 >
-                  {tab === 'configuration' && 'âš™ï¸ Configuration'}
-                  {tab === 'automatisation' && 'â±ï¸ Automatisation'}
-                  {tab === 'logs' && 'ðŸ“‹ Logs'}
+                  {tab === 'configuration' && 'Configuration'}
+                  {tab === 'automatisation' && 'Automatisation'}
+                  {tab === 'logs' && 'Logs'}
                 </button>
               ))}
             </div>
@@ -3115,7 +3115,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                               {nextSyncTimes[type]?.toLocaleString('fr-FR')}
                               <br />
                               <strong style={{ fontSize: '1.1rem', color: '#15803d' }}>
-                                â±ï¸ {countdowns[type] || 'Calcul...'}
+                                {countdowns[type] || 'Calcul...'}
                               </strong>
                             </div>
                           </div>
@@ -3490,7 +3490,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         className="admin-input font-mono"
                                         value={glpiConfig.user_token} 
                                         onChange={e => setGlpiConfig({...glpiConfig, user_token: e.target.value})} 
-                                        placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" 
+                                        placeholder="••••••••••••" 
                                     />
                                 </div>
                             </div>
@@ -3633,7 +3633,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             <div className="sync-progress-box" style={{ marginTop: '10px', borderColor: '#17a2b8' }}>
                                 <div className="progress-header">
                                     <div className="progress-label">
-                                        <span className="progress-spinner">âŸ³</span>
+                                        <span className="progress-spinner">⟳</span>
                                         Synchronisation observateurs...
                                     </div>
                                     <div className="progress-percent">
@@ -3693,7 +3693,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             <div className="sync-progress-box" style={{ marginTop: '10px', borderColor: '#f59e0b' }}>
                                 <div className="progress-header">
                                     <div className="progress-label">
-                                        <span className="progress-spinner">âŸ³</span>
+                                        <span className="progress-spinner">⟳</span>
                                         Synchronisation traitements...
                                     </div>
                                     <div className="progress-percent">
@@ -3723,7 +3723,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             <div className="sync-progress-box">
                                 <div className="progress-header">
                                     <div className="progress-label">
-                                        <span className="progress-spinner">âŸ³</span>
+                                        <span className="progress-spinner">⟳</span>
                                         Synchronisation en cours...
                                     </div>
                                     <div className="progress-percent">
@@ -3801,7 +3801,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                                 </div>
                                                 <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
                                                     Toutes les {sync.frequency_value} {sync.frequency_type}
-                                                    {sync.next_run && ` â€¢ Prochain: ${new Date(sync.next_run).toLocaleString('fr-FR')}`}
+                                                    {sync.next_run && ` • Prochain: ${new Date(sync.next_run).toLocaleString('fr-FR')}`}
                                                 </div>
                                             </div>
                                         </div>
@@ -3846,7 +3846,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         onClick={fetchSyncLogs} 
                         style={{ padding: '8px 16px', fontSize: '0.85rem', background: 'rgba(255,255,255,0.1)', color: 'white', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', cursor: 'pointer' }}
                     >
-                        â†» Rafraîchir
+                        ↻ Rafraîchir
                     </button>
                 </div>
                 <div style={{ display: 'flex', gap: '12px', padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -3907,7 +3907,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                                     display: 'flex', alignItems: 'center', gap: '6px',
                                                     color: log.status === 'error' ? '#ef4444' : log.status === 'running' ? '#3b82f6' : '#22c55e'
                                                 }}>
-                                                    {log.status === 'error' ? 'âœ—' : log.status === 'running' ? 'âŸ³' : 'âœ“'}
+                                                    {log.status === 'error' ? '✗' : log.status === 'running' ? '⟳' : '✓'}
                                                     {log.status === 'error' ? 'Erreur' : log.status === 'running' ? 'En cours' : 'Terminé'}
                                                 </span>
                                                 {log.status === 'error' && (
@@ -3941,7 +3941,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         disabled={syncLogsPage === 1}
                                         style={{ padding: '8px 12px', background: syncLogsPage === 1 ? '#f1f5f9' : '#e2e8f0', border: 'none', borderRadius: '6px', cursor: syncLogsPage === 1 ? 'not-allowed' : 'pointer', color: syncLogsPage === 1 ? '#94a3b8' : '#475569' }}
                                     >
-                                        â† Précédent
+                                        ← Précédent
                                     </button>
                                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
                                         Page {syncLogsPage} / {Math.ceil(syncLogs.length / syncLogsPerPage)}
@@ -3951,7 +3951,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         disabled={syncLogsPage >= Math.ceil(syncLogs.length / syncLogsPerPage)}
                                         style={{ padding: '8px 12px', background: syncLogsPage >= Math.ceil(syncLogs.length / syncLogsPerPage) ? '#f1f5f9' : '#e2e8f0', border: 'none', borderRadius: '6px', cursor: syncLogsPage >= Math.ceil(syncLogs.length / syncLogsPerPage) ? 'not-allowed' : 'pointer', color: syncLogsPage >= Math.ceil(syncLogs.length / syncLogsPerPage) ? '#94a3b8' : '#475569' }}
                                     >
-                                        Suivant â†’
+                                        Suivant →
                                     </button>
                                 </div>
                             )}
@@ -4065,10 +4065,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                               e.target.style.boxShadow = 'none';
                             }}
                           >
-                            <option value="active">âœ“ Actif</option>
-                            <option value="inactive">âœ— Inactif</option>
-                            <option value="soon">â‹¯ Bientôt</option>
-                            <option value="maintenance">ðŸ”§ Maintenance</option>
+                            <option value="active">✓ Actif</option>
+                            <option value="inactive">Inactif</option>
+                            <option value="soon">Bientôt</option>
+                            <option value="maintenance">Maintenance</option>
                           </select>
                         </div>
                       </div>
@@ -4334,7 +4334,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#3b82f6' }}
                           />
                           <label htmlFor="is-internal-checkbox" style={{ fontSize: '0.9rem', color: '#1e293b', cursor: 'pointer', margin: 0, fontWeight: '500' }}>
-                            âœ“ Lien interne (application interne)
+                            ✓ Lien interne (application interne)
                           </label>
                           <span style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: 'auto' }}>
                             {newLink.is_internal ? 'Ouverture interne' : 'Ouverture dans un nouvel onglet'}
@@ -4447,7 +4447,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                       <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#64748b' }}>
                                         {tile.links.slice(0, 2).map((link, idx) => (
                                           <div key={idx} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            â€¢ {link.label}
+                                            • {link.label}
                                           </div>
                                         ))}
                                         {tile.links.length > 2 && <div>+{tile.links.length - 2} plus</div>}

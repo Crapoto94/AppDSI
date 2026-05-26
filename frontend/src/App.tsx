@@ -7,8 +7,7 @@ import Budget from './pages/Budget';
 import Profile from './pages/Profile';
 import Certif from './pages/Certif';
 import MesTaches from './pages/MesTaches';
-import MailSettings from './pages/MailSettings';
-import EmailTemplates from './pages/EmailTemplates';
+import AdminMail from './pages/AdminMail';
 import Tiers from './pages/Tiers';
 import MagappAdmin from './pages/MagappAdmin';
 import AdminSQL from './pages/AdminSQL';
@@ -22,14 +21,12 @@ import AdminAccessRequests from './pages/AdminAccessRequests';
 import AccessRequestOverlay from './components/AccessRequestOverlay';
 import AdminLayout from './components/AdminLayout';
 import FrizbiSettings from './pages/FrizbiSettings';
-import EmailAutomation from './pages/EmailAutomation';
 import RencontresBudgetaires from './pages/RencontresBudgetaires';
 import MesReunions from './pages/MesReunions';
 import PortefeuilleProjets from './pages/PortefeuilleProjets';
 import RevueDeProjets from './pages/RevueDeProjets';
 import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
-import O365MailSettings from './pages/O365MailSettings';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
 import Contrats from './pages/Contrats';
 import Copieurs from './pages/Copieurs';
@@ -37,8 +34,10 @@ import CalendrierDSI from './pages/CalendrierDSI';
 import AgentsDSI from './pages/AgentsDSI';
 import ConsommablesManagement from './pages/ConsommablesManagement';
 import RequestFeature from './pages/RequestFeature';
-import AdminBacklog from './pages/AdminBacklog';
+import AdminBacklogMerged from './pages/AdminBacklogMerged';
 import AdminOrganisation from './pages/AdminOrganisation';
+import AdminDatabases from './pages/AdminDatabases';
+import AdminSync from './pages/AdminSync';
 import WhatsNew from './pages/WhatsNew';
 import Doctrines from './pages/Doctrines';
 import TicketsDashboard from './pages/Tickets/TicketsDashboard';
@@ -146,24 +145,24 @@ function App() {
           <Route index element={<Admin section="main" />} />
           <Route path="users" element={<Admin section="users" />} />
           <Route path="tiles" element={<Admin section="tiles" />} />
-          <Route path="ad" element={<Admin section="ad" />} />
-          <Route path="azure-ad" element={<Admin section="azure-ad" />} />
-          <Route path="glpi" element={<Admin section="glpi" />} />
-          <Route path="oracle" element={<Admin section="oracle" />} />
-          <Route path="mariadb" element={<Admin section="mariadb" />} />
+          <Route path="ad" element={<AdminSync />} />
+          <Route path="azure-ad" element={<AdminSync />} />
+          <Route path="glpi" element={<AdminDatabases />} />
+          <Route path="oracle" element={<AdminDatabases />} />
+          <Route path="mariadb" element={<AdminDatabases />} />
           <Route path="messages" element={<AdminMessages />} />
           <Route path="access-requests" element={<AdminAccessRequests />} />
-          <Route path="mail" element={<MailSettings />} />
-          <Route path="email-templates" element={<EmailTemplates />} />
+          <Route path="mail" element={<AdminMail />} />
+          <Route path="email-templates" element={<AdminMail />} />
           <Route path="sql" element={<AdminSQL />} />
           <Route path="settings" element={<AdminSettings />} />
-          <Route path="ideas" element={<AdminIdeas />} />
+          <Route path="ideas" element={<AdminBacklogMerged />} />
           <Route path="frizbi" element={<FrizbiSettings />} />
           <Route path="transcript" element={<Admin section="transcript" />} />
-          <Route path="finance" element={<AdminFinance />} />
-          <Route path="email-automation" element={<EmailAutomation />} />
-          <Route path="backlog" element={<AdminBacklog />} />
-          <Route path="o365-mail" element={<O365MailSettings />} />
+          <Route path="finance" element={<AdminDatabases />} />
+          <Route path="email-automation" element={<AdminMail />} />
+          <Route path="backlog" element={<AdminBacklogMerged />} />
+          <Route path="o365-mail" element={<AdminMail />} />
           <Route path="organisation" element={<AdminOrganisation />} />
           <Route path="tickets" element={<TicketAdmin />} />
         </Route>

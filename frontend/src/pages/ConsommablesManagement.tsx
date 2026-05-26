@@ -604,26 +604,109 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-color)' }}>
       <Header />
 
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '40px 20px' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '20px 20px' }}>
 
-        {/* Page Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 36 }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 14,
-            background: 'linear-gradient(135deg, #003366, #0055a4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 4px 12px rgba(0,51,102,0.25)'
-          }}>
-            <Package size={28} color="white" />
+        {/* Second nav */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 8 }}>
+          {isAdminForConsommables && (
+            <div style={{ display: 'flex', gap: 4, background: 'white', borderRadius: 12, padding: 4, width: 'fit-content', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
+              <button
+                onClick={() => { setActiveTab('catalog'); setSelectedType(null); setSearchTerm(''); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                  background: activeTab === 'catalog' ? 'var(--secondary-color)' : 'transparent',
+                  color: activeTab === 'catalog' ? 'white' : '#64748b',
+                }}
+              >
+                <BookOpen size={16} /> Catalogue
+              </button>
+              <button
+                onClick={() => { setActiveTab('images'); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                  background: activeTab === 'images' ? 'var(--secondary-color)' : 'transparent',
+                  color: activeTab === 'images' ? 'white' : '#64748b',
+                }}
+              >
+                <Image size={16} /> Images
+              </button>
+              <button
+                onClick={() => { setActiveTab('recap'); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.2s',
+                  background: activeTab === 'recap' ? 'var(--secondary-color)' : 'transparent',
+                  color: activeTab === 'recap' ? 'white' : '#64748b',
+                }}
+              >
+                <ListChecks size={16} /> Récap
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Page Header + Nouvelle demande */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: 14,
+              background: 'linear-gradient(135deg, #003366, #0055a4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(0,51,102,0.25)'
+            }}>
+              <Package size={28} color="white" />
+            </div>
+            <div>
+              <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--secondary-color)', margin: 0 }}>
+                Gestion des Consommables
+              </h1>
+              <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 15 }}>
+                Commandez et gérez vos consommables informatiques
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 style={{ fontSize: 28, fontWeight: 800, color: 'var(--secondary-color)', margin: 0 }}>
-              Gestion des Consommables
-            </h1>
-            <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 15 }}>
-              Commandez et gérez vos consommables informatiques
-            </p>
-          </div>
+          {activeTab === 'requests' && !showForm && (
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button
+                onClick={() => { loadTypes(); loadDesignationImages(); loadADUserInfo(); setShowForm(true); setStep(1); setSelectedTypeId(0); setSelectedDesignation(''); setFormData({ date_commande: new Date().toISOString().split('T')[0], direction: '', service: '', nom_referent: user?.username || '', tel_complet: '' }); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  background: 'var(--primary-color)', color: 'white',
+                  border: 'none', borderRadius: 10, padding: '12px 24px',
+                  fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(227,6,19,0.3)',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#c40510')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'var(--primary-color)')}
+              >
+                <Plus size={20} />
+                Nouvelle demande
+              </button>
+              {cart.length > 0 && (
+                <button
+                  onClick={() => { setShowForm(true); setStep(5); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    background: 'var(--secondary-color)', color: 'white',
+                    border: 'none', borderRadius: 10, padding: '12px 24px',
+                    fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(0,51,102,0.3)',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#002244')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--secondary-color)')}
+                >
+                  <ShoppingCart size={20} />
+                  Panier ({cartTotalItems})
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Error */}
@@ -631,7 +714,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
             background: '#fff5f5', border: '1px solid #fecaca',
-            borderRadius: 10, padding: '12px 16px', marginBottom: 24,
+            borderRadius: 10, padding: '12px 16px', marginBottom: 16,
             color: '#991b1b', fontSize: 14
           }}>
             <AlertCircle size={18} style={{ flexShrink: 0, color: '#dc2626' }} />
@@ -650,7 +733,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
           const archiveesCount = requests.filter(r => r.archived).length;
 
           return (
-            <div style={{ display: 'flex', gap: 4, marginBottom: 28, background: 'white', borderRadius: 12, padding: 4, width: 'fit-content', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', gap: 4, marginBottom: 16, background: 'white', borderRadius: 12, padding: 4, width: 'fit-content', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
               <button
                 onClick={() => { setActiveTab('requests'); setStep(1); setShowForm(false); setAdminTab('demandes'); }}
                 style={{
@@ -743,88 +826,9 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
           );
         })()}
 
-        {isAdminForConsommables && (
-          <div style={{ display: 'flex', gap: 4, marginBottom: 28, background: 'white', borderRadius: 12, padding: 4, width: 'fit-content', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
-            <button
-              onClick={() => { setActiveTab('catalog'); setSelectedType(null); setSearchTerm(''); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
-                border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-                background: activeTab === 'catalog' ? 'var(--secondary-color)' : 'transparent',
-                color: activeTab === 'catalog' ? 'white' : '#64748b',
-              }}
-            >
-              <BookOpen size={16} /> Catalogue
-            </button>
-            <button
-              onClick={() => { setActiveTab('images'); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
-                border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-                background: activeTab === 'images' ? 'var(--secondary-color)' : 'transparent',
-                color: activeTab === 'images' ? 'white' : '#64748b',
-              }}
-            >
-              <Image size={16} /> Images
-            </button>
-            <button
-              onClick={() => { setActiveTab('recap'); }}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '10px 20px', borderRadius: 8, fontWeight: 600, fontSize: 14,
-                border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-                background: activeTab === 'recap' ? 'var(--secondary-color)' : 'transparent',
-                color: activeTab === 'recap' ? 'white' : '#64748b',
-              }}
-            >
-              <ListChecks size={16} /> Récap
-            </button>
-          </div>
-        )}
-
         {/* =================== REQUESTS TAB =================== */}
         {activeTab === 'requests' && (
-          <>
-            {/* New request button & Cart floating button */}
-            {!showForm && (
-              <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
-                <button
-                  onClick={() => { loadTypes(); loadDesignationImages(); loadADUserInfo(); setShowForm(true); setStep(1); setSelectedTypeId(0); setSelectedDesignation(''); setFormData({ date_commande: new Date().toISOString().split('T')[0], direction: '', service: '', nom_referent: user?.username || '', tel_complet: '' }); }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    background: 'var(--primary-color)', color: 'white',
-                    border: 'none', borderRadius: 10, padding: '12px 24px',
-                    fontSize: 15, fontWeight: 700, cursor: 'pointer',
-                    boxShadow: '0 4px 12px rgba(227,6,19,0.3)',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#c40510')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--primary-color)')}
-                >
-                  <Plus size={20} />
-                  Nouvelle demande
-                </button>
-                {cart.length > 0 && (
-                  <button
-                    onClick={() => { setShowForm(true); setStep(5); }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      background: 'var(--secondary-color)', color: 'white',
-                      border: 'none', borderRadius: 10, padding: '12px 24px',
-                      fontSize: 15, fontWeight: 700, cursor: 'pointer',
-                      boxShadow: '0 4px 12px rgba(0,51,102,0.3)',
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#002244')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'var(--secondary-color)')}
-                  >
-                    <ShoppingCart size={20} />
-                    Panier ({cartTotalItems})
-                  </button>
-                )}
-              </div>
-            )}
+          <>{/* New request button moved to page header above */}
 
             {/* ---- FORM ---- */}
             {showForm && (
@@ -1402,7 +1406,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
             )}
 
             {/* Requests list */}
-            {!loading && adminTab === 'commander' && user?.role === 'admin' ? (
+            {!loading && adminTab === 'commander' && isAdminForConsommables ? (
               <ConsommablesACommander token={token!} />
             ) : (
               <div>
@@ -1410,6 +1414,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                   <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--secondary-color)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
                     <ListChecks size={20} />
                     {adminTab === 'demandes' && 'Demandes à Valider'}
+                    {adminTab === 'commander' && 'Demandes à Commander'}
                     {adminTab === 'commandees' && 'Demandes Commandées'}
                     {adminTab === 'archivees' && 'Demandes Archivées'}
                   </h3>
@@ -1432,6 +1437,8 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                       .filter(r => {
                         if (adminTab === 'demandes') {
                           return !r.archived && r.status === 'pending';
+                        } else if (adminTab === 'commander') {
+                          return !r.archived && r.status === 'approved';
                         } else if (adminTab === 'commandees') {
                           return !r.archived && r.status === 'ordered';
                         } else if (adminTab === 'archivees') {

@@ -1039,26 +1039,7 @@ export default function LiveSessionsPanel() {
 
             {/* Messages */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 8, background: '#f8fafc' }}>
-              {openerMessage && (
-                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
-                  <div style={{
-                    maxWidth: '72%',
-                    background: '#fff',
-                    color: '#1e293b',
-                    borderRadius: '18px 18px 18px 4px',
-                    padding: '8px 13px', fontSize: 13, lineHeight: 1.5,
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-                    border: '1px solid #f1f5f9',
-                    wordBreak: 'break-word',
-                  }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#6366f1', marginBottom: 2 }}>
-                      {openerMessage.sender_name}
-                    </div>
-                    {openerMessage.content}
-                  </div>
-                </div>
-              )}
-              {!openerMessage && messages.length === 0 && (
+              {messages.length === 0 && (
                 <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, marginTop: 16 }}>
                   Début de la conversation
                 </div>

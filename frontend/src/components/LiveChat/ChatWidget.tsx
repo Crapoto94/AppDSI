@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 
-type ChatState = 'idle' | 'open' | 'connecting' | 'waiting' | 'active' | 'renaming' | 'ended';
+type ChatState = 'idle' | 'open' | 'connecting' | 'waiting' | 'active' | 'renaming' | 'rating' | 'ended';
 
 interface LiveMessage {
   id: number;
@@ -32,6 +32,9 @@ export default function ChatWidget() {
   const [techName, setTechName] = useState('');
   const [error, setError] = useState('');
   const [newTitle, setNewTitle] = useState('');
+  const [rating, setRating] = useState(0);
+  const [ratingComment, setRatingComment] = useState('');
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [checking, setChecking] = useState(true); // checking for existing session on mount
   const [liveEnabled, setLiveEnabled] = useState<boolean | null>(null); // null = loading
   const [uploading, setUploading] = useState(false);
@@ -132,7 +135,7 @@ export default function ChatWidget() {
           });
         } else if (session.status === 'closed') {
           stopPolling();
-          setState('ended');
+          setState('rating');
           localStorage.removeItem(SESSION_KEY);
           socketRef.current?.disconnect();
         }
@@ -182,7 +185,7 @@ export default function ChatWidget() {
     socket.on('session_closed', () => {
       stopPolling();
       localStorage.removeItem(SESSION_KEY);
-      setState('ended');
+      setState('rating');
       socket.disconnect();
     });
 
@@ -288,6 +291,9 @@ export default function ChatWidget() {
     setInput('');
     setNewTitle('');
     setError('');
+    setRating(0);
+    setRatingComment('');
+    setRatingSubmitted(false);
     // Note: don't clear SESSION_KEY here — user might want to reopen
   }
 
@@ -310,6 +316,23 @@ export default function ChatWidget() {
         socketRef.current.emit('close_session', { sessionId });
       }
     }
+    setState('rating');
+  }
+
+  async function submitRating() {
+    if (rating < 1 || rating > 5 || !sessionId) return;
+    try {
+      await axios.post(
+        `/api/live/sessions/${sessionId}/satisfaction`,
+        { rating, comment: ratingComment.trim() || undefined },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch {}
+    setRatingSubmitted(true);
+    setState('ended');
+  }
+
+  function skipRating() {
     setState('ended');
   }
 
@@ -544,6 +567,63 @@ export default function ChatWidget() {
           </button>
           <button onClick={() => setState('active')} style={{ padding: '10px 16px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: 10, fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>
             Annuler
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (state === 'rating') return (
+    <div style={panelStyle}>
+      <style>{`@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}`}</style>
+      {header('Support DSI')}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+        <div style={{ fontSize: 40, marginBottom: 8 }}>💬</div>
+        <h3 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 700, color: '#18181b' }}>Votre avis nous intéresse</h3>
+        <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 16px' }}>
+          Comment s'est passée votre session ?
+        </p>
+        {/* Star rating */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+          {[1,2,3,4,5].map(star => (
+            <button key={star} onClick={() => setRating(star)}
+              style={{
+                width: 40, height: 40, borderRadius: '50%', border: 'none',
+                background: star <= rating ? '#6366f1' : '#f1f5f9',
+                color: star <= rating ? '#fff' : '#94a3b8',
+                cursor: 'pointer', fontSize: 18, lineHeight: 1,
+                transition: 'all 0.15s',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              onMouseEnter={e => { if (star > rating) { (e.currentTarget as HTMLElement).style.background = '#e0e7ff'; (e.currentTarget as HTMLElement).style.color = '#6366f1'; } }}
+              onMouseLeave={e => { if (star > rating) { (e.currentTarget as HTMLElement).style.background = '#f1f5f9'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; } }}>
+              ★
+            </button>
+          ))}
+        </div>
+        {/* Optional comment */}
+        <textarea
+          value={ratingComment}
+          onChange={e => setRatingComment(e.target.value)}
+          placeholder="Un commentaire ? (optionnel)"
+          rows={2}
+          style={{ width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 12, fontFamily: 'inherit', boxSizing: 'border-box', resize: 'none', outline: 'none', lineHeight: 1.4 }}
+          onFocus={e => e.target.style.borderColor = '#6366f1'}
+          onBlur={e => e.target.style.borderColor = '#e2e8f0'}
+        />
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, width: '100%' }}>
+          <button onClick={submitRating}
+            disabled={rating < 1}
+            style={{
+              flex: 1, padding: '10px', border: 'none', borderRadius: 10,
+              background: rating < 1 ? '#a5b4fc' : '#6366f1',
+              color: '#fff', fontWeight: 700, cursor: rating < 1 ? 'default' : 'pointer', fontSize: 13,
+            }}>
+            Envoyer
+          </button>
+          <button onClick={skipRating}
+            style={{ padding: '10px 16px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: 10, fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>
+            Passer
           </button>
         </div>
       </div>

@@ -78,6 +78,9 @@ export default function TicketsDashboard() {
   const [liveNotif, setLiveNotif] = useState<{ count: number; lastSession: any } | null>(null);
   const [activeLiveFilter, setActiveLiveFilter] = useState(false);
   const [liveStats, setLiveStats] = useState<any>(null);
+  const ALL_KPI_KEYS = ['open','in_progress','waiting','critical','resolved','problems','sla_breached','age','wait_time','resolve_time','live_chat'];
+  const [selectedKpis, setSelectedKpis] = useState<string[]>(ALL_KPI_KEYS);
+  const [showKpiConfig, setShowKpiConfig] = useState(false);
   const limit = 50;
 
   const inboxParams = React.useMemo(() => {
@@ -200,8 +203,18 @@ export default function TicketsDashboard() {
     axios.get('/api/tickets/has-permission/dashboard:view_kpi', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setCanViewKpi(r.data.allowed !== false))
       .catch(() => {});
-    axios.get('/api/live/stats', { headers: { Authorization: `Bearer ${token}` } })
+    axios.get('/api/tickets/dashboard/live-stats', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setLiveStats(r.data))
+      .catch(() => {});
+    axios.get('/api/tickets/dashboard/widgets', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        const saved = r.data || [];
+        if (saved.length > 0) {
+          const savedKeys = saved.filter((w: any) => w.is_visible !== false).map((w: any) => w.widget_type);
+          const missingKeys = ALL_KPI_KEYS.filter(k => !savedKeys.includes(k));
+          setSelectedKpis([...missingKeys, ...savedKeys]);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -690,8 +703,25 @@ export default function TicketsDashboard() {
       {canViewKpi && (() => {
         const isAdmin = ['superadmin','admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase());
 
+        const saveKpiConfig = async (keys: string[]) => {
+          setSelectedKpis(keys);
+          try {
+            const token = localStorage.getItem('token');
+            await axios.post('/api/tickets/dashboard/widgets', {
+              widgets: keys.map((k, i) => ({ widget_type: k, config: {}, position: i, is_visible: true }))
+            }, { headers: { Authorization: `Bearer ${token}` } });
+          } catch {}
+        };
+
+        const toggleKpi = (key: string) => {
+          const next = selectedKpis.includes(key)
+            ? selectedKpis.filter(k => k !== key)
+            : [...selectedKpis, key];
+          saveKpiConfig(next);
+        };
+
         // Config unifiée : statuts + temps dans le même tableau
-        const cards = [
+        const allCards = [
           { key: 'open',         label: 'Ouverts',          color: '#6366f1', filterKey: 'open' as string|null,
             value: stats?.open || 0, histKey: 'open',
             sub: `${getTypeCounts('open').incident} inc · ${getTypeCounts('open').request} dem`,
@@ -727,16 +757,64 @@ export default function TicketsDashboard() {
             value: (stats?.avg_active_seconds_resolved_week > 0) ? formatDuration(stats.avg_active_seconds_resolved_week) : '-',
             histKey: 'avg_active_seconds_week',
             sub: `${stats?.resolved_week_count || 0} cette semaine`, goodDown: false, isTime: true },
+          { key: 'live_chat',    label: 'Chat live',        color: '#22c55e', filterKey: null,
+            value: liveStats?.active || 0, histKey: null,
+            sub: `${liveStats?.today || 0} aujourd'hui`, goodDown: false },
         ];
+
+        const visibleCards = allCards.filter(c => selectedKpis.includes(c.key));
+        const hiddenCards = allCards.filter(c => !selectedKpis.includes(c.key));
 
         const LIVE_TECH_ROLES = ['superadmin','admin','supervisor','superviseur','technician','tech'];
         const isLiveTech = LIVE_TECH_ROLES.includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim());
 
         return (
           <div style={{ marginBottom: 24 }}>
+            {/* En-tête avec bouton config */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Indicateurs {selectedKpis.length < allCards.length && `(${selectedKpis.length}/${allCards.length})`}
+              </span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {isAdmin && (
+                  <button onClick={() => setShowKpiConfig(!showKpiConfig)}
+                    style={{ padding: '4px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: showKpiConfig ? '#eef2ff' : '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#6366f1' }}>
+                    {showKpiConfig ? '✓ Terminé' : 'Configurer les KPI'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Panneau de configuration KPI */}
+            {showKpiConfig && (
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 16px', marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 8 }}>
+                  Afficher / masquer les indicateurs
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {allCards.map(c => {
+                    const active = selectedKpis.includes(c.key);
+                    return (
+                      <button key={c.key} onClick={() => toggleKpi(c.key)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5,
+                          padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                          border: `1.5px solid ${active ? c.color : '#e2e8f0'}`,
+                          background: active ? `${c.color}15` : '#fff',
+                          color: active ? c.color : '#94a3b8',
+                          cursor: 'pointer', transition: 'all 0.15s',
+                        }}>
+                        {active ? '✓' : '+'} {c.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Grille de cartes */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(148px, 1fr))', gap: 10 }}>
-              {cards.map(card => {
+              {visibleCards.map(card => {
                 const sparkData = kpiHistory.map(r => ({ v: (card.histKey ? r[card.histKey] : 0) || 0, d: new Date(r.snapshot_date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) }));
                 const first = sparkData[0]?.v ?? 0;
                 const last  = sparkData[sparkData.length - 1]?.v ?? 0;
@@ -780,32 +858,9 @@ export default function TicketsDashboard() {
                           </span>
                         )}
                       </div>
-                      {/* Valeur */}
-                      <div style={{ fontSize: 24, fontWeight: 700, color: card.color, lineHeight: 1.1 }}>{card.value}</div>
-                      {/* Daily metrics */}
-                      {dailyMetrics && (card.key === 'open' || card.key === 'in_progress' || card.key === 'waiting' || card.key === 'resolved') && (() => {
-                        const dayKey = card.key === 'open' ? 'today_created'
-                                     : card.key === 'in_progress' ? 'today_in_progress'
-                                     : card.key === 'waiting' ? 'today_waiting'
-                                     : card.key === 'resolved' ? 'today_resolved' : null;
-                        const avgKey = card.key === 'open' ? 'avg_open_60d'
-                                     : card.key === 'in_progress' ? 'avg_in_progress_60d'
-                                     : card.key === 'waiting' ? 'avg_waiting_60d'
-                                     : card.key === 'resolved' ? 'avg_resolved_60d' : null;
-                        const todayVal = dayKey ? dailyMetrics[dayKey] || 0 : 0;
-                        const avgVal = avgKey ? dailyMetrics[avgKey] || 0 : 0;
-                        const diff = todayVal - avgVal;
-                        const diffPct = avgVal > 0 ? Math.round((diff / avgVal) * 100) : 0;
-                        const diffColor = diff === 0 ? '#94a3b8' : (card.goodDown ? (diff < 0 ? '#22c55e' : '#ef4444') : (diff > 0 ? '#22c55e' : '#ef4444'));
-                        return (
-                          <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
-                            <div>{todayVal} auj. | moy 60j: {avgVal}</div>
-                            <div style={{ color: diffColor, fontWeight: 600 }}>{diff > 0 ? '+' : ''}{diff} ({diffPct > 0 ? '+' : ''}{diffPct}%)</div>
-                          </div>
-                        );
-                      })()}
-                      {/* Sous-info */}
-                      {card.sub && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.sub}</div>}
+                      {/* Valeur principale */}
+                      <span style={{ fontSize: 24, fontWeight: 800, color: '#18181b', lineHeight: 1.1 }}>{card.value}</span>
+                      {card.sub && <div style={{ fontSize: 10, color: '#a1a1aa', marginTop: 2 }}>{card.sub}</div>}
                     </div>
                   </div>
                 );

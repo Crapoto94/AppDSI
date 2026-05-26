@@ -53,6 +53,7 @@ router.get('/dashboard/kpi-history', authenticateJWT, (req, res) => controller.g
 router.post('/dashboard/kpi-snapshot/run', authenticateAdmin, (req, res) => controller.runKpiSnapshot(req, res));
 router.post('/dashboard/kpi-backfill', authenticateAdmin, (req, res) => controller.backfillKpiHistory(req, res));
 router.get('/dashboard/sla-breaches', authenticateJWT, (req, res) => controller.getSLABreaches(req, res));
+router.get('/dashboard/live-stats', authenticateJWT, (req, res) => controller.getLiveStats(req, res));
 router.post('/dashboard/widgets', authenticateJWT, (req, res) => controller.saveWidgets(req, res));
 router.get('/dashboard/widgets', authenticateJWT, (req, res) => controller.getWidgets(req, res));
 

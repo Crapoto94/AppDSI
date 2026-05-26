@@ -198,7 +198,11 @@
       "Bash(node -e \"const { pgDb } = require\\('./shared/database'\\); pgDb.get\\('SELECT glpi_id, category_id, subcategory_id, software_id, title FROM hub_tickets.tickets WHERE glpi_id = 43968'\\).then\\(t => { console.log\\(JSON.stringify\\(t, null, 2\\)\\); process.exit\\(0\\); }\\).catch\\(e => { console.error\\(e.message\\); process.exit\\(1\\); }\\);\")",
       "Bash(node -e \"const r = require\\('./modules/tickets/repositories/ticket.repository.js'\\); console.log\\('OK'\\)\")",
       "Bash(git -C \"C:/dev/AppDSI\" add backend/modules/tickets/dtos/ticket.dto.js backend/modules/tickets/repositories/ticket.repository.js frontend/src/pages/MagappAdmin.tsx frontend/src/pages/Tickets/TicketDetail.tsx frontend/src/pages/Tickets/TicketList.tsx frontend/src/pages/Tickets/TicketsDashboard.tsx)",
-      "Bash(git -C C:/dev/AppDSI commit -m ' *)"
+      "Bash(git -C C:/dev/AppDSI commit -m ' *)",
+      "Bash(powershell -NoProfile -Command 'Get-Content '\\\\''C:\\\\dev\\\\AppDSI\\\\frontend\\\\src\\\\pages\\\\Admin.tsx'\\\\'' -Encoding UTF8 | Select-String -Pattern '\\\\''[â±ï|âš|ðŸ|âžœ|Ã ]'\\\\'' -LineNumber | ForEach-Object { '\\\\''Ligne {0}: {1}'\\\\'' -f $_.LineNumber, $_.Line }')",
+      "Bash(ls -la /mnt/c/dev/AppDSI | head -40)",
+      "Bash(xargs grep -l \"magapp_settings\")",
+      "Bash(xargs grep -l \"live_enabled\\\\|/api/live/config\")"
     ]
   }
 }
