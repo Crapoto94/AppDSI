@@ -13,7 +13,7 @@ FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/conf.d/default.conf.template
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh /etc/nginx/conf.d/default.conf.template && chmod +x /entrypoint.sh
 
 EXPOSE 5175
 ENTRYPOINT ["/entrypoint.sh"]
