@@ -207,6 +207,35 @@ const authenticateAdminOrPMO = (req, res, next) => {
     });
 };
 
+/**
+ * Middleware for Admin or Consommables management users
+ */
+const authenticateConsommablesAdmin = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (isAdminLike(req.user)) {
+            return next();
+        }
+        try {
+            const db = getSqlite();
+            if (req.user && req.user.id && db) {
+                const authorized = await db.get(`
+                    SELECT 1 FROM user_tiles ut
+                    JOIN tile_links tl ON ut.tile_id = tl.tile_id
+                    WHERE ut.user_id = ? AND (tl.url = '/consommables' OR tl.url LIKE '/consommables%')
+                `, [req.user.id]);
+
+                console.log(`[AUTH CONSOMMABLES] User ${req.user.username} (ID: ${req.user.id}) tile check result:`, !!authorized);
+                if (authorized) return next();
+            }
+        } catch (error) {
+            console.error('[AUTH CONSOMMABLES] Error checking tile access:', error);
+        }
+
+        console.log(`[AUTH CONSOMMABLES] Access denied for ${req.user?.username}`);
+        res.status(403).json({ message: 'Accès refusé : administrateur ou accès consommables requis' });
+    });
+};
+
 module.exports = {
     authenticateJWT,
     tryAuthenticateJWT,
@@ -217,6 +246,7 @@ module.exports = {
     authenticateAdminOrPMO,
     authenticateMagappControl,
     authenticateGLPIControl,
+    authenticateConsommablesAdmin,
     isSuperAdmin,
     isAdminLike,
 };

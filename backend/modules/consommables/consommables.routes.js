@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const consommablesController = require('./consommables.controller');
 const designationImagesController = require('./designation-images.controller');
-const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware');
+const { authenticateJWT, authenticateAdmin, authenticateConsommablesAdmin } = require('../../shared/middleware');
 const multer = require('multer');
 const path = require('path');
 
@@ -30,7 +30,7 @@ const upload = multer({
 });
 
 // Admin: Import des données depuis Excel
-router.post('/import', authenticateAdmin, consommablesController.importFromExcel);
+router.post('/import', authenticateConsommablesAdmin, consommablesController.importFromExcel);
 
 // Test route sans authentification
 router.get('/test', (req, res) => {
@@ -85,24 +85,24 @@ router.post('/requests', authenticateJWT, consommablesController.createRequest);
 
 // Routes admin - Gestion des demandes
 router.get('/admin/all', authenticateJWT, consommablesController.getAllRequests);
-router.put('/admin/:requestId/status', authenticateAdmin, consommablesController.updateRequestStatus);
-router.delete('/admin/:requestId', authenticateAdmin, consommablesController.deleteRequest);
-router.put('/admin/:requestId', authenticateAdmin, consommablesController.updateRequest);
-router.post('/admin/:requestId/archive', authenticateAdmin, consommablesController.archiveRequest);
-router.get('/requests/to-order', authenticateAdmin, consommablesController.getRequestsToOrder);
+router.put('/admin/:requestId/status', authenticateConsommablesAdmin, consommablesController.updateRequestStatus);
+router.delete('/admin/:requestId', authenticateConsommablesAdmin, consommablesController.deleteRequest);
+router.put('/admin/:requestId', authenticateConsommablesAdmin, consommablesController.updateRequest);
+router.post('/admin/:requestId/archive', authenticateConsommablesAdmin, consommablesController.archiveRequest);
+router.get('/requests/to-order', authenticateConsommablesAdmin, consommablesController.getRequestsToOrder);
 
 // Routes admin - Gestion du catalogue
-router.get('/admin/catalog/all', authenticateAdmin, consommablesController.getAllArticles);
-router.get('/admin/catalog/:typeId', authenticateAdmin, consommablesController.getArticlesByType);
-router.post('/admin/catalog/add', authenticateAdmin, consommablesController.addArticle);
-router.put('/admin/catalog/:articleId', authenticateAdmin, consommablesController.updateArticle);
-router.delete('/admin/catalog/:articleId', authenticateAdmin, consommablesController.deleteArticle);
-router.post('/admin/catalog/bulk-add', authenticateAdmin, consommablesController.bulkAddArticles);
+router.get('/admin/catalog/all', authenticateConsommablesAdmin, consommablesController.getAllArticles);
+router.get('/admin/catalog/:typeId', authenticateConsommablesAdmin, consommablesController.getArticlesByType);
+router.post('/admin/catalog/add', authenticateConsommablesAdmin, consommablesController.addArticle);
+router.put('/admin/catalog/:articleId', authenticateConsommablesAdmin, consommablesController.updateArticle);
+router.delete('/admin/catalog/:articleId', authenticateConsommablesAdmin, consommablesController.deleteArticle);
+router.post('/admin/catalog/bulk-add', authenticateConsommablesAdmin, consommablesController.bulkAddArticles);
 
 // Routes pour les images des désignations
 router.get('/images/:designation', authenticateJWT, designationImagesController.getDesignationImage);
-router.get('/admin/images/all', authenticateAdmin, designationImagesController.getAllImages);
-router.post('/admin/images/upload', authenticateAdmin, upload.single('image'), designationImagesController.uploadImage);
-router.delete('/admin/images/:imageId', authenticateAdmin, designationImagesController.deleteImage);
+router.get('/admin/images/all', authenticateConsommablesAdmin, designationImagesController.getAllImages);
+router.post('/admin/images/upload', authenticateConsommablesAdmin, upload.single('image'), designationImagesController.uploadImage);
+router.delete('/admin/images/:imageId', authenticateConsommablesAdmin, designationImagesController.deleteImage);
 
 module.exports = router;
