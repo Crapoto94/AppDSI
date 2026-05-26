@@ -280,7 +280,8 @@ async function setupDb() {
         ('openrouter_api_key', '', 'Clé API OpenRouter'),
         ('anthropic_api_key', '', 'Clé API Anthropic'),
         ('ollama_host', 'http://localhost:11434', 'Hôte Ollama local'),
-        ('anthropic_model', 'claude-3-5-sonnet-20240620', 'Modèle Anthropic par défaut');
+        ('anthropic_model', 'claude-3-5-sonnet-20240620', 'Modèle Anthropic par défaut'),
+        ('app_base_url', '', 'URL de base de l''application (ex: https://dsihub.ivry.local)');
 
         CREATE TABLE IF NOT EXISTS rh.ad_proposals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

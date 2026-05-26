@@ -22,6 +22,17 @@ const { searchADUsersByQuery } = require('../../shared/ad_helper');
 
 let _sendMail = null;
 
+async function getAppBaseUrl() {
+    try {
+        const db = getSqlite();
+        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+        const val = row?.setting_value?.trim();
+        return val || process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
+    } catch {
+        return process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
+    }
+}
+
 function makeReplyToken(ticketId, requesterEmail) {
     const ts = Date.now();
     const payload = `${ticketId}|${requesterEmail}|${ts}`;
@@ -322,7 +333,8 @@ async assign(req, res) {
             const observers = await observerRepo.findByTicket(parseInt(req.params.id));
             res.json(observers);
         } catch (error) {
-            res.status(500).json({ message: error.message });
+            console.error('[OBSERVERS] findByTicket error:', error.message);
+            res.status(500).json({ message: error.message, details: error.stack });
         }
     },
 
@@ -434,7 +446,7 @@ async assign(req, res) {
             if (_sendMail) {
                 const authorName = req.user.displayName || req.user.username;
                 const replyToken = makeReplyToken(ticketId, requesterEmail);
-                const replyUrl = `${process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173'}/repondre/${replyToken}`;
+                const replyUrl = `${await getAppBaseUrl()}/repondre/${replyToken}`;
 
                 let subject, body;
                 try {
@@ -782,20 +794,24 @@ async assign(req, res) {
             const { user_id, name, email, username } = req.body;
             const ticketId = parseInt(req.params.id);
             let finalUserId = user_id;
+            console.log('[ADD_OBSERVER] ticket=%s body=%j', ticketId, { user_id, name, email, username });
             if (!finalUserId) {
                 const existing = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [username || '']);
                 if (existing) {
                     finalUserId = existing.id;
+                    console.log('[ADD_OBSERVER] found existing hub.user id=%s for username=%s', finalUserId, username);
                 } else {
                     const result = await pgDb.run(
                         'INSERT INTO hub.users (username, "displayName", email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET "displayName" = EXCLUDED."displayName" RETURNING id',
                         [username || name, name || username, email || '', 'user']
                     );
                     finalUserId = result.lastID || result.id;
+                    console.log('[ADD_OBSERVER] created hub.user id=%s for username=%s', finalUserId, username);
                 }
             }
             if (!finalUserId) return res.status(400).json({ message: 'Impossible de déterminer l\'utilisateur' });
             await observerRepo.add(ticketId, finalUserId, { displayName: name, username, email });
+            console.log('[ADD_OBSERVER] success: added user %s to ticket %s', finalUserId, ticketId);
             await historyRepo.log(ticketId, req.user.id, 'observer_added', 'observer', null, String(finalUserId), 'Observateur ajouté');
             res.json({ message: 'Observateur ajouté' });
         } catch (error) {

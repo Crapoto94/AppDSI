@@ -37,6 +37,7 @@ export default function ChatWidget() {
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [checking, setChecking] = useState(true); // checking for existing session on mount
   const [liveEnabled, setLiveEnabled] = useState<boolean | null>(null); // null = loading
+  const [chatConfig, setChatConfig] = useState<{ primary_color: string; secondary_color: string; chat_name: string; chat_logo: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [listening, setListening] = useState(false);
   const socketRef = useRef<Socket | null>(null);
@@ -50,12 +51,18 @@ export default function ChatWidget() {
   const userStr = localStorage.getItem('user') || '{}';
   let user: any = {};
   try { user = JSON.parse(userStr); } catch (e) {}
+  const PC = chatConfig?.primary_color || '#6366f1';
+  const SC = chatConfig?.secondary_color || '#818cf8';
+  const CN = chatConfig?.chat_name || 'Support DSI';
 
   // ── On mount: check live_enabled config + listen for changes ─────────
   useEffect(() => {
     if (!token) { setLiveEnabled(false); return; }
-    axios.get('/api/live/config', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setLiveEnabled(r.data.live_enabled))
+    axios.get('/api/live/public-config', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        setLiveEnabled(r.data.live_enabled);
+        setChatConfig({ primary_color: r.data.primary_color || '#6366f1', secondary_color: r.data.secondary_color || '#818cf8', chat_name: r.data.chat_name || 'Support DSI', chat_logo: r.data.chat_logo || '💬' });
+      })
       .catch(() => setLiveEnabled(true)); // fail open
 
     const cfgSocket = io({ auth: { token }, transports: ['websocket', 'polling'] });
@@ -351,7 +358,7 @@ export default function ChatWidget() {
         width: 56, height: 56, borderRadius: '50%',
         background: sessionId
           ? 'linear-gradient(135deg, #22c55e, #16a34a)'
-          : 'linear-gradient(135deg, #6366f1, #818cf8)',
+          : `linear-gradient(135deg, ${PC}, ${SC})`,
         border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(99,102,241,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 24, color: '#fff',
@@ -376,7 +383,7 @@ export default function ChatWidget() {
 
   const header = (title: string, subtitle?: string) => (
     <div style={{
-      background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+      background: `linear-gradient(135deg, ${PC}, ${SC})`,
       padding: '16px 18px', color: '#fff',
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       borderRadius: '20px 20px 0 0', flexShrink: 0,
@@ -399,7 +406,7 @@ export default function ChatWidget() {
   if (state === 'open' || state === 'connecting') return (
     <div style={panelStyle}>
       <style>{`@keyframes slideUp { from { opacity:0; transform:translateY(20px) } to { opacity:1; transform:translateY(0) } } @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
-      {header('Support DSI', 'Nous sommes là pour vous aider')}
+      {header(CN, 'Nous sommes là pour vous aider')}
       <div style={{ padding: 20, flex: 1 }}>
         <div style={{ marginBottom: 16, fontSize: 14, color: '#374151', lineHeight: 1.6 }}>
           <div style={{ fontSize: 22, marginBottom: 8 }}>👋</div>
@@ -420,7 +427,7 @@ export default function ChatWidget() {
             placeholder="Décrivez votre problème..."
             rows={4}
             style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', resize: 'none', outline: 'none', lineHeight: 1.5 }}
-            onFocus={e => e.target.style.borderColor = '#6366f1'}
+            onFocus={e => e.target.style.borderColor = PC}
             onBlur={e => e.target.style.borderColor = '#e2e8f0'}
             disabled={state === 'connecting'}
             autoFocus
@@ -434,7 +441,7 @@ export default function ChatWidget() {
           </div>
           <button type="submit"
             disabled={state === 'connecting' || !input.trim()}
-            style={{ marginTop: 10, width: '100%', padding: '11px', background: (state === 'connecting' || !input.trim()) ? '#a5b4fc' : '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: state === 'connecting' ? 'default' : 'pointer' }}>
+            style={{ marginTop: 10, width: '100%', padding: '11px', background: (state === 'connecting' || !input.trim()) ? '#a5b4fc' : PC, color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: state === 'connecting' ? 'default' : 'pointer' }}>
             {state === 'connecting' ? '⏳ Connexion...' : '🚀 Démarrer le chat'}
           </button>
         </form>
@@ -446,7 +453,7 @@ export default function ChatWidget() {
   if (state === 'waiting') return (
     <div style={panelStyle}>
       <style>{`@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
-      {header('Support DSI', 'En attente d\'un technicien...')}
+      {header(CN, 'En attente d\'un technicien...')}
       <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {messages.map(msg => (
           <MessageBubble key={msg.id} msg={msg} isSelf={msg.sender_type === 'user'} />
@@ -454,8 +461,8 @@ export default function ChatWidget() {
         <div ref={bottomRef} />
       </div>
       <div style={{ padding: '12px 16px', borderTop: '1px solid #f1f5f9', background: '#fafafa', textAlign: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#6366f1', fontSize: 13, fontWeight: 600 }}>
-          <span style={{ display: 'inline-block', width: 8, height: 8, background: '#6366f1', borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: PC, fontSize: 13, fontWeight: 600 }}>
+          <span style={{ display: 'inline-block', width: 8, height: 8, background: PC, borderRadius: '50%', animation: 'pulse 1.5s infinite' }} />
           En attente d'un technicien…
         </div>
         <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8' }}>Votre demande est en file d'attente</p>
@@ -512,12 +519,12 @@ export default function ChatWidget() {
             placeholder="Votre message..."
             rows={2}
             style={{ flex: 1, padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, fontFamily: 'inherit', resize: 'none', outline: 'none' }}
-            onFocus={e => e.target.style.borderColor = '#6366f1'}
+            onFocus={e => e.target.style.borderColor = PC}
             onBlur={e => e.target.style.borderColor = '#e2e8f0'}
           />
           <button onClick={sendMessage}
             disabled={!input.trim()}
-            style={{ padding: '8px 14px', background: input.trim() ? '#6366f1' : '#e2e8f0', color: input.trim() ? '#fff' : '#94a3b8', border: 'none', borderRadius: 10, fontWeight: 700, cursor: input.trim() ? 'pointer' : 'default', fontSize: 16 }}>
+            style={{ padding: '8px 14px', background: input.trim() ? PC : '#e2e8f0', color: input.trim() ? '#fff' : '#94a3b8', border: 'none', borderRadius: 10, fontWeight: 700, cursor: input.trim() ? 'pointer' : 'default', fontSize: 16 }}>
             ↑
           </button>
         </div>
@@ -562,7 +569,7 @@ export default function ChatWidget() {
           onBlur={e => e.target.style.borderColor = '#e2e8f0'}
         />
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-          <button onClick={() => confirmEnd(newTitle)} style={{ flex: 1, padding: '10px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+          <button onClick={() => confirmEnd(newTitle)} style={{ flex: 1, padding: '10px', background: PC, color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
             ✅ Clôturer
           </button>
           <button onClick={() => setState('active')} style={{ padding: '10px 16px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: 10, fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>
@@ -576,7 +583,7 @@ export default function ChatWidget() {
   if (state === 'rating') return (
     <div style={panelStyle}>
       <style>{`@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}`}</style>
-      {header('Support DSI')}
+      {header(CN)}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
         <div style={{ fontSize: 40, marginBottom: 8 }}>💬</div>
         <h3 style={{ margin: '0 0 4px', fontSize: 17, fontWeight: 700, color: '#18181b' }}>Votre avis nous intéresse</h3>
@@ -589,13 +596,13 @@ export default function ChatWidget() {
             <button key={star} onClick={() => setRating(star)}
               style={{
                 width: 40, height: 40, borderRadius: '50%', border: 'none',
-                background: star <= rating ? '#6366f1' : '#f1f5f9',
+                background: star <= rating ? PC : '#f1f5f9',
                 color: star <= rating ? '#fff' : '#94a3b8',
                 cursor: 'pointer', fontSize: 18, lineHeight: 1,
                 transition: 'all 0.15s',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}
-              onMouseEnter={e => { if (star > rating) { (e.currentTarget as HTMLElement).style.background = '#e0e7ff'; (e.currentTarget as HTMLElement).style.color = '#6366f1'; } }}
+              onMouseEnter={e => { if (star > rating) { (e.currentTarget as HTMLElement).style.background = '#e0e7ff'; (e.currentTarget as HTMLElement).style.color = PC; } }}
               onMouseLeave={e => { if (star > rating) { (e.currentTarget as HTMLElement).style.background = '#f1f5f9'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; } }}>
               ★
             </button>
@@ -616,7 +623,7 @@ export default function ChatWidget() {
             disabled={rating < 1}
             style={{
               flex: 1, padding: '10px', border: 'none', borderRadius: 10,
-              background: rating < 1 ? '#a5b4fc' : '#6366f1',
+              background: rating < 1 ? '#a5b4fc' : PC,
               color: '#fff', fontWeight: 700, cursor: rating < 1 ? 'default' : 'pointer', fontSize: 13,
             }}>
             Envoyer
@@ -632,7 +639,7 @@ export default function ChatWidget() {
 
   if (state === 'ended') return (
     <div style={panelStyle}>
-      {header('Support DSI')}
+      {header(CN)}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
         <div style={{ fontSize: 44, marginBottom: 12 }}>✅</div>
         <h3 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 700, color: '#15803d' }}>Session terminée</h3>
@@ -640,7 +647,7 @@ export default function ChatWidget() {
           Merci d'avoir contacté le support DSI.<br />
           Un récapitulatif vous sera envoyé par e-mail.
         </p>
-        <button onClick={closeWidget} style={{ padding: '10px 24px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
+        <button onClick={closeWidget} style={{ padding: '10px 24px', background: PC, color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
           Fermer
         </button>
       </div>

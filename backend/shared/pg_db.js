@@ -993,6 +993,9 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_consommables BOOLEAN DEFAULT true`);
     } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_chat_live BOOLEAN DEFAULT false`);
+    } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.app_docs (
@@ -2875,8 +2878,7 @@ async function setupPgDb() {
             INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type) VALUES
             ('ticket.created', 'ticket_created', 'requester'),
             ('ticket.created', 'ticket_created', 'technician'),
-            ('ticket.assigned', 'ticket_assigned', 'technician'),
-            ('ticket.assigned', 'ticket_assigned', 'requester')
+            ('ticket.assigned', 'ticket_assigned', 'technician')
             ON CONFLICT (event, recipient_type) DO NOTHING
         `);
 

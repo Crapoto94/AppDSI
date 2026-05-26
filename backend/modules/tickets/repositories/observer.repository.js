@@ -2,12 +2,30 @@ const { pgDb } = require('../../../shared/database');
 
 module.exports = {
     async findByTicket(ticketId) {
-        return pgDb.all(`
-            SELECT o.*, COALESCE(u."displayName", NULLIF(o.name, ''), NULLIF(o.login, ''), 'Utilisateur #' || o.user_id) as display_name
-            FROM hub_tickets.observers o
-            LEFT JOIN hub.users u ON o.login = u.username
-            WHERE o.ticket_id = $1 AND o.is_active = 1
-        `, [ticketId]);
+        try {
+            const rows = await pgDb.all(`
+                SELECT o.*, COALESCE(u.displayname, NULLIF(o.name, ''), NULLIF(o.login, ''), 'Utilisateur #' || o.user_id) as display_name
+                FROM hub_tickets.observers o
+                LEFT JOIN hub.users u ON o.login = u.username
+                WHERE o.ticket_id = $1 AND o.is_active = 1
+            `, [ticketId]);
+            if (rows.length === 0) {
+                const allRows = await pgDb.all(`
+                    SELECT o.*, COALESCE(u.displayname, NULLIF(o.name, ''), NULLIF(o.login, ''), 'Utilisateur #' || o.user_id) as display_name
+                    FROM hub_tickets.observers o
+                    LEFT JOIN hub.users u ON o.login = u.username
+                    WHERE o.ticket_id = $1
+                `, [ticketId]);
+                if (allRows.length > 0) {
+                    console.warn(`[OBSERVERS] Found ${allRows.length} rows without is_active filter for ticket ${ticketId}`);
+                    return allRows;
+                }
+            }
+            return rows;
+        } catch (error) {
+            console.error(`[OBSERVERS] findByTicket(${ticketId}) error:`, error.message);
+            throw error;
+        }
     },
 
     async add(ticketId, userId, user) {

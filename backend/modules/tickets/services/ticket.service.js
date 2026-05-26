@@ -71,7 +71,7 @@ module.exports = {
                         await observerRepo.add(ticketId, userId, { displayName: obs.name, username: obs.username, email: obs.email });
                     }
                 } catch (e) {
-                    console.error('[TICKET] add observer failed:', e.message);
+                    console.error('[TICKET] add observer failed for obs=%j:', { user_id: obs.user_id, username: obs.username }, e.message);
                 }
             }
         }
@@ -135,7 +135,7 @@ module.exports = {
                 if (userId && !existingIds.includes(userId)) {
                     try {
                         await observerRepo.add(id, userId, { displayName: obs.name, username: obs.username, email: obs.email });
-                    } catch (e) { console.error('[TICKET] add observer failed:', e.message); }
+                    } catch (e) { console.error('[TICKET] add observer failed for obs=%j:', { user_id: obs.user_id, username: obs.username }, e.message); }
                 }
             }
         }

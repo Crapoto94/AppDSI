@@ -86,7 +86,6 @@ export default function TicketDetail() {
 
   // Panels latéraux
   const [showJournalPanel, setShowJournalPanel] = useState(false);
-  const [showGroupePanel, setShowGroupePanel] = useState(false);
 
   // Edition des informations
   const [editingInfo, setEditingInfo] = useState(false);
@@ -202,7 +201,7 @@ export default function TicketDetail() {
         axios.get(`/api/tickets/${id}/comments`, { headers }),
         axios.get(`/api/tickets/${id}/history`, { headers }),
         axios.get(`/api/tasks/by-context?source=ticket&id=${id}`, { headers }).catch(() => ({ data: [] })),
-        axios.get(`/api/tickets/${id}/observers`, { headers }).catch(() => ({ data: [] })),
+        axios.get(`/api/tickets/${id}/observers`, { headers }).catch(e => { console.error('[OBSERVERS] fetch error:', e?.response?.status, e?.message); return { data: [] }; }),
       ]);
       // Load assignees in parallel
       axios.get(`/api/tickets/${id}/assignees`, { headers }).then(r => setAssignees(r.data || [])).catch(() => setAssignees([]));
@@ -421,10 +420,19 @@ export default function TicketDetail() {
       setObserverSearching(true);
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get(`/api/tickets/users/search?q=${encodeURIComponent(observerSearch)}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setObserverResults(res.data);
+        const [hubRes, adRes] = await Promise.all([
+          axios.get(`/api/tickets/users/search?q=${encodeURIComponent(observerSearch)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(() => ({ data: [] })),
+          axios.get(`/api/ad/search?q=${encodeURIComponent(observerSearch)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(() => ({ data: [] })),
+        ]);
+        const hubUsers: any[] = (hubRes.data || []).map(u => ({ id: u.id, name: u.name, email: u.email, username: u.username }));
+        const adUsers: any[] = (adRes.data || []).map(u => ({ id: u.id || null, name: u.displayName, email: u.email, username: u.username }));
+        const seen = new Set(hubUsers.map(u => u.username?.toLowerCase()));
+        const merged = [...hubUsers, ...adUsers.filter(u => !seen.has(u.username?.toLowerCase()))];
+        setObserverResults(merged);
       } catch { setObserverResults([]); }
       finally { setObserverSearching(false); }
     }, 300);
@@ -1045,26 +1053,10 @@ export default function TicketDetail() {
           {/* ── RIGHT SIDEBAR ── */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 20px', minWidth: 0, background: '#fff' }}>
 
-            {/* Sidebar top bar: Edit + Groupe + Journal */}
+            {/* Sidebar top bar: Edit + Journal */}
             <div style={{ padding: '10px 0 8px', borderBottom: '1px solid #f4f4f5', display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-              {/* Groupe button */}
-              <button onClick={() => { setShowGroupePanel(v => !v); setShowJournalPanel(false); }}
-                style={{
-                  padding: '3px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                  border: showGroupePanel ? '1px solid #a5b4fc' : '1px solid #e4e4e7',
-                  background: showGroupePanel ? '#eef2ff' : 'transparent',
-                  color: showGroupePanel ? '#4f46e5' : '#71717a',
-                  display: 'flex', alignItems: 'center', gap: 4
-                }}>
-                🔗 Groupe
-                {ticketGroup && (
-                  <span style={{ background: '#6366f1', color: '#fff', borderRadius: 10, fontSize: 9, padding: '0 4px', lineHeight: '14px' }}>
-                    {ticketGroup.members?.length || ''}
-                  </span>
-                )}
-              </button>
               {/* Journal button */}
-              <button onClick={() => { setShowJournalPanel(v => !v); setShowGroupePanel(false); }}
+              <button onClick={() => { setShowJournalPanel(v => !v); }}
                 style={{
                   padding: '3px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600,
                   border: showJournalPanel ? '1px solid #a5b4fc' : '1px solid #e4e4e7',
@@ -1281,8 +1273,8 @@ export default function TicketDetail() {
                   {observerSearching && <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 3 }}>Recherche...</div>}
                   {observerResults.length > 0 && (
                     <div style={{ marginTop: 3, border: '1px solid #f4f4f5', borderRadius: 5, overflow: 'hidden' }}>
-                      {observerResults.filter(u => !observers.some(o => o.user_id === u.id)).map(u => (
-                        <div key={u.id} onClick={() => handleAddObserver(u)}
+                      {observerResults.filter(u => !observers.some(o => (o.login || '').toLowerCase() === (u.username || '').toLowerCase())).map(u => (
+                        <div key={u.username || u.email || u.id} onClick={() => handleAddObserver(u)}
                           style={{ padding: '5px 8px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f9f9fb', display: 'flex', justifyContent: 'space-between' }}>
                           <span>{u.name}</span><span style={{ color: '#6366f1', fontSize: 10 }}>{u.email}</span>
                         </div>
@@ -1295,80 +1287,32 @@ export default function TicketDetail() {
                 </div>
               )}
             </div>
-
+            {/* GROUPE / PROBLEME */}
+            {ticketGroup && (
+              <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                  🔗 {ticketGroup.name}
+                  <span style={{ background: '#e4e4e7', borderRadius: 10, fontSize: 10, padding: '0 5px', marginLeft: 5, lineHeight: '16px', color: '#52525b' }}>
+                    {ticketGroup.members?.length || ''}
+                  </span>
+                </div>
+                {ticketGroup.problem_ticket_id ? (
+                  <div style={{ fontSize: 12, color: '#7c3aed', marginTop: 2 }}>
+                    ⚠️ Problème lié : <a href={`/tickets/${ticketGroup.problem_ticket_id}`} style={{ fontWeight: 700, color: '#7c3aed', textDecoration: 'none' }}>#{ticketGroup.problem_ticket_id}</a>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowProblemModal(true)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 12, fontWeight: 500, padding: '2px 0' }}>
+                    ⚠️ Transformer en Problème
+                  </button>
+                )}
+              </div>
+            )}
 
           </div>
           {/* end right sidebar */}
         </div>
         {/* end body grid */}
-
-        {/* ── PANEL : GROUPE ── */}
-        {showGroupePanel && (
-          <div style={{ position: 'fixed', top: 80, right: 0, width: 340, height: 'calc(100vh - 80px)', background: '#fff', borderLeft: '1px solid #e4e4e7', boxShadow: '-4px 0 16px rgba(0,0,0,0.06)', zIndex: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {/* Panel header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 12px', borderBottom: '1px solid #f4f4f5', flexShrink: 0 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#18181b' }}>🔗 Groupe de tickets</span>
-              <button onClick={() => setShowGroupePanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
-              {ticketGroup ? (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{ticketGroup.name}</span>
-                    <button onClick={dissolveGroup} disabled={groupActionLoading}
-                      style={{ background: 'none', border: '1px solid #fecaca', borderRadius: 5, cursor: 'pointer', color: '#ef4444', fontSize: 11, padding: '2px 8px' }}>
-                      Dissoudre
-                    </button>
-                  </div>
-                  <div style={{ background: '#eef2ff', borderRadius: 6, padding: '6px 10px', marginBottom: 12, fontSize: 12, color: '#4f46e5' }}>
-                    ℹ️ Les actions sur ce ticket se propagent à tous les membres.
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 12 }}>
-                    {ticketGroup.members?.map((m: any) => {
-                      const isCurrent = String(m.ticket_id) === String(id);
-                      return (
-                        <div key={m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 9px', borderRadius: 6, background: isCurrent ? '#eef2ff' : '#f9f9fb', border: `1px solid ${isCurrent ? '#c7d2fe' : '#f4f4f5'}` }}>
-                          <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#6366f1', minWidth: 38 }}>#{m.ticket_id}</span>
-                          <span style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#3f3f46' }}>{m.title}</span>
-                          {!isCurrent && <button onClick={() => window.location.href = `/tickets/${m.ticket_id}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', fontSize: 12, padding: '0 2px' }}>→</button>}
-                          {!isCurrent && <button onClick={() => removeFromGroup(m.ticket_id)} disabled={groupActionLoading} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 13, padding: '0 2px' }}>✕</button>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {showAddToGroup ? (
-                    <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
-                      <input type="number" value={addTicketId} onChange={e => setAddTicketId(e.target.value)} placeholder="N° ticket" autoFocus
-                        style={{ flex: 1, padding: '6px 9px', border: '1px solid #6366f1', borderRadius: 6, fontSize: 13 }}
-                        onKeyDown={e => { if (e.key === 'Enter') addToGroup(); if (e.key === 'Escape') { setShowAddToGroup(false); setAddTicketId(''); }}} />
-                      <button onClick={addToGroup} disabled={groupActionLoading || !addTicketId} style={{ padding: '6px 12px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>+</button>
-                      <button onClick={() => { setShowAddToGroup(false); setAddTicketId(''); }} style={{ padding: '6px 9px', background: '#f4f4f5', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>✕</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setShowAddToGroup(true)}
-                      style={{ width: '100%', padding: '7px 0', border: '1px dashed #c7d2fe', borderRadius: 6, background: 'transparent', color: '#6366f1', cursor: 'pointer', fontSize: 12, fontWeight: 500, marginBottom: 10 }}>
-                      + Ajouter un ticket
-                    </button>
-                  )}
-                  {!ticketGroup.problem_ticket_id ? (
-                    <button onClick={() => setShowProblemModal(true)}
-                      style={{ width: '100%', padding: '8px 0', border: '1px solid #7c3aed', borderRadius: 7, background: '#faf5ff', color: '#7c3aed', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                      ⚠️ Transformer en Problème
-                    </button>
-                  ) : (
-                    <div style={{ padding: '8px 12px', background: '#faf5ff', borderRadius: 7, border: '1px solid #d8b4fe', textAlign: 'center' }}>
-                      <span style={{ fontSize: 12, color: '#7c3aed' }}>⚠️ Problème lié : </span>
-                      <a href={`/tickets/${ticketGroup.problem_ticket_id}`} style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', textDecoration: 'none' }}>#{ticketGroup.problem_ticket_id}</a>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div style={{ color: '#a1a1aa', fontSize: 13, fontStyle: 'italic', paddingTop: 8 }}>Ce ticket n'appartient à aucun groupe.</div>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* ── PANEL : JOURNAL ── */}
         {showJournalPanel && (
           <div style={{ position: 'fixed', top: 80, right: 0, width: 340, height: 'calc(100vh - 80px)', background: '#fff', borderLeft: '1px solid #e4e4e7', boxShadow: '-4px 0 16px rgba(0,0,0,0.06)', zIndex: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

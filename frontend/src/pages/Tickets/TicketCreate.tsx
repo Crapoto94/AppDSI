@@ -67,10 +67,19 @@ export default function TicketCreate() {
       setObserverSearching(true);
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get(`/api/tickets/users/search?q=${encodeURIComponent(observerSearch)}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setObserverResults(res.data);
+        const [hubRes, adRes] = await Promise.all([
+          axios.get(`/api/tickets/users/search?q=${encodeURIComponent(observerSearch)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(() => ({ data: [] })),
+          axios.get(`/api/ad/search?q=${encodeURIComponent(observerSearch)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(() => ({ data: [] })),
+        ]);
+        const hubUsers: any[] = (hubRes.data || []).map(u => ({ id: u.id, name: u.name, email: u.email, username: u.username }));
+        const adUsers: any[] = (adRes.data || []).map(u => ({ id: u.id || null, name: u.displayName, email: u.email, username: u.username }));
+        const seen = new Set(hubUsers.map(u => u.username?.toLowerCase()));
+        const merged = [...hubUsers, ...adUsers.filter(u => !seen.has(u.username?.toLowerCase()))];
+        setObserverResults(merged);
       } catch { setObserverResults([]); }
       finally { setObserverSearching(false); }
     }, 300);
@@ -78,15 +87,15 @@ export default function TicketCreate() {
   }, [observerSearch]);
 
   function addObserver(user: any) {
-    if (!observers.some(o => o.id === user.id)) {
+    if (!observers.some(o => o.username && o.username.toLowerCase() === (user.username || '').toLowerCase())) {
       setObservers(prev => [...prev, user]);
     }
     setObserverSearch('');
     setObserverResults([]);
   }
 
-  function removeObserver(userId: number) {
-    setObservers(prev => prev.filter(o => o.id !== userId));
+  function removeObserver(username: string) {
+    setObservers(prev => prev.filter(o => o.username !== username));
   }
 
   function selectSoftware(app: any) {
@@ -292,12 +301,12 @@ export default function TicketCreate() {
             {observers.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                 {observers.map(o => (
-                  <span key={o.id} style={{
+                  <span key={o.username || o.email || o.id} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px',
                     background: '#ede9fe', color: '#7c3aed', borderRadius: 12, fontSize: 12, fontWeight: 500
                   }}>
                     {o.name || o.email}
-                    <span onClick={() => removeObserver(o.id)} style={{ cursor: 'pointer', fontWeight: 700, marginLeft: 2 }}>×</span>
+                    <span onClick={() => removeObserver(o.username)} style={{ cursor: 'pointer', fontWeight: 700, marginLeft: 2 }}>×</span>
                   </span>
                 ))}
               </div>
@@ -309,7 +318,7 @@ export default function TicketCreate() {
             {observerResults.length > 0 && (
               <div style={{ marginTop: 4, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
                 {observerResults.map(u => (
-                  <div key={u.id} onClick={() => addObserver(u)}
+                  <div key={u.username || u.email || u.id} onClick={() => addObserver(u)}
                     style={{
                       padding: '8px 12px', cursor: 'pointer', fontSize: 13,
                       borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between',

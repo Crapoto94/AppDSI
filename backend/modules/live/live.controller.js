@@ -8,6 +8,17 @@ const { authenticateAD, lookupADUser } = require('../../shared/ad_auth');
 let _sendMail = null;
 function setSendMail(fn) { _sendMail = fn; }
 
+async function getAppBaseUrl() {
+    try {
+        const db = getSqlite();
+        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+        const val = row?.setting_value?.trim();
+        return val || process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
+    } catch {
+        return process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
+    }
+}
+
 // ── GET /api/live/sessions ─────────────────────────────────────────────
 async function getSessions(req, res) {
     try {
@@ -189,7 +200,8 @@ async function closeSession(req, res) {
                             `SELECT * FROM hub_tickets.live_messages WHERE session_id = $1 ORDER BY created_at ASC`, [id]
                         );
                         if (messages.length > 0) {
-                            const html = buildSummaryEmail(messages, session, `💬 Live – ${session.user_display_name || session.user_username}`);
+                            const appBaseUrl = await getAppBaseUrl();
+                            const html = buildSummaryEmail(messages, session, `💬 Live – ${session.user_display_name || session.user_username}`, appBaseUrl);
                             await _sendMail(session.user_email, `[DSI Support] Résumé de votre échange live — Ticket #${session.ticket_id}`, html);
                         }
                     } catch (emailErr) {
@@ -382,7 +394,7 @@ function buildTranscriptHtml(messages, session, ticket) {
     return `<div style="font-family:sans-serif;font-size:13px">${header}${rows}</div>`;
 }
 
-function buildSummaryEmail(messages, session, title) {
+function buildSummaryEmail(messages, session, title, appBaseUrl = '') {
     const rows = messages.map(m => {
         const isTech = m.sender_type === 'tech';
         const who = isTech ? `👨‍💻 <strong>${m.sender_name}</strong>` : `👤 ${m.sender_name}`;
@@ -402,7 +414,7 @@ function buildSummaryEmail(messages, session, title) {
       </div>
       <table style="width:100%;border-collapse:collapse">${rows}</table>
       <div style="padding:16px 24px;background:#f8fafc;border-top:1px solid #e2e8f0">
-        <a href="http://dsihub.ivry.local/tickets/${session.ticket_id}" style="color:#6366f1;font-size:13px">→ Voir le ticket #${session.ticket_id}</a>
+        <a href="${appBaseUrl}/tickets/${session.ticket_id}" style="color:#6366f1;font-size:13px">→ Voir le ticket #${session.ticket_id}</a>
       </div>
     </div>`;
 }
@@ -885,6 +897,7 @@ async function sendEmergencyMessage(req, res) {
             return res.status(400).json({ message: 'Aucun contact d\'urgence défini dans l\'équipe' });
         }
 
+        const _emergencyAppBaseUrl = await getAppBaseUrl();
         const results = { email: [], sms: [], whatsapp: [], errors: [] };
         const msgText = message.trim();
         const subject = `🚨 [DSI Live] Message d'urgence — Session #${id}`;
@@ -899,7 +912,7 @@ async function sendEmergencyMessage(req, res) {
                     <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;margin:12px 0">
                         <p style="color:#1e293b;font-size:14px;margin:0;white-space:pre-wrap">${msgText}</p>
                     </div>
-                    <a href="http://dsihub.ivry.local/admin/tickets" style="color:#6366f1;font-size:13px">→ Accéder au tableau de bord live</a>
+                    <a href="${_emergencyAppBaseUrl}/admin/tickets" style="color:#6366f1;font-size:13px">→ Accéder au tableau de bord live</a>
                 </div>
             </div>`;
 
