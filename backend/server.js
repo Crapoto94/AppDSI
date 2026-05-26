@@ -483,45 +483,67 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             user.est_manager = isAdminLike(user);
         }
 
+        // Build authorized URLs for all users
+        const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions', '/portefeuille-projets', '/revue-de-projets', '/projets', '/transcriptmanager']); // Default allowed routes
+
         // Force l'approbation pour les admins
         if (isAdminLike(user) || user.username.toLowerCase() === 'machevalier') {
             user.is_approved = 1;
             user.authorized_urls = ['*'];  // both admin and superadmin get full access
-        } else {
-            // Build authorized URLs
-            const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions', '/portefeuille-projets', '/revue-de-projets', '/projets', '/transcriptmanager']); // Default allowed routes
-
-        if (source === 'sqlite') {
+        } else if (source === 'sqlite' && user.id) {
             // Get URLs from the tiles the user is authorized for (Hub only)
-            const authorizedTiles = await db.all(`
-                SELECT tl.url as link_url
-                FROM user_tiles ut
-                JOIN tiles t ON ut.tile_id = t.id
-                LEFT JOIN tile_links tl ON t.id = tl.tile_id
-                WHERE ut.user_id = ?
-            `, [user.id]);
+            try {
+                const authorizedTiles = await db.all(`
+                    SELECT tl.url as link_url
+                    FROM user_tiles ut
+                    JOIN tiles t ON ut.tile_id = t.id
+                    LEFT JOIN tile_links tl ON t.id = tl.tile_id
+                    WHERE ut.user_id = ?
+                `, [user.id]);
 
-            authorizedTiles.forEach(row => {
-                if (row.link_url) urls.add(row.link_url);
-            });
+                authorizedTiles.forEach(row => {
+                    if (row.link_url) urls.add(row.link_url);
+                });
+            } catch (e) {
+                console.error('Error fetching user tiles:', e);
+            }
+
+            user.authorized_urls = Array.from(urls);
+        } else {
+            // For magapp and other sources, just use default URLs + public tiles
+            try {
+                const publicTiles = await db.all(`
+                    SELECT tl.url as link_url
+                    FROM tiles t
+                    LEFT JOIN tile_links tl ON t.id = tl.tile_id
+                    WHERE t.is_public = 1
+                `);
+                publicTiles.forEach(row => {
+                    if (row.link_url) urls.add(row.link_url);
+                });
+            } catch (e) {
+                console.error('Error fetching public tiles:', e);
+            }
+            user.authorized_urls = Array.from(urls);
         }
 
-        // Also include URLs from public tiles for EVERYONE
+        // Also include URLs from public tiles for EVERYONE (if not already added)
         try {
-            const publicTiles = await db.all(`
-                SELECT tl.url as link_url
-                FROM tiles t
-                LEFT JOIN tile_links tl ON t.id = tl.tile_id
-                WHERE t.is_public = 1
-            `);
-            publicTiles.forEach(row => {
-                if (row.link_url) urls.add(row.link_url);
-            });
+            if (user.authorized_urls && !user.authorized_urls.includes('*')) {
+                const publicTiles = await db.all(`
+                    SELECT tl.url as link_url
+                    FROM tiles t
+                    LEFT JOIN tile_links tl ON t.id = tl.tile_id
+                    WHERE t.is_public = 1
+                `);
+                publicTiles.forEach(row => {
+                    if (row.link_url && !user.authorized_urls.includes(row.link_url)) {
+                        user.authorized_urls.push(row.link_url);
+                    }
+                });
+            }
         } catch (e) {
             console.error('Error fetching public tiles:', e);
-        }
-
-        user.authorized_urls = Array.from(urls);
         }
 
         // Set est_pmo for users (not available for magapp users)
