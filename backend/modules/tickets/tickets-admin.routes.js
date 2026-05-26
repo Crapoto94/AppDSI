@@ -648,7 +648,7 @@ router.put('/config/:key', authenticateAdmin, async (req, res) => {
 router.get('/config-all', authenticateAdmin, async (req, res) => {
     try {
         const rows = await pgDb.all('SELECT key, value FROM hub_tickets.module_config');
-        const config: Record<string, string> = {};
+        const config = {};
         for (const r of rows) config[r.key] = r.value;
         res.json(config);
     } catch (e) { res.status(500).json({ message: e.message }); }
