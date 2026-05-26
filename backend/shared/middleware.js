@@ -209,6 +209,7 @@ const authenticateAdminOrPMO = (req, res, next) => {
 
 /**
  * Middleware for Admin or Consommables management users
+ * Anyone with access to ANY consommables tile gets full admin access to all consommables features
  */
 const authenticateConsommablesAdmin = (req, res, next) => {
     authenticateJWT(req, res, async () => {
@@ -218,15 +219,12 @@ const authenticateConsommablesAdmin = (req, res, next) => {
         try {
             const db = getSqlite();
             if (req.user && req.user.id && db) {
-                // Check by URL or by tile title containing "Consommable"
+                // Check if user has access to ANY tile with "Consommable" in the title
+                // This gives full admin access regardless of which specific link they're authorized for
                 const authorized = await db.get(`
                     SELECT 1 FROM user_tiles ut
-                    LEFT JOIN tile_links tl ON ut.tile_id = tl.tile_id
-                    LEFT JOIN tiles t ON ut.tile_id = t.id
-                    WHERE ut.user_id = ? AND (
-                        (tl.url = '/consommables' OR tl.url LIKE '/consommables%')
-                        OR t.title LIKE '%Consommable%'
-                    )
+                    JOIN tiles t ON ut.tile_id = t.id
+                    WHERE ut.user_id = ? AND t.title LIKE '%Consommable%'
                 `, [req.user.id]);
 
                 console.log(`[AUTH CONSOMMABLES] User ${req.user.username} (ID: ${req.user.id}) tile check result:`, !!authorized);
