@@ -1,5 +1,5 @@
-# Déploiement chat-frontend en DMZ
-# Le backend tourne sur une autre machine (réseau interne)
+# Deploiement chat-frontend en DMZ
+# Le backend tourne sur une autre machine (reseau interne)
 services:
   chat-frontend:
     build: .
