@@ -1573,7 +1573,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
         )}
 
         {/* =================== CATALOG TAB =================== */}
-        {activeTab === 'catalog' && user?.role === 'admin' && (
+        {activeTab === 'catalog' && isAdminForConsommables && (
           <>
             {/* Controls */}
             <div style={{ background: 'white', borderRadius: 14, border: '1px solid #e2e8f0', padding: 20, marginBottom: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
@@ -1741,12 +1741,12 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
         )}
 
         {/* =================== IMAGES TAB =================== */}
-        {activeTab === 'images' && user?.role === 'admin' && (
+        {activeTab === 'images' && isAdminForConsommables && (
           <DesignationImagesManager token={token!} designations={allCatalogDesignations} />
         )}
 
         {/* =================== RECAP TAB =================== */}
-        {activeTab === 'recap' && user?.role === 'admin' && (
+        {activeTab === 'recap' && isAdminForConsommables && (
           <ConsommablesRecap token={token!} />
         )}
       </div>
