@@ -428,8 +428,8 @@ export default function TicketDetail() {
             headers: { Authorization: `Bearer ${token}` }
           }).catch(() => ({ data: [] })),
         ]);
-        const hubUsers: any[] = (hubRes.data || []).map(u => ({ id: u.id, name: u.name, email: u.email, username: u.username }));
-        const adUsers: any[] = (adRes.data || []).map(u => ({ id: u.id || null, name: u.displayName, email: u.email, username: u.username }));
+        const hubUsers: any[] = (hubRes.data || []).map((u: any) => ({ id: u.id, name: u.name, email: u.email, username: u.username }));
+        const adUsers: any[] = (adRes.data || []).map((u: any) => ({ id: u.id || null, name: u.displayName, email: u.email, username: u.username }));
         const seen = new Set(hubUsers.map(u => u.username?.toLowerCase()));
         const merged = [...hubUsers, ...adUsers.filter(u => !seen.has(u.username?.toLowerCase()))];
         setObserverResults(merged);

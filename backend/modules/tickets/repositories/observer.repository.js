@@ -7,8 +7,8 @@ module.exports = {
                 SELECT o.*,
                        COALESCE(
                          u.displayname,
-                         NULLIF(o.name, ''),
-                         NULLIF(o.login, ''),
+                         CASE WHEN o.name ~ '^[0-9]+$' THEN NULL ELSE NULLIF(o.name, '') END,
+                         CASE WHEN o.login ~ '^[0-9]+$' THEN NULL ELSE NULLIF(o.login, '') END,
                          NULLIF(o.email, ''),
                          'Utilisateur #' || o.user_id
                        ) as display_name
@@ -21,8 +21,8 @@ module.exports = {
                     SELECT o.*,
                            COALESCE(
                              u.displayname,
-                             NULLIF(o.name, ''),
-                             NULLIF(o.login, ''),
+                             CASE WHEN o.name ~ '^[0-9]+$' THEN NULL ELSE NULLIF(o.name, '') END,
+                             CASE WHEN o.login ~ '^[0-9]+$' THEN NULL ELSE NULLIF(o.login, '') END,
                              NULLIF(o.email, ''),
                              'Utilisateur #' || o.user_id
                            ) as display_name

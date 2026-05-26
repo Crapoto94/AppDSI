@@ -1396,7 +1396,7 @@ const glpiController = {
             if (glpiUserCache.size > 0 && !namesSyncCancelled) {
                 const entries = [...glpiUserCache.entries()]; // [id, { fullName, login }]
 
-                // Update glpi.observers.name and .login
+                // Update glpi.observers and hub_tickets.observers name and login
                 for (let i = 0; i < entries.length; i += 100) {
                     const batch = entries.slice(i, i + 100);
                     const valSql = batch.map((_, k) => `($${k*3+1}::integer, $${k*3+2}::text, $${k*3+3}::text)`).join(', ');
@@ -1405,6 +1405,12 @@ const glpiController = {
                         `UPDATE glpi.observers SET name = v.full_name, login = v.login
                          FROM (VALUES ${valSql}) AS v(user_id, full_name, login)
                          WHERE glpi.observers.user_id = v.user_id`,
+                        params
+                    );
+                    await pool.query(
+                        `UPDATE hub_tickets.observers SET name = v.full_name, login = v.login
+                         FROM (VALUES ${valSql}) AS v(user_id, full_name, login)
+                         WHERE hub_tickets.observers.user_id = v.user_id`,
                         params
                     );
                 }
