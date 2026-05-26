@@ -628,7 +628,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
         )}
 
         {/* Tabs (admin only) */}
-        {user?.role === 'admin' && (() => {
+        {(user?.role === 'admin' || user?.role === 'superadmin') && (() => {
           const demandesCount = requests.filter(r => !r.archived && r.status === 'pending').length;
           const aCommanderCount = requests.filter(r => !r.archived && r.status === 'approved').length;
           const commandeesCount = requests.filter(r => !r.archived && r.status === 'ordered').length;
