@@ -920,7 +920,7 @@ async function sendEmergencyMessage(req, res) {
                     const frizbiToken = loginRes.data?.token;
                     if (frizbiToken) {
                         await axios.post(`${frizbi.api_url}/api/sms/send`, {
-                            customerSmsId: `live_urg_${id}_${Date.now()}`,
+                            customerSmsId: `live_urg_${id}_${Date.now()}`.substring(0, 50),
                             date: new Date().toISOString(),
                             title: 'Urgence DSI',
                             message: `[DSI URGENCE] Session #${id}: ${msgText}`,

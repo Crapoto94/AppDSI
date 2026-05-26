@@ -1608,14 +1608,16 @@ app.post('/api/admin/frizbi/send-test', authenticateAdmin, async (req, res) => {
         // 2. Envoi
         const sendRes = await axios.post(`${settings.api_url}/api/sms/send`, {
             customerSmsId: `test_${Date.now()}`,
+            date: new Date().toISOString(),
+            title: 'Test HubDSI',
             message: message || "Ceci est un test de l'API HubDSI Ivry.",
             customerSenderId: settings.sender_id,
             smsContacts: [
                 {
                     customerSmsContactId: `contact_${Date.now()}`,
                     mobile: mobile,
-                    firstName: "Test",
-                    lastName: "HubDSI"
+                    firstName: 'Test',
+                    lastName: 'HubDSI'
                 }
             ]
         }, {
@@ -1624,10 +1626,13 @@ app.post('/api/admin/frizbi/send-test', authenticateAdmin, async (req, res) => {
 
         res.json({ success: true, data: sendRes.data });
     } catch (error) {
-        console.error('Test SMS Error:', error.response?.data || error.message);
-        res.status(error.response?.status || 500).json({ 
-            success: false, 
-            message: error.response?.data?.message || error.message 
+        const errData = error.response?.data;
+        console.error('Test SMS Error:', errData || error.message);
+        const detail = errData?.detail || errData?.message || errData?.title || error.message;
+        res.status(error.response?.status || 500).json({
+            success: false,
+            message: detail,
+            raw: errData || null,
         });
     }
 });

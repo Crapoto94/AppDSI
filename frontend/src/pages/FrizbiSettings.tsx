@@ -87,7 +87,9 @@ const FrizbiSettings: React.FC = () => {
       }, { headers });
       setStatus({ type: 'success', message: 'SMS de test envoyé avec succès !' });
     } catch (err: any) {
-      setStatus({ type: 'error', message: err.response?.data?.message || 'Erreur lors de l\'envoi' });
+      const d = err.response?.data;
+      const msg = d?.message || d?.detail || d?.title || 'Erreur lors de l\'envoi';
+      setStatus({ type: 'error', message: msg });
     } finally {
       setTesting(false);
     }
