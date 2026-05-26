@@ -199,10 +199,11 @@
       "Bash(node -e \"const r = require\\('./modules/tickets/repositories/ticket.repository.js'\\); console.log\\('OK'\\)\")",
       "Bash(git -C \"C:/dev/AppDSI\" add backend/modules/tickets/dtos/ticket.dto.js backend/modules/tickets/repositories/ticket.repository.js frontend/src/pages/MagappAdmin.tsx frontend/src/pages/Tickets/TicketDetail.tsx frontend/src/pages/Tickets/TicketList.tsx frontend/src/pages/Tickets/TicketsDashboard.tsx)",
       "Bash(git -C C:/dev/AppDSI commit -m ' *)",
-      "Bash(powershell -NoProfile -Command 'Get-Content '\\\\''C:\\\\dev\\\\AppDSI\\\\frontend\\\\src\\\\pages\\\\Admin.tsx'\\\\'' -Encoding UTF8 | Select-String -Pattern '\\\\''[â±ï|âš|ðŸ|âžœ|Ã ]'\\\\'' -LineNumber | ForEach-Object { '\\\\''Ligne {0}: {1}'\\\\'' -f $_.LineNumber, $_.Line }')",
-      "Bash(ls -la /mnt/c/dev/AppDSI | head -40)",
-      "Bash(xargs grep -l \"magapp_settings\")",
-      "Bash(xargs grep -l \"live_enabled\\\\|/api/live/config\")"
+      "Bash(xargs grep -l \"import.*TaskModal\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\dev\\\\AppDSI\\\\frontend\\\\src\\\\pages\" -Force)",
+      "Bash(mkdir -p \"C:/dev/AppDSI/.claude\" && echo \"{}\" > \"C:/dev/AppDSI/.claude/launch.json\")",
+      "Bash(git pull *)",
+      "Bash(git stash *)"
     ]
   }
 }

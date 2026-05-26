@@ -227,12 +227,14 @@ const Doctrines: React.FC = () => {
                     borderRadius: '12px',
                     padding: '20px',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                    borderLeft: '4px solid #2563eb'
+                    borderLeft: '4px solid #2563eb',
+                    overflow: 'hidden',
+                    minWidth: 0
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
-                    <div>
-                      <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#0f172a', margin: 0, marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: '12px', marginBottom: '12px' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#0f172a', margin: 0, marginBottom: '4px', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                         {doc.title}
                       </h3>
                       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -257,7 +259,7 @@ const Doctrines: React.FC = () => {
                         </span>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                       <button
                         onClick={() => handleEdit(doc)}
                         style={{
@@ -296,13 +298,15 @@ const Doctrines: React.FC = () => {
                   </div>
 
                   <div
+                    className="doctrine-content"
                     style={{
                       background: '#f8fafc',
                       padding: '12px',
                       borderRadius: '8px',
                       fontSize: '0.95rem',
                       color: '#475569',
-                      lineHeight: 1.6
+                      lineHeight: 1.6,
+                      minWidth: 0
                     }}
                     dangerouslySetInnerHTML={{ __html: doc.content }}
                   />
@@ -312,6 +316,48 @@ const Doctrines: React.FC = () => {
           </div>
         </div>
       </main>
+
+      <style>{`
+        .doctrine-content {
+          white-space: normal;
+          overflow-wrap: break-word;
+          word-break: normal;
+        }
+        .doctrine-content p,
+        .doctrine-content span,
+        .doctrine-content strong,
+        .doctrine-content em,
+        .doctrine-content li,
+        .doctrine-content a {
+          white-space: normal;
+          overflow-wrap: break-word;
+          word-break: normal;
+        }
+        .doctrine-content ul,
+        .doctrine-content ol {
+          padding-left: 1.6em;
+          margin: 0.4em 0;
+        }
+        .doctrine-content ul { list-style-type: disc; }
+        .doctrine-content ol { list-style-type: decimal; }
+        .doctrine-content li { margin-bottom: 0.2em; }
+        .doctrine-content ul ul,
+        .doctrine-content ol ul { list-style-type: circle; }
+        .doctrine-content ul ul ul { list-style-type: square; }
+        .doctrine-content a {
+          color: #2563eb;
+          text-decoration: underline;
+          cursor: pointer;
+          text-underline-offset: 2px;
+        }
+        .doctrine-content a:hover {
+          color: #1d4ed8;
+          text-decoration: underline;
+        }
+        .doctrine-content p { margin: 0.3em 0; }
+        .doctrine-content p:first-child { margin-top: 0; }
+        .doctrine-content p:last-child { margin-bottom: 0; }
+      `}</style>
 
       {showModal && (
         <div style={{
