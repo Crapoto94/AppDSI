@@ -10,7 +10,7 @@ interface Props {
 type Tab = 'ad' | 'otp' | 'guest'
 
 export default function LoginPage({ onLogin, config }: Props) {
-  const { chat_name, chat_logo, primary_color, secondary_color } = config
+  const { chat_name, chat_logo, primary_color, secondary_color, ad_name, ad_default_username } = config
   const gradient = `linear-gradient(135deg, ${primary_color}, ${secondary_color})`
 
   const [tab, setTab] = useState<Tab>('otp')
@@ -79,7 +79,7 @@ export default function LoginPage({ onLogin, config }: Props) {
   }
 
   const tabs: { id: Tab; label: string; desc: string }[] = [
-    { id: 'ad',    label: '🏢 Active Directory', desc: 'Connexion avec vos identifiants réseau' },
+    { id: 'ad',    label: `🏢 ${ad_name}`, desc: 'Connexion avec vos identifiants réseau' },
     { id: 'otp',   label: '✉️ Code par email',   desc: 'Réception d\'un code à 4 chiffres par email' },
     { id: 'guest', label: '👤 Sans vérification', desc: 'Nom et email sans authentification' },
   ]
@@ -192,7 +192,7 @@ export default function LoginPage({ onLogin, config }: Props) {
             <Field label="Identifiant Windows">
               <input
                 type="text" value={otpUsername} onChange={e => setOtpUsername(e.target.value)}
-                placeholder="prenom.nom" required autoFocus autoComplete="username"
+                placeholder={ad_default_username} required autoFocus autoComplete="username"
                 style={inputStyle}
                 onFocus={e => (e.target.style.borderColor = primary_color)}
                 onBlur={e => (e.target.style.borderColor = '#e2e8f0')}

@@ -15,6 +15,8 @@ export interface AppConfig {
   chat_logo: string
   primary_color: string
   secondary_color: string
+  ad_name: string
+  ad_default_username: string
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -24,6 +26,8 @@ const DEFAULT_CONFIG: AppConfig = {
   chat_logo: '💬',
   primary_color: '#6366f1',
   secondary_color: '#818cf8',
+  ad_name: 'Active Directory',
+  ad_default_username: 'prenom.nom',
 }
 
 const TOKEN_KEY = 'chat_dmz_token'
