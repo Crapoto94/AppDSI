@@ -14,6 +14,10 @@ start "AppDSI - Frontend" cmd /k "cd frontend && npm run dev"
 echo [3/3] Lancement du FRONTEND MAGAPP...
 start "AppDSI - MagApp Frontend" cmd /k "cd magapp-frontend && npm run dev"
 
+echo [4/3] Lancement du FRONTEND CHAT...
+start "AppDSI - Chat Frontend" cmd /k "cd chat-frontend && npm run dev"
+
+
 echo.
 echo ==========================================
 echo  Tous les services ont ete lances !

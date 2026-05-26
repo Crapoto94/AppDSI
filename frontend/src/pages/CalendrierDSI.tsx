@@ -246,6 +246,12 @@ export default function CalendrierDSI() {
         body: JSON.stringify({ username, is_manager: isManagerFlag })
       });
       await fetchManagerList();
+      // Refresh current user's manager status if they're the one being modified
+      const userRes = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (userRes.ok) {
+        const data = await userRes.json();
+        setIsManager(data.est_manager || data.role === 'admin');
+      }
     } catch (e) { console.error('[Manager] Error toggling:', e); }
   };
 

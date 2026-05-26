@@ -471,7 +471,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
 
         // Check manager status for all users
         try {
-            const userInHub = await pgDb.get('SELECT id FROM hub.users WHERE username = $1', [user.username]);
+            const userInHub = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [user.username]);
             if (userInHub) {
                 const manager = await pgDb.get('SELECT 1 FROM hub.calendrier_managers WHERE user_id = $1', [userInHub.id]);
                 user.est_manager = !!(manager || isAdminLike(user));
@@ -4063,13 +4063,39 @@ app.post('/api/admin/manager/toggle', authenticateAdmin, async (req, res) => {
         const { username, is_manager } = req.body;
 
         // Get user from PostgreSQL
-        const user = await pgDb.get(
+        let user = await pgDb.get(
             'SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)',
             [username]
         );
 
+        // If user doesn't exist in hub.users and we're trying to add as manager,
+        // search in AD and create the user if found
+        if (!user && is_manager) {
+            try {
+                const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+                if (adSettings && adSettings.is_enabled) {
+                    const adResults = await searchADUsersByQuery(username, adSettings);
+                    const adUser = adResults.find(u => u.username.toLowerCase() === username.toLowerCase());
+
+                    if (adUser) {
+                        // Create user in hub.users
+                        const result = await pgDb.run(
+                            `INSERT INTO hub.users (username, displayName, email, role)
+                             VALUES ($1, $2, $3, 'user')
+                             ON CONFLICT (username) DO UPDATE SET displayName = $2, email = $3
+                             RETURNING id`,
+                            [username.toLowerCase(), adUser.displayName || username, adUser.email || '']
+                        );
+                        user = { id: result.lastID || result.id };
+                    }
+                }
+            } catch (e) {
+                console.error('[MANAGERS] Error searching AD:', e);
+            }
+        }
+
         if (!user) {
-            return res.status(404).json({ message: 'Utilisateur non trouvé' });
+            return res.status(404).json({ message: 'Utilisateur non trouvé dans la base ni en Active Directory' });
         }
 
         if (is_manager) {
