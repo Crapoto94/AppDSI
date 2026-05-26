@@ -119,7 +119,17 @@ export default function TicketsDashboard() {
     return params;
   }, [activeFilter, activeUserFilter, search, activeRequesterEmail, activeCategory, activeSubcategory, activeSoftware, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
 
-  const loadData = useCallback(async (filter?: string | null, userFilter?: string | null, pageNum?: number, searchValue: string = search, categoryId?: number | null, subcategoryId?: number | null, softwareId?: number | null, requesterEmail?: string | null) => {
+  const loadData = useCallback(async (
+    filter?: string | null,
+    userFilter?: string | null,
+    pageNum?: number,
+    searchValue: string = search,
+    categoryId?: number | null,
+    subcategoryId?: number | null,
+    softwareId?: number | null,
+    requesterEmail?: string | null,
+    isLiveOverride?: boolean
+  ) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -159,7 +169,8 @@ export default function TicketsDashboard() {
       if (softwareId) {
         params.software_id = String(softwareId);
       }
-      if (activeLiveFilter) {
+      const isLiveActive = isLiveOverride !== undefined ? isLiveOverride : activeLiveFilter;
+      if (isLiveActive) {
         params.is_live = 'true';
         params.status_in = '1,2,3,4,5,6';
       }
@@ -321,14 +332,15 @@ export default function TicketsDashboard() {
   }, []);
 
   function handleFilterClick(key: string) {
+    setActiveLiveFilter(false);
     if (activeFilter === key) {
       setActiveFilter(null);
       setPage(1);
-      loadData(null, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
+      loadData(null, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, null, false);
     } else {
       setActiveFilter(key);
       setPage(1);
-      loadData(key, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
+      loadData(key, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, null, false);
     }
   }
 
