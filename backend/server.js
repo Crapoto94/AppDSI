@@ -5157,4 +5157,51 @@ function findVal(obj, keys) {
     return '';
 }
 
+// DEBUG endpoint to check tiles and authorizations
+app.get('/api/debug/tiles/:username', authenticateAdmin, async (req, res) => {
+    try {
+        const username = req.params.username;
+
+        // Get all tiles
+        const allTiles = await db.all(`SELECT id, title, icon, status FROM tiles ORDER BY id`);
+
+        // Get all tile links
+        const allLinks = await db.all(`SELECT tile_id, label, url FROM tile_links ORDER BY tile_id`);
+
+        // Get user
+        const user = await db.get(`SELECT id, username FROM users WHERE username = ? OR username = ?`, [username, username.toLowerCase()]);
+
+        let userTiles = [];
+        let userAuthorizations = [];
+        if (user) {
+            userTiles = await db.all(`
+                SELECT ut.tile_id, t.title, t.icon
+                FROM user_tiles ut
+                LEFT JOIN tiles t ON ut.tile_id = t.id
+                WHERE ut.user_id = ?
+            `, [user.id]);
+
+            userAuthorizations = await db.all(`
+                SELECT ut.tile_id, t.title, tl.url
+                FROM user_tiles ut
+                LEFT JOIN tiles t ON ut.tile_id = t.id
+                LEFT JOIN tile_links tl ON t.id = tl.tile_id
+                WHERE ut.user_id = ?
+            `, [user.id]);
+        }
+
+        res.json({
+            username,
+            user: user || null,
+            allTiles,
+            allLinks,
+            userTiles,
+            userAuthorizations,
+            consommablesTile: allTiles.find(t => t.title.includes('Consommable'))
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 

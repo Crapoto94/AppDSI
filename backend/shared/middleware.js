@@ -218,10 +218,15 @@ const authenticateConsommablesAdmin = (req, res, next) => {
         try {
             const db = getSqlite();
             if (req.user && req.user.id && db) {
+                // Check by URL or by tile title containing "Consommable"
                 const authorized = await db.get(`
                     SELECT 1 FROM user_tiles ut
-                    JOIN tile_links tl ON ut.tile_id = tl.tile_id
-                    WHERE ut.user_id = ? AND (tl.url = '/consommables' OR tl.url LIKE '/consommables%')
+                    LEFT JOIN tile_links tl ON ut.tile_id = tl.tile_id
+                    LEFT JOIN tiles t ON ut.tile_id = t.id
+                    WHERE ut.user_id = ? AND (
+                        (tl.url = '/consommables' OR tl.url LIKE '/consommables%')
+                        OR t.title LIKE '%Consommable%'
+                    )
                 `, [req.user.id]);
 
                 console.log(`[AUTH CONSOMMABLES] User ${req.user.username} (ID: ${req.user.id}) tile check result:`, !!authorized);
