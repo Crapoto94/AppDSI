@@ -213,28 +213,46 @@ const authenticateAdminOrPMO = (req, res, next) => {
  */
 const authenticateConsommablesAdmin = (req, res, next) => {
     authenticateJWT(req, res, async () => {
+        console.log(`[AUTH CONSOMMABLES] Checking access for user: ${req.user?.username}, role: ${req.user?.role}`);
+
         if (isAdminLike(req.user)) {
+            console.log(`[AUTH CONSOMMABLES] User ${req.user.username} is admin/superadmin - access granted`);
             return next();
         }
+
         try {
             const db = getSqlite();
+            console.log(`[AUTH CONSOMMABLES] DB available: ${!!db}, user.id: ${req.user?.id}`);
+
             if (req.user && req.user.id && db) {
                 // Check if user has access to ANY tile with "Consommable" in the title
                 // This gives full admin access regardless of which specific link they're authorized for
                 const authorized = await db.get(`
-                    SELECT 1 FROM user_tiles ut
+                    SELECT ut.tile_id, t.title FROM user_tiles ut
                     JOIN tiles t ON ut.tile_id = t.id
                     WHERE ut.user_id = ? AND t.title LIKE '%Consommable%'
                 `, [req.user.id]);
 
-                console.log(`[AUTH CONSOMMABLES] User ${req.user.username} (ID: ${req.user.id}) tile check result:`, !!authorized);
-                if (authorized) return next();
+                console.log(`[AUTH CONSOMMABLES] Query result for user ${req.user.username}:`, authorized);
+
+                if (authorized) {
+                    console.log(`[AUTH CONSOMMABLES] User ${req.user.username} has tile "${authorized.title}" (ID: ${authorized.tile_id}) - access GRANTED`);
+                    return next();
+                }
+
+                // Also log all tiles the user has access to
+                const allUserTiles = await db.all(`
+                    SELECT ut.tile_id, t.title FROM user_tiles ut
+                    LEFT JOIN tiles t ON ut.tile_id = t.id
+                    WHERE ut.user_id = ?
+                `, [req.user.id]);
+                console.log(`[AUTH CONSOMMABLES] All tiles for user ${req.user.username}:`, allUserTiles);
             }
         } catch (error) {
             console.error('[AUTH CONSOMMABLES] Error checking tile access:', error);
         }
 
-        console.log(`[AUTH CONSOMMABLES] Access denied for ${req.user?.username}`);
+        console.log(`[AUTH CONSOMMABLES] Access DENIED for ${req.user?.username}`);
         res.status(403).json({ message: 'Accès refusé : administrateur ou accès consommables requis' });
     });
 };
