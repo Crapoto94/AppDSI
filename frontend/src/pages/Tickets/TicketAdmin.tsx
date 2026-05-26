@@ -27,6 +27,8 @@ export default function TicketAdmin() {
   const [liveCalendars, setLiveCalendars] = useState<any[]>([]);
   const [liveScheduleToggling, setLiveScheduleToggling] = useState(false);
   const [liveStats, setLiveStats] = useState<any>(null);
+  const [closingMessage, setClosingMessage] = useState('');
+  const [closingMessageSaving, setClosingMessageSaving] = useState(false);
 
   const DAY_NAMES: Record<number, string> = { 1: 'Lun', 2: 'Mar', 3: 'Mer', 4: 'Jeu', 5: 'Ven', 6: 'Sam', 7: 'Dim' };
 
@@ -38,6 +40,7 @@ export default function TicketAdmin() {
         setLiveEnabled(r.data.live_enabled);
         setLiveUseSchedule(!!r.data.live_use_schedule);
         setLiveCalendarId(r.data.live_calendar_id ?? null);
+        setClosingMessage(r.data.closing_message || '');
       })
       .catch(() => setLiveEnabled(true));
     axios.get('/api/live/calendars', { headers: { Authorization: `Bearer ${token}` } })
@@ -79,6 +82,15 @@ export default function TicketAdmin() {
       const r = await axios.put('/api/live/config', { live_calendar_id: calId }, { headers: { Authorization: `Bearer ${token}` } });
       setLiveEnabled(r.data.live_enabled);
     } catch (e) { console.error(e); }
+  }
+
+  async function saveClosingMessage() {
+    const token = localStorage.getItem('token');
+    setClosingMessageSaving(true);
+    try {
+      await axios.put('/api/live/config', { closing_message: closingMessage }, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) { console.error(e); }
+    finally { setClosingMessageSaving(false); }
   }
 
   useEffect(() => {
@@ -270,6 +282,49 @@ export default function TicketAdmin() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* ── Message de fermeture ──────────────────────────────── */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: 12, padding: '16px 20px',
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>
+                💬 Message affiché lorsque le chat est fermé
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+                Ce message est affiché aux utilisateurs quand le live chat est désactivé (hors horaires ou fermé manuellement).
+              </div>
+              <textarea
+                value={closingMessage}
+                onChange={e => setClosingMessage(e.target.value)}
+                placeholder="Ex : Le support live est actuellement fermé. Nos horaires sont du lundi au vendredi de 8h à 17h. Vous pouvez créer un ticket ou nous contacter par email."
+                rows={3}
+                style={{
+                  width: '100%', padding: '10px 12px',
+                  border: '1.5px solid #e2e8f0', borderRadius: 8,
+                  fontSize: 13, fontFamily: 'inherit', resize: 'vertical',
+                  outline: 'none', boxSizing: 'border-box', color: '#1e293b',
+                }}
+                onFocus={e => (e.target.style.borderColor = '#6366f1')}
+                onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+              />
+              <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={saveClosingMessage}
+                  disabled={closingMessageSaving}
+                  style={{
+                    padding: '8px 20px',
+                    background: closingMessageSaving ? '#a5b4fc' : '#6366f1',
+                    color: '#fff', border: 'none', borderRadius: 8,
+                    fontWeight: 600, cursor: 'pointer', fontSize: 13,
+                    opacity: closingMessageSaving ? 0.7 : 1,
+                  }}
+                >
+                  {closingMessageSaving ? '⏳ Enregistrement…' : '💾 Enregistrer'}
+                </button>
+              </div>
             </div>
 
             {/* ── KPIs live chat ────────────────────────────────────── */}
