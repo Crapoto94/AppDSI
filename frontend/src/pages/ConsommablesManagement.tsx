@@ -61,6 +61,14 @@ const CART_STORAGE_KEY = 'consommables_cart';
 
 const ConsommablesManagement: React.FC = () => {
   const { user, token } = useAuth();
+
+  // Check if user is admin (by role or by authorized_urls)
+  const isAdminForConsommables =
+    user?.role === 'admin' ||
+    user?.role === 'superadmin' ||
+    (user?.authorized_urls?.some((url: string) => '/consommables' === url || '/consommables'.startsWith(url + '/')) &&
+     user?.authorized_urls?.includes('/consommables'));
+
   const [activeTab, setActiveTab] = useState<'requests' | 'catalog' | 'images' | 'recap'>('requests');
   const [requests, setRequests] = useState<ConsumableRequest[]>([]);
   const [catalogArticles, setCatalogArticles] = useState<ConsumableArticle[]>([]);
@@ -628,7 +636,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
         )}
 
         {/* Tabs (admin only) */}
-        {(user?.role === 'admin' || user?.role === 'superadmin') && (() => {
+        {isAdminForConsommables && (() => {
           const demandesCount = requests.filter(r => !r.archived && r.status === 'pending').length;
           const aCommanderCount = requests.filter(r => !r.archived && r.status === 'approved').length;
           const commandeesCount = requests.filter(r => !r.archived && r.status === 'ordered').length;
