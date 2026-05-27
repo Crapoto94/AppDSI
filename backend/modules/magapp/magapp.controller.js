@@ -466,15 +466,15 @@ const MagAppController = {
                 WITH all_tickets AS (
                     SELECT DISTINCT ON (x.glpi_id) x.glpi_id, x.title, x.content, x.status,
                            x.type, x.date_creation, x.solution,
-                           x.requester_email_22, x.requester_name
+                           x.requester_email_22, x.requester_name, x.source
                     FROM (
                         SELECT 0 AS src_prio, glpi_id, title, content, status, type,
-                               date_creation, solution, requester_email_22, requester_name
+                               date_creation, solution, requester_email_22, requester_name, source
                         FROM hub_tickets.tickets
                         UNION ALL
                         SELECT 1, glpi_id, title, content, status, type,
                                CASE WHEN date_creation ~ '^\d{4}-\d{2}-\d{2}' THEN date_creation::TIMESTAMP ELSE NULL END AS date_creation,
-                               solution, requester_email_22, requester_name
+                               solution, requester_email_22, requester_name, source
                         FROM glpi.tickets
                     ) x
                     ORDER BY x.glpi_id, x.src_prio
@@ -503,7 +503,7 @@ const MagAppController = {
                     ) _
                     WHERE uid ~ '^\d+$'
                 )
-                SELECT t.glpi_id, t.title, t.content, s.label as status_label, t.date_creation, t.type, t.status, t.solution,
+                SELECT t.glpi_id, t.title, t.content, s.label as status_label, t.date_creation, t.type, t.status, t.solution, t.source,
                        COALESCE(NULLIF(t.requester_email_22, ''), '') as requester_email,
                        COALESCE(NULLIF(t.requester_name, ''), t.requester_email_22, '') as requester_name
                 FROM all_tickets t

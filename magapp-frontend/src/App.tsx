@@ -55,6 +55,7 @@ interface Ticket {
   status: { id: number; label: string };
   type: string;
   date_creation: string | null;
+  source?: string | null;
 }
 
 function App() {
@@ -95,7 +96,7 @@ function App() {
   const [showCreateIdea, setShowCreateIdea] = useState(false);
   const [showMyIdeas, setShowMyIdeas] = useState(false);
   const [showObservedTickets, setShowObservedTickets] = useState(false);
-  const [observedTickets, setObservedTickets] = useState<{glpi_id: number, title: string, status_label: string, date_creation: string, type: string, status: string, solution: string, content: string, requester_name: string, requester_email: string}[]>([]);
+  const [observedTickets, setObservedTickets] = useState<{glpi_id: number, title: string, status_label: string, date_creation: string, type: string, status: string, solution: string, content: string, requester_name: string, requester_email: string, source: string}[]>([]);
   const [showClosedObserved, setShowClosedObserved] = useState(false);
   const [showRencontres, setShowRencontres] = useState(false);
   const [rencontres] = useState<any[]>([]);
@@ -942,6 +943,11 @@ function App() {
       </div>
       
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+        {ticket.source && (
+          <div style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+            {ticket.source}
+          </div>
+        )}
         <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
           {ticket.date_creation ? formatDate(ticket.date_creation) : ''}
         </div>
@@ -1725,8 +1731,11 @@ function App() {
                                         {ticket.status_label || 'Inconnu'}
                                       </span>
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '8px' }}>
-                                      Créé le {formatDate(ticket.date_creation)}
+                                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      {ticket.source && (
+                                        <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>{ticket.source}</span>
+                                      )}
+                                      <span>Créé le {formatDate(ticket.date_creation)}</span>
                                     </div>
                                   </div>
                                 ))}
