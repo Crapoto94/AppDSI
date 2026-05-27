@@ -160,34 +160,24 @@ class MailCollectorService {
   static async createTicket(email, classificationResult, collector) {
     const from = this.extractFromEmail(email);
     const subject = (email.subject || 'Sans titre').substring(0, 255);
-    const bodyPreview = email.bodyPreview || '';
+    const bodyContent = email.body?.content
+      ? email.body.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 1000)
+      : (email.bodyPreview || '');
 
-    const ticketData = {
+    const ticketId = await ticketRepo.create({
       title: subject,
-      content: bodyPreview.substring(0, 1000),
+      content: bodyContent,
       requester_name: from.name,
-      requester_email_22: from.email,
-      type: classificationResult.type,
+      requester_email: from.email,
+      type: String(classificationResult.type),
       source: 'mail',
       status: 1,
       priority: 3,
       urgency: 3,
       impact: 2
-    };
+    });
 
-    const result = await pgDb.run(
-      `INSERT INTO hub_tickets.tickets (
-        title, content, requester_name, requester_email_22, type, source,
-        status, priority, urgency, impact, date_creation, date_mod
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [
-        ticketData.title, ticketData.content, ticketData.requester_name,
-        ticketData.requester_email_22, ticketData.type, ticketData.source,
-        ticketData.status, ticketData.priority, ticketData.urgency, ticketData.impact
-      ]
-    );
-
-    return result.lastID;
+    return ticketId;
   }
 
   static async addObservers(ticketId, email) {
