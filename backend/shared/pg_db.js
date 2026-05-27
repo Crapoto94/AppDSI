@@ -726,6 +726,63 @@ async function setupPgDb() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.mail_collectors (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        mailbox VARCHAR(255) NOT NULL UNIQUE,
+        domain_filter VARCHAR(255),
+        is_enabled BOOLEAN DEFAULT true,
+        frequency VARCHAR(50) DEFAULT 'hourly',
+        last_run TIMESTAMP,
+        next_run TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.mail_rules (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        keywords TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT true,
+        priority INTEGER DEFAULT 100,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.mail_collector_logs (
+        id SERIAL PRIMARY KEY,
+        collector_id INTEGER NOT NULL REFERENCES hub_tickets.mail_collectors(id) ON DELETE CASCADE,
+        run_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        emails_received INTEGER DEFAULT 0,
+        emails_imported INTEGER DEFAULT 0,
+        emails_skipped INTEGER DEFAULT 0,
+        emails_failed INTEGER DEFAULT 0,
+        tickets_created INTEGER DEFAULT 0,
+        comments_added INTEGER DEFAULT 0,
+        attachments_processed INTEGER DEFAULT 0,
+        errors TEXT,
+        status VARCHAR(50) DEFAULT 'success'
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_email_mapping (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        email_message_id VARCHAR(255) NOT NULL UNIQUE,
+        email_in_reply_to VARCHAR(255),
+        is_initial_email BOOLEAN DEFAULT true,
+        email_from VARCHAR(255),
+        email_received_at TIMESTAMP,
+        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.categories (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,

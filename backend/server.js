@@ -5144,6 +5144,9 @@ app.use('/api/live', liveRouter);
 // GED / Alfresco
 app.use('/api/ged', require('./modules/ged/ged.routes'));
 
+// Mail Collector
+app.use('/api/mail-collector', require('./modules/mail_collector/mail_collector.routes'));
+
 // Public reply routes (no auth)
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));
 app.post('/api/public/reply/:token', (req, res) => ticketsCtrl.submitPublicReply(req, res));
@@ -5151,6 +5154,20 @@ app.post('/api/public/reply/:token', (req, res) => ticketsCtrl.submitPublicReply
 // Charger les permissions tickets depuis la DB au démarrage
 const { loadPermissionsFromDb } = require('./modules/tickets/middleware/ticket-permissions');
 loadPermissionsFromDb().catch(e => console.error('[TICKETS] loadPermissions failed:', e.message));
+
+// Initialiser Mail Collector
+(async () => {
+  try {
+    const MailRulesService = require('./modules/mail_collector/mail_rules.service');
+    const MailScheduler = require('./modules/mail_collector/mail_scheduler');
+
+    await MailRulesService.createDefaultRules();
+    await MailScheduler.initSchedules();
+    console.log('[MAIL COLLECTOR] Initialized');
+  } catch (e) {
+    console.error('[MAIL COLLECTOR] Init error:', e.message);
+  }
+})();
 
 // Cron: Vérification SLA toutes les minutes
 cron.schedule('* * * * *', async () => {

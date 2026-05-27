@@ -47,6 +47,7 @@ import TicketAdmin from './pages/Tickets/TicketAdmin';
 import AdminGED from './pages/AdminGED';
 import PublicTicketReply from './pages/PublicTicketReply';
 import ChatWidget from './components/LiveChat/ChatWidget';
+import MailCollector from './pages/Admin/MailCollector';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -164,6 +165,7 @@ function App() {
           <Route path="email-automation" element={<AdminMail />} />
           <Route path="backlog" element={<AdminBacklogMerged />} />
           <Route path="o365-mail" element={<AdminMail />} />
+          <Route path="mail-collector" element={<MailCollector />} />
           <Route path="organisation" element={<AdminOrganisation />} />
           <Route path="tickets" element={<TicketAdmin />} />
           <Route path="ged" element={<AdminGED />} />
