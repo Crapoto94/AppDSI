@@ -7,13 +7,24 @@ class MailScheduler {
 
   static frequencyToCron(frequency) {
     switch (frequency) {
-      case 'every_15_min': return '*/15 * * * *';
-      case 'hourly': return '0 * * * *';
-      case '4_hours': return '0 */4 * * *';
-      case 'daily': return '0 2 * * *';
-      case 'manual': return null;
-      default: return '0 * * * *';
+      case 'every_minute':  return '* * * * *';
+      case 'every_5_min':   return '*/5 * * * *';
+      case 'every_15_min':  return '*/15 * * * *';
+      case 'hourly':        return '0 * * * *';
+      case '4_hours':       return '0 */4 * * *';
+      case 'daily':         return '0 2 * * *';
+      case 'manual':        return null;
+      default:              return '0 * * * *';
     }
+  }
+
+  static async runCollector(collector) {
+    const module = collector.module || 'tickets';
+    if (module === 'copieurs') {
+      const { importEmailsService } = require('../copieurs/copieurs_mail.service');
+      return await importEmailsService(collector.mailbox, collector.domain_filter);
+    }
+    return await MailCollectorService.performCollection(collector.id);
   }
 
   static async initSchedules() {
@@ -25,8 +36,7 @@ class MailScheduler {
       for (const collector of collectors) {
         const cronExpr = this.frequencyToCron(collector.frequency);
         if (!cronExpr) continue;
-
-        this.scheduleCollector(collector.id, cronExpr);
+        this.scheduleCollector(collector, cronExpr);
       }
 
       console.log(`✅ Mail Scheduler: ${collectors.length} collecteurs initialisés`);
@@ -35,7 +45,8 @@ class MailScheduler {
     }
   }
 
-  static scheduleCollector(collectorId, cronExpr) {
+  static scheduleCollector(collector, cronExpr) {
+    const collectorId = typeof collector === 'object' ? collector.id : collector;
     if (this.tasks[collectorId]) {
       this.tasks[collectorId].stop();
     }
@@ -43,7 +54,8 @@ class MailScheduler {
     this.tasks[collectorId] = cron.schedule(cronExpr, async () => {
       try {
         console.log(`[MailScheduler] Collecte démarrée: collecteur ${collectorId}`);
-        const log = await MailCollectorService.performCollection(collectorId);
+        const col = typeof collector === 'object' ? collector : await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
+        const log = await this.runCollector(col);
         console.log(`[MailScheduler] Collecte terminée: ${log.emails_imported}/${log.emails_received} importés`);
       } catch (error) {
         console.error(`[MailScheduler] Erreur collecte ${collectorId}:`, error.message);
@@ -63,7 +75,8 @@ class MailScheduler {
   static async updateCollectorSchedule(collectorId, newFrequency) {
     const cronExpr = this.frequencyToCron(newFrequency);
     if (cronExpr) {
-      this.scheduleCollector(collectorId, cronExpr);
+      const collector = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
+      this.scheduleCollector(collector, cronExpr);
     } else {
       this.stopCollector(collectorId);
     }
@@ -72,7 +85,8 @@ class MailScheduler {
   static async onCollectorCreated(collectorId, frequency) {
     const cronExpr = this.frequencyToCron(frequency);
     if (cronExpr) {
-      this.scheduleCollector(collectorId, cronExpr);
+      const collector = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
+      this.scheduleCollector(collector, cronExpr);
     }
   }
 
@@ -84,9 +98,7 @@ class MailScheduler {
     if (isEnabled) {
       const collector = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
       const cronExpr = this.frequencyToCron(collector.frequency);
-      if (cronExpr) {
-        this.scheduleCollector(collectorId, cronExpr);
-      }
+      if (cronExpr) this.scheduleCollector(collector, cronExpr);
     } else {
       this.stopCollector(collectorId);
     }

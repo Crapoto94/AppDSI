@@ -733,12 +733,14 @@ async function setupPgDb() {
         domain_filter VARCHAR(255),
         is_enabled BOOLEAN DEFAULT true,
         frequency VARCHAR(50) DEFAULT 'hourly',
+        module VARCHAR(50) DEFAULT 'tickets',
         last_run TIMESTAMP,
         next_run TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    await client.query(`ALTER TABLE hub_tickets.mail_collectors ADD COLUMN IF NOT EXISTS module VARCHAR(50) DEFAULT 'tickets'`);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.mail_rules (

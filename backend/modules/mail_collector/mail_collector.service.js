@@ -434,6 +434,12 @@ class MailCollectorService {
   static getNextRunTime(frequency, fromDate = new Date()) {
     const next = new Date(fromDate);
     switch (frequency) {
+      case 'every_minute':
+        next.setMinutes(next.getMinutes() + 1);
+        break;
+      case 'every_5_min':
+        next.setMinutes(next.getMinutes() + 5);
+        break;
       case 'every_15_min':
         next.setMinutes(next.getMinutes() + 15);
         break;
