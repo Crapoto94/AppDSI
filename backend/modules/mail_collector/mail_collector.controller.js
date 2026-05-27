@@ -173,7 +173,7 @@ module.exports = {
   testConfig: async (req, res) => {
     try {
       const sqlite = getSqlite();
-      const o365Settings = await sqlite.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+      const o365Settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
 
       if (!o365Settings || !o365Settings.is_enabled) {
         return res.status(400).json({

@@ -400,17 +400,14 @@ class MailCollectorService {
     }
 
     const sqlite = getSqlite();
-    const azureSettings = await sqlite.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+    const o365Settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
 
-    if (!azureSettings || !azureSettings.is_enabled || !azureSettings.client_id || !azureSettings.client_secret || !azureSettings.tenant_id) {
-      throw new Error('O365 non configuré dans les paramètres');
+    if (!o365Settings || !o365Settings.is_enabled || !o365Settings.client_id || !o365Settings.client_secret || !o365Settings.tenant_id) {
+      throw new Error('O365 non configuré dans les paramètres (/admin > Messagerie & Emails)');
     }
 
-    // Utiliser les credentials Azure AD + mailbox du collecteur
-    const o365Settings = {
-      ...azureSettings,
-      mailbox: collector.mailbox
-    };
+    // Credentials depuis o365_settings, mailbox propre à ce collecteur
+    o365Settings.mailbox = collector.mailbox;
 
     const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || null;
     const axiosOpts = proxyUrl
