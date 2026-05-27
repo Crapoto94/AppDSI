@@ -72,10 +72,10 @@ export default function MailCollector() {
     if (selectedTab === 'collectors') loadCollectors();
     else if (selectedTab === 'rules') loadRules();
     else if (selectedTab === 'logs') {
+      if (collectors.length === 0) loadCollectors();
       if (selectedCollectorId) loadLogs(selectedCollectorId);
-      else loadCollectors().then(() => {});
     }
-  }, [selectedTab]);
+  }, [selectedTab, selectedCollectorId]);
 
   const loadCollectors = async () => {
     setLoading(true);
@@ -170,6 +170,16 @@ export default function MailCollector() {
 
   const statusColor = (s: string) => s === 'success' ? '#28a745' : s === 'partial_error' ? '#fd7e14' : '#dc3545';
 
+  const purgeInvalidTickets = async () => {
+    if (!confirm('Supprimer tous les tickets sans numéro (glpi_id null ou 0) et les mappings orphelins ?')) return;
+    try {
+      const res = await axios.post('/api/mail-collector/purge-invalid-tickets', {}, { headers: getHeaders() });
+      alert(res.data.message);
+    } catch (error: any) {
+      alert('Erreur: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
   const s = {
     container: { padding: '20px' },
     tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '2px solid #e9ecef', paddingBottom: '0' },
@@ -215,6 +225,9 @@ export default function MailCollector() {
         <>
           <button style={s.btn('#28a745')} onClick={() => setShowNewCollector(!showNewCollector)}>
             {showNewCollector ? '✕ Annuler' : '+ Nouvelle boîte'}
+          </button>
+          <button style={{ ...s.btn('#dc3545'), marginLeft: 8 }} onClick={purgeInvalidTickets}>
+            Supprimer tickets sans numéro
           </button>
 
           {showNewCollector && (

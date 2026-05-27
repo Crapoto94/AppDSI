@@ -164,6 +164,8 @@ class MailCollectorService {
       ? email.body.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 1000)
       : (email.bodyPreview || '');
 
+    const emailDate = email.receivedDateTime ? new Date(email.receivedDateTime).toISOString() : new Date().toISOString();
+
     const ticketId = await ticketRepo.create({
       title: subject,
       content: bodyContent,
@@ -171,6 +173,7 @@ class MailCollectorService {
       requester_email: from.email,
       type: String(classificationResult.type),
       source: 'mail',
+      date_creation: emailDate,
       status: 1,
       priority: 3,
       urgency: 3,

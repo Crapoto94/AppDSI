@@ -205,7 +205,7 @@ module.exports = {
             id, data.title, data.content || '', data.status || 1,
             data.priority || 3, data.urgency || 3, data.impact || 2,
             String(data.type || 1), data.category || '',
-            new Date().toISOString(), 'hub',
+            data.date_creation || new Date().toISOString(), data.source || 'hub',
             data.requester_name || '', data.requester_email || '',
             data.location || '', data.solution || '', !!data.is_vip,
             data.resolution_method || null, data.knowledge_article || null,

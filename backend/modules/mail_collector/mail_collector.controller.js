@@ -171,6 +171,31 @@ module.exports = {
     }
   },
 
+  purgeInvalidTickets: async (req, res) => {
+    try {
+      // Supprime tickets sans glpi_id valide (null ou 0)
+      const nullResult = await pgDb.run(
+        'DELETE FROM hub_tickets.tickets WHERE glpi_id IS NULL OR glpi_id = 0'
+      );
+
+      // Supprime les mappings email qui pointent vers des tickets inexistants
+      const orphanResult = await pgDb.run(
+        `DELETE FROM hub_tickets.ticket_email_mapping
+         WHERE ticket_id IS NULL
+            OR NOT EXISTS (SELECT 1 FROM hub_tickets.tickets t WHERE t.glpi_id = ticket_email_mapping.ticket_id)`
+      );
+
+      const deleted = (nullResult.changes || 0) + (orphanResult.changes || 0);
+      res.json({
+        message: `${nullResult.changes || 0} ticket(s) sans numéro supprimé(s), ${orphanResult.changes || 0} mapping(s) orphelins supprimés`,
+        tickets_deleted: nullResult.changes || 0,
+        mappings_deleted: orphanResult.changes || 0
+      });
+    } catch (error) {
+      res.status(500).json({ message: 'Erreur purge', error: error.message });
+    }
+  },
+
   testConfig: async (req, res) => {
     try {
       const sqlite = getSqlite();

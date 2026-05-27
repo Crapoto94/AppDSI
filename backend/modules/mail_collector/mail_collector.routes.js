@@ -19,6 +19,7 @@ router.delete('/rules/:id', authenticateAdmin, mailRulesController.delete);
 // Mail Collectors - routes publiques (authentifiées)
 router.get('/', authenticateJWT, mailCollectorController.getAll);
 router.get('/stats', authenticateJWT, mailCollectorController.getStats);
+router.post('/purge-invalid-tickets', authenticateAdmin, mailCollectorController.purgeInvalidTickets);
 
 // Mail Collectors - admin only
 router.post('/', authenticateAdmin, mailCollectorController.create);
