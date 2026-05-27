@@ -277,13 +277,7 @@ class MailCollectorService {
 
     try {
       let allEmails = [];
-      const filterDate = collector.last_run ? new Date(collector.last_run).toISOString() : null;
-      let filter = filterDate ? `receivedDateTime ge ${filterDate}` : '';
-
-      if (collector.domain_filter) {
-        const domainFilter = `from/emailAddress/address endsWith '${collector.domain_filter.replace(/'/g, "''")}'`;
-        filter = filter ? `${filter} and ${domainFilter}` : domainFilter;
-      }
+      const lastRunTime = collector.last_run ? new Date(collector.last_run).getTime() : 0;
 
       let nextLink = null;
       const firstRes = await axios.get(
@@ -292,23 +286,35 @@ class MailCollectorService {
           ...axiosOpts,
           headers: { Authorization: `Bearer ${token}` },
           params: {
-            $filter: filter || undefined,
             $top: 100,
-            $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,inReplyTo,hasAttachments'
+            $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,hasAttachments'
           }
         }
       );
 
-      allEmails.push(...(firstRes.data.value || []));
-      nextLink = firstRes.data['@odata.nextLink'] || null;
+      let pageEmails = firstRes.data.value || [];
+      for (const email of pageEmails) {
+        if (new Date(email.receivedDateTime).getTime() >= lastRunTime) {
+          allEmails.push(email);
+        }
+      }
 
-      while (nextLink) {
+      nextLink = firstRes.data['@odata.nextLink'] || null;
+      let oldestInPage = pageEmails.length > 0 ? new Date(pageEmails[pageEmails.length - 1].receivedDateTime).getTime() : 0;
+
+      while (nextLink && oldestInPage >= lastRunTime) {
         const pageRes = await axios.get(nextLink, {
           ...axiosOpts,
           headers: { Authorization: `Bearer ${token}` }
         });
-        allEmails.push(...(pageRes.data.value || []));
+        pageEmails = pageRes.data.value || [];
+        for (const email of pageEmails) {
+          if (new Date(email.receivedDateTime).getTime() >= lastRunTime) {
+            allEmails.push(email);
+          }
+        }
         nextLink = pageRes.data['@odata.nextLink'] || null;
+        oldestInPage = pageEmails.length > 0 ? new Date(pageEmails[pageEmails.length - 1].receivedDateTime).getTime() : 0;
       }
 
       log.emails_received = allEmails.length;
@@ -324,6 +330,14 @@ class MailCollectorService {
           if (existing) {
             log.emails_skipped++;
             continue;
+          }
+
+          if (collector.domain_filter) {
+            const senderEmail = email.from?.emailAddress?.address || '';
+            if (!senderEmail.toLowerCase().endsWith(collector.domain_filter.toLowerCase())) {
+              log.emails_skipped++;
+              continue;
+            }
           }
 
           // Detect reply emails by subject line (RE: or FW:) or inReplyTo
@@ -406,8 +420,8 @@ class MailCollectorService {
       return log;
     } catch (error) {
       log.status = 'failed';
-      log.errors.push(error.message);
-      throw error;
+      log.errors.push(error.response?.data ? JSON.stringify(error.response.data) : error.message);
+      return log;
     }
   }
 
@@ -417,23 +431,35 @@ class MailCollectorService {
       return null;
     }
 
-    const sqlite = getSqlite();
-    const o365Settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
+    let log = {
+      collector_id: collectorId,
+      emails_received: 0, emails_imported: 0, emails_skipped: 0, emails_failed: 0,
+      tickets_created: 0, comments_added: 0, attachments_processed: 0,
+      errors: [], status: 'success'
+    };
 
-    if (!o365Settings || !o365Settings.is_enabled || !o365Settings.client_id || !o365Settings.client_secret || !o365Settings.tenant_id) {
-      throw new Error('O365 non configuré dans les paramètres (/admin > Messagerie & Emails)');
+    try {
+      const sqlite = getSqlite();
+      const o365Settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
+
+      if (!o365Settings || !o365Settings.is_enabled || !o365Settings.client_id || !o365Settings.client_secret || !o365Settings.tenant_id) {
+        throw new Error('O365 non configuré dans les paramètres (/admin > Messagerie & Emails)');
+      }
+
+      // Credentials depuis o365_settings, mailbox propre à ce collecteur
+      o365Settings.mailbox = collector.mailbox;
+
+      const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || null;
+      const axiosOpts = proxyUrl
+        ? { httpsAgent: new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false }), proxy: false }
+        : { httpsAgent: new https.Agent({ rejectUnauthorized: false }) };
+
+      const token = await this.getGraphToken(o365Settings);
+      log = await this.collectMailbox(collector, token, o365Settings, axiosOpts);
+    } catch (err) {
+      log.status = 'failed';
+      log.errors.push(err.response?.data ? JSON.stringify(err.response.data) : err.message);
     }
-
-    // Credentials depuis o365_settings, mailbox propre à ce collecteur
-    o365Settings.mailbox = collector.mailbox;
-
-    const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || null;
-    const axiosOpts = proxyUrl
-      ? { httpsAgent: new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false }), proxy: false }
-      : { httpsAgent: new https.Agent({ rejectUnauthorized: false }) };
-
-    const token = await this.getGraphToken(o365Settings);
-    const log = await this.collectMailbox(collector, token, o365Settings, axiosOpts);
 
     // Sauvegarder le log
     await pgDb.run(

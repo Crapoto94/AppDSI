@@ -129,6 +129,15 @@ module.exports = {
         log = await MailCollectorService.performCollection(collectorId);
       }
 
+      if (log && log.status === 'failed') {
+        logMouchard(`Collecte manuelle échouée: collecteur ${collectorId} (module ${module})`);
+        return res.status(400).json({
+          message: 'Erreur lors de la collecte',
+          detail: log.errors ? log.errors.join(' | ') : 'Erreur inconnue',
+          log: log
+        });
+      }
+
       logMouchard(`Collecte manuelle exécutée: collecteur ${collectorId} (module ${module}), ${log.emails_imported || 0}/${log.emails_received || 0} importés`);
       res.json({ message: 'Collecte exécutée', log });
     } catch (error) {

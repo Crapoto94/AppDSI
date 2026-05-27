@@ -62,6 +62,7 @@ export default function MailCollector() {
   const [selectedCollectorId, setSelectedCollectorId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [showNewCollector, setShowNewCollector] = useState(false);
+  const [editingCollectorId, setEditingCollectorId] = useState<number | null>(null);
   const [showNewRule, setShowNewRule] = useState(false);
   const [formData, setFormData] = useState<Partial<MailCollector>>({ frequency: 'hourly', module: 'tickets' });
   const [ruleData, setRuleData] = useState<Partial<MailRule>>({});
@@ -105,14 +106,19 @@ export default function MailCollector() {
     finally { setLoading(false); }
   };
 
-  const createCollector = async () => {
+  const saveCollector = async () => {
     try {
-      await axios.post('/api/mail-collector', formData, { headers: getHeaders() });
+      if (editingCollectorId) {
+        await axios.put(`/api/mail-collector/${editingCollectorId}`, formData, { headers: getHeaders() });
+      } else {
+        await axios.post('/api/mail-collector', formData, { headers: getHeaders() });
+      }
       setFormData({ frequency: 'hourly', module: 'tickets' });
       setShowNewCollector(false);
+      setEditingCollectorId(null);
       loadCollectors();
     } catch (error: any) {
-      alert('Erreur création: ' + (error.response?.data?.message || error.message));
+      alert('Erreur sauvegarde: ' + (error.response?.data?.message || error.message));
     }
   };
 
@@ -223,7 +229,15 @@ export default function MailCollector() {
       {/* ── COLLECTORS ── */}
       {selectedTab === 'collectors' && (
         <>
-          <button style={s.btn('#28a745')} onClick={() => setShowNewCollector(!showNewCollector)}>
+          <button style={s.btn('#28a745')} onClick={() => {
+            if (showNewCollector) {
+              setShowNewCollector(false);
+              setEditingCollectorId(null);
+              setFormData({ frequency: 'hourly', module: 'tickets' });
+            } else {
+              setShowNewCollector(true);
+            }
+          }}>
             {showNewCollector ? '✕ Annuler' : '+ Nouvelle boîte'}
           </button>
           <button style={{ ...s.btn('#dc3545'), marginLeft: 8 }} onClick={purgeInvalidTickets}>
@@ -256,7 +270,9 @@ export default function MailCollector() {
                   {FREQUENCIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                 </select>
               </div>
-              <button style={s.btn('#007bff')} onClick={createCollector}>Créer</button>
+              <button style={s.btn('#007bff')} onClick={saveCollector}>
+                {editingCollectorId ? 'Enregistrer' : 'Créer'}
+              </button>
             </div>
           )}
 
@@ -285,6 +301,12 @@ export default function MailCollector() {
                     <button style={s.btn(c.is_enabled ? '#6c757d' : '#28a745')} onClick={() => toggleCollector(c.id, c.is_enabled)}>
                       {c.is_enabled ? 'Désactiver' : 'Activer'}
                     </button>
+                    <button style={s.btn('#fd7e14')} onClick={() => {
+                      setFormData(c);
+                      setEditingCollectorId(c.id);
+                      setShowNewCollector(true);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}>Éditer</button>
                     <button style={s.btn('#007bff')} onClick={() => runCollector(c.id)}>▶ Collecter</button>
                     <button style={s.btn('#17a2b8')} onClick={() => { setSelectedCollectorId(c.id); setSelectedTab('logs'); }}>Logs</button>
                     <button style={s.btn('#dc3545')} onClick={() => deleteCollector(c.id)}>✕</button>
