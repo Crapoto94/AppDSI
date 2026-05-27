@@ -48,14 +48,13 @@ interface AppDoc {
 }
 
 interface Ticket {
-  glpi_id: number;
+  id: number;
   title: string;
-  status_label: string | null;
-  date_creation: string | null;
+  content: string | null;
+  solution: string | null;
+  status: { id: number; label: string };
   type: string;
-  status: number;
-  solution?: string;
-  content?: string;
+  date_creation: string | null;
 }
 
 function App() {
@@ -240,13 +239,12 @@ function App() {
         }
       };
 
-      const [cats, appsData, favs, subs, tickets, ticketsList, settingsData, tilesData] = await Promise.all([
+      const [cats, appsData, favs, subs, tickets, settingsData, tilesData] = await Promise.all([
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
         email ? fetchSafe(`${apiBase}/magapp/user-subscriptions?email=${email}`, []) : Promise.resolve([]),
-        email ? fetchSafe(`${apiBase}/magapp/tickets-count?email=${email}`, { count: 0 }) : Promise.resolve({ count: 0 }),
-        email ? fetchSafe(`${apiBase}/magapp/tickets?email=${email}`, []) : Promise.resolve([]),
+        email ? fetchSafe(`${apiBase}/tickets/?requester_email=${encodeURIComponent(email)}&limit=200`, []) : Promise.resolve([]),
         fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
@@ -255,8 +253,8 @@ function App() {
       setApps(appsData.sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
       setSubscriptions(subs);
-      setTicketCount(tickets.count || 0);
-      setUserTickets(ticketsList);
+      setTicketCount(tickets?.data?.filter((t: Ticket) => !['6','7','8'].includes(String(t.status.id)))?.length || 0);
+      setUserTickets(tickets?.data || []);
       setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
@@ -462,33 +460,32 @@ function App() {
       if (blocked) urgency = 4;
       if (isGeneral) impact = 4;
       
-      const response = await axios.post('/api/glpi/tickets', {
+      const response = await axios.post('/api/tickets/', {
         title: ticketTitle,
         content: isGeneral ? `[INCIDENT GENERAL] ${content}` : content,
         type: ticketType === 'incident' ? 1 : 2,
         urgency,
-        impact
+        impact,
+        requester_email: userEmail,
+        requester_name: displayName
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      const ticketId = response.data?.ticket?.id;
+      const ticketId = response.data.id;
       
-      // Upload des pièces jointes
+      // Upload des pièces jointes (une par une via le module tickets)
       if (ticketId && ticketAttachments.length > 0) {
-        const formData = new FormData();
-        ticketAttachments.forEach(file => {
-          formData.append('files', file);
-        });
-        try {
-          const uploadRes = await axios.post(`/api/glpi/tickets/${ticketId}/attachments`, formData, {
-            headers: { 
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          console.log('[Upload] PJ envoyées:', uploadRes.data);
-        } catch (uploadError: any) {
-          console.error('[Upload] Erreur upload PJ:', uploadError.response?.data || uploadError.message);
+        for (const file of ticketAttachments) {
+          const fd = new FormData();
+          fd.append('file', file);
+          try {
+            await axios.post(`/api/tickets/${ticketId}/attachments`, fd, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+          } catch (uploadError: any) {
+            console.error('[Upload] Erreur upload PJ:', uploadError.response?.data || uploadError.message);
+          }
         }
       }
       
@@ -505,13 +502,13 @@ function App() {
           isOpen: true,
           type: 'success',
           title: ticketType === 'incident' ? 'Incident créé' : 'Demande créée',
-          message: `${ticketType === 'incident' ? 'Votre incident' : 'Votre demande'} a été créé avec succès.\nNuméro GLPI: ${ticketId}`,
+          message: `${ticketType === 'incident' ? 'Votre incident' : 'Votre demande'} a été créé avec succès.\nNuméro: ${ticketId}`,
           onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
         });
         
-        // Récupérer immédiatement le ticket créé depuis GLPI et l'ajouter à la liste
+        // Récupérer immédiatement le ticket créé et l'ajouter à la liste
         try {
-          const newTicketRes = await axios.get(`/api/glpi/tickets/${ticketId}`, {
+          const newTicketRes = await axios.get(`/api/tickets/${ticketId}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           if (newTicketRes.data) {
@@ -521,8 +518,8 @@ function App() {
           console.error('Erreur fetch nouveau ticket:', e);
         }
         
-        const countRes = await axios.get(`${apiBase}/magapp/tickets-count?email=${userEmail}`);
-        setTicketCount(countRes.data.count || 0);
+        const listRes = await axios.get(`${apiBase}/tickets/?requester_email=${encodeURIComponent(userEmail)}&limit=200`);
+        setTicketCount(listRes.data?.pagination?.total || 0);
       }
     } catch (error: any) {
       console.error('Erreur création ticket:', error);
@@ -632,7 +629,7 @@ function App() {
     try {
       const token = localStorage.getItem('token');
       const content = `Signalé par ${displayName || userEmail}`;
-      await axios.post(`/api/glpi/tickets/${selectedIncidentId}/followup`, { content }, {
+      await axios.post(`/api/tickets/${selectedIncidentId}/comments`, { content, is_private: 0 }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -789,8 +786,9 @@ function App() {
   };
 
   const renderTicketsList = (tickets: Ticket[], title: string, icon: React.ReactNode, accentColor: string, showClosed: boolean, setShowClosed: (v: boolean) => void) => {
-    const openTickets = tickets.filter(t => String(t.status) !== '6');
-    const closedTickets = tickets.filter(t => String(t.status) === '6');
+    const closedStatuses = ['6', '7', '8'];
+    const openTickets = tickets.filter(t => !closedStatuses.includes(String(t.status.id)));
+    const closedTickets = tickets.filter(t => closedStatuses.includes(String(t.status.id)));
 
     if (tickets.length === 0) return null;
 
@@ -813,7 +811,7 @@ function App() {
         
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {openTickets.map(ticket => (
-            <TicketItem key={ticket.glpi_id} ticket={ticket} />
+            <TicketItem key={ticket.id} ticket={ticket} />
           ))}
           
           {closedTickets.length > 0 && (
@@ -840,7 +838,7 @@ function App() {
               </button>
               
               {showClosed && closedTickets.map(ticket => (
-                <TicketItem key={ticket.glpi_id} ticket={ticket} isClosed={true} />
+                <TicketItem key={ticket.id} ticket={ticket} isClosed={true} />
               ))}
             </>
           )}
@@ -863,14 +861,14 @@ function App() {
       cursor: isClosed ? 'default' : 'pointer'
     }}
     onMouseEnter={(e) => {
-      const content = isClosed ? (ticket.solution || ticket.content) : ticket.content;
+      const content = isClosed ? (ticket.solution || ticket.content) : (ticket.content || ticket.solution || '');
       if (!content) return;
       const removeExisting = () => { const el = document.getElementById('ticket-desc-tooltip'); if (el) el.remove(); };
       removeExisting();
       const rect = e.currentTarget.getBoundingClientRect();
       const tooltip = document.createElement('div');
       tooltip.id = 'ticket-desc-tooltip';
-      tooltip.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#fff;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:480px;max-height:300px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;text-align:left;';
+      tooltip.style.cssText = 'position:fixed;z-index:9999;background:#fff;color:#1e293b;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:480px;max-height:300px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.15);line-height:1.5;text-align:left;border:1px solid #e2e8f0;';
       tooltip.innerHTML = renderHtmlTooltip(content);
       document.body.appendChild(tooltip);
       const tipRect = tooltip.getBoundingClientRect();
@@ -886,31 +884,31 @@ function App() {
       const el = document.getElementById('ticket-desc-tooltip'); if (el) el.remove();
     }}
     onClick={() => {
-      if (!isClosed && ticket.status !== 6) {
+      if (!isClosed && !['6', '7', '8'].includes(String(ticket.status.id))) {
         setModalConfig({
           isOpen: true,
           type: 'confirm',
           title: 'Clore le ticket',
-          message: `Voulez-vous clore le ticket #${ticket.glpi_id} ?`,
+          message: `Voulez-vous clore le ticket #${ticket.id} ?`,
           confirmLabel: 'Clore',
           cancelLabel: 'Annuler',
           onConfirm: async () => {
             setModalConfig(prev => ({ ...prev, isOpen: false }));
             try {
               const token = localStorage.getItem('token');
-              await axios.put(`/api/glpi/tickets/${ticket.glpi_id}/close`, {}, {
-                headers: { Authorization: `Bearer ${token}` }
-              });
+                  await axios.post(`/api/tickets/${ticket.id}/status`, { status: 6 }, {
+                    headers: { Authorization: `Bearer ${token}` }
+                  });
               // Rafraîchir les tickets
-              const ticketsRes = await axios.get(`${apiBase}/magapp/tickets?email=${userEmail}`);
-              setUserTickets(ticketsRes.data);
-              const countRes = await axios.get(`${apiBase}/magapp/tickets-count?email=${userEmail}`);
-              setTicketCount(countRes.data.count || 0);
+              const ticketsRes = await axios.get(`${apiBase}/tickets/?requester_email=${encodeURIComponent(userEmail)}&limit=200`);
+              const refreshed = ticketsRes.data?.data || [];
+              setUserTickets(refreshed);
+              setTicketCount(refreshed.filter((t: Ticket) => !['6','7','8'].includes(String(t.status.id))).length);
               setModalConfig({
                 isOpen: true,
                 type: 'success',
                 title: 'Ticket clos',
-                message: `Le ticket #${ticket.glpi_id} a été clos avec succès.`,
+                message: `Le ticket #${ticket.id} a été clos avec succès.`,
                 onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
               });
             } catch (error) {
@@ -928,7 +926,7 @@ function App() {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexGrow: 1, minWidth: 0 }}>
         <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, fontFamily: 'monospace', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
-          #{ticket.glpi_id}
+          #{ticket.id}
         </span>
         <div style={{ 
           fontSize: '0.9rem', 
@@ -947,7 +945,7 @@ function App() {
         <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
           {ticket.date_creation ? formatDate(ticket.date_creation) : ''}
         </div>
-        {ticket.status_label && (
+        {ticket.status?.label && (
           <div style={{ 
             display: 'flex',
             alignItems: 'center',
@@ -967,7 +965,7 @@ function App() {
             const rect = e.currentTarget.getBoundingClientRect();
             const tooltip = document.createElement('div');
             tooltip.id = 'ticket-solution-tooltip';
-            tooltip.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#fff;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:480px;max-height:300px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;text-align:left;';
+            tooltip.style.cssText = 'position:fixed;z-index:9999;background:#fff;color:#1e293b;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:480px;max-height:300px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.15);line-height:1.5;text-align:left;border:1px solid #e2e8f0;';
             tooltip.innerHTML = renderHtmlTooltip(ticket.solution || '');
             document.body.appendChild(tooltip);
             const tipRect = tooltip.getBoundingClientRect();
@@ -982,7 +980,7 @@ function App() {
           onMouseLeave={() => {
             const el = document.getElementById('ticket-solution-tooltip'); if (el) el.remove();
           }}>
-            {ticket.status_label}
+            {ticket.status.label}
             {ticket.solution && <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>ⓘ</span>}
           </div>
         )}
@@ -1267,7 +1265,7 @@ function App() {
                                                 const el = document.getElementById('comment-tooltip'); if (el) el.remove();
                                                 const tip = document.createElement('div');
                                                 tip.id = 'comment-tooltip';
-                                                tip.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#fff;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:360px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;white-space:pre-wrap;';
+                                                tip.style.cssText = 'position:fixed;z-index:9999;background:#fff;color:#1e293b;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:360px;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.15);line-height:1.5;white-space:pre-wrap;border:1px solid #e2e8f0;';
                                                 tip.textContent = r.commentaires;
                                                 document.body.appendChild(tip);
                                                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -1503,7 +1501,7 @@ function App() {
               <div style={{ width: '60px', height: '60px', background: '#e0f2fe', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
                 <LifeBuoy size={32} color="#0369a1" />
               </div>
-              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>Mes tickets GLPI</h2>
+              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>Mes tickets</h2>
               <p style={{ color: '#64748b', fontSize: '1rem', marginTop: '10px' }}>
                 Liste des tickets associés à l'adresse : {userEmail}
               </p>
@@ -1689,13 +1687,13 @@ function App() {
                                         <h4
                                           style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1e293b', cursor: 'default' }}
                                           onMouseEnter={(e) => {
-                                            const content = String(ticket.status) === '6' ? (ticket.solution || ticket.content) : ticket.content;
+                                            const content = ['6', '7', '8'].includes(String(ticket.status)) ? (ticket.solution || ticket.content) : ticket.content;
                                             if (!content) return;
                                             const el = document.getElementById('ticket-desc-tooltip'); if (el) el.remove();
                                             const rect = e.currentTarget.getBoundingClientRect();
                                             const tooltip = document.createElement('div');
                                             tooltip.id = 'ticket-desc-tooltip';
-                                            tooltip.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#fff;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:480px;max-height:300px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.25);line-height:1.5;text-align:left;';
+                                            tooltip.style.cssText = 'position:fixed;z-index:9999;background:#fff;color:#1e293b;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:480px;max-height:300px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.15);line-height:1.5;text-align:left;border:1px solid #e2e8f0;';
                                             tooltip.innerHTML = renderHtmlTooltip(content);
                                             document.body.appendChild(tooltip);
                                             const tipRect = tooltip.getBoundingClientRect();
@@ -1720,9 +1718,9 @@ function App() {
                                         borderRadius: '6px',
                                         fontSize: '0.7rem',
                                         fontWeight: 600,
-                                        background: ticket.status === '1' ? '#fef3c7' : ticket.status === '2' ? '#dbeafe' : ticket.status === '3' ? '#dbeafe' : ticket.status === '4' ? '#fef3c7' : ticket.status === '5' ? '#dcfce7' : ticket.status === '6' ? '#f3f4f6' : '#f3f4f6',
-                                        color: ticket.status === '1' ? '#92400e' : ticket.status === '2' ? '#1e40af' : ticket.status === '3' ? '#1e40af' : ticket.status === '4' ? '#92400e' : ticket.status === '5' ? '#166534' : ticket.status === '6' ? '#374151' : '#374151',
-                                        whiteSpace: 'nowrap'
+                                        whiteSpace: 'nowrap',
+                                        background: String(ticket.status) === '1' ? '#fef3c7' : String(ticket.status) === '2' ? '#dbeafe' : String(ticket.status) === '3' ? '#dbeafe' : String(ticket.status) === '4' ? '#fef3c7' : String(ticket.status) === '5' ? '#dcfce7' : String(ticket.status) === '6' ? '#e8f5e9' : String(ticket.status) === '7' ? '#f3f4f6' : String(ticket.status) === '8' ? '#fce4ec' : '#f3f4f6',
+                                        color: String(ticket.status) === '1' ? '#92400e' : String(ticket.status) === '2' ? '#1e40af' : String(ticket.status) === '3' ? '#1e40af' : String(ticket.status) === '4' ? '#92400e' : String(ticket.status) === '5' ? '#166534' : String(ticket.status) === '6' ? '#2e7d32' : String(ticket.status) === '7' ? '#374151' : String(ticket.status) === '8' ? '#c62828' : '#374151'
                                       }}>
                                         {ticket.status_label || 'Inconnu'}
                                       </span>

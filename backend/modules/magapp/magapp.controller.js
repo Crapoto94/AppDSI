@@ -395,20 +395,18 @@ const MagAppController = {
         }
     },
 
-    // GLPI Tickets for MagApp
+    // Tickets (hub_tickets) for MagApp
     getUserTickets: async (req, res) => {
         const { email } = req.query;
         if (!email) return res.status(400).json({ message: 'Email requis' });
         try {
             const username = email.split('@')[0].toLowerCase();
-            console.log(`[MAGAPP TICKETS] Searching for ${email} / ${username}`);
+            console.log(`[MAGAPP TICKETS] Searching for ${email} / ${username} in hub_tickets`);
             const tickets = await pgDb.all(`
                 SELECT t.glpi_id, t.title, t.content, s.label as status_label, t.date_creation, t.type, t.status, t.solution
-                FROM glpi.tickets t
-                LEFT JOIN glpi.ticket_status s ON t.status = s.id
-                WHERE LOWER(COALESCE(t.email_alt, '')) = $1
-                   OR LOWER(COALESCE(t.requester_email_22, '')) = $1
-                   OR LOWER(COALESCE(REPLACE(t.email_alt, '@ivry94.fr', ''), '')) = $2
+                FROM hub_tickets.tickets t
+                LEFT JOIN hub_tickets.ticket_status s ON t.status = s.id
+                WHERE LOWER(COALESCE(t.requester_email_22, '')) = $1
                    OR LOWER(COALESCE(REPLACE(t.requester_email_22, '@ivry94.fr', ''), '')) = $2
                 ORDER BY t.glpi_id DESC
             `, [email.toLowerCase(), username]);
@@ -427,11 +425,9 @@ const MagAppController = {
             const username = email.split('@')[0].toLowerCase();
             const result = await pgDb.get(`
                 SELECT COUNT(*) as count 
-                FROM glpi.tickets t
-                WHERE (LOWER(COALESCE(t.email_alt, '')) = $1 
-                   OR LOWER(COALESCE(t.requester_email_22, '')) = $1
-                   OR LOWER(COALESCE(REPLACE(t.email_alt, '@ivry94.fr', ''), '')) = $2
-                   OR LOWER(COALESCE(REPLACE(t.requester_email_22, '@ivry94.fr', ''), '')) = $2) AND t.status != 6
+                FROM hub_tickets.tickets t
+                WHERE (LOWER(COALESCE(t.requester_email_22, '')) = $1 
+                   OR LOWER(COALESCE(REPLACE(t.requester_email_22, '@ivry94.fr', ''), '')) = $2) AND t.status NOT IN (6, 7, 8)
             `, [email.toLowerCase(), username]);
             res.json({ count: result?.count || 0 });
         } catch (err) {
@@ -444,9 +440,9 @@ const MagAppController = {
         try {
             const tickets = await pgDb.all(`
                 SELECT t.glpi_id, t.title, s.label as status_label, t.date_creation
-                FROM glpi.tickets t
-                LEFT JOIN glpi.ticket_status s ON t.status = s.id
-                WHERE t.type = '1' AND (t.urgency >= 5 OR t.priority >= 5) AND t.status NOT IN (5, 6)
+                FROM hub_tickets.tickets t
+                LEFT JOIN hub_tickets.ticket_status s ON t.status = s.id
+                WHERE t.type::text = '1' AND (t.urgency >= 5 OR t.priority >= 5) AND t.status NOT IN (5, 6, 7, 8)
                 ORDER BY t.date_creation DESC
                 LIMIT 5
             `);
@@ -462,51 +458,112 @@ const MagAppController = {
         if (!email) return res.status(400).json({ message: 'Email requis' });
         try {
             const includeClosed = showClosed === 'true';
-            const whereClause = includeClosed 
-                ? `(LOWER(COALESCE(o.email, '')) = $1 OR LOWER(COALESCE(REPLACE(o.email, '@ivry94.fr', ''), '')) = $2)`
-                : `(LOWER(COALESCE(o.email, '')) = $1 OR LOWER(COALESCE(REPLACE(o.email, '@ivry94.fr', ''), '')) = $2) AND t.status NOT IN (5, 6)`;
+            const statusFilter = includeClosed ? '' : 'AND t.status NOT IN (5, 6, 7, 8)';
+            const emailLower = email.toLowerCase();
+            const username = emailLower.split('@')[0];
             
             const tickets = await pool.query(`
+                WITH all_tickets AS (
+                    SELECT DISTINCT ON (x.glpi_id) x.glpi_id, x.title, x.content, x.status,
+                           x.type, x.date_creation, x.solution,
+                           x.requester_email_22, x.requester_name
+                    FROM (
+                        SELECT 0 AS src_prio, glpi_id, title, content, status, type,
+                               date_creation, solution, requester_email_22, requester_name
+                        FROM hub_tickets.tickets
+                        UNION ALL
+                        SELECT 1, glpi_id, title, content, status, type,
+                               CASE WHEN date_creation ~ '^\d{4}-\d{2}-\d{2}' THEN date_creation::TIMESTAMP ELSE NULL END AS date_creation,
+                               solution, requester_email_22, requester_name
+                        FROM glpi.tickets
+                    ) x
+                    ORDER BY x.glpi_id, x.src_prio
+                ),
+                all_observers AS (
+                    SELECT ticket_id, email, login, name, user_id FROM hub_tickets.observers WHERE COALESCE(is_active, 1) = 1
+                    UNION ALL
+                    SELECT ticket_id, email, login, name, user_id FROM glpi.observers WHERE COALESCE(is_active, 1) = 1
+                ),
+                user_ids AS (
+                    SELECT DISTINCT user_id FROM all_observers WHERE LOWER(COALESCE(email, '')) = $1
+                ),
+                user_glpi_ids AS (
+                    SELECT DISTINCT uid::INTEGER
+                    FROM (
+                        SELECT unnest(
+                            COALESCE(
+                                regexp_split_to_array(regexp_replace(requester_name, '[^0-9,]', '', 'g'), ','),
+                                ARRAY[]::TEXT[]
+                            )
+                        ) AS uid
+                        FROM glpi.tickets
+                        WHERE LOWER(COALESCE(requester_email_22, '')) = $1
+                          AND requester_name IS NOT NULL AND requester_name != ''
+                          AND requester_name ~ '[0-9]'
+                    ) _
+                    WHERE uid ~ '^\d+$'
+                )
                 SELECT t.glpi_id, t.title, t.content, s.label as status_label, t.date_creation, t.type, t.status, t.solution,
-                       COALESCE(NULLIF(t.requester_email_22, ''), LOWER(o.email)) as requester_email,
-                       COALESCE(NULLIF(t.requester_name, ''), t.requester_email_22, REPLACE(o.email, '@ivry94.fr', '')) as requester_name
-                FROM glpi.tickets t
-                INNER JOIN glpi.observers o ON t.glpi_id = o.ticket_id
-                LEFT JOIN glpi.ticket_status s ON t.status = s.id
-                WHERE ${whereClause}
+                       COALESCE(NULLIF(t.requester_email_22, ''), '') as requester_email,
+                       COALESCE(NULLIF(t.requester_name, ''), t.requester_email_22, '') as requester_name
+                FROM all_tickets t
+                LEFT JOIN hub_tickets.ticket_status s ON t.status = s.id
+                WHERE EXISTS (
+                    SELECT 1 FROM all_observers o
+                    WHERE o.ticket_id = t.glpi_id
+                    AND (
+                        LOWER(COALESCE(o.email, '')) = $1
+                        OR LOWER(COALESCE(REPLACE(o.email, '@ivry94.fr', ''), '')) = $2
+                        OR LOWER(COALESCE(o.login, '')) = $2
+                        OR LOWER(COALESCE(REPLACE(o.login, '@ivry94.fr', ''), '')) = $2
+                        OR LOWER(COALESCE(o.name, '')) = $2
+                        OR LOWER(COALESCE(REPLACE(o.name, '@ivry94.fr', ''), '')) = $2
+                        OR (
+                            COALESCE(o.login, '') ~ '^\d{1,10}$'
+                            AND CAST(o.login AS INTEGER) IN (SELECT uid FROM user_glpi_ids)
+                        )
+                        OR o.user_id IN (SELECT user_id FROM user_ids)
+                    )
+                )
+                ${statusFilter}
                 ORDER BY t.glpi_id DESC
-            `, [email.toLowerCase(), email.toLowerCase().split('@')[0]]);
+            `, [emailLower, username]);
 
             const db = getSqlite();
             const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
             if (adSettings && adSettings.is_enabled) {
                 const uniqueIdentifiers = [...new Set(tickets.rows.map(t => t.requester_name).filter(n => n))];
                 const nameCache = {};
-                for (const identifier of uniqueIdentifiers) {
-                    try {
-                        const sam = identifier.includes('@') ? identifier.split('@')[0] : identifier;
-                        const resolved = await new Promise((resolve) => {
-                            const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
-                            const timeout = setTimeout(() => { client.destroy(); resolve(null); }, 3000);
-                            client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
-                                if (err) { clearTimeout(timeout); client.destroy(); resolve(null); return; }
-                                client.search(adSettings.base_dn, { 
-                                    filter: `(|(sAMAccountName=${sam})(employeeID=${sam})(description=*${sam}*))`, 
-                                    scope: 'sub', 
-                                    attributes: ['displayName', 'cn'] 
-                                }, (err, searchRes) => {
+                const CONCURRENCY = 10;
+                for (let i = 0; i < uniqueIdentifiers.length; i += CONCURRENCY) {
+                    const batch = uniqueIdentifiers.slice(i, i + CONCURRENCY);
+                    const results = await Promise.all(batch.map(async (identifier) => {
+                        try {
+                            const sam = identifier.includes('@') ? identifier.split('@')[0] : identifier;
+                            const resolved = await new Promise((resolve) => {
+                                const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
+                                const timeout = setTimeout(() => { client.destroy(); resolve(null); }, 2000);
+                                client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
                                     if (err) { clearTimeout(timeout); client.destroy(); resolve(null); return; }
-                                    let found = null;
-                                    searchRes.on('searchEntry', (entry) => { if (!found) found = flattenLDAPEntry(entry); });
-                                    searchRes.on('end', () => { clearTimeout(timeout); client.destroy(); resolve(found); });
-                                    searchRes.on('error', () => { clearTimeout(timeout); client.destroy(); resolve(null); });
+                                    client.search(adSettings.base_dn, { 
+                                        filter: `(|(sAMAccountName=${sam})(employeeID=${sam}))`, 
+                                        scope: 'sub', 
+                                        attributes: ['displayName', 'cn'] 
+                                    }, (err, searchRes) => {
+                                        if (err) { clearTimeout(timeout); client.destroy(); resolve(null); return; }
+                                        let found = null;
+                                        searchRes.on('searchEntry', (entry) => { if (!found) found = flattenLDAPEntry(entry); });
+                                        searchRes.on('end', () => { clearTimeout(timeout); client.destroy(); resolve(found); });
+                                        searchRes.on('error', () => { clearTimeout(timeout); client.destroy(); resolve(null); });
+                                    });
                                 });
                             });
-                        });
-                        if (resolved) {
-                            nameCache[identifier] = decodeLDAPString(resolved.displayName || resolved.cn) || null;
-                        }
-                    } catch (e) { /* ignore lookup failures */ }
+                            return { identifier, name: resolved ? decodeLDAPString(resolved.displayName || resolved.cn) || null : null };
+                        } catch (e) { return { identifier, name: null }; }
+                    }));
+                    for (const r of results) {
+                        if (r.name) nameCache[r.identifier] = r.name;
+                    }
                 }
                 tickets.rows.forEach(t => {
                     const resolved = nameCache[t.requester_name];

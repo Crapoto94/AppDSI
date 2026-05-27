@@ -82,6 +82,8 @@ module.exports = {
         return {
             id: ticket.glpi_id,
             title: ticket.title,
+            content: ticket.content || null,
+            solution: ticket.solution || null,
             status: { id: ticket.status, label: STATUS_NAMES[ticket.status] || ticket.status_label },
             priority: { id: ticket.priority, label: PRIORITY_NAMES[ticket.priority] },
             type: ticket.type,
