@@ -832,7 +832,11 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
                      location, solution, source, entity, requester_name, email_alt,
                      requester_email_22)
                 SELECT glpi_id, title, content, status, priority, urgency, impact,
-                       category, type, NULLIF(date_creation, '')::TIMESTAMP, NULLIF(date_mod, '')::TIMESTAMP, NULLIF(date_closed, '')::TIMESTAMP, NULLIF(date_solved, '')::TIMESTAMP,
+                       category, type,
+                       CASE WHEN date_creation ~ '^\d{4}-\d{2}-\d{2}' THEN date_creation::TIMESTAMP ELSE NULL END,
+                       CASE WHEN date_mod ~ '^\d{4}-\d{2}-\d{2}' THEN date_mod::TIMESTAMP ELSE NULL END,
+                       CASE WHEN date_closed ~ '^\d{4}-\d{2}-\d{2}' THEN date_closed::TIMESTAMP ELSE NULL END,
+                       CASE WHEN date_solved ~ '^\d{4}-\d{2}-\d{2}' THEN date_solved::TIMESTAMP ELSE NULL END,
                        location, solution, source, entity, requester_name, email_alt,
                        requester_email_22
                 FROM glpi.tickets
@@ -889,6 +893,7 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
             client.release();
         }
     } catch (error) {
+        console.error('[SYNC-GLPI] Erreur:', error.message);
         res.status(500).json({ message: error.message });
     }
 });
