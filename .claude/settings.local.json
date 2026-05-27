@@ -203,7 +203,30 @@
       "Bash(Get-ChildItem -Path \"C:\\\\dev\\\\AppDSI\\\\frontend\\\\src\\\\pages\" -Force)",
       "Bash(mkdir -p \"C:/dev/AppDSI/.claude\" && echo \"{}\" > \"C:/dev/AppDSI/.claude/launch.json\")",
       "Bash(git pull *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\dev\\\\AppDSI\\\\backend\\\\modules\\\\tickets\" -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "Bash(xargs grep -l \"o365_settings\")",
+      "Bash(xargs grep -l \"email_automations\\\\|o365_settings\\\\|admin.*config\")",
+      "Bash(grep -n \"CREATE TABLE IF NOT EXISTS hub_tickets\" \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\backend\\\\\\\\shared\\\\\\\\pg_db.js\")",
+      "Bash(grep -n \"app.use.*modules.*routes\" \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\backend\\\\\\\\server.js\")",
+      "Bash(find \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\backend\\\\\\\\modules\\\\\\\\tickets\\\\\\\\repositories\" -name \"*.js\")",
+      "Bash(cd \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\backend\")",
+      "Bash(taskkill /IM node.exe /F)",
+      "Bash(node -c \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\backend\\\\\\\\modules\\\\\\\\mail_collector\\\\\\\\mail_collector.service.js\")",
+      "Bash(grep -r \"Admin.tsx\" \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\frontend\\\\\\\\src\")",
+      "Bash(ls -la \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\frontend\\\\\\\\src\\\\\\\\pages\\\\\\\\Admin\\\\\\\\\")",
+      "Bash(grep -n \"/admin\" \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\frontend\\\\\\\\src\\\\\\\\App.tsx\")",
+      "Bash(grep -r \"axios\" \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\frontend\\\\\\\\src\" --include=\"*.tsx\" --include=\"*.ts\")",
+      "Bash(grep -n \"AdminSync\\\\|azure-ad\\\\|/admin\" \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\frontend\\\\\\\\src\\\\\\\\App.tsx\")",
+      "Bash(grep -n \"ad\\\\|Azure\\\\|azure\" \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\frontend\\\\\\\\src\\\\\\\\components\\\\\\\\AdminLayout.tsx\")",
+      "Bash(tee backend_logs.txt)",
+      "Bash(grep -E \"MAIL|Error|error\" \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\backend\\\\\\\\backend_logs.txt\")",
+      "Bash(grep -n \"runNow\" \"C:\\\\\\\\dev\\\\\\\\AppDSI\\\\\\\\backend\\\\\\\\modules\\\\\\\\mail_collector\\\\\\\\mail_collector.controller.js\")",
+      "PowerShell(Stop-Process -Force)",
+      "Bash(cd /mnt/c/dev/AppDSI/backend && npm start &)",
+      "Bash(curl -sv https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration)",
+      "PowerShell(cd \"C:\\\\dev\\\\AppDSI\\\\backend\"; node test_o365.js 2>&1 | Where-Object { $_ -notmatch \"DeprecationWarning|Use \\\\`node\" })"
     ]
   }
 }

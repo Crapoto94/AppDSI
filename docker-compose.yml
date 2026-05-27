@@ -16,6 +16,7 @@ services:
       - POSTGRES_DB=ivry_admin
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ivrypassword}
+      - JWT_SECRET=${JWT_SECRET:-supersecretjwtkey}
     volumes:
       # Dossiers de fichiers persistés
       - ./backend/uploads:/app/uploads

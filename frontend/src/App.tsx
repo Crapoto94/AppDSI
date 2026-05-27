@@ -88,7 +88,7 @@ const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactN
   if (path && user.authorized_urls && !user.authorized_urls.includes('*')) {
     // Basic prefix matching or exact matching
     const isAuthorized = user.authorized_urls.some((url: string) => path === url || path.startsWith(url + '/'));
-    if (!isAuthorized && path !== '/' && path !== '/profile' && path !== '/request-access') {
+    if (!isAuthorized && path !== '/' && path !== '/profile' && path !== '/request-access' && path !== '/request-feature') {
        return <Navigate to="/" />;
     }
   }

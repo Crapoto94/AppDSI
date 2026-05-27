@@ -44,6 +44,7 @@ exports.saveConfig = async (req, res) => {
     }
     res.json({ success: true });
   } catch (err) {
+    console.error('[GED saveConfig ERROR]', err);
     res.status(500).json({ error: err.message });
   }
 };

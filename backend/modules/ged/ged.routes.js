@@ -9,15 +9,15 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 } // 100 MB max
 });
 
-router.get('/config', authenticateAdmin, ctrl.getConfig);
-router.post('/config', authenticateAdmin, ctrl.saveConfig);
-router.post('/test-connection', authenticateAdmin, ctrl.testConnection);
+router.get('/config', authenticateAdminUI, ctrl.getConfig);
+router.post('/config', authenticateAdminUI, ctrl.saveConfig);
+router.post('/test-connection', authenticateAdminUI, ctrl.testConnection);
 
-router.get('/nodes/:nodeId', authenticateAdmin, ctrl.getNode);
-router.get('/nodes/:nodeId/children', authenticateAdmin, ctrl.listChildren);
-router.get('/nodes/:nodeId/content', authenticateAdmin, ctrl.downloadContent);
-router.post('/nodes/:nodeId/folder', authenticateAdmin, ctrl.createFolder);
-router.post('/nodes/:nodeId/upload', authenticateAdmin, upload.single('file'), ctrl.uploadFile);
-router.delete('/nodes/:nodeId', authenticateAdmin, ctrl.deleteNode);
+router.get('/nodes/:nodeId', authenticateAdminUI, ctrl.getNode);
+router.get('/nodes/:nodeId/children', authenticateAdminUI, ctrl.listChildren);
+router.get('/nodes/:nodeId/content', authenticateAdminUI, ctrl.downloadContent);
+router.post('/nodes/:nodeId/folder', authenticateAdminUI, ctrl.createFolder);
+router.post('/nodes/:nodeId/upload', authenticateAdminUI, upload.single('file'), ctrl.uploadFile);
+router.delete('/nodes/:nodeId', authenticateAdminUI, ctrl.deleteNode);
 
 module.exports = router;

@@ -116,8 +116,20 @@ module.exports = {
   runNow: async (req, res) => {
     try {
       const collectorId = req.params.id;
-      const log = await MailCollectorService.performCollection(collectorId);
-      logMouchard(`Collecte manuelle exécutée: collecteur ${collectorId}, ${log.emails_imported}/${log.emails_received} importés`);
+      const collector = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
+      if (!collector) return res.status(404).json({ message: 'Collecteur non trouvé' });
+      if (!collector.is_enabled) return res.status(400).json({ message: 'Collecteur désactivé' });
+
+      const module = collector.module || 'tickets';
+      let log;
+      if (module === 'copieurs') {
+        const { importEmailsService } = require('../copieurs/copieurs_mail.service');
+        log = await importEmailsService(collector.mailbox, collector.domain_filter);
+      } else {
+        log = await MailCollectorService.performCollection(collectorId);
+      }
+
+      logMouchard(`Collecte manuelle exécutée: collecteur ${collectorId} (module ${module}), ${log.emails_imported || 0}/${log.emails_received || 0} importés`);
       res.json({ message: 'Collecte exécutée', log });
     } catch (error) {
       console.error('[MAIL COLLECTOR] runNow error:', error);

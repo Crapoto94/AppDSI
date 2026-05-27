@@ -760,12 +760,6 @@ router.put('/role-permissions', authenticateAdmin, async (req, res) => {
 router.post('/sync-glpi', authenticateJWT, async (req, res) => {
     const { pool } = require('../../shared/database');
     const { resolveTicketRole } = require('./middleware/ticket-permissions');
-    const axios = require('axios');
-    const glpiController = require('../glpi/glpi.controller');
-
-    let sessionToken = null;
-    let glpiUrl = null;
-    let commonHeaders = null;
 
     try {
         const role = await resolveTicketRole(req.user);
@@ -773,114 +767,13 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
             return res.status(403).json({ message: 'Rôle superviseur requis' });
         }
 
-        // ─── 1. Rafraîchir les données GLPI via API ──────────────────────
-        const db = getSqlite();
-        const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
-        if (!settings || !settings.url) {
-            return res.status(400).json({ message: 'GLPI non configuré' });
+        // Vérifier que les tables glpi.* contiennent des données
+        const ticketCount = await pgDb.get('SELECT COUNT(*) as cnt FROM glpi.tickets');
+        if (!ticketCount || ticketCount.cnt === 0) {
+            return res.json({ message: 'Aucun ticket dans le schéma glpi. Lancez d\'abord une synchro depuis /admin/glpi.' });
         }
 
-        glpiUrl = glpiController.getApiUrl(settings.url);
-        commonHeaders = { 'App-Token': settings.app_token?.trim() || '', 'Content-Type': 'application/json' };
-        const authHeader = glpiController.getAuthHeader(settings);
-
-        const sessionRes = await axios.get(`${glpiUrl}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader } });
-        sessionToken = sessionRes.data?.session_token;
-        if (!sessionToken) throw new Error('Session GLPI échouée');
-
-        // Tickets depuis la table glpi
-        const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id');
-        const ticketCount = tickets.length;
-        if (ticketCount === 0) {
-            await axios.get(`${glpiUrl}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
-            return res.json({ message: 'Aucun ticket GLPI à synchroniser.' });
-        }
-
-        // ── Observers (Ticket_User type=3) ──
-        const BATCH = 50;
-        let obsTotal = 0;
-        const obsTx = [];
-
-        for (let i = 0; i < tickets.length; i += BATCH) {
-            const batch = tickets.slice(i, i + BATCH);
-            const results = await Promise.allSettled(batch.map(t =>
-                axios.get(`${glpiUrl}/Ticket/${t.glpi_id}/Ticket_User?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 8000 })
-            ));
-
-            results.forEach((r, idx) => {
-                if (r.status === 'fulfilled') {
-                    const observers = (r.value.data || []).filter(tu => tu.type === 3);
-                    observers.forEach(obs => {
-                        obsTx.push({
-                            ticket_id: batch[idx].glpi_id,
-                            user_id: obs.users_id,
-                            name: obs.users_id?.toString() || '',
-                            login: obs.users_id?.toString() || '',
-                            email: obs.alternative_email || ''
-                        });
-                    });
-                }
-            });
-
-            if (obsTx.length - obsTotal >= 100) {
-                const toSave = obsTx.slice(obsTotal);
-                if (toSave.length > 0) {
-                    await glpiController.saveObserversToPg(toSave);
-                    obsTotal = obsTx.length;
-                }
-            }
-        }
-        if (obsTx.length > obsTotal) {
-            await glpiController.saveObserversToPg(obsTx.slice(obsTotal));
-            obsTotal = obsTx.length;
-        }
-
-        // ── Followups (ITILFollowup) ──
-        let fuTotal = 0;
-        const fuTx = [];
-
-        for (let i = 0; i < tickets.length; i += BATCH) {
-            const batch = tickets.slice(i, i + BATCH);
-            const results = await Promise.allSettled(batch.map(t =>
-                axios.get(`${glpiUrl}/Ticket/${t.glpi_id}/ITILFollowup?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 8000 })
-            ));
-
-            results.forEach((r, idx) => {
-                if (r.status === 'fulfilled') {
-                    const fus = r.value.data || [];
-                    fus.forEach(fu => {
-                        if (fu.content) {
-                            fuTx.push({
-                                ticket_id: batch[idx].glpi_id,
-                                content: fu.content,
-                                author_name: fu.users_id?.name || fu.users_id?.toString() || '',
-                                author_email: fu.users_id?.email || '',
-                                is_private: fu.is_private || 0,
-                                date_creation: fu.date || null
-                            });
-                        }
-                    });
-                }
-            });
-
-            if (fuTx.length - fuTotal >= 100) {
-                const toSave = fuTx.slice(fuTotal);
-                if (toSave.length > 0) {
-                    await glpiController.saveFollowupsToPg(toSave);
-                    fuTotal = fuTx.length;
-                }
-            }
-        }
-        if (fuTx.length > fuTotal) {
-            await glpiController.saveFollowupsToPg(fuTx.slice(fuTotal));
-            fuTotal = fuTx.length;
-        }
-
-        // Fermer session API
-        await axios.get(`${glpiUrl}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } }).catch(() => {});
-        sessionToken = null;
-
-        // ─── 2. Copier glpi.* → hub_tickets.* (transaction) ─────────────
+        // ─── Copier glpi.* → hub_tickets.* (transaction) ─────────────
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -894,7 +787,6 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
             const orphanIds = orphans.rows.map(r => r.glpi_id);
 
             if (orphanIds.length > 0) {
-                // Supprimer les données liées aux tickets hub orphelins
                 const tables = [
                     'ticket_assignments', 'ticket_category_assignments', 'ticket_tag_links',
                     'ticket_attachments', 'ticket_links', 'ticket_history',
@@ -908,20 +800,18 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
                     );
                 }
 
-                // Supprimer les tâches liées (user_tasks)
                 await client.query(
                     `DELETE FROM hub.user_tasks WHERE context_source = 'ticket' AND context_id = ANY($1)`,
                     [orphanIds]
                 );
 
-                // Supprimer les tickets orphelins
                 await client.query(
                     'DELETE FROM hub_tickets.tickets WHERE glpi_id = ANY($1)',
                     [orphanIds]
                 );
             }
 
-            // Supprimer les lignes non GLPI des tables core avant réinsertion
+            // Supprimer les lignes orphelines avant réinsertion
             await client.query(`
                 DELETE FROM hub_tickets.observers o
                 WHERE NOT EXISTS (SELECT 1 FROM hub_tickets.tickets t WHERE t.glpi_id = o.ticket_id)
@@ -995,10 +885,19 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
                 FROM glpi.ticket_followups
             `);
 
+            // 5. Réinitialiser la séquence d'ID des tickets
+            const maxId = await client.query(
+                `SELECT COALESCE(MAX(glpi_id), 0) as max_id FROM hub_tickets.tickets`
+            );
+            const nextId = (maxId.rows[0]?.max_id || 0) + 1;
+            await client.query(
+                `ALTER SEQUENCE hub_tickets.ticket_id_seq RESTART WITH ${nextId}`
+            );
+
             await client.query('COMMIT');
             const deletedCount = orphanIds.length;
             res.json({
-                message: `Synchronisation GLPI terminée : ${ticketCount} tickets, ${obsTotal} observateurs, ${fuTotal} commentaires. ${deletedCount} ticket(s) hub supprimé(s).`
+                message: `Récupération GLPI terminée : ${ticketCount.cnt} tickets copiés, ${deletedCount} ticket(s) hub orphelin(s) supprimé(s).`
             });
         } catch (e) {
             await client.query('ROLLBACK');
@@ -1009,10 +908,6 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
     } catch (error) {
         console.error('[SYNC-GLPI] Erreur:', error.message);
         res.status(500).json({ message: error.message });
-    } finally {
-        if (sessionToken && glpiUrl && commonHeaders) {
-            axios.get(`${glpiUrl}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } }).catch(() => {});
-        }
     }
 });
 
