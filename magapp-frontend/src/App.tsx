@@ -56,6 +56,7 @@ interface Ticket {
   type: string;
   date_creation: string | null;
   source?: string | null;
+  requester_name?: string | null;
 }
 
 function App() {
@@ -943,6 +944,11 @@ function App() {
       </div>
       
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+        {ticket.requester_name && (
+          <div style={{ fontSize: '0.75rem', color: '#64748b', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {ticket.requester_name}
+          </div>
+        )}
         {ticket.source && (
           <div style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
             {ticket.source}

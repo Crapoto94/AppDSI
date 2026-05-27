@@ -101,6 +101,7 @@ module.exports = {
             history_count: ticket.history_count || 0,
             followups_count: ticket.followups_count || 0,
             tasks_count: ticket.tasks_count || 0,
+            source: ticket.source || null,
             impact: { id: ticket.impact, label: IMPACT_NAMES[ticket.impact] || null },
             is_vip: !!ticket.is_vip,
             bundle: ticket.bundle_id ? {
