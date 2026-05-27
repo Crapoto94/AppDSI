@@ -34,12 +34,11 @@ class MailCollectorService {
   static extractReplyContent(body) {
     if (!body) return '';
 
-    const cleanBody = body
-      .replace(/<[^>]+>/g, '\n')
-      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    const html = body.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
 
-    const lines = cleanBody.split('\n').map(l => l.trim()).filter(l => l);
+    const textOnly = html.replace(/<[^>]+>/g, '\n');
+    const lines = textOnly.split('\n').map(l => l.trim()).filter(l => l);
     let content = '';
 
     for (const line of lines) {
@@ -55,7 +54,23 @@ class MailCollectorService {
       }
     }
 
-    return content.substring(0, 1500).trim();
+    const plainText = content.substring(0, 1500).trim();
+    if (!plainText) return '';
+
+    const bodyLower = html.toLowerCase();
+    let htmlContent = html;
+    const markers = ['<div class="gmail_quote">', '<div id="appendonsend"></div>', '<hr tabindex', '<style>'];
+    for (const marker of markers) {
+      const idx = bodyLower.indexOf(marker.toLowerCase());
+      if (idx !== -1) { htmlContent = htmlContent.substring(0, idx); break; }
+    }
+
+    const bodyEnd = htmlContent.lastIndexOf('</div>');
+    if (bodyEnd !== -1) htmlContent = htmlContent.substring(0, bodyEnd + 6);
+    const bodyEnd2 = htmlContent.lastIndexOf('</body>');
+    if (bodyEnd2 !== -1) htmlContent = htmlContent.substring(0, bodyEnd2 + 7);
+
+    return htmlContent.substring(0, 2000).trim();
   }
 
   static extractFromEmail(email) {
@@ -70,12 +85,17 @@ class MailCollectorService {
     const to = email.toRecipients || [];
     const cc = email.ccRecipients || [];
 
+    const seen = new Set();
     for (const recipient of to.concat(cc)) {
       if (recipient.emailAddress?.address) {
-        recipients.push({
-          email: recipient.emailAddress.address,
-          name: recipient.emailAddress.name || recipient.emailAddress.address
-        });
+        const addr = recipient.emailAddress.address.toLowerCase();
+        if (!seen.has(addr)) {
+          seen.add(addr);
+          recipients.push({
+            email: recipient.emailAddress.address,
+            name: recipient.emailAddress.name || recipient.emailAddress.address
+          });
+        }
       }
     }
 
@@ -144,7 +164,7 @@ class MailCollectorService {
     const baseSubject = subject.replace(/^(RE:|FW:)\s*/i, '').trim();
 
     const ticket = await pgDb.get(
-      `SELECT DISTINCT m.ticket_id
+      `SELECT m.ticket_id
        FROM hub_tickets.ticket_email_mapping m
        JOIN hub_tickets.tickets t ON m.ticket_id = t.glpi_id
        WHERE t.title ILIKE ?
@@ -160,9 +180,7 @@ class MailCollectorService {
   static async createTicket(email, classificationResult, collector) {
     const from = this.extractFromEmail(email);
     const subject = (email.subject || 'Sans titre').substring(0, 255);
-    const bodyContent = email.body?.content
-      ? email.body.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 1000)
-      : (email.bodyPreview || '');
+    const bodyContent = email.body?.content || email.bodyPreview || '';
 
     const emailDate = email.receivedDateTime ? new Date(email.receivedDateTime).toISOString() : new Date().toISOString();
 
@@ -331,6 +349,9 @@ class MailCollectorService {
               log.comments_added++;
             }
 
+            // Observateurs (CC de la réponse)
+            const obsCount = await this.addObservers(existingTicket, email);
+
             // Attachments pour le commentaire
             if (email.hasAttachments) {
               const attachments = await this.downloadAttachments(token, collector.mailbox, email.id, axiosOpts);
@@ -340,7 +361,7 @@ class MailCollectorService {
 
             // Enregistrer le mapping
             await pgDb.run(
-              'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at) VALUES (?, ?, ?, 0, ?, ?)',
+              'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at) VALUES (?, ?, ?, false, ?, ?)',
               [existingTicket, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime]
             );
 
@@ -363,7 +384,7 @@ class MailCollectorService {
 
             // Mapping
             await pgDb.run(
-              'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at) VALUES (?, ?, ?, 1, ?, ?)',
+              'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at) VALUES (?, ?, ?, true, ?, ?)',
               [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime]
             );
 
@@ -389,7 +410,7 @@ class MailCollectorService {
   static async performCollection(collectorId) {
     const collector = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
     if (!collector || !collector.is_enabled) {
-      throw new Error('Collecteur non trouvé ou désactivé');
+      return null;
     }
 
     const sqlite = getSqlite();

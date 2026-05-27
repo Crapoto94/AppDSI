@@ -284,6 +284,7 @@ export default function TicketList({
                 { key: 'type',       label: 'Type',       align: 'center' },
                 { key: 'indicators', label: 'Comm  Tâches  Obs  Actif', align: 'center' },
                 { key: 'requester',  label: 'Demandeur',  align: 'left'   },
+                { key: 'source',     label: 'Source',     align: 'center' },
                 { key: 'technician', label: 'Technicien', align: 'left'   },
                 { key: 'date',       label: 'Date',       align: 'center' },
               ] as const).map(col => {
@@ -312,7 +313,7 @@ export default function TicketList({
           </thead>
           <tbody>
             {tickets.length === 0 && (
-              <tr><td colSpan={14} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun ticket trouvé</td></tr>
+              <tr><td colSpan={15} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun ticket trouvé</td></tr>
             )}
             {sortedTickets.map((t: any) => {
               const isSelected = selectedIds.has(t.id);
@@ -499,6 +500,14 @@ export default function TicketList({
                     <div style={{ fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {t.requester_service || t.requester_email || ''}
                     </div>
+                  </td>
+
+                  {/* Source */}
+                  <td style={{ ...tdStyle, fontSize: 12, color: '#64748b' }}>
+                    {t.source === 'glpi' && <span style={{ color: '#6366f1', fontWeight: 600 }}>GLPI</span>}
+                    {t.source === 'email' && <span style={{ color: '#16a34a', fontWeight: 600 }}>Email</span>}
+                    {t.source && t.source !== 'glpi' && t.source !== 'email' && <span>{t.source}</span>}
+                    {!t.source && <span style={{ color: '#94a3b8' }}>—</span>}
                   </td>
 
                   {/* Technicien */}

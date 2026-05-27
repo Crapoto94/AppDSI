@@ -1238,6 +1238,17 @@ export default function TicketDetail() {
               )}
             </div>
 
+            {/* SOURCE */}
+            <div style={SF}>
+              <span style={SL}>Source</span>
+              <span style={SV}>
+                {ticket.source === 'glpi' && <span style={{ color: '#6366f1', fontWeight: 600 }}>GLPI</span>}
+                {ticket.source === 'email' && <span style={{ color: '#16a34a', fontWeight: 600 }}>Email</span>}
+                {ticket.source && ticket.source !== 'glpi' && ticket.source !== 'email' && <span>{ticket.source}</span>}
+                {!ticket.source && <span style={{ color: '#94a3b8' }}>—</span>}
+              </span>
+            </div>
+
             {/* CRÉÉ LE */}
             <div style={SF}>
               <span style={SL}>Créé le</span>

@@ -53,10 +53,11 @@ class MailScheduler {
 
     this.tasks[collectorId] = cron.schedule(cronExpr, async () => {
       try {
-        console.log(`[MailScheduler] Collecte démarrée: collecteur ${collectorId}`);
         const col = typeof collector === 'object' ? collector : await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
+        if (!col || !col.is_enabled) return;
+        console.log(`[MailScheduler] Collecte démarrée: collecteur ${collectorId}`);
         const log = await this.runCollector(col);
-        console.log(`[MailScheduler] Collecte terminée: ${log.emails_imported}/${log.emails_received} importés`);
+        if (log) console.log(`[MailScheduler] Collecte terminée: ${log.emails_imported}/${log.emails_received} importés`);
       } catch (error) {
         console.error(`[MailScheduler] Erreur collecte ${collectorId}:`, error.message);
       }
