@@ -85,3 +85,4 @@ backend/magapp_img/*
 
 # Test data
 printer_attributes.csv
+.aider*
