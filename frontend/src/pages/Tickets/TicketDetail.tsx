@@ -65,6 +65,7 @@ export default function TicketDetail() {
   const [commentFile, setCommentFile] = useState<File | null>(null);
   const [sendingToUser, setSendingToUser] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachments, setAttachments] = useState<any[]>([]);
   // Groupe de tickets
   const [ticketGroup, setTicketGroup] = useState<any>(null);
   const [showAddToGroup, setShowAddToGroup] = useState(false);
@@ -196,12 +197,13 @@ export default function TicketDetail() {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      const [ticketRes, commentsRes, historyRes, tasksRes, observersRes] = await Promise.all([
+      const [ticketRes, commentsRes, historyRes, tasksRes, observersRes, attachmentsRes] = await Promise.all([
         axios.get(`/api/tickets/${id}`, { headers }),
         axios.get(`/api/tickets/${id}/comments`, { headers }),
         axios.get(`/api/tickets/${id}/history`, { headers }),
         axios.get(`/api/tasks/by-context?source=ticket&id=${id}`, { headers }).catch(() => ({ data: [] })),
         axios.get(`/api/tickets/${id}/observers`, { headers }).catch(e => { console.error('[OBSERVERS] fetch error:', e?.response?.status, e?.message); return { data: [] }; }),
+        axios.get(`/api/tickets/${id}/attachments`, { headers }).catch(() => ({ data: [] })),
       ]);
       // Load assignees in parallel
       axios.get(`/api/tickets/${id}/assignees`, { headers }).then(r => setAssignees(r.data || [])).catch(() => setAssignees([]));
@@ -218,6 +220,7 @@ export default function TicketDetail() {
       setHistory(historyRes.data);
       setTicketTasks(tasksRes.data || []);
       setObservers(observersRes.data || []);
+      setAttachments(attachmentsRes.data || []);
       if (t.requester?.email) {
         loadRequesterTickets(t.requester.email);
       }
@@ -1242,12 +1245,46 @@ export default function TicketDetail() {
             <div style={SF}>
               <span style={SL}>Source</span>
               <span style={SV}>
-                {ticket.source === 'glpi' && <span style={{ color: '#6366f1', fontWeight: 600 }}>GLPI</span>}
-                {ticket.source === 'email' && <span style={{ color: '#16a34a', fontWeight: 600 }}>Email</span>}
-                {ticket.source && ticket.source !== 'glpi' && ticket.source !== 'email' && <span>{ticket.source}</span>}
-                {!ticket.source && <span style={{ color: '#94a3b8' }}>—</span>}
+                {(ticket.source === 'glpi')
+                  ? <span style={{ color: '#6366f1', fontWeight: 600 }}>GLPI</span>
+                  : ticket.source === 'email' || ticket.source === 'mail'
+                    ? <span style={{ color: '#16a34a', fontWeight: 600 }}>Email</span>
+                    : ticket.source === 'magapp'
+                      ? <span style={{ color: '#d946ef', fontWeight: 600 }}>Magapp</span>
+                      : ticket.source === 'hub'
+                        ? <span style={{ color: '#64748b', fontWeight: 600 }}>Hub</span>
+                        : ticket.source
+                          ? <span>{ticket.source}</span>
+                          : <span style={{ color: '#94a3b8' }}>—</span>
+                }
               </span>
             </div>
+
+            {/* PIÈCES JOINTES */}
+            {attachments.length > 0 && (
+              <div style={SF}>
+                <span style={SL}>Pièces jointes ({attachments.length})</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                  {attachments.map((att: any) => (
+                    <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {att.is_image ? (
+                        <a href={`/api/tickets/${id}/attachments/${att.id}`} target="_blank" rel="noopener noreferrer"
+                          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#6366f1', textDecoration: 'none' }}>
+                          <span>🖼️</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{att.original_name || att.filename}</span>
+                        </a>
+                      ) : (
+                        <a href={`/api/tickets/${id}/attachments/${att.id}`} target="_blank" rel="noopener noreferrer"
+                          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#6366f1', textDecoration: 'none' }}>
+                          <span>📎</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{att.original_name || att.filename}</span>
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* CRÉÉ LE */}
             <div style={SF}>

@@ -129,7 +129,7 @@ class MailCollectorService {
             }
 
             fs.writeFileSync(destPath, contentBinary);
-            uploaded.push({ filename, originalName: att.name, path: `/uploads/${filename}` });
+            uploaded.push({ filename, originalName: att.name, path: destPath });
           } catch (e) {
             console.error(`Erreur téléchargement attachment ${att.name}:`, e.message);
           }
@@ -241,17 +241,16 @@ class MailCollectorService {
     let count = 0;
     for (const att of attachments) {
       try {
-        const stat = fs.statSync(path.join(__dirname, '..', '..', 'uploads', path.basename(att.path)));
+        const stat = fs.statSync(att.path);
         const user = await pgDb.get('SELECT id FROM hub.users WHERE username = ?', [username]);
 
         await attachmentRepo.create(ticketId, {
           filename: att.filename,
-          original_name: att.originalName,
-          file_path: att.path,
-          file_size: stat.size,
-          mimetype: 'application/octet-stream',
-          uploaded_by: user?.id || 1
-        });
+          originalname: att.originalName,
+          path: att.path,
+          size: stat.size,
+          mimetype: 'application/octet-stream'
+        }, { id: user?.id || 1 });
 
         count++;
       } catch (e) {
@@ -295,7 +294,7 @@ class MailCollectorService {
           params: {
             $filter: filter || undefined,
             $top: 100,
-            $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,hasAttachments'
+            $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,inReplyTo,hasAttachments'
           }
         }
       );
@@ -327,9 +326,14 @@ class MailCollectorService {
             continue;
           }
 
-          // Detect reply emails by subject line (RE: or FW:)
+          // Detect reply emails by subject line (RE: or FW:) or inReplyTo
           const isReply = /^(RE:|FW:)/i.test(email.subject || '');
-          const existingTicket = isReply ? await this.findExistingTicketBySubject(email.subject) : null;
+          let existingTicket = isReply ? await this.findExistingTicketBySubject(email.subject) : null;
+
+          // Fallback: try by inReplyTo Internet Message ID
+          if (!existingTicket && email.inReplyTo) {
+            existingTicket = await this.findExistingTicket(email.internetMessageId, email.inReplyTo);
+          }
 
           if (existingTicket) {
             // Ajout comme commentaire

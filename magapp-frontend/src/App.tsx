@@ -459,8 +459,9 @@ function App() {
       
       let urgency = ticketType === 'incident' ? 3 : 2;
       let impact = ticketType === 'incident' ? 2 : 1;
-      if (blocked) urgency = 4;
-      if (isGeneral) impact = 4;
+      let priority = 3;
+      if (blocked) { urgency = 4; priority = 4; }
+      if (isGeneral) { impact = 4; priority = Math.max(priority, 4); }
       
       const response = await axios.post('/api/tickets/', {
         title: ticketTitle,
@@ -468,6 +469,8 @@ function App() {
         type: ticketType === 'incident' ? 1 : 2,
         urgency,
         impact,
+        priority,
+        source: 'magapp',
         requester_email: userEmail,
         requester_name: displayName
       }, {
@@ -520,7 +523,9 @@ function App() {
           console.error('Erreur fetch nouveau ticket:', e);
         }
         
-        const listRes = await axios.get(`${apiBase}/tickets/?requester_email=${encodeURIComponent(userEmail)}&limit=200`);
+        const listRes = await axios.get(`${apiBase}/tickets/?requester_email=${encodeURIComponent(userEmail)}&limit=200`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         setTicketCount(listRes.data?.pagination?.total || 0);
       }
     } catch (error: any) {
@@ -950,8 +955,12 @@ function App() {
           </div>
         )}
         {ticket.source && (
-          <div style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
-            {ticket.source}
+          <div style={{
+            fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 600,
+            color: ticket.source === 'magapp' ? '#d946ef' : ticket.source === 'email' || ticket.source === 'mail' ? '#16a34a' : ticket.source === 'glpi' ? '#6366f1' : '#64748b',
+            background: ticket.source === 'magapp' ? '#fdf4ff' : ticket.source === 'email' || ticket.source === 'mail' ? '#f0fdf4' : ticket.source === 'glpi' ? '#f0f0ff' : '#f1f5f9'
+          }}>
+            {ticket.source === 'magapp' ? 'Magapp' : ticket.source === 'email' || ticket.source === 'mail' ? 'Email' : ticket.source === 'glpi' ? 'GLPI' : ticket.source}
           </div>
         )}
         <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>

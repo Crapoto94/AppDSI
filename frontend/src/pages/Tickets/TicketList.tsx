@@ -504,10 +504,15 @@ export default function TicketList({
 
                   {/* Source */}
                   <td style={{ ...tdStyle, fontSize: 12, color: '#64748b' }}>
-                    {t.source === 'glpi' && <span style={{ color: '#6366f1', fontWeight: 600 }}>GLPI</span>}
-                    {t.source === 'email' && <span style={{ color: '#16a34a', fontWeight: 600 }}>Email</span>}
-                    {t.source && t.source !== 'glpi' && t.source !== 'email' && <span>{t.source}</span>}
-                    {!t.source && <span style={{ color: '#94a3b8' }}>—</span>}
+                    {(() => {
+                      const src = t.source || '';
+                      if (src === 'glpi') return <span style={{ color: '#6366f1', fontWeight: 600 }}>GLPI</span>;
+                      if (src === 'email' || src === 'mail') return <span style={{ color: '#16a34a', fontWeight: 600 }}>Email</span>;
+                      if (src === 'magapp') return <span style={{ color: '#d946ef', fontWeight: 600 }}>Magapp</span>;
+                      if (src === 'hub') return <span style={{ color: '#64748b', fontWeight: 600 }}>Hub</span>;
+                      if (src) return <span>{src}</span>;
+                      return <span style={{ color: '#94a3b8' }}>—</span>;
+                    })()}
                   </td>
 
                   {/* Technicien */}
