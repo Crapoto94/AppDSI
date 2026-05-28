@@ -47,6 +47,10 @@ interface KPIData {
     year: number; deltaNB: number; deltaCoul: number; deltaTotal: number;
     coutNB: number; coutCoul: number; coutTotal: number;
     nbCopieurs: number; ratio: number | null;
+    // Projection année courante
+    isCurrentYear?: boolean;
+    deltaNB_ext?: number | null; deltaCoul_ext?: number | null;
+    coutNB_proj?: number | null; coutCoul_proj?: number | null; coutTotal_proj?: number | null;
   }>;
   byDirection: Array<{
     direction: string; deltaNB: number; deltaCoul: number;
@@ -121,17 +125,38 @@ const KpiCard: React.FC<{
 
 // ─── Custom Tooltip recharts ───────────────────────────────────────────────────
 
+const PROJ_KEYS = new Set(['deltaNB_ext','deltaCoul_ext','coutTotal_proj_seg','coutNB_proj_seg','coutCoul_proj_seg']);
+
 const CustomTooltip: React.FC<any> = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
+  const main = payload.filter((p: any) => !PROJ_KEYS.has(p.dataKey));
+  // Vérifier si on a des valeurs projetées dans ce payload
+  const projTotal = payload.find((p: any) => p.dataKey === 'coutTotal_proj_seg' && p.value != null);
+  const projNBExt = payload.find((p: any) => p.dataKey === 'deltaNB_ext' && (p.value ?? 0) > 0);
+  const projCoulExt = payload.find((p: any) => p.dataKey === 'deltaCoul_ext' && (p.value ?? 0) > 0);
+  const hasAnyProj = projTotal || projNBExt || projCoulExt;
   return (
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', boxShadow: '0 4px 12px rgba(0,0,0,.08)', fontSize: 12 }}>
       <div style={{ fontWeight: 700, marginBottom: 6, color: '#334155' }}>{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: p.color }}>
+      {main.map((p: any) => (
+        <div key={p.dataKey} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, color: p.color }}>
           <span>{p.name}</span>
           <strong>{typeof p.value === 'number' && p.value > 10000 ? fmtM(p.value) : p.value?.toLocaleString('fr-FR')}</strong>
         </div>
       ))}
+      {hasAnyProj && (
+        <div style={{ marginTop: 6, paddingTop: 5, borderTop: '1px dashed #e2e8f0', color: '#7c3aed', fontSize: 11 }}>
+          📐 Proj. 31/12 :
+          {(projNBExt || projCoulExt) && (() => {
+            const nbReal  = payload.find((p: any) => p.dataKey === 'deltaNB')?.value   ?? 0;
+            const coulReal= payload.find((p: any) => p.dataKey === 'deltaCoul')?.value  ?? 0;
+            const nbProj  = nbReal  + (projNBExt?.value  ?? 0);
+            const coulProj= coulReal+ (projCoulExt?.value ?? 0);
+            return <> <span>NB {fmtM(nbProj)}</span> · <span>Coul. {fmtM(coulProj)}</span></>;
+          })()}
+          {projTotal && <> · <span>Coût {fmtEur(projTotal.value)}</span></>}
+        </div>
+      )}
     </div>
   );
 };
@@ -182,10 +207,24 @@ export default function CopieursKPI() {
 
   const { global: g, byYear, byDirection, top10Volume, top10Growing, top10Shrinking, alertsNoReleve } = data;
 
-  // Données filtrées par année sélectionnée
-  const chartData = yearFilter === 'all'
-    ? byYear
-    : byYear.filter(y => y.year === yearFilter);
+  // Données filtrées par année sélectionnée + enrichissement pour projection
+  const hasProj = yearFilter === 'all' && byYear.some(y => y.isCurrentYear);
+
+  const chartData = (yearFilter === 'all' ? byYear : byYear.filter(y => y.year === yearFilter))
+    .map((y, idx, arr) => {
+      // Le segment pointillé relie l'avant-dernier point (valeur réelle) au point projeté de l'année courante
+      const isPrev = hasProj && idx === arr.length - 2 && Boolean(arr[arr.length - 1]?.isCurrentYear);
+      return {
+        ...y,
+        // Barres d'extension (0 pour les années historiques, extension projetée pour l'année courante)
+        deltaNB_ext:   y.deltaNB_ext   ?? 0,
+        deltaCoul_ext: y.deltaCoul_ext ?? 0,
+        // Segments pointillés coûts : défini seulement sur avant-dernière et dernière année
+        coutTotal_proj_seg: y.isCurrentYear ? y.coutTotal_proj : isPrev ? y.coutTotal : undefined,
+        coutNB_proj_seg:    y.isCurrentYear ? y.coutNB_proj    : isPrev ? y.coutNB    : undefined,
+        coutCoul_proj_seg:  y.isCurrentYear ? y.coutCoul_proj  : isPrev ? y.coutCoul  : undefined,
+      };
+    });
 
   const filtered = yearFilter === 'all' ? null : byYear.find(y => y.year === yearFilter);
 
@@ -307,9 +346,11 @@ export default function CopieursKPI() {
 
           {/* Bar chart stacked NB/Couleur */}
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '20px 20px 8px' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 700, color: '#334155' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: '#334155' }}>
               📊 Évolution annuelle des copies
             </h3>
+            {hasProj && <p style={{ margin: '0 0 12px', fontSize: 11, color: '#92400e', background: '#fef9c3', padding: '3px 8px', borderRadius: 5, display: 'inline-block' }}>📐 Zone hachurée = projection au 31/12</p>}
+            {!hasProj && <div style={{ marginBottom: 12 }} />}
             <ResponsiveContainer width="100%" height={240}>
               <ComposedChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -318,9 +359,16 @@ export default function CopieursKPI() {
                 <YAxis yAxisId="right" orientation="right" tickFormatter={v => fmtEur(v)} tick={{ fontSize: 11, fill: '#16a34a' }} />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend iconType="circle" iconSize={9} wrapperStyle={{ fontSize: 12 }} />
-                <Bar yAxisId="left" dataKey="deltaNB"   name="NB (mono)"   stackId="a" fill={COLORS_NB}   radius={[0,0,0,0]} />
-                <Bar yAxisId="left" dataKey="deltaCoul" name="Couleur"      stackId="a" fill={COLORS_COUL} radius={[4,4,0,0]} />
+                {/* Barres réelles */}
+                <Bar yAxisId="left" dataKey="deltaNB"   name="NB (mono)" stackId="a" fill={COLORS_NB}   radius={[0,0,0,0]} />
+                <Bar yAxisId="left" dataKey="deltaCoul" name="Couleur"    stackId="a" fill={COLORS_COUL} radius={[0,0,0,0]} />
+                {/* Barres d'extension projetées (empilées au-dessus, pointillées) */}
+                {hasProj && <Bar yAxisId="left" dataKey="deltaNB_ext"   stackId="a" fill={COLORS_NB}   fillOpacity={0.18} stroke={COLORS_NB}   strokeDasharray="4 3" strokeWidth={1.5} legendType="none" />}
+                {hasProj && <Bar yAxisId="left" dataKey="deltaCoul_ext" stackId="a" fill={COLORS_COUL} fillOpacity={0.18} stroke={COLORS_COUL} strokeDasharray="4 3" strokeWidth={1.5} legendType="none" radius={[3,3,0,0]} />}
+                {/* Ligne coût réel */}
                 <Line yAxisId="right" type="monotone" dataKey="coutTotal" name="Coût total €" stroke={COLORS_COST} strokeWidth={2.5} dot={{ r: 3, fill: COLORS_COST }} />
+                {/* Ligne coût projeté (pointillée) */}
+                {hasProj && <Line yAxisId="right" type="monotone" dataKey="coutTotal_proj_seg" stroke={COLORS_COST} strokeWidth={2} strokeDasharray="6 3" dot={{ r: 4, fill: '#fff', stroke: COLORS_COST, strokeWidth: 2 }} legendType="none" connectNulls={false} />}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -357,13 +405,15 @@ export default function CopieursKPI() {
         {/* ── Coûts + Ratio ── */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
 
-          {/* Area coûts */}
+          {/* Area coûts → ComposedChart pour mixer Area + Line projetée */}
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '20px 20px 8px' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 700, color: '#334155' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 700, color: '#334155' }}>
               💶 Évolution des coûts (€)
             </h3>
+            {hasProj && <p style={{ margin: '0 0 12px', fontSize: 11, color: '#92400e', background: '#fef9c3', padding: '3px 8px', borderRadius: 5, display: 'inline-block' }}>📐 Ligne pointillée = projection au 31/12</p>}
+            {!hasProj && <div style={{ marginBottom: 12 }} />}
             <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+              <ComposedChart data={chartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gNB"   x1="0" y1="0" x2="0" y2="1"><stop offset="5%"  stopColor={COLORS_NB}   stopOpacity={0.25} /><stop offset="95%" stopColor={COLORS_NB}   stopOpacity={0} /></linearGradient>
                   <linearGradient id="gCoul" x1="0" y1="0" x2="0" y2="1"><stop offset="5%"  stopColor={COLORS_COUL} stopOpacity={0.35} /><stop offset="95%" stopColor={COLORS_COUL} stopOpacity={0} /></linearGradient>
@@ -373,9 +423,13 @@ export default function CopieursKPI() {
                 <YAxis tickFormatter={v => fmtEur(v)} tick={{ fontSize: 11, fill: '#64748b' }} />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend iconType="circle" iconSize={9} wrapperStyle={{ fontSize: 12 }} />
+                {/* Aires coût réel */}
                 <Area type="monotone" dataKey="coutNB"   name="Coût NB"     stroke={COLORS_NB}   fill="url(#gNB)"   strokeWidth={2} />
                 <Area type="monotone" dataKey="coutCoul" name="Coût couleur" stroke={COLORS_COUL} fill="url(#gCoul)" strokeWidth={2} />
-              </AreaChart>
+                {/* Lignes projetées (pointillées, relient dernier réel → projection 31/12) */}
+                {hasProj && <Line type="monotone" dataKey="coutNB_proj_seg"   stroke={COLORS_NB}   strokeWidth={2} strokeDasharray="6 3" dot={{ r: 4, fill: '#fff', stroke: COLORS_NB,   strokeWidth: 2 }} legendType="none" connectNulls={false} />}
+                {hasProj && <Line type="monotone" dataKey="coutCoul_proj_seg" stroke={COLORS_COUL} strokeWidth={2} strokeDasharray="6 3" dot={{ r: 4, fill: '#fff', stroke: COLORS_COUL, strokeWidth: 2 }} legendType="none" connectNulls={false} />}
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
 

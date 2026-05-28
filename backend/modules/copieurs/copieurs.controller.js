@@ -1483,17 +1483,44 @@ module.exports = {
                 byDirMap[dir].coutTotal += cost;
             }
 
+            // ── Fraction d'année écoulée pour projections (année courante incomplète) ──
+            const currentYear     = new Date().getFullYear();
+            const currentYearRows = deltaRes.rows.filter(r => Number(r.year) === currentYear);
+            let yearFraction = 1;
+            let isProjected  = false;
+            if (currentYearRows.length > 0) {
+                const latestDate  = new Date(Math.max(...currentYearRows.map(r => new Date(r.date_releve).getTime())));
+                const startOfYear = new Date(currentYear, 0, 1);
+                const endOfYear   = new Date(currentYear, 11, 31);
+                yearFraction = Math.max(0.01, (latestDate - startOfYear) / (endOfYear - startOfYear));
+                isProjected  = true;
+            }
+
             // Finalize byYear
-            const years   = Object.keys(byYearMap).map(Number).sort();
-            const byYear  = Object.values(byYearMap).map(y => ({
-                year: y.year,
-                deltaNB: y.deltaNB, deltaCoul: y.deltaCoul,
-                deltaTotal: y.deltaNB + y.deltaCoul,
-                coutNB: +y.coutNB.toFixed(2), coutCoul: +y.coutCoul.toFixed(2),
-                coutTotal: +(y.coutNB + y.coutCoul).toFixed(2),
-                nbCopieurs: y.copieurIds.size,
-                ratio: y.deltaNB + y.deltaCoul > 0 ? Math.round(y.deltaNB / (y.deltaNB + y.deltaCoul) * 100) : null
-            })).sort((a, b) => a.year - b.year);
+            const years  = Object.keys(byYearMap).map(Number).sort();
+            const byYear = Object.values(byYearMap).map(y => {
+                const isCurr        = isProjected && y.year === currentYear;
+                const deltaNB_proj  = isCurr ? Math.round(y.deltaNB  / yearFraction) : null;
+                const deltaCoul_proj= isCurr ? Math.round(y.deltaCoul / yearFraction) : null;
+                const coutNB_proj   = isCurr ? +(y.coutNB   / yearFraction).toFixed(2) : null;
+                const coutCoul_proj = isCurr ? +(y.coutCoul / yearFraction).toFixed(2) : null;
+                return {
+                    year: y.year,
+                    deltaNB: y.deltaNB, deltaCoul: y.deltaCoul,
+                    deltaTotal: y.deltaNB + y.deltaCoul,
+                    coutNB: +y.coutNB.toFixed(2), coutCoul: +y.coutCoul.toFixed(2),
+                    coutTotal: +(y.coutNB + y.coutCoul).toFixed(2),
+                    nbCopieurs: y.copieurIds.size,
+                    ratio: y.deltaNB + y.deltaCoul > 0 ? Math.round(y.deltaNB / (y.deltaNB + y.deltaCoul) * 100) : null,
+                    // ── Champs de projection (année courante uniquement) ──────────────────
+                    isCurrentYear: isCurr,
+                    deltaNB_ext:    isCurr ? Math.max(0, (deltaNB_proj  ?? 0) - y.deltaNB)  : null,
+                    deltaCoul_ext:  isCurr ? Math.max(0, (deltaCoul_proj ?? 0) - y.deltaCoul) : null,
+                    coutNB_proj, coutCoul_proj,
+                    coutTotal_proj: isCurr && coutNB_proj !== null && coutCoul_proj !== null
+                        ? +(coutNB_proj + coutCoul_proj).toFixed(2) : null,
+                };
+            }).sort((a, b) => a.year - b.year);
 
             // byDirection top 10
             const byDirection = Object.values(byDirMap).map(d => ({
@@ -1528,44 +1555,25 @@ module.exports = {
                 .sort((a, b) => b.totalPages - a.totalPages).slice(0, 10);
 
             // Top 10 croissance / décroissance (année N vs N-1)
-            // Si lastYear est l'année en cours (incomplète), on projette au 31/12 au prorata
+            // yearFraction / isProjected / currentYear déjà calculés au-dessus pour byYear
             let top10Growing = [], top10Shrinking = [];
-            const currentYear  = new Date().getFullYear();
-            const lastYear     = years[years.length - 1];
-            const prevYear     = years.length >= 2 ? years[years.length - 2] : null;
-
-            // Fraction d'année écoulée : du 1er janvier au dernier relevé connu dans l'année
-            // On utilise la date du dernier relevé dans lastYear (ou aujourd'hui si lastYear < currentYear)
-            let yearFraction = 1; // 1 = année complète
-            let isProjected  = false;
-            if (lastYear === currentYear) {
-                // Trouver le dernier relevé dans l'année courante tous copieurs confondus
-                const lastReleves = deltaRes.rows
-                    .filter(r => Number(r.year) === currentYear)
-                    .map(r => new Date(r.date_releve));
-                const latestDate = lastReleves.length > 0
-                    ? new Date(Math.max(...lastReleves.map(d => d.getTime())))
-                    : new Date(); // fallback : aujourd'hui
-                const startOfYear = new Date(currentYear, 0, 1);
-                const endOfYear   = new Date(currentYear, 11, 31);
-                yearFraction  = Math.max(0.01, (latestDate - startOfYear) / (endOfYear - startOfYear));
-                isProjected   = true;
-            }
+            const lastYear         = years[years.length - 1];
+            const prevYear         = years.length >= 2 ? years[years.length - 2] : null;
+            const growthIsProjected = isProjected && lastYear === currentYear;
 
             if (prevYear) {
                 const withGrowth = copieurList
                     .filter(c => c.byYear[lastYear] && c.byYear[prevYear])
                     .map(c => {
                         const lastRaw = (c.byYear[lastYear]?.deltaNB || 0) + (c.byYear[lastYear]?.deltaCoul || 0);
-                        // Projection au 31/12 si année courante incomplète
-                        const last = isProjected ? Math.round(lastRaw / yearFraction) : lastRaw;
-                        const prev = (c.byYear[prevYear]?.deltaNB || 0) + (c.byYear[prevYear]?.deltaCoul || 0);
+                        const last    = growthIsProjected ? Math.round(lastRaw / yearFraction) : lastRaw;
+                        const prev    = (c.byYear[prevYear]?.deltaNB || 0) + (c.byYear[prevYear]?.deltaCoul || 0);
                         return {
                             copieur_id: c.copieur_id, direction: c.direction, service: c.service,
                             numero_serie: c.numero_serie, modele: c.modele,
                             lastTotal: last, lastRaw, prevTotal: prev, deltaAbs: last - prev,
                             growth: prev > 0 ? +((last - prev) / prev * 100).toFixed(1) : null,
-                            lastYear, prevYear, isProjected
+                            lastYear, prevYear, isProjected: growthIsProjected,
                         };
                     })
                     .filter(c => c.growth !== null && c.prevTotal >= 500);
