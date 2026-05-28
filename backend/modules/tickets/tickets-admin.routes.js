@@ -92,7 +92,7 @@ router.get('/groups', authenticateJWT, async (req, res) => {
             LEFT JOIN hub_tickets.technician_group_members m ON g.id = m.group_id
             LEFT JOIN hub.users u ON m.user_id = u.id
             WHERE g.is_active = true
-            GROUP BY g.id
+            GROUP BY g.id, g.name, g.description, g.is_active, g.created_at, g.is_default
             ORDER BY g.is_default DESC, g.name
         `);
         res.json(groups);
@@ -579,7 +579,7 @@ router.get('/escalade/groups', authenticateAdmin, async (req, res) => {
             LEFT JOIN hub_tickets.technician_group_members m ON g.id = m.group_id
             LEFT JOIN hub.users u ON m.user_id = u.id
             WHERE g.is_active = true AND g.is_default = false
-            GROUP BY g.id
+            GROUP BY g.id, g.name, g.description, g.is_active, g.created_at, g.is_default
             ORDER BY g.name
         `);
         res.json(groups);

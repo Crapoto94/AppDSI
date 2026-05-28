@@ -5146,6 +5146,7 @@ app.use('/api/ged', require('./modules/ged/ged.routes'));
 
 // Mail Collector
 app.use('/api/mail-collector', require('./modules/mail_collector/mail_collector.routes'));
+app.use('/api/ville', require('./modules/ville/ville.routes'));
 
 // Public reply routes (no auth)
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));

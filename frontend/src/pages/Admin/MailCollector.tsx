@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
+import { ChevronLeft, ChevronRight, Play, Edit2, Trash2, ToggleLeft, ToggleRight, Plus, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 
 interface MailCollector {
   id: number;
@@ -53,6 +54,8 @@ const MODULES = [
   { value: 'copieurs', label: 'Copieurs (importer les interventions SAV Koesio)' },
 ];
 
+const ITEMS_PER_PAGE = 10;
+
 export default function MailCollector() {
   const { user } = useAuth();
   const [collectors, setCollectors] = useState<MailCollector[]>([]);
@@ -66,6 +69,7 @@ export default function MailCollector() {
   const [showNewRule, setShowNewRule] = useState(false);
   const [formData, setFormData] = useState<Partial<MailCollector>>({ frequency: 'hourly', module: 'tickets' });
   const [ruleData, setRuleData] = useState<Partial<MailRule>>({});
+  const [logPage, setLogPage] = useState(1);
 
   const getHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
@@ -174,7 +178,8 @@ export default function MailCollector() {
   const freqLabel = (v: string) => FREQUENCIES.find(f => f.value === v)?.label || v;
   const modLabel  = (v: string) => v === 'copieurs' ? '📠 Copieurs' : '🎫 Tickets';
 
-  const statusColor = (s: string) => s === 'success' ? '#28a745' : s === 'partial_error' ? '#fd7e14' : '#dc3545';
+  const statusColor = (s: string) => s === 'success' ? '#10b981' : s === 'partial_error' ? '#f59e0b' : '#ef4444';
+  const statusIcon = (s: string) => s === 'success' ? '✓' : s === 'partial_error' ? '⚠' : '✕';
 
   const purgeInvalidTickets = async () => {
     if (!confirm('Supprimer tous les tickets sans numéro (glpi_id null ou 0) et les mappings orphelins ?')) return;
@@ -186,37 +191,57 @@ export default function MailCollector() {
     }
   };
 
+  const paginatedLogs = logs.slice((logPage - 1) * ITEMS_PER_PAGE, logPage * ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(logs.length / ITEMS_PER_PAGE);
+
   const s = {
-    container: { padding: '20px' },
-    tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '2px solid #e9ecef', paddingBottom: '0' },
+    container: { padding: '24px', maxWidth: '1400px', margin: '0 auto' },
+    header: { marginBottom: '32px' },
+    title: { fontSize: '28px', fontWeight: '700', color: '#1f2937', margin: '0 0 8px 0' },
+    subtitle: { fontSize: '14px', color: '#6b7280', margin: '0' },
+    tabs: { display: 'flex', gap: '0', marginBottom: '24px', borderBottom: '2px solid #e5e7eb' },
     tab: (active: boolean): React.CSSProperties => ({
-      padding: '10px 20px', backgroundColor: 'transparent', color: active ? '#007bff' : '#6c757d',
-      border: 'none', borderBottom: active ? '2px solid #007bff' : '2px solid transparent',
-      cursor: 'pointer', fontWeight: active ? 700 : 400, marginBottom: '-2px', fontSize: '14px'
+      padding: '12px 24px', backgroundColor: 'transparent', color: active ? '#0ea5e9' : '#6b7280',
+      border: 'none', borderBottom: active ? '2px solid #0ea5e9' : '2px solid transparent',
+      cursor: 'pointer', fontWeight: active ? '600' : '500', marginBottom: '-2px', fontSize: '15px', transition: 'all 0.2s'
     }),
-    btn: (color: string): React.CSSProperties => ({
-      padding: '6px 12px', marginRight: '6px', borderRadius: '4px', border: 'none',
-      backgroundColor: color, color: 'white', cursor: 'pointer', fontSize: '13px'
-    }),
-    form: { marginBottom: '20px', padding: '16px', border: '1px solid #dee2e6', borderRadius: '6px', background: '#f8f9fa' },
-    row: { marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px' },
-    label: { minWidth: '200px', fontWeight: 600, fontSize: '13px' },
-    input: { padding: '7px 10px', width: '100%', maxWidth: '350px', borderRadius: '4px', border: '1px solid #ced4da', fontSize: '13px' },
-    table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '13px' },
-    th: { padding: '10px 12px', backgroundColor: '#f5f5f5', border: '1px solid #dee2e6', textAlign: 'left' as const, fontWeight: 700 },
-    td: { padding: '8px 12px', border: '1px solid #dee2e6', verticalAlign: 'middle' as const },
+    btn: (variant: 'primary' | 'success' | 'danger' | 'warning' | 'secondary' = 'primary'): React.CSSProperties => {
+      const colors = {
+        primary: { bg: '#0ea5e9', text: 'white' },
+        success: { bg: '#10b981', text: 'white' },
+        danger: { bg: '#ef4444', text: 'white' },
+        warning: { bg: '#f59e0b', text: 'white' },
+        secondary: { bg: '#6b7280', text: 'white' }
+      };
+      const c = colors[variant];
+      return { padding: '8px 16px', marginRight: '8px', borderRadius: '6px', border: 'none', backgroundColor: c.bg, color: c.text, cursor: 'pointer', fontSize: '14px', fontWeight: '500', transition: 'all 0.2s' };
+    },
+    form: { marginBottom: '24px', padding: '20px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#f9fafb' },
+    row: { marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px' },
+    label: { minWidth: '180px', fontWeight: '600', fontSize: '14px', color: '#374151' },
+    input: { padding: '8px 12px', width: '100%', maxWidth: '350px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box' as const },
+    table: { width: '100%', borderCollapse: 'collapse' as const, fontSize: '13px', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' },
+    th: { padding: '12px 16px', backgroundColor: '#f3f4f6', border: 'none', textAlign: 'left' as const, fontWeight: '600', color: '#374151', borderBottom: '1px solid #e5e7eb' },
+    td: { padding: '12px 16px', border: 'none', borderBottom: '1px solid #f3f4f6', verticalAlign: 'middle' as const, color: '#111827' },
     badge: (color: string): React.CSSProperties => ({
-      display: 'inline-block', padding: '2px 8px', borderRadius: '12px',
-      fontSize: '11px', fontWeight: 700, backgroundColor: color, color: 'white'
+      display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '16px',
+      fontSize: '12px', fontWeight: '600', backgroundColor: color + '20', color: color
     }),
+    pagination: { display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', marginTop: '24px' },
+    pageBtn: (active: boolean): React.CSSProperties => ({
+      padding: '8px 12px', borderRadius: '6px', border: '1px solid ' + (active ? '#0ea5e9' : '#e5e7eb'),
+      backgroundColor: active ? '#0ea5e9' : 'white', color: active ? 'white' : '#374151', cursor: 'pointer', fontSize: '13px', fontWeight: '500'
+    })
   };
 
   return (
     <div style={s.container}>
-      <h1 style={{ marginBottom: '6px' }}>Collecteur d'emails</h1>
-      <p style={{ color: '#6c757d', marginBottom: '20px', fontSize: '13px' }}>
-        Configurez vos boîtes mail pour la collecte automatique de tickets ou d'interventions copieurs.
-      </p>
+      <div style={s.header}>
+        <h1 style={s.title}>Collecteur d'Emails</h1>
+        <p style={s.subtitle}>
+          Configurez vos boîtes mail pour la collecte automatique de tickets ou d'interventions.
+        </p>
+      </div>
 
       <div style={s.tabs}>
         {(['collectors', 'rules', 'logs'] as const).map(tab => (
@@ -229,20 +254,22 @@ export default function MailCollector() {
       {/* ── COLLECTORS ── */}
       {selectedTab === 'collectors' && (
         <>
-          <button style={s.btn('#28a745')} onClick={() => {
-            if (showNewCollector) {
-              setShowNewCollector(false);
-              setEditingCollectorId(null);
-              setFormData({ frequency: 'hourly', module: 'tickets' });
-            } else {
-              setShowNewCollector(true);
-            }
-          }}>
-            {showNewCollector ? '✕ Annuler' : '+ Nouvelle boîte'}
-          </button>
-          <button style={{ ...s.btn('#dc3545'), marginLeft: 8 }} onClick={purgeInvalidTickets}>
-            Supprimer tickets sans numéro
-          </button>
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+            <button style={s.btn(showNewCollector ? 'secondary' : 'success')} onClick={() => {
+              if (showNewCollector) {
+                setShowNewCollector(false);
+                setEditingCollectorId(null);
+                setFormData({ frequency: 'hourly', module: 'tickets' });
+              } else {
+                setShowNewCollector(true);
+              }
+            }}>
+              {showNewCollector ? '✕ Annuler' : <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Plus size={16} /> Nouvelle boîte</span>}
+            </button>
+            <button style={s.btn('danger')} onClick={purgeInvalidTickets}>
+              Supprimer tickets sans numéro
+            </button>
+          </div>
 
           {showNewCollector && (
             <div style={s.form}>
@@ -279,42 +306,60 @@ export default function MailCollector() {
           <table style={s.table}>
             <thead>
               <tr>
-                <th style={s.th}>Nom</th>
                 <th style={s.th}>Boîte mail</th>
-                <th style={s.th}>Domaine</th>
                 <th style={s.th}>Module</th>
                 <th style={s.th}>Fréquence</th>
                 <th style={s.th}>Dernier import</th>
+                <th style={s.th}>État</th>
                 <th style={s.th}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {collectors.map(c => (
-                <tr key={c.id} style={{ background: c.is_enabled ? 'white' : '#f8f9fa' }}>
-                  <td style={s.td}><strong>{c.name}</strong></td>
-                  <td style={s.td}><code style={{ fontSize: '12px' }}>{c.mailbox}</code></td>
-                  <td style={s.td}>{c.domain_filter || <span style={{ color: '#adb5bd' }}>—</span>}</td>
-                  <td style={s.td}>{modLabel(c.module || 'tickets')}</td>
-                  <td style={s.td}>{freqLabel(c.frequency)}</td>
-                  <td style={s.td}>{c.last_run ? new Date(c.last_run).toLocaleString('fr') : <span style={{ color: '#adb5bd' }}>jamais</span>}</td>
+                <tr key={c.id} style={{ background: c.is_enabled ? 'white' : '#f9fafb' }}>
                   <td style={s.td}>
-                    <button style={s.btn(c.is_enabled ? '#6c757d' : '#28a745')} onClick={() => toggleCollector(c.id, c.is_enabled)}>
-                      {c.is_enabled ? 'Désactiver' : 'Activer'}
+                    <div style={{ fontWeight: '600', color: '#111827' }}>{c.name}</div>
+                    <code style={{ fontSize: '12px', color: '#6b7280' }}>{c.mailbox}</code>
+                    {c.domain_filter && <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px' }}>Domaine: {c.domain_filter}</div>}
+                  </td>
+                  <td style={s.td}>{modLabel(c.module || 'tickets')}</td>
+                  <td style={s.td}><span style={s.badge('#8b5cf6')}>{freqLabel(c.frequency)}</span></td>
+                  <td style={s.td}>
+                    <div style={{ fontSize: '13px' }}>
+                      {c.last_run ? new Date(c.last_run).toLocaleString('fr', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : <span style={{ color: '#9ca3af' }}>jamais</span>}
+                    </div>
+                  </td>
+                  <td style={s.td}>
+                    <span style={s.badge(c.is_enabled ? '#10b981' : '#ef4444')}>
+                      {c.is_enabled ? '✓ Actif' : '✕ Inactif'}
+                    </span>
+                  </td>
+                  <td style={{ ...s.td, display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button style={{ ...s.btn('primary'), padding: '6px 10px', fontSize: '12px' }} onClick={() => toggleCollector(c.id, c.is_enabled)} title={c.is_enabled ? 'Désactiver' : 'Activer'}>
+                      {c.is_enabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
                     </button>
-                    <button style={s.btn('#fd7e14')} onClick={() => {
+                    <button style={{ ...s.btn('warning'), padding: '6px 10px', fontSize: '12px' }} onClick={() => {
                       setFormData(c);
                       setEditingCollectorId(c.id);
                       setShowNewCollector(true);
                       window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }}>Éditer</button>
-                    <button style={s.btn('#007bff')} onClick={() => runCollector(c.id)}>▶ Collecter</button>
-                    <button style={s.btn('#17a2b8')} onClick={() => { setSelectedCollectorId(c.id); setSelectedTab('logs'); }}>Logs</button>
-                    <button style={s.btn('#dc3545')} onClick={() => deleteCollector(c.id)}>✕</button>
+                    }} title="Éditer">
+                      <Edit2 size={16} />
+                    </button>
+                    <button style={{ ...s.btn('primary'), padding: '6px 10px', fontSize: '12px' }} onClick={() => runCollector(c.id)} title="Lancer la collecte">
+                      <Play size={16} />
+                    </button>
+                    <button style={{ ...s.btn('secondary'), padding: '6px 10px', fontSize: '12px' }} onClick={() => { setSelectedCollectorId(c.id); setSelectedTab('logs'); }} title="Voir les logs">
+                      📊
+                    </button>
+                    <button style={{ ...s.btn('danger'), padding: '6px 10px', fontSize: '12px' }} onClick={() => deleteCollector(c.id)} title="Supprimer">
+                      <Trash2 size={16} />
+                    </button>
                   </td>
                 </tr>
               ))}
               {collectors.length === 0 && (
-                <tr><td colSpan={7} style={{ ...s.td, textAlign: 'center', color: '#6c757d', padding: '30px' }}>Aucune boîte configurée</td></tr>
+                <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', color: '#9ca3af', padding: '40px' }}>Aucune boîte mail configurée</td></tr>
               )}
             </tbody>
           </table>
@@ -324,8 +369,8 @@ export default function MailCollector() {
       {/* ── RULES ── */}
       {selectedTab === 'rules' && (
         <>
-          <button style={s.btn('#28a745')} onClick={() => setShowNewRule(!showNewRule)}>
-            {showNewRule ? '✕ Annuler' : '+ Nouvelle règle'}
+          <button style={s.btn(showNewRule ? 'secondary' : 'success')} onClick={() => setShowNewRule(!showNewRule)}>
+            {showNewRule ? '✕ Annuler' : <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Plus size={16} /> Nouvelle règle</span>}
           </button>
 
           {showNewRule && (
@@ -349,16 +394,16 @@ export default function MailCollector() {
                 <span style={s.label}>Priorité</span>
                 <input type="number" style={s.input} value={ruleData.priority || 100} onChange={e => setRuleData({...ruleData, priority: parseInt(e.target.value)})} />
               </div>
-              <button style={s.btn('#007bff')} onClick={createRule}>Créer</button>
+              <button style={s.btn('primary')} onClick={createRule}>Créer</button>
             </div>
           )}
 
           <table style={s.table}>
             <thead>
               <tr>
-                <th style={s.th}>Nom</th>
+                <th style={s.th}>Nom de la règle</th>
                 <th style={s.th}>Type</th>
-                <th style={s.th}>Mots-clés (aperçu)</th>
+                <th style={s.th}>Mots-clés</th>
                 <th style={s.th}>Priorité</th>
                 <th style={s.th}>Actions</th>
               </tr>
@@ -366,17 +411,24 @@ export default function MailCollector() {
             <tbody>
               {rules.map(r => (
                 <tr key={r.id}>
-                  <td style={s.td}>{r.name}</td>
+                  <td style={s.td}><strong>{r.name}</strong></td>
                   <td style={s.td}>
-                    <span style={s.badge(r.type === 'incident' ? '#dc3545' : '#007bff')}>{r.type}</span>
+                    <span style={s.badge(r.type === 'incident' ? '#ef4444' : '#0ea5e9')}>{r.type === 'incident' ? '⚠ Incident' : '📋 Demande'}</span>
                   </td>
-                  <td style={s.td} title={r.keywords}>{r.keywords.substring(0, 60)}{r.keywords.length > 60 ? '…' : ''}</td>
-                  <td style={s.td}>{r.priority}</td>
-                  <td style={s.td}><button style={s.btn('#dc3545')} onClick={() => deleteRule(r.id)}>✕ Supprimer</button></td>
+                  <td style={{ ...s.td, maxWidth: '300px', whiteSpace: 'normal' }}>
+                    <details style={{ cursor: 'pointer' }}>
+                      <summary style={{ color: '#6b7280', fontSize: '13px' }}>{r.keywords.substring(0, 40)}{r.keywords.length > 40 ? '…' : ''}</summary>
+                      <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '4px', fontSize: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {r.keywords}
+                      </div>
+                    </details>
+                  </td>
+                  <td style={s.td}><span style={s.badge('#8b5cf6')}>{r.priority}</span></td>
+                  <td style={s.td}><button style={{ ...s.btn('danger'), padding: '6px 10px', fontSize: '12px' }} onClick={() => deleteRule(r.id)}><Trash2 size={16} /></button></td>
                 </tr>
               ))}
               {rules.length === 0 && (
-                <tr><td colSpan={5} style={{ ...s.td, textAlign: 'center', color: '#6c757d', padding: '30px' }}>Aucune règle</td></tr>
+                <tr><td colSpan={5} style={{ ...s.td, textAlign: 'center', color: '#9ca3af', padding: '40px' }}>Aucune règle configurée</td></tr>
               )}
             </tbody>
           </table>
@@ -386,81 +438,131 @@ export default function MailCollector() {
       {/* ── LOGS ── */}
       {selectedTab === 'logs' && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
             <select
-              style={{ ...s.input, maxWidth: '280px' }}
+              style={{ ...s.input, maxWidth: '320px' }}
               value={selectedCollectorId || ''}
               onChange={e => {
                 const id = parseInt(e.target.value);
                 setSelectedCollectorId(id);
+                setLogPage(1);
                 loadLogs(id);
               }}
             >
-              <option value="">— Choisir une boîte —</option>
+              <option value="">— Sélectionner une boîte mail —</option>
               {collectors.length === 0
                 ? null
                 : collectors.map(c => <option key={c.id} value={c.id}>{c.name} ({c.mailbox})</option>)
               }
             </select>
             {selectedCollectorId && (
-              <button style={s.btn('#6c757d')} onClick={() => loadLogs(selectedCollectorId)}>↺ Actualiser</button>
+              <button style={{ ...s.btn('secondary'), display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => loadLogs(selectedCollectorId)}>
+                <Clock size={16} /> Actualiser
+              </button>
             )}
           </div>
 
-          {/* Charger les collectors si pas encore chargés */}
           {collectors.length === 0 && (
-            <button style={s.btn('#007bff')} onClick={() => loadCollectors().then(() => {})}>Charger les boîtes</button>
+            <button style={s.btn('primary')} onClick={() => loadCollectors().then(() => {})}>Charger les boîtes</button>
           )}
 
-          {logs.length === 0 && selectedCollectorId ? (
-            <p style={{ color: '#6c757d', padding: '20px 0' }}>Aucun log pour cette boîte.</p>
-          ) : (
-            <table style={s.table}>
-              <thead>
-                <tr>
-                  <th style={s.th}>Date</th>
-                  <th style={s.th}>Statut</th>
-                  <th style={s.th}>Reçus</th>
-                  <th style={s.th}>Importés</th>
-                  <th style={s.th}>Skippés</th>
-                  <th style={s.th}>Échoués</th>
-                  <th style={s.th}>Tickets créés</th>
-                  <th style={s.th}>Commentaires</th>
-                  <th style={s.th}>Pièces jointes</th>
-                  <th style={s.th}>Erreurs</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map(log => {
-                  let errors: string[] = [];
-                  try { errors = log.errors ? JSON.parse(log.errors) : []; } catch { errors = log.errors ? [log.errors] : []; }
-                  return (
-                    <tr key={log.id}>
-                      <td style={s.td}>{new Date(log.run_at).toLocaleString('fr')}</td>
-                      <td style={s.td}><span style={s.badge(statusColor(log.status))}>{log.status}</span></td>
-                      <td style={{ ...s.td, textAlign: 'center' as const }}>{log.emails_received}</td>
-                      <td style={{ ...s.td, textAlign: 'center' as const, color: log.emails_imported > 0 ? '#28a745' : undefined, fontWeight: log.emails_imported > 0 ? 700 : undefined }}>{log.emails_imported}</td>
-                      <td style={{ ...s.td, textAlign: 'center' as const, color: '#6c757d' }}>{log.emails_skipped}</td>
-                      <td style={{ ...s.td, textAlign: 'center' as const, color: log.emails_failed > 0 ? '#dc3545' : undefined }}>{log.emails_failed}</td>
-                      <td style={{ ...s.td, textAlign: 'center' as const }}>{log.tickets_created}</td>
-                      <td style={{ ...s.td, textAlign: 'center' as const }}>{log.comments_added}</td>
-                      <td style={{ ...s.td, textAlign: 'center' as const }}>{log.attachments_processed}</td>
-                      <td style={{ ...s.td, maxWidth: '200px' }}>
-                        {errors.length > 0 ? (
-                          <details>
-                            <summary style={{ cursor: 'pointer', color: '#dc3545', fontSize: '12px' }}>{errors.length} erreur(s)</summary>
-                            <ul style={{ margin: '4px 0', paddingLeft: '16px', fontSize: '11px' }}>
-                              {errors.map((e, i) => <li key={i}>{e}</li>)}
-                            </ul>
-                          </details>
-                        ) : <span style={{ color: '#adb5bd' }}>—</span>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+          {selectedCollectorId && logs.length === 0 ? (
+            <div style={{ padding: '60px 20px', textAlign: 'center', color: '#9ca3af' }}>
+              <Clock size={48} style={{ margin: '0 auto 16px', opacity: '0.5' }} />
+              <p style={{ fontSize: '16px', margin: '0' }}>Aucun log pour cette boîte mail</p>
+            </div>
+          ) : selectedCollectorId ? (
+            <>
+              <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                  Total: <strong>{logs.length}</strong> exécution(s) | Page {logPage} sur {totalPages}
+                </span>
+              </div>
+              <table style={s.table}>
+                <thead>
+                  <tr>
+                    <th style={s.th}>Date (dernières en premier)</th>
+                    <th style={s.th}>Statut</th>
+                    <th style={{ ...s.th, textAlign: 'center' as const }}>Reçus</th>
+                    <th style={{ ...s.th, textAlign: 'center' as const }}>Importés</th>
+                    <th style={{ ...s.th, textAlign: 'center' as const }}>Ignorés</th>
+                    <th style={{ ...s.th, textAlign: 'center' as const }}>Échoués</th>
+                    <th style={{ ...s.th, textAlign: 'center' as const }}>Tickets</th>
+                    <th style={{ ...s.th, textAlign: 'center' as const }}>Commentaires</th>
+                    <th style={{ ...s.th, textAlign: 'center' as const }}>PJ</th>
+                    <th style={s.th}>Détails</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedLogs.map(log => {
+                    let errors: string[] = [];
+                    try { errors = log.errors ? JSON.parse(log.errors) : []; } catch { errors = log.errors ? [log.errors] : []; }
+                    return (
+                      <tr key={log.id}>
+                        <td style={s.td}>
+                          <div style={{ fontWeight: '500' }}>{new Date(log.run_at).toLocaleString('fr', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                        </td>
+                        <td style={s.td}>
+                          <span style={s.badge(statusColor(log.status))}>
+                            {statusIcon(log.status)} {log.status}
+                          </span>
+                        </td>
+                        <td style={{ ...s.td, textAlign: 'center' as const, fontWeight: '500' }}>{log.emails_received}</td>
+                        <td style={{ ...s.td, textAlign: 'center' as const, color: log.emails_imported > 0 ? '#10b981' : '#6b7280', fontWeight: log.emails_imported > 0 ? '600' : '400' }}>{log.emails_imported}</td>
+                        <td style={{ ...s.td, textAlign: 'center' as const, color: '#6b7280' }}>{log.emails_skipped}</td>
+                        <td style={{ ...s.td, textAlign: 'center' as const, color: log.emails_failed > 0 ? '#ef4444' : '#6b7280', fontWeight: log.emails_failed > 0 ? '600' : '400' }}>{log.emails_failed}</td>
+                        <td style={{ ...s.td, textAlign: 'center' as const, fontWeight: '500' }}>{log.tickets_created}</td>
+                        <td style={{ ...s.td, textAlign: 'center' as const, fontWeight: '500' }}>{log.comments_added}</td>
+                        <td style={{ ...s.td, textAlign: 'center' as const, fontSize: '12px' }}>{log.attachments_processed}</td>
+                        <td style={s.td}>
+                          {errors.length > 0 ? (
+                            <details style={{ cursor: 'pointer' }}>
+                              <summary style={{ cursor: 'pointer', color: '#ef4444', fontSize: '12px', fontWeight: '600' }}>
+                                <AlertCircle size={14} style={{ display: 'inline', marginRight: '4px' }} />{errors.length} erreur(s)
+                              </summary>
+                              <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px', fontSize: '12px', backgroundColor: '#fef2f2', padding: '8px', borderRadius: '4px', marginTop: '6px' }}>
+                                {errors.map((e, i) => <li key={i} style={{ marginBottom: '4px', color: '#b91c1c' }}>{e}</li>)}
+                              </ul>
+                            </details>
+                          ) : (
+                            <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              {totalPages > 1 && (
+                <div style={s.pagination}>
+                  <button
+                    style={{ ...s.pageBtn(false), cursor: logPage === 1 ? 'not-allowed' : 'pointer', opacity: logPage === 1 ? 0.5 : 1 }}
+                    onClick={() => setLogPage(Math.max(1, logPage - 1))}
+                    disabled={logPage === 1}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                    <button
+                      key={p}
+                      style={s.pageBtn(p === logPage)}
+                      onClick={() => setLogPage(p)}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  <button
+                    style={{ ...s.pageBtn(false), cursor: logPage === totalPages ? 'not-allowed' : 'pointer', opacity: logPage === totalPages ? 0.5 : 1 }}
+                    onClick={() => setLogPage(Math.min(totalPages, logPage + 1))}
+                    disabled={logPage === totalPages}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
+            </>
+          ) : null}
         </>
       )}
     </div>

@@ -19,11 +19,6 @@ class MailScheduler {
   }
 
   static async runCollector(collector) {
-    const module = collector.module || 'tickets';
-    if (module === 'copieurs') {
-      const { importEmailsService } = require('../copieurs/copieurs_mail.service');
-      return await importEmailsService(collector.mailbox, collector.domain_filter);
-    }
     return await MailCollectorService.performCollection(collector.id);
   }
 

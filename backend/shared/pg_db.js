@@ -3077,13 +3077,21 @@ async function setupPgDb() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.sites (
         id SERIAL PRIMARY KEY,
+        code_bien VARCHAR(50),
         nom VARCHAR(255) NOT NULL,
+        categorie VARCHAR(100),
+        abbreviation VARCHAR(50),
         adresse TEXT,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Ajouter colonnes si elles n'existent pas
+    try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS code_bien VARCHAR(50)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS categorie VARCHAR(100)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS abbreviation VARCHAR(50)`); } catch (e) {}
 
     // ─── hub.ecoles ───────────────────────────────────────────────
     await client.query(`

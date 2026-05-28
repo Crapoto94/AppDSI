@@ -17,6 +17,14 @@ export default function LoginPage({ onLogin, config }: Props) {
   const [remember, setRemember] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [targetType, setTargetType] = useState<'ville' | 'ecole'>('ville')
+
+  function handleTargetTypeChange(type: 'ville' | 'ecole') {
+    setTargetType(type)
+    if (type === 'ecole') {
+      setTab('guest')
+    }
+  }
 
   // AD fields
   const [adUsername, setAdUsername] = useState('')
@@ -53,7 +61,7 @@ export default function LoginPage({ onLogin, config }: Props) {
     setLoading(true)
     try {
       if (tab === 'ad') {
-        const res = await axios.post('/api/live/auth/ad', { username: adUsername.trim(), password: adPassword })
+        const res = await axios.post('/api/live/auth/ad', { username: adUsername.trim(), password: adPassword, chat_type: targetType })
         onLogin(res.data.token as string, res.data.user as UserInfo, remember)
       } else if (tab === 'otp') {
         if (otpStep === 'request') {
@@ -63,11 +71,11 @@ export default function LoginPage({ onLogin, config }: Props) {
           setOtpCode('')
           setTimeout(() => otpInputRef.current?.focus(), 100)
         } else {
-          const res = await axios.post('/api/live/auth/otp/verify', { username: otpUsername.trim(), code: otpCode.trim() })
+          const res = await axios.post('/api/live/auth/otp/verify', { username: otpUsername.trim(), code: otpCode.trim(), chat_type: targetType })
           onLogin(res.data.token as string, res.data.user as UserInfo, remember)
         }
       } else {
-        const res = await axios.post('/api/live/guest-login', { displayName: guestName.trim(), email: guestEmail.trim() })
+        const res = await axios.post('/api/live/guest-login', { displayName: guestName.trim(), email: guestEmail.trim(), chat_type: targetType })
         onLogin(res.data.token as string, res.data.user as UserInfo, remember)
       }
     } catch (err: unknown) {
@@ -83,6 +91,10 @@ export default function LoginPage({ onLogin, config }: Props) {
     { id: 'otp',   label: '✉️ Code par email',   desc: 'Réception d\'un code à 4 chiffres par email' },
     { id: 'guest', label: '👤 Sans vérification', desc: 'Nom et email sans authentification' },
   ]
+
+  const visibleTabs = targetType === 'ecole'
+    ? tabs.filter(t => t.id === 'guest')
+    : tabs
 
   const submitLabel = loading ? '⏳ …'
     : tab === 'ad' ? '🔐 Se connecter'
@@ -118,14 +130,52 @@ export default function LoginPage({ onLogin, config }: Props) {
           <h1 style={{ margin: '0 0 5px', fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.5 }}>
             {chat_name}
           </h1>
-          <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
+          <p style={{ margin: 0, fontSize: 13, color: '#64748b', marginBottom: 12 }}>
             Choisissez votre mode d'identification
           </p>
+          
+          {/* Toggle Ville/École */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginBottom: 16 }}>
+            <button
+              type="button"
+              onClick={() => handleTargetTypeChange('ville')}
+              style={{
+                padding: '6px 16px',
+                borderRadius: 20,
+                border: `1.5px solid ${targetType === 'ville' ? primary_color : '#e2e8f0'}`,
+                background: targetType === 'ville' ? `${primary_color}12` : '#fff',
+                color: targetType === 'ville' ? primary_color : '#64748b',
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              🏢 Ville
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTargetTypeChange('ecole')}
+              style={{
+                padding: '6px 16px',
+                borderRadius: 20,
+                border: `1.5px solid ${targetType === 'ecole' ? primary_color : '#e2e8f0'}`,
+                background: targetType === 'ecole' ? `${primary_color}12` : '#fff',
+                color: targetType === 'ecole' ? primary_color : '#64748b',
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              🏫 École
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#f1f5f9', borderRadius: 12, padding: 4 }}>
-          {tabs.map(t => (
+          {visibleTabs.map(t => (
             <button
               key={t.id}
               onClick={() => switchTab(t.id)}
@@ -147,7 +197,7 @@ export default function LoginPage({ onLogin, config }: Props) {
 
         {/* Tab description */}
         <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', marginBottom: 20 }}>
-          {tabs.find(t => t.id === tab)?.desc}
+          {visibleTabs.find(t => t.id === tab)?.desc}
         </div>
 
         {/* Error */}

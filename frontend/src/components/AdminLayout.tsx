@@ -45,6 +45,7 @@ const AdminLayout: React.FC = () => {
     { title: "Dashboard", icon: LayoutDashboard, path: "/admin", exact: true },
     { title: "Utilisateurs", icon: Users, path: "/admin/users" },
     { title: "Organisation", icon: Network, path: "/admin/organisation" },
+    { title: "Param Ville", icon: LayoutGrid, path: "/admin/param-ville" },
     ...(isSuperAdmin ? [{ title: "Demandes d'Acces", icon: ShieldCheck, path: "/admin/access-requests", badge: pendingCount }] : []),
     { title: "Backlog", icon: Inbox, path: "/admin/backlog" },
     { title: "Messagerie & Emails", icon: Mail, path: "/admin/mail" },

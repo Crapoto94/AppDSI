@@ -44,10 +44,12 @@ import TicketsDashboard from './pages/Tickets/TicketsDashboard';
 import TicketDetail from './pages/Tickets/TicketDetail';
 import TicketCreate from './pages/Tickets/TicketCreate';
 import TicketAdmin from './pages/Tickets/TicketAdmin';
+import ChatEcole from './pages/Tickets/ChatEcole';
 import AdminGED from './pages/AdminGED';
 import PublicTicketReply from './pages/PublicTicketReply';
 import ChatWidget from './components/LiveChat/ChatWidget';
 import MailCollector from './pages/Admin/MailCollector';
+import ParamVille from './pages/Admin/ParamVille';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -135,6 +137,7 @@ function App() {
         <Route path="/tickets" element={<PrivateRoute path="/tickets"><TicketsDashboard /></PrivateRoute>} />
         <Route path="/tickets/new" element={<PrivateRoute path="/tickets"><TicketCreate /></PrivateRoute>} />
         <Route path="/tickets/:id" element={<PrivateRoute path="/tickets"><TicketDetail /></PrivateRoute>} />
+        <Route path="/chatecole" element={<PrivateRoute path="/tickets"><ChatEcole /></PrivateRoute>} />
         {/* Admin Routes with Sidebar Layout */}
         <Route 
           path="/admin" 
@@ -166,6 +169,7 @@ function App() {
           <Route path="backlog" element={<AdminBacklogMerged />} />
           <Route path="o365-mail" element={<AdminMail />} />
           <Route path="mail-collector" element={<MailCollector />} />
+          <Route path="param-ville" element={<ParamVille />} />
           <Route path="organisation" element={<AdminOrganisation />} />
           <Route path="tickets" element={<TicketAdmin />} />
           <Route path="ged" element={<AdminGED />} />

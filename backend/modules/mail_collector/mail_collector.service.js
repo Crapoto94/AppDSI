@@ -439,23 +439,32 @@ class MailCollectorService {
     };
 
     try {
-      const sqlite = getSqlite();
-      const o365Settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
+      if (collector.module === 'copieurs') {
+        const { importEmailsService } = require('../copieurs/copieurs_mail.service');
+        const res = await importEmailsService(collector.mailbox, collector.domain_filter);
+        log.emails_received = res.emails_received || 0;
+        log.emails_imported = res.emails_imported || 0;
+        log.emails_skipped = res.emails_skipped || 0;
+        log.tickets_created = res.emails_imported || 0;
+      } else {
+        const sqlite = getSqlite();
+        const o365Settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
 
-      if (!o365Settings || !o365Settings.is_enabled || !o365Settings.client_id || !o365Settings.client_secret || !o365Settings.tenant_id) {
-        throw new Error('O365 non configuré dans les paramètres (/admin > Messagerie & Emails)');
+        if (!o365Settings || !o365Settings.is_enabled || !o365Settings.client_id || !o365Settings.client_secret || !o365Settings.tenant_id) {
+          throw new Error('O365 non configuré dans les paramètres (/admin > Messagerie & Emails)');
+        }
+
+        // Credentials depuis o365_settings, mailbox propre à ce collecteur
+        o365Settings.mailbox = collector.mailbox;
+
+        const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || null;
+        const axiosOpts = proxyUrl
+          ? { httpsAgent: new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false }), proxy: false }
+          : { httpsAgent: new https.Agent({ rejectUnauthorized: false }) };
+
+        const token = await this.getGraphToken(o365Settings);
+        log = await this.collectMailbox(collector, token, o365Settings, axiosOpts);
       }
-
-      // Credentials depuis o365_settings, mailbox propre à ce collecteur
-      o365Settings.mailbox = collector.mailbox;
-
-      const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || null;
-      const axiosOpts = proxyUrl
-        ? { httpsAgent: new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false }), proxy: false }
-        : { httpsAgent: new https.Agent({ rejectUnauthorized: false }) };
-
-      const token = await this.getGraphToken(o365Settings);
-      log = await this.collectMailbox(collector, token, o365Settings, axiosOpts);
     } catch (err) {
       log.status = 'failed';
       log.errors.push(err.response?.data ? JSON.stringify(err.response.data) : err.message);
@@ -465,8 +474,8 @@ class MailCollectorService {
     await pgDb.run(
       `INSERT INTO hub_tickets.mail_collector_logs (
         collector_id, emails_received, emails_imported, emails_skipped, emails_failed,
-        tickets_created, comments_added, attachments_processed, errors, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        tickets_created, comments_added, attachments_processed, errors, status, run_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         collectorId, log.emails_received, log.emails_imported, log.emails_skipped,
         log.emails_failed, log.tickets_created, log.comments_added, log.attachments_processed,
@@ -478,8 +487,8 @@ class MailCollectorService {
     const now = new Date();
     const nextRun = this.getNextRunTime(collector.frequency, now);
     await pgDb.run(
-      'UPDATE hub_tickets.mail_collectors SET last_run = ?, next_run = ?, updated_at = NOW() WHERE id = ?',
-      [now.toISOString(), nextRun.toISOString(), collectorId]
+      'UPDATE hub_tickets.mail_collectors SET last_run = NOW(), next_run = ?, updated_at = NOW() WHERE id = ?',
+      [nextRun.toISOString(), collectorId]
     );
 
     return log;

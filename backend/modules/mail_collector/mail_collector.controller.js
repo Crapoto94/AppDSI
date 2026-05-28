@@ -121,13 +121,7 @@ module.exports = {
       if (!collector.is_enabled) return res.status(400).json({ message: 'Collecteur désactivé' });
 
       const module = collector.module || 'tickets';
-      let log;
-      if (module === 'copieurs') {
-        const { importEmailsService } = require('../copieurs/copieurs_mail.service');
-        log = await importEmailsService(collector.mailbox, collector.domain_filter);
-      } else {
-        log = await MailCollectorService.performCollection(collectorId);
-      }
+      const log = await MailCollectorService.performCollection(collectorId);
 
       if (log && log.status === 'failed') {
         logMouchard(`Collecte manuelle échouée: collecteur ${collectorId} (module ${module})`);

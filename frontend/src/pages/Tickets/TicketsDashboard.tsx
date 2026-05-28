@@ -319,6 +319,7 @@ export default function TicketsDashboard() {
     const socket = io({ auth: { token } });
     socket.on('connect', () => socket.emit('tech_watch'));
     socket.on('new_live_session', (session: any) => {
+      if (session.chat_type && session.chat_type !== 'ville') return;
       setLiveNotif(prev => ({ count: (prev?.count || 0) + 1, lastSession: session }));
     });
     socket.on('session_closed', () => {
