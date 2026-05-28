@@ -189,19 +189,25 @@ async function notifyEcoleGroup(session) {
         }
         console.log('[LIVE] Frizbi authenticated, sending SMS...');
 
-        await axios.post(`${frizbi.api_url}/api/sms/send`, {
-            customerSmsId: `ecole_${session.id}_${Date.now()}`.substring(0, 50),
+        const smsPayload = {
+            customerSmsId: `ecole_${session.id}_${Date.now()}`,
             date: new Date().toISOString(),
             title: 'Chat ecole',
             message: smsText,
             customerSenderId: frizbi.sender_id || 'IVRY',
             smsContacts: members.map(m => ({
-                customerSmsContactId: `eco_${(m.mobile_phone || '').replace(/\D/g, '')}`,
+                customerSmsContactId: `eco_${(m.mobile_phone || '').replace(/\D/g, '')}`.substring(0, 50),
                 mobile: (m.mobile_phone || '').replace(/\D/g, ''),
                 firstName: (m.display_name || '').split(' ')[0] || 'Agent',
                 lastName: (m.display_name || '').split(' ').slice(1).join(' ') || '',
             }))
-        }, { headers: { Authorization: `Bearer ${token}` } });
+        };
+        console.log('[LIVE] Sending SMS payload:', JSON.stringify(smsPayload, null, 2));
+
+        const smsRes = await axios.post(`${frizbi.api_url}/api/sms/send`, smsPayload, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        console.log('[LIVE] Frizbi send response:', JSON.stringify(smsRes.data));
         console.log('[LIVE] SMS sent to Frizbi, logging...');
 
         // Log SMS for each recipient
