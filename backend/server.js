@@ -3244,6 +3244,83 @@ app.delete('/api/admin/settings/:key', authenticateAdmin, async (req, res) => {
     }
 });
 
+// Inventaire IRS API proxy
+const inventaireApi = (req, res, path) => {
+    db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['inventaire_ip']).then(ip => {
+        db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['inventaire_key']).then(key => {
+            if (!ip || !key) {
+                return res.status(400).json({ success: false, message: 'inventaire_ip ou inventaire_key non configurés dans /admin/settings' });
+            }
+            axios.get(`http://${ip.setting_value}${path}`, {
+                headers: { 'X-API-Key': key.setting_value },
+                timeout: 10000,
+            }).then(response => {
+                res.json({ success: true, data: response.data });
+            }).catch(error => {
+                console.error('[INVENTAIRE] Error:', error.response?.data || error.message);
+                res.status(error.response?.status || 500).json({
+                    success: false,
+                    message: error.response?.data?.message || error.message,
+                });
+            });
+        }).catch(error => {
+            console.error('[INVENTAIRE] DB error:', error.message);
+            res.status(500).json({ success: false, message: error.message });
+        });
+    }).catch(error => {
+        console.error('[INVENTAIRE] DB error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
+    });
+};
+
+app.get('/api/admin/inventaire/test', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/external/desktops');
+});
+
+app.get('/api/admin/inventaire/desktops', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/external/desktops');
+});
+
+const validateUuid = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+app.get('/api/admin/inventaire/desktops/:id', authenticateAdmin, (req, res) => {
+    const id = req.params.id;
+    if (!validateUuid(id)) return res.status(400).json({ success: false, message: 'ID invalide' });
+    inventaireApi(req, res, `/api/external/desktops/${id}`);
+});
+
+app.get('/api/admin/inventaire/desktops/:id/hardware', authenticateAdmin, (req, res) => {
+    const id = req.params.id;
+    if (!validateUuid(id)) return res.status(400).json({ success: false, message: 'ID invalide' });
+    inventaireApi(req, res, `/api/external/desktops/${id}/hardware`);
+});
+
+app.get('/api/admin/inventaire/desktops/:id/packages', authenticateAdmin, (req, res) => {
+    const id = req.params.id;
+    if (!validateUuid(id)) return res.status(400).json({ success: false, message: 'ID invalide' });
+    inventaireApi(req, res, `/api/external/desktops/${id}/packages`);
+});
+
+app.get('/api/admin/inventaire/hosts', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/external/hosts');
+});
+
+app.get('/api/admin/inventaire/alerts', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/external/alerts');
+});
+
+app.get('/api/admin/inventaire/incidents', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/external/incidents');
+});
+
+app.get('/api/admin/inventaire/vuln', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/external/vuln');
+});
+
+app.get('/api/admin/inventaire/siem', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/external/siem/events');
+});
+
 // Specialized AI settings
 app.get('/api/app-settings/transcript_manager', authenticateAdmin, async (req, res) => {
     try {
