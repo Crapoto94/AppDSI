@@ -20,6 +20,7 @@ router.delete('/elus/:id', authenticateAdmin, villeController.deleteElu);
 router.get('/sites', authenticateAdmin, villeController.getSites);
 router.post('/sites/import', authenticateAdmin, upload.single('file'), villeController.importSites);
 router.put('/sites/:id', authenticateAdmin, villeController.updateSite);
+router.patch('/sites/:id/geocode', authenticateAdmin, villeController.saveGeocode);
 
 // Onglet Écoles
 router.get('/ecoles', authenticateAdmin, villeController.getEcoles);

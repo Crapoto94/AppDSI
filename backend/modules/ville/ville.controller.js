@@ -138,6 +138,20 @@ module.exports = {
     }
   },
 
+  saveGeocode: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { lat, lng } = req.body;
+      await pgDb.run(
+        'UPDATE hub.sites SET lat = ?, lng = ?, updated_at = NOW() WHERE id = ?',
+        [lat, lng, id]
+      );
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: 'Erreur sauvegarde géocodage', error: error.message });
+    }
+  },
+
   // Onglet Écoles
   getEcoles: async (req, res) => {
     try {

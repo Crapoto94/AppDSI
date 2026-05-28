@@ -3108,6 +3108,8 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS code_bien VARCHAR(50)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS categorie VARCHAR(100)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS abbreviation VARCHAR(50)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION`); } catch (e) {}
 
     // ─── hub.ecoles ───────────────────────────────────────────────
     await client.query(`
