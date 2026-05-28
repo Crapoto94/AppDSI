@@ -93,6 +93,17 @@ module.exports = {
   },
 
   // Onglet Sites
+  getSitesList: async (req, res) => {
+    try {
+      const sites = await pgDb.all(
+        'SELECT id, code_bien, nom, abbreviation, categorie FROM hub.sites WHERE is_active = true ORDER BY code_bien'
+      );
+      res.json(sites);
+    } catch (error) {
+      res.status(500).json({ message: 'Erreur récupération sites', error: error.message });
+    }
+  },
+
   getSites: async (req, res) => {
     try {
       const sites = await pgDb.all('SELECT * FROM hub.sites ORDER BY nom');

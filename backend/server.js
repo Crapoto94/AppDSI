@@ -3318,7 +3318,58 @@ app.get('/api/admin/inventaire/vuln', authenticateAdmin, (req, res) => {
 });
 
 app.get('/api/admin/inventaire/siem', authenticateAdmin, (req, res) => {
-    inventaireApi(req, res, '/api/external/siem/events');
+    inventaireApi(req, res, '/api/siem');
+});
+
+// ── Inventaire extended routes ─────────────────────────────────────────────────
+app.get('/api/admin/inventaire/network-checks', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/network-checks');
+});
+app.get('/api/admin/inventaire/health-checks', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/health-checks');
+});
+app.get('/api/admin/inventaire/alert-rules', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/alert-rules');
+});
+// RMM routes (agents / postes)
+app.get('/api/admin/inventaire/rmm', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/rmm');
+});
+app.get('/api/admin/inventaire/rmm/:id/hardware', authenticateAdmin, (req, res) => {
+    const id = req.params.id;
+    inventaireApi(req, res, `/api/rmm/${id}/hardware`);
+});
+app.get('/api/admin/inventaire/rmm/:id/packages', authenticateAdmin, (req, res) => {
+    const id = req.params.id;
+    inventaireApi(req, res, `/api/rmm/${id}/packages`);
+});
+app.get('/api/admin/inventaire/rmm/:id', authenticateAdmin, (req, res) => {
+    const id = req.params.id;
+    inventaireApi(req, res, `/api/rmm/${id}`);
+});
+// Dashboards
+app.get('/api/admin/inventaire/dashboards', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/dashboards');
+});
+// Cartography
+app.get('/api/admin/inventaire/cartography', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/cartography');
+});
+// Vault
+app.get('/api/admin/inventaire/vault', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/vault');
+});
+// Hardening
+app.get('/api/admin/inventaire/hardening', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/hardening');
+});
+app.get('/api/admin/inventaire/hardening/:id', authenticateAdmin, (req, res) => {
+    const id = req.params.id;
+    inventaireApi(req, res, `/api/hardening/${id}`);
+});
+// Changes register
+app.get('/api/admin/inventaire/changes', authenticateAdmin, (req, res) => {
+    inventaireApi(req, res, '/api/changes');
 });
 
 // Specialized AI settings

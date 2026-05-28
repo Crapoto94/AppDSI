@@ -1260,6 +1260,17 @@ export default function TicketDetail() {
               </span>
             </div>
 
+            {/* LIEU */}
+            {ticket.location && (
+              <div style={SF}>
+                <span style={SL}>Lieu</span>
+                <span style={{ ...SV, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>📍</span>
+                  <span>{ticket.location}</span>
+                </span>
+              </div>
+            )}
+
             {/* PIÈCES JOINTES */}
             {attachments.length > 0 && (
               <div style={SF}>

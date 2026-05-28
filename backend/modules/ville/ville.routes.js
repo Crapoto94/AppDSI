@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const villeController = require('./ville.controller');
-const { authenticateAdmin } = require('../../shared/middleware');
+const { authenticateAdmin, authenticateJWT } = require('../../shared/middleware');
 const multer = require('multer');
 
 const upload = multer({ dest: '/tmp' });
@@ -17,6 +17,7 @@ router.put('/elus/:id', authenticateAdmin, villeController.updateElu);
 router.delete('/elus/:id', authenticateAdmin, villeController.deleteElu);
 
 // Onglet Sites
+router.get('/sites/list', authenticateJWT, villeController.getSitesList);
 router.get('/sites', authenticateAdmin, villeController.getSites);
 router.post('/sites/import', authenticateAdmin, upload.single('file'), villeController.importSites);
 router.put('/sites/:id', authenticateAdmin, villeController.updateSite);
