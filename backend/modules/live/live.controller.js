@@ -148,9 +148,10 @@ async function createSession(req, res) {
 
 // ── Notify "Ecoles" group via SMS for new school sessions ────────────
 async function notifyEcoleGroup(session) {
+    console.log('[LIVE] notifyEcoleGroup called for session #' + session?.id + ' chat_type=' + session?.chat_type);
     try {
         const members = await pgDb.all(`
-            SELECT DISTINCT u.username, u."displayName" as display_name, tp.mobile_phone
+            SELECT DISTINCT u.username, u.displayname as display_name, tp.mobile_phone
             FROM hub_tickets.technician_groups g
             JOIN hub_tickets.technician_group_members gm ON g.id = gm.group_id
             JOIN hub.users u ON gm.user_id = u.id
@@ -158,10 +159,15 @@ async function notifyEcoleGroup(session) {
             WHERE g.name = 'Ecoles' AND g.is_active = true
               AND tp.mobile_phone IS NOT NULL AND tp.mobile_phone != ''
         `);
-        if (members.length === 0) return;
+        console.log('[LIVE] notifyEcoleGroup members found:', members.length);
+        if (members.length === 0) {
+            console.log('[LIVE] notifyEcoleGroup: aucun membre avec téléphone dans le groupe Ecoles');
+            return;
+        }
 
         const db = getSqlite();
         const frizbi = await db.get('SELECT * FROM frizbi_settings WHERE id = 1');
+        console.log('[LIVE] Frizbi settings: enabled=' + frizbi?.is_enabled + ' client_id=' + (frizbi?.client_id ? 'SET' : 'EMPTY') + ' client_secret=' + (frizbi?.client_secret ? 'SET' : 'EMPTY'));
         if (!frizbi?.is_enabled || !frizbi.client_id || !frizbi.client_secret) {
             console.log('[LIVE] Frizbi not configured, skipping ecole SMS');
             return;
@@ -171,6 +177,7 @@ async function notifyEcoleGroup(session) {
         const link = `${appBaseUrl}/chatecole`;
         const smsText = `Nouveau chat ecole ouvert. Prenez en charge sur ${link}`;
 
+        console.log('[LIVE] Authenticating with Frizbi...');
         const authRes = await axios.post(`${frizbi.api_url}/api/auth/login`, {
             login: frizbi.client_id,
             password: frizbi.client_secret
@@ -180,6 +187,7 @@ async function notifyEcoleGroup(session) {
             console.error('[LIVE] Frizbi auth failed');
             return;
         }
+        console.log('[LIVE] Frizbi authenticated, sending SMS...');
 
         await axios.post(`${frizbi.api_url}/api/sms/send`, {
             customerSmsId: `ecole_${session.id}_${Date.now()}`.substring(0, 50),
@@ -194,6 +202,7 @@ async function notifyEcoleGroup(session) {
                 lastName: (m.display_name || '').split(' ').slice(1).join(' ') || '',
             }))
         }, { headers: { Authorization: `Bearer ${token}` } });
+        console.log('[LIVE] SMS sent to Frizbi, logging...');
 
         // Log SMS for each recipient
         for (const m of members) {
@@ -202,6 +211,7 @@ async function notifyEcoleGroup(session) {
                     INSERT INTO hub.sms_logs (recipient, message, sender_id, status, source, created_by)
                     VALUES ($1, $2, $3, $4, $5, $6)
                 `, [(m.mobile_phone || '').replace(/\D/g, ''), smsText, frizbi.sender_id || 'IVRY', 'sent', 'ecole_notify', 'system']);
+                console.log('[LIVE] SMS logged for', m.mobile_phone);
             } catch (logErr) {
                 console.error('[LIVE] Failed to log SMS:', logErr.message);
             }
@@ -210,6 +220,7 @@ async function notifyEcoleGroup(session) {
         console.log(`[LIVE] SMS sent to ${members.length} agent(s) for ecole session #${session.id}`);
     } catch (e) {
         console.error('[LIVE] notifyEcoleGroup error:', e.message);
+        console.error('[LIVE] notifyEcoleGroup stack:', e.stack);
     }
 }
 
@@ -995,7 +1006,7 @@ async function sendEmergencyMessage(req, res) {
 
         // Fetch emergency contacts
         const contacts = await pgDb.all(`
-            SELECT tp.mobile_phone, u."displayName" as display_name, u.email
+            SELECT tp.mobile_phone, u.displayname as display_name, u.email
             FROM hub_tickets.technician_profiles tp
             JOIN hub.users u ON tp.user_id = u.id
             WHERE tp.is_emergency_contact = true AND tp.status = 'active'
