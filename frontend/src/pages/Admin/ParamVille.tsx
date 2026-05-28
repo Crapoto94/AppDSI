@@ -21,7 +21,9 @@ interface Elu {
 
 interface Site {
   id?: number;
+  code_bien?: string;
   nom: string;
+  categorie?: string;
   adresse?: string;
   is_active: boolean;
 }
@@ -277,7 +279,7 @@ export default function ParamVille() {
       }
     `;
     document.head.appendChild(style);
-    return () => document.head.removeChild(style);
+    return () => { document.head.removeChild(style); };
   }, []);
 
   return (
@@ -494,7 +496,9 @@ export default function ParamVille() {
           <table style={s.table}>
             <thead>
               <tr>
+                <th style={s.th}>Code</th>
                 <th style={s.th}>Nom</th>
+                <th style={s.th}>Catégorie</th>
                 <th style={s.th}>Adresse</th>
                 <th style={s.th}>État</th>
                 <th style={s.th}>Actions</th>
@@ -503,7 +507,9 @@ export default function ParamVille() {
             <tbody>
               {sites.map(site => (
                 <tr key={site.id} style={{background: site.is_active ? 'white' : '#f9fafb'}}>
+                  <td style={s.td}><code style={{fontSize: '12px', background: '#f3f4f6', padding: '2px 6px', borderRadius: '4px'}}>{site.code_bien || '—'}</code></td>
                   <td style={s.td}><strong>{site.nom}</strong></td>
+                  <td style={s.td}>{site.categorie ? <span style={s.badge('#6366f1')}>{site.categorie}</span> : '—'}</td>
                   <td style={s.td}>{site.adresse || '—'}</td>
                   <td style={s.td}><span style={s.badge(site.is_active ? '#10b981' : '#ef4444')}>{site.is_active ? '✓ Actif' : '✕ Inactif'}</span></td>
                   <td style={{...s.td, display: 'flex', gap: '6px'}}>

@@ -297,7 +297,7 @@ export default function MailCollector() {
                   {FREQUENCIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                 </select>
               </div>
-              <button style={s.btn('#007bff')} onClick={saveCollector}>
+              <button style={s.btn('primary')} onClick={saveCollector}>
                 {editingCollectorId ? 'Enregistrer' : 'Créer'}
               </button>
             </div>

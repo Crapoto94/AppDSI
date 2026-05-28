@@ -644,6 +644,7 @@ export default function TicketsDashboard() {
           {activeSoftware && (
             <button onClick={() => handleSoftwareFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
           )}
+          <button type="submit" style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#475569' }}>🔍</button>
         </form>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
