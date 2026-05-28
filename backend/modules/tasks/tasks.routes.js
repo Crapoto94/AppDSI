@@ -17,6 +17,8 @@ router.patch('/alert-pref',       authenticateJWT, (req, res) => controller.setA
 router.post('/alert-test',        authenticateJWT, (req, res) => controller.sendTestAlert(req, res));
 router.get('/services',           authenticateJWT, (req, res) => controller.getServices(req, res));
 router.get('/by-context',         authenticateJWT, (req, res) => controller.getTasksByContext(req, res));
+router.get('/assigned-by-me',     authenticateJWT, (req, res) => controller.getAssignedByMe(req, res));
+router.get('/kpi-history',        authenticateJWT, (req, res) => controller.getKpiHistory(req, res));
 
 // MS Todo sync
 router.get('/todo-sync',          authenticateJWT, (req, res) => controller.getTodoSyncPref(req, res));

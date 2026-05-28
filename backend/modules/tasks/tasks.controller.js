@@ -122,12 +122,13 @@ module.exports = {
                         ut.statut,
                         ut.username   AS responsable,
                         ut.created_at,
+                        ut.updated_at::text AS updated_at,
                         ut.is_team_task,
                         ut.team_group_id::text AS team_group_id,
-                        ut.created_by
+                        ut.created_by,
+                        ut.refus_raison
                     FROM hub.user_tasks ut
-                    WHERE ut.statut != 'terminé'
-                      AND LOWER(ut.username) = $1
+                    WHERE LOWER(ut.username) = $1
 
                     UNION ALL
 
@@ -141,9 +142,11 @@ module.exports = {
                         CASE WHEN t.is_completed = 1 THEN 'terminé' ELSE 'a_faire' END AS statut,
                         t.assignee    AS responsable,
                         t.created_at,
+                        NULL::text    AS updated_at,
                         FALSE         AS is_team_task,
                         NULL          AS team_group_id,
-                        NULL          AS created_by
+                        NULL          AS created_by,
+                        NULL          AS refus_raison
                     FROM transcript.tasks t
                     JOIN transcript.meetings m ON t.meeting_id = m.id
                     WHERE t.is_completed = 0
@@ -161,9 +164,11 @@ module.exports = {
                         CASE WHEN pt.statut IN ('terminee','terminée') THEN 'terminé' ELSE pt.statut END AS statut,
                         pt.responsable_username AS responsable,
                         pt.date_creation       AS created_at,
+                        NULL::text             AS updated_at,
                         FALSE                  AS is_team_task,
                         NULL                   AS team_group_id,
-                        NULL                   AS created_by
+                        NULL                   AS created_by,
+                        NULL                   AS refus_raison
                     FROM projets.projet_taches pt
                     JOIN projets.projets p ON pt.projet_id = p.id
                     WHERE pt.statut NOT IN ('terminé','terminee','terminée')
@@ -181,9 +186,11 @@ module.exports = {
                         CASE WHEN pts.statut IN ('terminee','terminée') THEN 'terminé' ELSE pts.statut END AS statut,
                         pts.responsable,
                         pts.created_at,
+                        NULL::text              AS updated_at,
                         FALSE                   AS is_team_task,
                         NULL                    AS team_group_id,
-                        NULL                    AS created_by
+                        NULL                    AS created_by,
+                        NULL                    AS refus_raison
                     FROM projets.projet_taches_standalone pts
                     JOIN projets.projets p ON pts.projet_id = p.id
                     WHERE pts.statut NOT IN ('terminé','terminee','terminée')
@@ -202,9 +209,11 @@ module.exports = {
                         rs.statut,
                         rs.responsable,
                         rs.updated_at          AS created_at,
+                        NULL::text             AS updated_at,
                         FALSE                  AS is_team_task,
                         NULL                   AS team_group_id,
-                        NULL                   AS created_by
+                        NULL                   AS created_by,
+                        NULL                   AS refus_raison
                     FROM hub_rencontres.rencontres_suivi rs
                     JOIN hub_rencontres.rencontres_budgetaires rb ON rs.rencontre_id = rb.id
                     WHERE rs.statut NOT IN ('terminé', 'done')
@@ -222,9 +231,11 @@ module.exports = {
                         rt.statut,
                         rt.responsable,
                         rt.created_at,
+                        NULL::text           AS updated_at,
                         FALSE                AS is_team_task,
                         NULL                 AS team_group_id,
-                        NULL                 AS created_by
+                        NULL                 AS created_by,
+                        NULL                 AS refus_raison
                     FROM hub_rencontres.revue_taches rt
                     JOIN hub_rencontres.revues rv ON rt.revue_id = rv.id
                     WHERE rt.statut != 'terminé'
@@ -242,9 +253,11 @@ module.exports = {
                         COALESCE(item->>'statut', 'a_faire') AS statut,
                         (item->>'responsable') AS responsable,
                         r.created_at,
+                        NULL::text           AS updated_at,
                         FALSE                AS is_team_task,
                         NULL                 AS team_group_id,
-                        NULL                 AS created_by
+                        NULL                 AS created_by,
+                        NULL                 AS refus_raison
                     FROM hub_rencontres.rencontres_reunions r
                     CROSS JOIN LATERAL json_array_elements(
                         CASE WHEN r.liste_taches IS NOT NULL AND r.liste_taches NOT IN ('', '[]')
@@ -256,6 +269,7 @@ module.exports = {
                            OR LOWER(item->>'responsable_username') = $1)
                 ) q
                 ORDER BY
+                    CASE WHEN statut IN ('terminé','refuse') THEN 1 ELSE 0 END,
                     CASE WHEN echeance IS NOT NULL AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
                     echeance ASC NULLS LAST,
                     created_at DESC
@@ -443,32 +457,39 @@ module.exports = {
         }
     },
 
-    // PATCH /api/tasks/:source/:id  { statut }
+    // PATCH /api/tasks/:source/:id  { statut, refus_raison? }
     async updateTaskStatus(req, res) {
         const { source, id } = req.params;
-        const { statut } = req.body;
+        const { statut, refus_raison } = req.body;
         if (!statut) return res.status(400).json({ error: 'statut requis' });
         try {
             const dbStatut = normalizeStatutIn(statut, source);
 
-            // For personal tasks linked to a ticket, fetch context before update
+            // For personal/ticket tasks, fetch context before update
             let taskContext = null;
-            if (source === 'personal') {
+            if (source === 'personal' || source === 'ticket') {
                 const { rows } = await pool.query(
                     'SELECT context_source, context_id, description FROM hub.user_tasks WHERE id = $1',
                     [id]
                 );
-                if (rows.length > 0) {
-                    taskContext = rows[0];
-                }
+                if (rows.length > 0) taskContext = rows[0];
             }
 
             switch (source) {
                 case 'personal':
-                    await pool.query(
-                        'UPDATE hub.user_tasks SET statut = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-                        [statut, id]
-                    );
+                case 'ticket':
+                    // Both are stored in hub.user_tasks
+                    if (statut === 'refuse' && refus_raison) {
+                        await pool.query(
+                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+                            [statut, refus_raison, id]
+                        );
+                    } else {
+                        await pool.query(
+                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [statut, id]
+                        );
+                    }
                     break;
                 case 'transcript':
                     await pool.query(
@@ -500,6 +521,23 @@ module.exports = {
                         [statut, id]
                     );
                     break;
+                case 'reunion': {
+                    // Composite id = reunion_id * 10000 + ordinality (1-based)
+                    const compositeId = parseInt(id);
+                    const reunionId = Math.floor(compositeId / 10000);
+                    const arrayIndex = (compositeId % 10000) - 1; // 0-based for jsonb_set
+                    await pool.query(
+                        `UPDATE hub_rencontres.rencontres_reunions
+                         SET liste_taches = jsonb_set(
+                             COALESCE(liste_taches::jsonb, '[]'::jsonb),
+                             ('{' || $1 || ',statut}')::text[],
+                             to_jsonb($2::text)
+                         )
+                         WHERE id = $3`,
+                        [arrayIndex, statut, reunionId]
+                    );
+                    break;
+                }
                 default:
                     return res.status(400).json({ error: 'Source inconnue' });
             }
@@ -1049,6 +1087,71 @@ module.exports = {
     },
 
     setSendMail,
+
+    // GET /api/tasks/assigned-by-me — tasks I created for other users
+    async getAssignedByMe(req, res) {
+        const username = req.user.username;
+        try {
+            const { rows } = await pool.query(
+                `SELECT ut.id, ut.username AS responsable, ut.description, ut.echeance::text AS echeance,
+                        ut.statut, ut.created_at, ut.updated_at::text AS updated_at,
+                        ut.context_source, ut.context_title, ut.refus_raison,
+                        COALESCE(ut.context_source, 'personal') AS source,
+                        COALESCE(ut.context_title, 'Tâche personnelle') AS source_title
+                 FROM hub.user_tasks ut
+                 WHERE LOWER(ut.created_by) = LOWER($1)
+                   AND LOWER(ut.username) != LOWER($1)
+                 ORDER BY ut.created_at DESC`,
+                [username]
+            );
+            res.json(rows);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/tasks/kpi-history — last 30 days of task activity for current user
+    async getKpiHistory(req, res) {
+        const username = req.user.username;
+        try {
+            const { rows } = await pool.query(
+                `SELECT
+                    DATE(created_at)::text AS date,
+                    COUNT(*) FILTER (WHERE DATE(created_at) = DATE(created_at)) AS created,
+                    COUNT(*) FILTER (WHERE statut IN ('terminé','terminee') AND DATE(updated_at) = DATE(created_at)) AS completed_same_day
+                 FROM hub.user_tasks
+                 WHERE LOWER(username) = LOWER($1)
+                   AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+                 GROUP BY DATE(created_at)
+                 ORDER BY DATE(created_at) ASC`,
+                [username]
+            );
+
+            // Build series for last 30 days: créées / terminées ce jour-là
+            const { rows: completedRows } = await pool.query(
+                `SELECT DATE(updated_at)::text AS date, COUNT(*) AS cnt
+                 FROM hub.user_tasks
+                 WHERE LOWER(username) = LOWER($1)
+                   AND statut IN ('terminé','terminee','refuse')
+                   AND updated_at >= CURRENT_DATE - INTERVAL '30 days'
+                 GROUP BY DATE(updated_at)
+                 ORDER BY DATE(updated_at) ASC`,
+                [username]
+            );
+
+            const completedMap = {};
+            for (const r of completedRows) completedMap[r.date] = Number(r.cnt);
+
+            const result = rows.map(r => ({
+                date: r.date,
+                creees: Number(r.created),
+                terminees: completedMap[r.date] || 0,
+            }));
+            res.json(result);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
 
     // Called by the daily cron at 8am
     async sendDailyAlerts() {

@@ -219,11 +219,11 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
             />
           </div>
 
-          {/* Responsable (single, non-personal, non-team) */}
-          {contextSource !== 'personal' && !isTeam && (
+          {/* Responsable (single, visible pour tous les contextes) */}
+          {!isTeam && (
             <div style={{ position: 'relative' }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Responsable <span style={{ fontWeight: 400, color: '#9ca3af', textTransform: 'none' }}>(optionnel)</span>
+                {contextSource === 'personal' ? 'Affecter à' : 'Responsable'} <span style={{ fontWeight: 400, color: '#9ca3af', textTransform: 'none' }}>(optionnel — moi par défaut)</span>
               </label>
               <input
                 type="text"

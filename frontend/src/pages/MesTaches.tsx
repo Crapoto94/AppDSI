@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
@@ -6,9 +6,10 @@ import {
   CheckSquare, Clock, AlertTriangle, CheckCircle2,
   FolderKanban, MessageSquare, Users, RotateCcw, Filter,
   ExternalLink, RefreshCw, Inbox, Plus, X, Trash2, Upload,
-  RefreshCcw, Zap
+  RefreshCcw, Zap, XCircle, Send, BarChart2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import AddTaskModal from '../components/AddTaskModal';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface TaskNote {
   id: number;
@@ -32,10 +33,31 @@ interface Task {
   statut: string;
   responsable: string;
   created_at: string;
+  updated_at: string | null;
   note_count: number;
   is_team_task?: boolean;
   team_group_id?: string | null;
   created_by?: string | null;
+  refus_raison?: string | null;
+}
+
+interface AssignedTask {
+  id: number;
+  responsable: string;
+  description: string;
+  echeance: string | null;
+  statut: string;
+  created_at: string;
+  updated_at: string | null;
+  source: string;
+  source_title: string;
+  refus_raison?: string | null;
+}
+
+interface KpiPoint {
+  date: string;
+  creees: number;
+  terminees: number;
 }
 
 const SOURCE_META: Record<Task['source'], {
@@ -57,6 +79,7 @@ const SOURCE_META: Record<Task['source'], {
 };
 
 const STATUT_CYCLE = ['a_faire', 'en_cours', 'terminé'] as const;
+const TERMINAL_STATUTS = ['terminé', 'terminee', 'refuse'];
 
 function daysUntil(d: string | null): number | null {
   if (!d) return null;
@@ -118,29 +141,75 @@ function actionColor(statut: string) {
   return '#64748b';
 }
 
-// ─── Toggle component ─────────────────────────────────────────────────────────
+function Badge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <span style={{ background: '#ef4444', color: 'white', borderRadius: 10, padding: '0 5px', fontSize: 10, fontWeight: 700, lineHeight: '16px', minWidth: 16, display: 'inline-block', textAlign: 'center', marginLeft: 3 }}>
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       onClick={() => !disabled && onChange(!checked)}
       disabled={disabled}
-      style={{
-        width: 40, height: 22, borderRadius: 11, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
-        background: checked ? '#16a34a' : '#cbd5e1',
-        transition: 'background 0.2s', position: 'relative', flexShrink: 0
-      }}
+      style={{ width: 40, height: 22, borderRadius: 11, border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', background: checked ? '#16a34a' : '#cbd5e1', transition: 'background 0.2s', position: 'relative', flexShrink: 0 }}
     >
-      <span style={{
-        position: 'absolute', top: 3, left: checked ? 20 : 3,
-        width: 16, height: 16, borderRadius: '50%', background: 'white',
-        transition: 'left 0.2s', display: 'block'
-      }} />
+      <span style={{ position: 'absolute', top: 3, left: checked ? 20 : 3, width: 16, height: 16, borderRadius: '50%', background: 'white', transition: 'left 0.2s', display: 'block' }} />
     </button>
   );
 }
 
+// ─── Refuse modal ─────────────────────────────────────────────────────────────
+function RefuseModal({ task, onConfirm, onClose }: {
+  task: Task;
+  onConfirm: (raison: string) => void;
+  onClose: () => void;
+}) {
+  const [raison, setRaison] = useState('');
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', zIndex: 9300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: 'white', borderRadius: 12, padding: 24, width: '100%', maxWidth: 440, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+        <h3 style={{ margin: '0 0 6px', color: '#dc2626', fontSize: 16, fontWeight: 800 }}>
+          <XCircle size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          Refuser la tâche
+        </h3>
+        <p style={{ margin: '0 0 14px', fontSize: 13, color: '#475569' }}>
+          <strong>"{task.description}"</strong>
+        </p>
+        <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5 }}>
+          Motif du refus
+        </label>
+        <textarea
+          value={raison}
+          onChange={e => setRaison(e.target.value)}
+          placeholder="Expliquez pourquoi vous refusez cette tâche..."
+          autoFocus
+          rows={3}
+          style={{ width: '100%', borderRadius: 8, border: '1px solid #e2e8f0', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', outline: 'none' }}
+        />
+        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '9px', border: '1px solid #e2e8f0', borderRadius: 8, background: 'white', cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#64748b' }}>
+            Annuler
+          </button>
+          <button
+            onClick={() => raison.trim() && onConfirm(raison.trim())}
+            disabled={!raison.trim()}
+            style={{ flex: 2, padding: '9px', border: 'none', borderRadius: 8, background: raison.trim() ? '#dc2626' : '#e2e8f0', cursor: raison.trim() ? 'pointer' : 'not-allowed', color: raison.trim() ? 'white' : '#94a3b8', fontWeight: 700, fontSize: 13 }}
+          >
+            Confirmer le refus
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const MesTaches: React.FC = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const currentUsername = user?.username || '';
 
   // ── Tasks ────────────────────────────────────────────────────────────────────
   const [tasks, setTasks]           = useState<Task[]>([]);
@@ -164,6 +233,9 @@ const MesTaches: React.FC = () => {
   // ── Add task modal ───────────────────────────────────────────────────────────
   const [showModal, setShowModal]   = useState(false);
 
+  // ── Refuse modal ─────────────────────────────────────────────────────────────
+  const [refuseTask, setRefuseTask] = useState<Task | null>(null);
+
   // ── Alert pref ───────────────────────────────────────────────────────────────
   const [alertEnabled, setAlertEnabled] = useState(false);
   const [alertLoading, setAlertLoading] = useState(false);
@@ -175,6 +247,16 @@ const MesTaches: React.FC = () => {
   const [todoLoading, setTodoLoading]   = useState(false);
   const [todoRunning, setTodoRunning]   = useState(false);
   const [todoResult, setTodoResult]     = useState<{ ok: boolean; text: string } | null>(null);
+
+  // ── Assigned by me ───────────────────────────────────────────────────────────
+  const [showAssigned, setShowAssigned]   = useState(false);
+  const [assignedTasks, setAssignedTasks] = useState<AssignedTask[]>([]);
+  const [assignedLoading, setAssignedLoading] = useState(false);
+
+  // ── KPI history chart ─────────────────────────────────────────────────────────
+  const [showChart, setShowChart]       = useState(false);
+  const [kpiHistory, setKpiHistory]     = useState<KpiPoint[]>([]);
+  const [kpiLoading, setKpiLoading]     = useState(false);
 
   const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -205,9 +287,28 @@ const MesTaches: React.FC = () => {
     } catch { /* ignore */ }
   }, [token]);
 
+  const fetchAssigned = async () => {
+    setAssignedLoading(true);
+    try {
+      const res = await fetch('/api/tasks/assigned-by-me', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      setAssignedTasks(Array.isArray(data) ? data : []);
+    } catch { setAssignedTasks([]); }
+    finally { setAssignedLoading(false); }
+  };
+
+  const fetchKpiHistory = async () => {
+    setKpiLoading(true);
+    try {
+      const res = await fetch('/api/tasks/kpi-history', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      setKpiHistory(Array.isArray(data) ? data : []);
+    } catch { setKpiHistory([]); }
+    finally { setKpiLoading(false); }
+  };
+
   useEffect(() => { fetchTasks(); fetchAlertPref(); fetchTodoPref(); }, [fetchTasks, fetchAlertPref, fetchTodoPref]);
 
-  // Auto-sync Todo on mount if toggle is enabled
   const syncedOnMount = useRef(false);
   useEffect(() => {
     if (todoEnabled && !syncedOnMount.current) {
@@ -238,35 +339,36 @@ const MesTaches: React.FC = () => {
 
   // ─── Status ───────────────────────────────────────────────────────────────────
   const cycleStatus = async (task: Task) => {
+    if (TERMINAL_STATUTS.includes(task.statut)) {
+      // From terminal → a_faire (reopen)
+      await updateStatus(task, 'a_faire');
+      return;
+    }
     const idx = STATUT_CYCLE.indexOf(task.statut as any) ?? 0;
     const nextStatut = STATUT_CYCLE[(idx + 1) % STATUT_CYCLE.length];
+    await updateStatus(task, nextStatut);
+  };
+
+  const updateStatus = async (task: Task, newStatut: string, refus_raison?: string) => {
     const key = `${task.source}-${task.id}`;
     setUpdating(key);
     try {
       await fetch(`/api/tasks/${task.source}/${task.id}`, {
         method: 'PATCH',
         headers: authHeaders,
-        body: JSON.stringify({ statut: nextStatut })
+        body: JSON.stringify({ statut: newStatut, ...(refus_raison ? { refus_raison } : {}) })
       });
       setTasks(prev => prev.map(t =>
-        t.source === task.source && t.id === task.id ? { ...t, statut: nextStatut } : t
+        t.source === task.source && t.id === task.id
+          ? { ...t, statut: newStatut, refus_raison: refus_raison || null, updated_at: new Date().toISOString() }
+          : t
       ));
     } finally { setUpdating(null); }
   };
 
-  const updateStatus = async (task: Task, newStatut: string) => {
-    const key = `${task.source}-${task.id}`;
-    setUpdating(key);
-    try {
-      await fetch(`/api/tasks/${task.source}/${task.id}`, {
-        method: 'PATCH',
-        headers: authHeaders,
-        body: JSON.stringify({ statut: newStatut })
-      });
-      setTasks(prev => prev.map(t =>
-        t.source === task.source && t.id === task.id ? { ...t, statut: newStatut } : t
-      ));
-    } finally { setUpdating(null); }
+  const handleRefuse = async (task: Task, raison: string) => {
+    setRefuseTask(null);
+    await updateStatus(task, 'refuse', raison);
   };
 
   const deleteTask = async (task: Task) => {
@@ -326,7 +428,7 @@ const MesTaches: React.FC = () => {
         if ((data.imported || 0) > 0) parts.push(`${data.imported} importée(s) depuis Todo`);
         if (parts.length === 0) parts.push('Tout est à jour');
         setTodoResult({ ok: true, text: parts.join(' · ') });
-        if ((data.imported || 0) > 0) fetchTasks(); // refresh if new tasks were imported
+        if ((data.imported || 0) > 0) fetchTasks();
       }
       else setTodoResult({ ok: false, text: data.detail || data.error || 'Erreur inconnue' });
     } catch { setTodoResult({ ok: false, text: 'Erreur réseau' }); }
@@ -403,18 +505,45 @@ const MesTaches: React.FC = () => {
   const sortIndicator = (field: string) =>
     sortField !== field ? null : <span style={{ marginLeft: 4 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>;
 
+  // ─── KPIs ─────────────────────────────────────────────────────────────────────
+  const today = new Date().toDateString();
+  const overdueCount  = useMemo(() => tasks.filter(t => !TERMINAL_STATUTS.includes(t.statut) && (daysUntil(t.echeance) ?? 1) < 0).length, [tasks]);
+  const enCoursCount  = useMemo(() => tasks.filter(t => t.statut === 'en_cours').length, [tasks]);
+  const aFaireCount   = useMemo(() => tasks.filter(t => t.statut === 'a_faire').length, [tasks]);
+  const doneToday     = useMemo(() => tasks.filter(t =>
+    t.statut === 'terminé' && t.updated_at && new Date(t.updated_at).toDateString() === today
+  ).length, [tasks, today]);
+
+  // ─── Source counts (for badges) ───────────────────────────────────────────────
+  const pendingTasks = useMemo(() => tasks.filter(t => !TERMINAL_STATUTS.includes(t.statut)), [tasks]);
+  const sourceCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const t of pendingTasks) {
+      const src = (t.source === 'projet' || t.source === 'projet_standalone') ? 'projet' : t.source;
+      m[src] = (m[src] || 0) + 1;
+      m['all'] = (m['all'] || 0) + 1;
+    }
+    return m;
+  }, [pendingTasks]);
+
+  // ─── Statut counts (for filter badges) ────────────────────────────────────────
+  const pendingCount   = useMemo(() => tasks.filter(t => t.statut === 'a_faire' || t.statut === 'en_cours').length, [tasks]);
+  const enCoursOnly    = enCoursCount;
+  const terminedCount  = useMemo(() => tasks.filter(t => TERMINAL_STATUTS.includes(t.statut)).length, [tasks]);
+
   // ─── Filter + sort ────────────────────────────────────────────────────────────
-  const filtered = tasks.filter(t => {
+  const filtered = useMemo(() => tasks.filter(t => {
     if (filterSource !== 'all') {
       const isProjet = filterSource === 'projet' && (t.source === 'projet' || t.source === 'projet_standalone');
       if (!isProjet && t.source !== filterSource) return false;
     }
-    if (filterStatut === 'pending' && t.statut === 'terminé') return false;
-    if (filterStatut !== 'pending' && filterStatut !== 'all' && t.statut !== filterStatut) return false;
+    if (filterStatut === 'pending') return !TERMINAL_STATUTS.includes(t.statut);
+    if (filterStatut === 'en_cours') return t.statut === 'en_cours';
+    if (filterStatut === 'terminé') return TERMINAL_STATUTS.includes(t.statut);
     return true;
-  });
+  }), [tasks, filterSource, filterStatut]);
 
-  const sorted = [...filtered].sort((a, b) => {
+  const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let aVal = '', bVal = '';
     if (sortField === 'echeance') {
       aVal = a.echeance ?? 'z'; bVal = b.echeance ?? 'z';
@@ -427,11 +556,7 @@ const MesTaches: React.FC = () => {
     }
     const cmp = aVal.localeCompare(bVal);
     return sortDir === 'asc' ? cmp : -cmp;
-  });
-
-  const overdueCount = tasks.filter(t => t.statut !== 'terminé' && (daysUntil(t.echeance) ?? 1) < 0).length;
-  const enCoursCount = tasks.filter(t => t.statut === 'en_cours').length;
-  const aFaireCount  = tasks.filter(t => t.statut === 'a_faire').length;
+  }), [filtered, sortField, sortDir]);
 
   const sources = [
     { v: 'all', l: 'Toutes' }, { v: 'personal', l: 'Personnelles' },
@@ -453,6 +578,13 @@ const MesTaches: React.FC = () => {
       {label} {sortIndicator(field)}
     </th>
   );
+
+  const kpiCards = [
+    { label: 'En retard',          value: overdueCount, icon: <AlertTriangle size={18} />, color: '#dc2626', bg: '#fef2f2', border: '#fecaca', filter: 'pending' },
+    { label: 'En cours',           value: enCoursCount, icon: <Clock size={18} />,          color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe', filter: 'en_cours' },
+    { label: 'À faire',            value: aFaireCount,  icon: <CheckSquare size={18} />,    color: '#64748b', bg: '#f8fafc', border: '#e2e8f0', filter: 'pending' },
+    { label: 'Terminées aujourd\'hui', value: doneToday, icon: <CheckCircle2 size={18} />, color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0', filter: 'terminé' },
+  ];
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-color)' }}>
@@ -494,6 +626,22 @@ const MesTaches: React.FC = () => {
               )}
             </div>
 
+            {/* Mes tâches affectées */}
+            <button
+              onClick={() => { setShowAssigned(v => { if (!v) fetchAssigned(); return !v; }); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: showAssigned ? '#f0fdf4' : 'white', border: `1px solid ${showAssigned ? '#86efac' : '#e2e8f0'}`, borderRadius: 8, cursor: 'pointer', color: showAssigned ? '#16a34a' : '#475569', fontSize: 13, fontWeight: 600 }}
+            >
+              <Send size={13} /> Tâches affectées
+            </button>
+
+            {/* Historique KPI */}
+            <button
+              onClick={() => { setShowChart(v => { if (!v) fetchKpiHistory(); return !v; }); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: showChart ? '#eff6ff' : 'white', border: `1px solid ${showChart ? '#bfdbfe' : '#e2e8f0'}`, borderRadius: 8, cursor: 'pointer', color: showChart ? '#2563eb' : '#475569', fontSize: 13, fontWeight: 600 }}
+            >
+              <BarChart2 size={13} /> Historique
+            </button>
+
             <button onClick={fetchTasks} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#475569', fontSize: 13, fontWeight: 600 }}>
               <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
               Actualiser
@@ -518,36 +666,138 @@ const MesTaches: React.FC = () => {
           </div>
         )}
 
-        {/* ── Stats ────────────────────────────────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
-          {[
-            { label: 'En retard',  value: overdueCount, icon: <AlertTriangle size={18} />, color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
-            { label: 'En cours',   value: enCoursCount, icon: <Clock size={18} />,          color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
-            { label: 'À faire',    value: aFaireCount,  icon: <CheckSquare size={18} />,    color: '#64748b', bg: '#f8fafc', border: '#e2e8f0' },
-          ].map(s => (
-            <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* ── KPI Cards (cliquables = filtres) ─────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+          {kpiCards.map(s => (
+            <button
+              key={s.label}
+              onClick={() => setFilterStatut(s.filter)}
+              style={{
+                background: s.bg, border: `1px solid ${filterStatut === s.filter ? s.color : s.border}`,
+                borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10,
+                cursor: 'pointer', textAlign: 'left', outline: 'none',
+                boxShadow: filterStatut === s.filter ? `0 0 0 2px ${s.color}40` : 'none',
+                transition: 'box-shadow 0.15s, border-color 0.15s',
+              }}
+            >
               <div style={{ color: s.color }}>{s.icon}</div>
               <div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
                 <div style={{ fontSize: 11, color: s.color, opacity: 0.8, marginTop: 2 }}>{s.label}</div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
+
+        {/* ── Historique KPI (graphe) ───────────────────────────────────────── */}
+        {showChart && (
+          <div style={{ background: 'white', borderRadius: 10, padding: '16px 20px', marginBottom: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b' }}>
+                <BarChart2 size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                Activité des 30 derniers jours
+              </h3>
+              <button onClick={() => setShowChart(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={16} /></button>
+            </div>
+            {kpiLoading ? (
+              <div style={{ textAlign: 'center', padding: 30, color: '#64748b', fontSize: 13 }}>Chargement...</div>
+            ) : kpiHistory.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucune donnée sur les 30 derniers jours</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={kpiHistory} margin={{ top: 4, right: 12, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={d => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })} />
+                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                  <Tooltip formatter={(v, n) => [v, n === 'creees' ? 'Créées' : 'Terminées']}
+                    labelFormatter={d => new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' })} />
+                  <Legend formatter={v => v === 'creees' ? 'Créées' : 'Terminées'} iconSize={10} wrapperStyle={{ fontSize: 12 }} />
+                  <Line type="monotone" dataKey="creees" stroke="#2563eb" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="terminees" stroke="#16a34a" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        )}
+
+        {/* ── Tâches affectées ─────────────────────────────────────────────── */}
+        {showAssigned && (
+          <div style={{ background: 'white', borderRadius: 10, marginBottom: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b' }}>
+                <Send size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                Tâches que j'ai affectées
+              </h3>
+              <button onClick={() => setShowAssigned(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={16} /></button>
+            </div>
+            {assignedLoading ? (
+              <div style={{ textAlign: 'center', padding: 30, color: '#64748b', fontSize: 13 }}>Chargement...</div>
+            ) : assignedTasks.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucune tâche affectée à d'autres utilisateurs</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0' }}>Tâche</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', width: 120 }}>Assignée à</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', width: 110 }}>Échéance</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', width: 100 }}>Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assignedTasks.map(t => (
+                    <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '8px 12px', color: '#1e293b', fontWeight: 500 }}>
+                        {t.description}
+                        {t.refus_raison && (
+                          <div style={{ fontSize: 11, color: '#dc2626', marginTop: 2 }}>❌ Refus : {t.refus_raison}</div>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#475569', fontSize: 12 }}>{t.responsable}</td>
+                      <td style={{ padding: '8px 12px' }}><EcheanceBadge d={t.echeance} /></td>
+                      <td style={{ padding: '8px 12px' }}>{statusBadge(t.statut)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         {/* ── Filtres ──────────────────────────────────────────────────────── */}
         <div style={{ background: 'white', borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <Filter size={13} style={{ color: '#64748b' }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Source :</span>
-            {sources.map(({ v, l }) => (
-              <button key={v} onClick={() => setFilterSource(v)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: filterSource === v ? '2px solid var(--primary-color)' : '1px solid #e2e8f0', background: filterSource === v ? 'var(--primary-color)' : 'white', color: filterSource === v ? 'white' : '#475569' }}>{l}</button>
-            ))}
+            {sources.map(({ v, l }) => {
+              const cnt = sourceCounts[v] || 0;
+              return (
+                <button key={v} onClick={() => setFilterSource(v)} style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: filterSource === v ? '2px solid var(--primary-color)' : '1px solid #e2e8f0', background: filterSource === v ? 'var(--primary-color)' : 'white', color: filterSource === v ? 'white' : '#475569' }}>
+                  {l}
+                  {cnt > 0 && (
+                    <span style={{ background: filterSource === v ? 'rgba(255,255,255,0.3)' : '#ef4444', color: 'white', borderRadius: 8, padding: '0 4px', fontSize: 9, fontWeight: 700, lineHeight: '14px', marginLeft: 4 }}>
+                      {cnt}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Statut :</span>
-            {[{ v: 'pending', l: 'À traiter' }, { v: 'en_cours', l: 'En cours' }, { v: 'all', l: 'Tous' }].map(({ v, l }) => (
-              <button key={v} onClick={() => setFilterStatut(v)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: filterStatut === v ? '2px solid #334155' : '1px solid #e2e8f0', background: filterStatut === v ? '#334155' : 'white', color: filterStatut === v ? 'white' : '#475569' }}>{l}</button>
+            {[
+              { v: 'pending', l: 'À traiter', cnt: pendingCount },
+              { v: 'en_cours', l: 'En cours', cnt: enCoursOnly },
+              { v: 'terminé', l: 'Terminés', cnt: terminedCount },
+            ].map(({ v, l, cnt }) => (
+              <button key={v} onClick={() => setFilterStatut(v)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: filterStatut === v ? '2px solid #334155' : '1px solid #e2e8f0', background: filterStatut === v ? '#334155' : 'white', color: filterStatut === v ? 'white' : '#475569' }}>
+                {l}
+                {cnt > 0 && (
+                  <span style={{ background: filterStatut === v ? 'rgba(255,255,255,0.25)' : '#94a3b8', color: 'white', borderRadius: 8, padding: '0 4px', fontSize: 9, fontWeight: 700, lineHeight: '14px' }}>
+                    {cnt}
+                  </span>
+                )}
+              </button>
             ))}
           </div>
           <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94a3b8' }}>{sorted.length} tâche{sorted.length !== 1 ? 's' : ''}</span>
@@ -571,39 +821,55 @@ const MesTaches: React.FC = () => {
                   {colTh('source', 'Source', 'left', 170)}
                   {colTh('echeance', 'Échéance', 'left', 120)}
                   {colTh('statut', 'Statut', 'left', 110)}
-                  <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f8fafc', width: 110 }}>Actions</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f8fafc', width: 120 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.flatMap(task => {
                   const key = `${task.source}:${task.id}`;
                   const isUpdating = updating === `${task.source}-${task.id}`;
-                  const isDone = task.statut === 'terminé';
+                  const isDone = TERMINAL_STATUTS.includes(task.statut);
+                  const isRefused = task.statut === 'refuse';
                   const isOverdue = !isDone && (daysUntil(task.echeance) ?? 1) < 0;
-                  const notesKey = key;
-                  const notes = notesMap[notesKey] || [];
+                  const notes = notesMap[key] || [];
                   const noteCount = task.note_count || 0;
                   const isExpanded = expandedNotesId === key;
+                  const affectedBy = task.created_by && task.created_by.toLowerCase() !== currentUsername.toLowerCase()
+                    ? task.created_by : null;
+                  const canRefuse = !isDone && (task.source === 'personal' || task.source === 'ticket');
 
                   const rows = [
                     <tr
                       key={key}
                       style={{
                         borderBottom: isExpanded ? 'none' : '1px solid #f1f5f9',
-                        background: isDone ? '#f0fdf4' : isOverdue ? '#fff8f8' : 'white',
-                        borderLeft: `4px solid ${isOverdue ? '#ef4444' : isDone ? '#22c55e' : 'transparent'}`,
+                        background: isRefused ? '#fef9f9' : isDone ? '#f0fdf4' : isOverdue ? '#fff8f8' : 'white',
+                        borderLeft: `4px solid ${isRefused ? '#ef4444' : isOverdue ? '#ef4444' : isDone ? '#22c55e' : 'transparent'}`,
+                        opacity: isDone ? 0.8 : 1,
                       }}
                     >
                       {/* Description */}
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: isDone ? '#94a3b8' : '#1e293b', textDecoration: isDone ? 'line-through' : 'none', maxWidth: 340 }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          {task.is_team_task && (
-                            <span title="Tâche d'équipe" style={{ color: '#2563eb', flexShrink: 0 }}>
-                              <Users size={13} />
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flexDirection: 'column' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {task.is_team_task && (
+                              <span title="Tâche d'équipe" style={{ color: '#2563eb', flexShrink: 0 }}>
+                                <Users size={13} />
+                              </span>
+                            )}
+                            {task.description || '—'}
+                          </span>
+                          {affectedBy && (
+                            <span style={{ fontSize: 10, color: '#6366f1', background: '#eef2ff', borderRadius: 6, padding: '1px 6px', fontWeight: 600, textDecoration: 'none' }}>
+                              ↖ Affectée par {affectedBy}
                             </span>
                           )}
-                          {task.description || '—'}
-                        </span>
+                          {isRefused && task.refus_raison && (
+                            <span style={{ fontSize: 10, color: '#dc2626', background: '#fef2f2', borderRadius: 6, padding: '1px 6px', fontWeight: 600, textDecoration: 'none' }}>
+                              ❌ {task.refus_raison}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Source */}
@@ -627,11 +893,23 @@ const MesTaches: React.FC = () => {
                         <button
                           onClick={() => !isUpdating && cycleStatus(task)}
                           disabled={isUpdating}
-                          title={`Passer à : ${STATUT_CYCLE[(STATUT_CYCLE.indexOf(task.statut as any) + 1) % STATUT_CYCLE.length]}`}
+                          title={isDone ? 'Réouvrir' : `Passer à : ${STATUT_CYCLE[(STATUT_CYCLE.indexOf(task.statut as any) + 1) % STATUT_CYCLE.length] || 'terminé'}`}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: actionColor(task.statut), padding: 4, verticalAlign: 'middle' }}
                         >
                           <CheckCircle2 size={18} />
                         </button>
+
+                        {/* Refuser (uniquement pour tâches personal/ticket non terminées) */}
+                        {canRefuse && (
+                          <button
+                            onClick={() => setRefuseTask(task)}
+                            disabled={isUpdating}
+                            title="Refuser cette tâche"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, verticalAlign: 'middle', opacity: 0.7 }}
+                          >
+                            <XCircle size={16} />
+                          </button>
+                        )}
 
                         {/* Notes */}
                         <button
@@ -694,7 +972,6 @@ const MesTaches: React.FC = () => {
                                 </button>
                               </div>
                             ))}
-                            {/* Input nouvelle note */}
                             <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                               <input
                                 type="text"
@@ -726,13 +1003,22 @@ const MesTaches: React.FC = () => {
         )}
       </main>
 
-      {/* ── Modal Nouvelle tâche (unifié avec support équipe) ────────────── */}
+      {/* ── Modal Nouvelle tâche ─────────────────────────────────────────── */}
       {showModal && (
         <AddTaskModal
           token={token}
           contextSource="personal"
           onCreated={handleCreated}
           onClose={() => setShowModal(false)}
+        />
+      )}
+
+      {/* ── Modal Refus ──────────────────────────────────────────────────── */}
+      {refuseTask && (
+        <RefuseModal
+          task={refuseTask}
+          onConfirm={raison => handleRefuse(refuseTask, raison)}
+          onClose={() => setRefuseTask(null)}
         />
       )}
 
