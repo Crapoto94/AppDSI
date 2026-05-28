@@ -1048,6 +1048,142 @@ module.exports = {
         }
     },
 
+    // ─── Import Excel compteurs annuel ───────────────────────────────────────
+
+    importCompteurExcel: async (req, res) => {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+        const fs = require('fs');
+        try {
+            const XLSX = require('xlsx');
+            const { pool } = require('../../shared/database');
+
+            // Année extraite du nom de fichier (ex: "copieurs 2021.xlsx" → 2021)
+            const filename = req.file.originalname || '';
+            const yearMatch = filename.match(/\b(20\d{2})\b/);
+            const year = yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear();
+
+            // Indices colonnes (0-based) : A=0, B=1, C=2, D=3...
+            const COL = { TYPE: 3, SERIE: 7, DATE_ACQ: 11, PRIX: 12, OPTIONS: 14, COUT_OPT: 15, COMPTEUR: 18, Z: 25, AA: 26, AB: 27, AC: 28 };
+
+            // Dates de fin de trimestre
+            const DATES = { q1: `${year}-03-31`, q2: `${year}-06-30`, q3: `${year}-09-30`, q4: `${year}-12-31` };
+
+            const toNum = (v) => {
+                if (v === null || v === undefined || v === '') return null;
+                if (typeof v === 'number') return v;
+                const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.'));
+                return isNaN(n) ? null : n;
+            };
+            const toInt = (v) => { const n = toNum(v); return n === null ? null : Math.round(n); };
+
+            // Lire le premier onglet
+            const workbook = XLSX.readFile(req.file.path);
+            const ws = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+            const stats = { year, filename, totalRows: 0, copieursUpdated: 0, relevesInserted: 0, notFound: [], noCode: [], errors: [] };
+            const username = req.user?.username || req.user?.name || '';
+
+            for (const row of rows) {
+                if (!Array.isArray(row)) continue;
+                const raw = row[COL.SERIE];
+                if (!raw) continue;
+                const serie = String(raw).trim();
+                if (!serie || serie.length < 3 || isPlaceholder(serie)) continue;
+
+                stats.totalRows++;
+                try {
+                    // Trouver le copieur
+                    const cRes = await pool.query(
+                        `SELECT id, mainteneur FROM hub_copieurs.copieurs WHERE LOWER(TRIM(numero_serie)) = LOWER($1)`,
+                        [serie]
+                    );
+                    if (cRes.rows.length === 0) { stats.notFound.push(serie); continue; }
+                    const copieur = cRes.rows[0];
+
+                    // Mise à jour des champs copieur
+                    const sets = []; const vals = [];
+                    const add = (col, val) => { if (val !== null && val !== undefined) { sets.push(`${col}=$${vals.length + 1}`); vals.push(val); } };
+
+                    add('date_acquisition', normalizeDateString(row[COL.DATE_ACQ]));
+                    add('prix_acquisition', toNum(row[COL.PRIX]));
+                    const opts = row[COL.OPTIONS] ? String(row[COL.OPTIONS]).trim() : null;
+                    if (opts) add('options_achat', opts);
+                    add('cout_options', toNum(row[COL.COUT_OPT]));
+
+                    if (sets.length > 0) {
+                        vals.push(copieur.id);
+                        await pool.query(`UPDATE hub_copieurs.copieurs SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
+                        stats.copieursUpdated++;
+                    }
+
+                    // Déterminer le type (mono / couleur) via colonne D
+                    const typeStr = String(row[COL.TYPE] || '').toLowerCase();
+                    const isCouleur = typeStr.includes('coul') || typeStr.includes('color');
+
+                    // Trouver le code compteur correspondant (mainteneur + couleur)
+                    let codeId = null;
+                    if (copieur.mainteneur) {
+                        const codeRes = await pool.query(
+                            `SELECT id FROM hub_copieurs.compteur_codes WHERE LOWER(mainteneur)=LOWER($1) AND couleur=$2 ORDER BY id LIMIT 1`,
+                            [copieur.mainteneur, isCouleur]
+                        );
+                        if (codeRes.rows.length > 0) codeId = codeRes.rows[0].id;
+                    }
+                    if (!codeId) {
+                        stats.noCode.push({ serie, mainteneur: copieur.mainteneur || '(non renseigné)', type: isCouleur ? 'couleur' : 'mono' });
+                        continue;
+                    }
+
+                    // Calculer les compteurs trimestriels
+                    // S = compteur fin Q4 (31/12)
+                    // Fin Q3 = S - AC, Fin Q2 = S - AC - AB, Fin Q1 = S - AC - AB - AA
+                    const s  = toInt(row[COL.COMPTEUR]);
+                    if (s === null) continue;
+                    const ac = toInt(row[COL.AC]);
+                    const ab = toInt(row[COL.AB]);
+                    const aa = toInt(row[COL.AA]);
+
+                    const quarters = [{ date: DATES.q4, valeur: s }];
+                    if (ac !== null) {
+                        const vQ3 = s - ac;
+                        if (vQ3 >= 0) {
+                            quarters.push({ date: DATES.q3, valeur: vQ3 });
+                            if (ab !== null) {
+                                const vQ2 = vQ3 - ab;
+                                if (vQ2 >= 0) {
+                                    quarters.push({ date: DATES.q2, valeur: vQ2 });
+                                    if (aa !== null) {
+                                        const vQ1 = vQ2 - aa;
+                                        if (vQ1 >= 0) quarters.push({ date: DATES.q1, valeur: vQ1 });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    for (const q of quarters) {
+                        await pool.query(`
+                            INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, created_by)
+                            VALUES ($1,$2,$3,$4,$5)
+                            ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, created_by=$5
+                        `, [copieur.id, codeId, q.date, q.valeur, username]);
+                        stats.relevesInserted++;
+                    }
+
+                } catch (e) {
+                    stats.errors.push({ serie, error: e.message });
+                }
+            }
+
+            try { fs.unlinkSync(req.file.path); } catch {}
+            res.json(stats);
+        } catch (error) {
+            try { fs.unlinkSync(req.file.path); } catch {}
+            res.status(500).json({ message: 'Erreur import Excel compteurs', error: error.message });
+        }
+    },
+
     // ─── Mainteneurs ─────────────────────────────────────────────────────────
 
     getMainteneurs: async (req, res) => {

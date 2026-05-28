@@ -16,6 +16,9 @@ router.get('/interventions/all', authenticateJWT, copieursController.getAllInter
 router.get('/interventions/:interventionId/email-link', authenticateJWT, copieursController.getEmailLink);
 router.get('/intervention-counts', authenticateJWT, copieursController.getInterventionCounts);
 
+// ─── Import Excel annuel compteurs ────────────────────────────────────────────
+router.post('/import-compteur-excel',                                     authenticateJWT, uploadExcel.single('file'), copieursController.importCompteurExcel);
+
 // ─── Codes compteur par marque (AVANT /:id — sinon Express capture "compteur-codes" comme id) ──
 router.get('/mainteneurs',                                                authenticateJWT, copieursController.getMainteneurs);
 router.get('/compteur-codes',                                             authenticateJWT, copieursController.getCompteurCodes);
