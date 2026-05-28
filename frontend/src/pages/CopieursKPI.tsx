@@ -146,13 +146,13 @@ export default function CopieursKPI() {
   const [error, setError] = useState<string | null>(null);
   const [yearFilter, setYearFilter] = useState<number | 'all'>('all');
 
-  const api = axios.create({ baseURL: '/api/copieurs', headers: { Authorization: `Bearer ${token}` } });
-
   const fetchKPI = useCallback(async () => {
+    const tok = token || localStorage.getItem('token');
+    if (!tok) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get('/kpi');
+      const res = await axios.get('/api/copieurs/kpi', { headers: { Authorization: `Bearer ${tok}` } });
       setData(res.data);
     } catch (e: any) {
       setError(e.response?.data?.message || e.message);
