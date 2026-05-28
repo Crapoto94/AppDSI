@@ -112,7 +112,7 @@ module.exports = {
     getAll: async (req, res) => {
         try {
             const filter = req.query.filter || 'actifs';
-            let sql = 'SELECT c.*, (SELECT MAX(date_visite) FROM hub_copieurs.copieur_visites v WHERE v.copieur_id = c.id) as last_visit_date, (SELECT MAX(date_releve) FROM hub_copieurs.copieur_releves r WHERE r.copieur_id = c.id) as last_releve_date FROM hub_copieurs.copieurs c';
+            let sql = 'SELECT c.*, (SELECT MAX(date_visite) FROM hub_copieurs.copieur_visites v WHERE v.copieur_id = c.id) as last_visit_date, (SELECT MAX(date_releve) FROM hub_copieurs.copieur_releves r WHERE r.copieur_id = c.id) as last_releve_date, (SELECT r2.valeur FROM hub_copieurs.copieur_releves r2 JOIN hub_copieurs.compteur_codes cc2 ON cc2.id = r2.code_id WHERE r2.copieur_id = c.id AND cc2.couleur = false ORDER BY r2.date_releve DESC, r2.id DESC LIMIT 1) as last_nb_value, (SELECT r3.valeur FROM hub_copieurs.copieur_releves r3 JOIN hub_copieurs.compteur_codes cc3 ON cc3.id = r3.code_id WHERE r3.copieur_id = c.id AND cc3.couleur = true ORDER BY r3.date_releve DESC, r3.id DESC LIMIT 1) as last_coul_value, (SELECT CAST(EXISTS (SELECT 1 FROM (SELECT valeur::bigint, LAG(valeur::bigint) OVER (PARTITION BY code_id ORDER BY date_releve) AS prev_v FROM hub_copieurs.copieur_releves WHERE copieur_id = c.id) t WHERE t.prev_v IS NOT NULL AND t.valeur < t.prev_v) AS boolean)) as has_decreasing_counter FROM hub_copieurs.copieurs c';
             if (filter === 'archives') sql += ' WHERE c.archive = true';
             else if (filter === 'tous') ;
             else sql += ' WHERE c.archive = false';
@@ -1282,6 +1282,121 @@ module.exports = {
             }
             // ─── Fin bloc Canon ────────────────────────────────────────────────────
 
+            // ═══════════════════════════════════════════════════════════════════════
+            // ── KOESIO : A3 et A4 fusionnés sur les codes A4 ──────────────────────
+            //  • Col D (TYPE=3) peut valoir "A3 mono", "A4 mono", "A3 couleur"…
+            //  • Les valeurs sont des COMPTEURS CUMULATIFS (total pages depuis début)
+            //  • On regroupe par (numéro de série, isCouleur)
+            //  • Pour chaque groupe : valeur_combinée_Qx = A4_cumul_Qx + A3_cumul_Qx
+            //  • On insère uniquement sur les codes A4 (couleur ou mono)
+            // ═══════════════════════════════════════════════════════════════════════
+            if (mainteneur.toLowerCase() === 'koesio') {
+                // 1ère passe : regrouper les lignes par (série, isCouleur)
+                const groups = {};
+                for (const row of rows) {
+                    if (!Array.isArray(row)) continue;
+                    const raw = row[COL.SERIE];
+                    if (!raw) continue;
+                    const serie = String(raw).trim();
+                    if (!serie || serie.length < 3 || isPlaceholder(serie)) continue;
+                    const typeStr  = String(row[COL.TYPE] || '').toLowerCase();
+                    const isCouleur = typeStr.includes('coul') || typeStr.includes('color');
+                    const isA3 = typeStr.includes('a3');
+                    const key = `${serie}|${isCouleur}`;
+                    if (!groups[key]) groups[key] = { serie, isCouleur, a4: null, a3: null };
+                    if (isA3) groups[key].a3 = row;
+                    else       groups[key].a4 = row;
+                }
+
+                // 2ème passe : traiter chaque groupe
+                for (const group of Object.values(groups)) {
+                    const { serie, isCouleur, a4: a4Row, a3: a3Row } = group;
+                    stats.totalRows++;
+                    try {
+                        // Métadonnées depuis la ligne A4 (ou A3 si pas de A4)
+                        const metaRow = a4Row || a3Row;
+                        const dateAcq = normalizeDateString(metaRow[COL.DATE_ACQ]);
+                        const prix    = toNum(metaRow[COL.PRIX]);
+                        const options = metaRow[COL.OPTIONS] ? String(metaRow[COL.OPTIONS]).trim() : null;
+                        const coutOpt = toNum(metaRow[COL.COUT_OPT]);
+
+                        // Valeurs cumulatives par date : somme A4 + A3
+                        const valByDate = {};
+                        for (const row of [a4Row, a3Row]) {
+                            if (!row) continue;
+                            for (const q of computeQuarters(row)) {
+                                valByDate[q.date] = (valByDate[q.date] || 0) + q.valeur;
+                            }
+                        }
+                        const combinedQuarters = Object.entries(valByDate)
+                            .map(([date, valeur]) => ({ date, valeur }))
+                            .sort((a, b) => a.date.localeCompare(b.date));
+
+                        if (combinedQuarters.length === 0) continue;
+
+                        // Code compteur Koesio (couleur boolean)
+                        const codeRes = await pool.query(
+                            `SELECT id FROM hub_copieurs.compteur_codes WHERE LOWER(mainteneur)=LOWER($1) AND couleur=$2 ORDER BY id LIMIT 1`,
+                            [mainteneur, isCouleur]
+                        );
+                        const codeId = codeRes.rows.length > 0 ? codeRes.rows[0].id : null;
+
+                        // Chercher le copieur
+                        const cRes = await pool.query(
+                            `SELECT id FROM hub_copieurs.copieurs WHERE LOWER(TRIM(numero_serie)) = LOWER($1)`,
+                            [serie]
+                        );
+
+                        if (cRes.rows.length === 0) {
+                            stats.notFound.push({
+                                serie, type: isCouleur ? 'couleur' : 'mono', codeId,
+                                pendingReleves: codeId
+                                    ? combinedQuarters.map(q => ({ code_id: codeId, date: q.date, valeur: q.valeur }))
+                                    : [],
+                                dateAcq, prix, options, coutOpt,
+                            });
+                            continue;
+                        }
+
+                        const copieurId = cRes.rows[0].id;
+
+                        // Mise à jour des champs copieur
+                        const sets = []; const vals = [];
+                        const add = (col, val) => { if (val !== null && val !== undefined) { sets.push(`${col}=COALESCE(${col},$${vals.length + 1})`); vals.push(val); } };
+                        add('date_acquisition', dateAcq);
+                        add('prix_acquisition', prix);
+                        if (options) add('options_achat', options);
+                        add('cout_options', coutOpt);
+                        if (sets.length > 0) {
+                            vals.push(copieurId);
+                            await pool.query(`UPDATE hub_copieurs.copieurs SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
+                            stats.copieursUpdated++;
+                        }
+
+                        if (!codeId) {
+                            stats.noCode.push({ serie, mainteneur, type: isCouleur ? 'couleur' : 'mono' });
+                            continue;
+                        }
+
+                        // Insérer les relevés combinés A4+A3 sur le code A4
+                        for (const q of combinedQuarters) {
+                            await pool.query(`
+                                INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                                VALUES ($1,$2,$3,$4,$5,$6)
+                                ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, mainteneur=$5, created_by=$6
+                            `, [copieurId, codeId, q.date, q.valeur, mainteneur, username]);
+                            stats.relevesInserted++;
+                        }
+                    } catch (e) {
+                        stats.errors.push({ serie, error: e.message });
+                    }
+                }
+
+                try { fs.unlinkSync(req.file.path); } catch {}
+                return res.json(stats);
+            }
+            // ─── Fin bloc Koesio ───────────────────────────────────────────────────
+
             for (const row of rows) {
                 if (!Array.isArray(row)) continue;
                 const raw = row[COL.SERIE];
@@ -1569,15 +1684,43 @@ module.exports = {
         try {
             const { pool } = require('../../shared/database');
 
+            const mainteneurFilter = req.query.mainteneur  || null;
+            const copieurIdFilter  = req.query.copieur_id ? parseInt(req.query.copieur_id) : null;
+
+            // 0a) Liste des mainteneurs disponibles
+            const mainteneurRes = await pool.query(`
+                SELECT DISTINCT mainteneur
+                FROM hub_copieurs.copieurs
+                WHERE archive = false AND mainteneur IS NOT NULL AND mainteneur <> ''
+                ORDER BY mainteneur
+            `);
+            const mainteneurs = mainteneurRes.rows.map(r => r.mainteneur);
+
+            // 0b) Liste des copieurs avec relevés (filtrée par mainteneur seulement)
+            const copieursListRes = await pool.query(`
+                SELECT DISTINCT r.copieur_id AS id,
+                    c.numero_serie, c.direction, c.service, c.modele, c.mainteneur
+                FROM hub_copieurs.copieur_releves r
+                JOIN hub_copieurs.copieurs c ON c.id = r.copieur_id AND c.archive = false
+                WHERE ($1::text IS NULL OR c.mainteneur = $1::text)
+                ORDER BY c.direction, c.service, c.numero_serie
+            `, [mainteneurFilter]);
+            const copieursListe = copieursListRes.rows;
+
             // 1) Toutes les lignes de delta (valeur courante − précédente) avec tarif applicable
             const deltaRes = await pool.query(`
                 WITH base AS (
                     SELECT
                         r.copieur_id,
+                        r.code_id,
+                        cc.code,
+                        cc.libelle,
+                        cc.format,
+                        cc.couleur,
                         c.direction, c.service, c.numero_serie, c.modele, c.source,
+                        c.mainteneur                                                       AS copieur_mainteneur,
                         r.date_releve,
                         r.valeur::bigint                                                   AS valeur,
-                        cc.couleur,
                         EXTRACT(YEAR FROM r.date_releve)::integer                         AS year,
                         LAG(r.valeur::bigint) OVER (
                             PARTITION BY r.copieur_id, r.code_id ORDER BY r.date_releve
@@ -1593,11 +1736,13 @@ module.exports = {
                     FROM hub_copieurs.copieur_releves r
                     JOIN hub_copieurs.copieurs c   ON c.id  = r.copieur_id AND c.archive = false
                     JOIN hub_copieurs.compteur_codes cc ON cc.id = r.code_id
+                    WHERE ($1::text IS NULL OR c.mainteneur = $1::text)
+                      AND ($2::integer IS NULL OR r.copieur_id = $2::integer)
                 )
                 SELECT * FROM base
                 WHERE prev_valeur IS NOT NULL AND valeur >= prev_valeur
                 ORDER BY copieur_id, date_releve
-            `);
+            `, [mainteneurFilter, copieurIdFilter]);
 
             // 2) Tous les copieurs actifs avec date de dernier relevé (pour les alertes)
             const alertRes = await pool.query(`
@@ -1610,9 +1755,10 @@ module.exports = {
             `);
 
             // ── Agrégation JS ──────────────────────────────────────────────────
-            const byYearMap = {};
+            const byYearMap  = {};
             const byCopierMap = {};
-            const byDirMap = {};
+            const byDirMap   = {};
+            const byCodeMap  = {};
 
             for (const row of deltaRes.rows) {
                 const delta = Number(row.valeur) - Number(row.prev_valeur);
@@ -1650,6 +1796,21 @@ module.exports = {
                 if (coul) byDirMap[dir].deltaCoul += delta;
                 else      byDirMap[dir].deltaNB   += delta;
                 byDirMap[dir].coutTotal += cost;
+
+                // byCode
+                const codeKey = String(row.code_id);
+                if (!byCodeMap[codeKey]) byCodeMap[codeKey] = {
+                    code_id: Number(row.code_id),
+                    mainteneur: row.copieur_mainteneur || '',
+                    code: row.code || '',
+                    libelle: row.libelle || '',
+                    format: row.format || '',
+                    couleur: row.couleur,
+                    deltaTotal: 0, coutTotal: 0, copieurIds: new Set(),
+                };
+                byCodeMap[codeKey].deltaTotal += delta;
+                byCodeMap[codeKey].coutTotal  += cost;
+                byCodeMap[codeKey].copieurIds.add(copId);
             }
 
             // ── Fraction d'année écoulée pour projections (année courante incomplète) ──
@@ -1758,7 +1919,18 @@ module.exports = {
                 .slice(0, 30)
                 .map(c => ({ id: c.id, direction: c.direction, service: c.service, numero_serie: c.numero_serie, modele: c.modele, source: c.source, last_releve: c.last_releve }));
 
-            res.json({ global, byYear, byDirection, top10Volume, top10Growing, top10Shrinking, alertsNoReleve });
+            const byCode = Object.values(byCodeMap)
+                .map(c => ({
+                    code_id: c.code_id, mainteneur: c.mainteneur,
+                    code: c.code, libelle: c.libelle, format: c.format, couleur: c.couleur,
+                    deltaTotal: c.deltaTotal,
+                    coutTotal: +c.coutTotal.toFixed(2),
+                    nbCopieurs: c.copieurIds.size,
+                    tarifMoyen: c.deltaTotal > 0 ? +(c.coutTotal / c.deltaTotal * 1000).toFixed(4) : null,
+                }))
+                .sort((a, b) => b.deltaTotal - a.deltaTotal);
+
+            res.json({ global, byYear, byDirection, byCode, top10Volume, top10Growing, top10Shrinking, alertsNoReleve, mainteneurs, copieursListe });
 
         } catch (error) {
             res.status(500).json({ message: 'Erreur KPI copieurs', error: error.message });

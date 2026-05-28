@@ -48,6 +48,9 @@ interface Copieur {
   prix_acquisition?: number;
   options_achat?: string;
   cout_options?: number;
+  last_nb_value?: number | null;
+  last_coul_value?: number | null;
+  has_decreasing_counter?: boolean;
 }
 
 interface CopieurForm {
@@ -626,15 +629,15 @@ const Copieurs: React.FC = () => {
 
   // ── Relevés trimestriels par copieur ──────────────────────────────────────
 
-  const fetchCopieurReleves = async (copieurId: number, mainteneur: string) => {
+  const fetchCopieurReleves = async (copieurId: number, _mainteneur: string) => {
     setLoadingReleves(true);
     try {
       const [relevesRes, codesRes] = await Promise.all([
         api.get(`/${copieurId}/releves`),
-        api.get(`/compteur-codes?mainteneur=${encodeURIComponent(mainteneur)}`),
+        api.get(`/compteur-codes`),          // tous les codes (Canon + Koesio + …)
       ]);
       setCopieurReleves(relevesRes.data);
-      setCodesForMainteneur(codesRes.data);
+      setCodesForMainteneur(codesRes.data);  // utilisé pour lookup tarifs sur tous les relevés
     } catch { setCopieurReleves([]); setCodesForMainteneur([]); }
     finally { setLoadingReleves(false); }
   };
@@ -1067,7 +1070,15 @@ const Copieurs: React.FC = () => {
                         <strong>{c.direction}</strong>
                         {c.service && <><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{c.service}</span></>}
                       </td>
-                      <td><code>{c.numero_serie}</code>{c.papercut_matched ? <span title="Données PaperCut" style={{ marginLeft: 6, fontSize: 12, color: '#0891b2', fontWeight: 700 }}>🖨️</span> : null}</td>
+                      <td>
+                        <code>{c.numero_serie}</code>
+                        {c.papercut_matched ? <span title="Données PaperCut" style={{ marginLeft: 6, fontSize: 12, color: '#0891b2', fontWeight: 700 }}>🖨️</span> : null}
+                        {c.has_decreasing_counter ? (
+                          <span title="Compteur dégressif détecté — vérifier les relevés" style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', padding: '1px 6px', borderRadius: 5, cursor: 'help' }}>
+                            ⚠ Dégressif
+                          </span>
+                        ) : null}
+                      </td>
                       <td style={{ color: c.couleur === 'Oui' ? '#0891b2' : undefined, fontWeight: c.couleur === 'Oui' ? 600 : undefined }}>{c.modele}</td>
                       <td>
                         {c.ip ? <code className="ip-link" onClick={() => window.open(`http://${c.ip}`, '_blank')}>{c.ip}</code> : <code>-</code>}
@@ -1126,6 +1137,20 @@ const Copieurs: React.FC = () => {
                           <span className="visit-badge visit-badge-empty" onClick={(e) => { e.stopPropagation(); openRelevesModal(c); }}>
                             Aucun
                           </span>
+                        )}
+                        {(c.last_nb_value != null || c.last_coul_value != null) && (
+                          <div style={{ marginTop: 3, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            {c.last_nb_value != null && (
+                              <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace', background: '#f1f5f9', padding: '0 5px', borderRadius: 4, display: 'inline-block' }}>
+                                ⚫ {Number(c.last_nb_value).toLocaleString('fr-FR')}
+                              </span>
+                            )}
+                            {c.last_coul_value != null && (
+                              <span style={{ fontSize: 10, color: '#0891b2', fontFamily: 'monospace', background: '#e0f2fe', padding: '0 5px', borderRadius: 4, display: 'inline-block' }}>
+                                🎨 {Number(c.last_coul_value).toLocaleString('fr-FR')}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
                       <td>
@@ -2170,7 +2195,11 @@ const Copieurs: React.FC = () => {
                         <Plus size={16} /> Nouveau relevé trimestriel
                       </h3>
 
-                      {codesForMainteneur.length === 0 ? (
+                      {(() => {
+                        const codesForForm = codesForMainteneur.filter(
+                          c => !relevesTarget.mainteneur || c.mainteneur?.toLowerCase() === relevesTarget.mainteneur.toLowerCase()
+                        );
+                        return codesForForm.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '20px 0', color: '#f59e0b', fontSize: 13 }}>
                           ⚠ Aucun code compteur configuré pour <strong>{relevesTarget.mainteneur || '(mainteneur non renseigné)'}</strong>.<br />
                           <span style={{ color: '#64748b', fontSize: 12 }}>Configurez d'abord les codes via le bouton "Codes compteur" dans la barre d'actions.</span>
@@ -2192,7 +2221,7 @@ const Copieurs: React.FC = () => {
                               </tr>
                             </thead>
                             <tbody>
-                              {codesForMainteneur.map(code => {
+                              {codesForForm.map(code => {
                                 const lastReleve = copieurReleves.find(r => r.code_id === code.id);
                                 return (
                                   <tr key={code.id} style={{ borderBottom: '1px solid #cffafe' }}>
@@ -2229,7 +2258,8 @@ const Copieurs: React.FC = () => {
                             </button>
                           </div>
                         </>
-                      )}
+                      );
+                      })()}
                     </div>
 
                     {/* ── Historique des relevés ── */}
@@ -2246,6 +2276,14 @@ const Copieurs: React.FC = () => {
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                                 <span style={{ fontWeight: 700, color: '#334155', fontSize: 14 }}>
                                   📅 {new Date(date + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                  {(() => {
+                                    const mainteneurs = [...new Set(items.map(i => i.mainteneur).filter(Boolean))];
+                                    return mainteneurs.length > 0 ? (
+                                      <span style={{ marginLeft: 10, fontWeight: 600, color: '#0891b2', background: '#ecfeff', padding: '1px 8px', borderRadius: 6, fontSize: 12, border: '1px solid #a5f3fc' }}>
+                                        🔧 {mainteneurs.join(', ')}
+                                      </span>
+                                    ) : null;
+                                  })()}
                                 </span>
                                 <span style={{ fontSize: 12, color: '#94a3b8' }}>
                                   Saisi par {[...new Set(items.map(i => i.created_by).filter(Boolean))].join(', ') || '—'}
@@ -2255,6 +2293,7 @@ const Copieurs: React.FC = () => {
                                 <thead>
                                   <tr style={{ background: '#fafafa' }}>
                                     <th style={{ padding: '6px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Code</th>
+                                    <th style={{ padding: '6px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Mainteneur</th>
                                     <th style={{ padding: '6px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Libellé</th>
                                     <th style={{ padding: '6px 14px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Valeur</th>
                                     <th style={{ padding: '6px 14px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Δ pages</th>
@@ -2278,6 +2317,11 @@ const Copieurs: React.FC = () => {
                                           {r.couleur
                                             ? <span style={{ marginLeft: 5, fontSize: 10, background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: 4 }}>🎨</span>
                                             : <span style={{ marginLeft: 5, fontSize: 10, background: '#f1f5f9', color: '#64748b', padding: '1px 5px', borderRadius: 4 }}>⚫</span>}
+                                        </td>
+                                        <td style={{ padding: '8px 14px' }}>
+                                          {r.mainteneur
+                                            ? <span style={{ fontWeight: 600, fontSize: 11, color: '#0891b2', background: '#ecfeff', padding: '1px 7px', borderRadius: 5, border: '1px solid #a5f3fc' }}>{r.mainteneur}</span>
+                                            : <span style={{ fontSize: 11, color: '#cbd5e1' }}>—</span>}
                                         </td>
                                         <td style={{ padding: '8px 14px', color: '#475569', fontSize: 12 }}>{r.libelle || '—'}</td>
                                         <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: '#334155' }}>{r.valeur.toLocaleString('fr-FR')}</td>

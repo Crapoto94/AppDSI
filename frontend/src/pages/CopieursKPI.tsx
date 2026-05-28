@@ -56,6 +56,12 @@ interface KPIData {
     direction: string; deltaNB: number; deltaCoul: number;
     totalPages: number; coutTotal: number; nbCopieurs: number;
   }>;
+  byCode: Array<{
+    code_id: number; mainteneur: string; code: string; libelle: string;
+    format: string; couleur: boolean;
+    deltaTotal: number; coutTotal: number; nbCopieurs: number;
+    tarifMoyen: number | null;
+  }>;
   top10Volume: Array<{
     copieur_id: number; direction: string; service: string;
     numero_serie: string; modele: string; source: string;
@@ -77,6 +83,10 @@ interface KPIData {
     id: number; direction: string; service: string;
     numero_serie: string; modele: string; source: string;
     last_releve: string | null;
+  }>;
+  mainteneurs: string[];
+  copieursListe: Array<{
+    id: number; numero_serie: string; direction: string; service: string; modele: string; mainteneur: string;
   }>;
 }
 
@@ -170,6 +180,12 @@ export default function CopieursKPI() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [yearFilter, setYearFilter] = useState<number | 'all'>('all');
+  const [mainteneurFilter, setMainteneurFilter] = useState<string>('all');
+  const [copieurFilter, setCopieurFilter] = useState<number | 'all'>('all');
+  const [copieurSearch, setCopieurSearch] = useState('');
+  const [copieurOpen, setCopieurOpen] = useState(false);
+  const [allMainteneurs, setAllMainteneurs] = useState<string[]>([]);
+  const [allCopieurs, setAllCopieurs] = useState<KPIData['copieursListe']>([]);
 
   const fetchKPI = useCallback(async () => {
     const tok = token || localStorage.getItem('token');
@@ -177,14 +193,20 @@ export default function CopieursKPI() {
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.get('/api/copieurs/kpi', { headers: { Authorization: `Bearer ${tok}` } });
+      const p = new URLSearchParams();
+      if (mainteneurFilter !== 'all') p.set('mainteneur', mainteneurFilter);
+      if (copieurFilter   !== 'all') p.set('copieur_id', String(copieurFilter));
+      const qs = p.toString() ? `?${p.toString()}` : '';
+      const res = await axios.get(`/api/copieurs/kpi${qs}`, { headers: { Authorization: `Bearer ${tok}` } });
       setData(res.data);
+      if (res.data.mainteneurs?.length > 0) setAllMainteneurs(res.data.mainteneurs);
+      if (res.data.copieursListe?.length > 0) setAllCopieurs(res.data.copieursListe);
     } catch (e: any) {
       setError(e.response?.data?.message || e.message);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, mainteneurFilter, copieurFilter]);
 
   useEffect(() => { fetchKPI(); }, [fetchKPI]);
 
@@ -205,7 +227,7 @@ export default function CopieursKPI() {
     </div>
   );
 
-  const { global: g, byYear, byDirection, top10Volume, top10Growing, top10Shrinking, alertsNoReleve } = data;
+  const { global: g, byYear, byDirection, byCode, top10Volume, top10Growing, top10Shrinking, alertsNoReleve } = data;
 
   // Données filtrées par année sélectionnée + enrichissement pour projection
   const hasProj = yearFilter === 'all' && byYear.some(y => y.isCurrentYear);
@@ -249,6 +271,16 @@ export default function CopieursKPI() {
 
   const years = byYear.map(y => y.year);
 
+  // Filtre copieur — combobox
+  const selectedCopieur = copieurFilter !== 'all' ? allCopieurs.find(c => c.id === copieurFilter) ?? null : null;
+  const copieursFiltered = allCopieurs.filter(c => {
+    if (!copieurSearch) return true;
+    const q = copieurSearch.toLowerCase();
+    return c.numero_serie.toLowerCase().includes(q)
+        || c.direction.toLowerCase().includes(q)
+        || (c.service || '').toLowerCase().includes(q);
+  });
+
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
       <Header />
@@ -282,7 +314,62 @@ export default function CopieursKPI() {
               {' / '}{g.nbCopieursTotaux} total
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {allMainteneurs.length > 1 && (
+              <select
+                value={mainteneurFilter}
+                onChange={e => { setMainteneurFilter(e.target.value); setCopieurFilter('all'); setCopieurSearch(''); }}
+                style={{ padding: '7px 12px', border: '1px solid #a5f3fc', borderRadius: 8, fontSize: 13, background: mainteneurFilter !== 'all' ? '#ecfeff' : '#fff', cursor: 'pointer', color: mainteneurFilter !== 'all' ? '#0891b2' : undefined, fontWeight: mainteneurFilter !== 'all' ? 600 : undefined }}
+              >
+                <option value="all">Tous mainteneurs</option>
+                {allMainteneurs.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )}
+
+            {/* ── Filtre copieur (combobox) ── */}
+            {allCopieurs.length > 0 && (
+              <div style={{ position: 'relative' }}>
+                <div style={{ display: 'flex', alignItems: 'center', border: `1px solid ${copieurFilter !== 'all' ? '#ddd6fe' : '#e2e8f0'}`, borderRadius: 8, background: copieurFilter !== 'all' ? '#faf5ff' : '#fff', overflow: 'hidden' }}>
+                  <input
+                    type="text"
+                    placeholder="Filtrer par copieur…"
+                    value={copieurOpen ? copieurSearch : (selectedCopieur ? `${selectedCopieur.numero_serie}` : '')}
+                    onFocus={() => { setCopieurSearch(''); setCopieurOpen(true); }}
+                    onChange={e => { setCopieurSearch(e.target.value); setCopieurOpen(true); }}
+                    onBlur={() => setTimeout(() => setCopieurOpen(false), 160)}
+                    style={{ padding: '7px 10px', border: 'none', outline: 'none', fontSize: 13, background: 'transparent', width: 190, color: copieurFilter !== 'all' ? '#7c3aed' : undefined, fontWeight: copieurFilter !== 'all' ? 600 : undefined }}
+                  />
+                  {copieurFilter !== 'all' && (
+                    <button
+                      onMouseDown={e => { e.preventDefault(); setCopieurFilter('all'); setCopieurSearch(''); setCopieurOpen(false); }}
+                      style={{ padding: '0 8px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#7c3aed', fontSize: 18, lineHeight: 1 }}
+                    >×</button>
+                  )}
+                </div>
+                {copieurOpen && (
+                  <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, minWidth: 280, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.12)', zIndex: 200, maxHeight: 260, overflowY: 'auto' }}>
+                    <div
+                      onMouseDown={e => { e.preventDefault(); setCopieurFilter('all'); setCopieurSearch(''); setCopieurOpen(false); }}
+                      style={{ padding: '8px 14px', fontSize: 12, color: '#94a3b8', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                    >Tous les copieurs ({allCopieurs.length})</div>
+                    {copieursFiltered.length === 0 && (
+                      <div style={{ padding: '10px 14px', fontSize: 12, color: '#cbd5e1' }}>Aucun résultat</div>
+                    )}
+                    {copieursFiltered.map(c => (
+                      <div
+                        key={c.id}
+                        onMouseDown={e => { e.preventDefault(); setCopieurFilter(c.id); setCopieurSearch(''); setCopieurOpen(false); }}
+                        style={{ padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid #f8fafc', background: copieurFilter === c.id ? '#faf5ff' : 'transparent', display: 'flex', flexDirection: 'column', gap: 1 }}
+                      >
+                        <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 13, color: copieurFilter === c.id ? '#7c3aed' : '#0891b2' }}>{c.numero_serie}</span>
+                        <span style={{ fontSize: 11, color: '#64748b' }}>{c.direction}{c.service ? ` / ${c.service}` : ''} · <em>{c.modele}</em></span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <select
               value={yearFilter}
               onChange={e => setYearFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
@@ -453,6 +540,76 @@ export default function CopieursKPI() {
             </ResponsiveContainer>
           </div>
         </div>
+
+        {/* ── Répartition par code compteur ── */}
+        {byCode.length > 0 && (() => {
+          const maxDelta = Math.max(...byCode.map(c => c.deltaTotal), 1);
+          // Grouper par mainteneur pour l'affichage
+          const mainteneurs = [...new Set(byCode.map(c => c.mainteneur))].sort();
+          const MAINT_COLORS: Record<string, string> = {};
+          const palette = ['#0891b2', '#7c3aed', '#16a34a', '#f59e0b', '#dc2626', '#0e7490'];
+          mainteneurs.forEach((m, i) => { MAINT_COLORS[m] = palette[i % palette.length]; });
+          return (
+          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '20px 24px', marginBottom: 16 }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 700, color: '#334155' }}>
+              🔢 Répartition par code compteur
+            </h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  {mainteneurs.length > 1 && <th style={{ padding: '7px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>Mainteneur</th>}
+                  <th style={{ padding: '7px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>Code</th>
+                  <th style={{ padding: '7px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>Libellé</th>
+                  <th style={{ padding: '7px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>Format</th>
+                  <th style={{ padding: '7px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>Type</th>
+                  <th style={{ padding: '7px 12px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>Copies</th>
+                  <th style={{ padding: '7px 12px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>Coût</th>
+                  <th style={{ padding: '7px 12px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>€ / 1000</th>
+                  <th style={{ padding: '7px 12px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>Cop.</th>
+                  <th style={{ padding: '7px 12px', minWidth: 120, fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.05em' }}>Volume relatif</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byCode.map((c, i) => {
+                  const mc = MAINT_COLORS[c.mainteneur] || '#64748b';
+                  const barPct = Math.round(c.deltaTotal / maxDelta * 100);
+                  const barColor = c.couleur ? COLORS_COUL : COLORS_NB;
+                  return (
+                    <tr key={c.code_id} style={{ borderBottom: '1px solid #f8fafc', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                      {mainteneurs.length > 1 && (
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: mc, background: `${mc}18`, padding: '2px 8px', borderRadius: 20 }}>{c.mainteneur}</span>
+                        </td>
+                      )}
+                      <td style={{ padding: '8px 12px' }}>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: 12, color: mc, background: `${mc}12`, padding: '2px 8px', borderRadius: 5 }}>{c.code}</span>
+                      </td>
+                      <td style={{ padding: '8px 12px', color: '#334155' }}>{c.libelle || '—'}</td>
+                      <td style={{ padding: '8px 12px', color: '#64748b', fontSize: 12 }}>{c.format || '—'}</td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {c.couleur
+                          ? <span style={{ fontSize: 10, background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>🎨 Couleur</span>
+                          : <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>⚫ NB</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#0f172a', fontFamily: 'monospace' }}>{fmtM(c.deltaTotal)}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: COLORS_COST }}>{fmtEur(c.coutTotal)}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontSize: 12 }}>
+                        {c.tarifMoyen !== null ? c.tarifMoyen.toFixed(3) : '—'}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: '#64748b', fontSize: 12 }}>{c.nbCopieurs}</td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <div style={{ background: '#f1f5f9', borderRadius: 4, height: 10, overflow: 'hidden' }}>
+                          <div style={{ width: `${barPct}%`, height: '100%', background: barColor, borderRadius: 4, transition: 'width .3s' }} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          );
+        })()}
 
         {/* ── Top Directions ── */}
         {byDirection.length > 0 && (
