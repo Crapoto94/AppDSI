@@ -67,9 +67,9 @@ interface CopieurForm {
   longitude: string;
 }
 
-interface Tarif {
+interface CompteurTarif {
   id: number;
-  compteur_id: number;
+  code_id: number;
   tarif: string;
   date_debut: string;
   date_fin: string | null;
@@ -77,28 +77,33 @@ interface Tarif {
   created_by: string | null;
 }
 
-interface Releve {
+interface CompteurCode {
   id: number;
-  compteur_id: number;
+  mainteneur: string;
+  code: string;
+  libelle: string;
+  format: string;
+  couleur: boolean;
+  description: string;
+  created_at: string;
+  tarifs: CompteurTarif[] | null;
+  tarif_actuel: string | null;
+  tarif_actuel_id: number | null;
+}
+
+interface CopieurReleve {
+  id: number;
+  copieur_id: number;
+  code_id: number;
   date_releve: string;
   valeur: number;
   created_by: string | null;
   created_at: string;
-}
-
-interface Compteur {
-  id: number;
-  copieur_id: number;
   code: string;
   libelle: string;
-  description: string;
   format: string;
   couleur: boolean;
-  created_at: string;
-  tarifs: Tarif[] | null;
-  releves: Releve[] | null;
-  tarif_actuel: string | null;
-  tarif_actuel_id: number | null;
+  valeur_precedente: number | null;
 }
 
 const emptyForm: CopieurForm = {
@@ -170,25 +175,29 @@ const Copieurs: React.FC = () => {
   const [submittingVisite, setSubmittingVisite] = useState(false);
   const [activeLightbox, setActiveLightbox] = useState<string | null>(null);
 
-  // ── Compteurs ──────────────────────────────────────────────────────────────
-  const [showCompteursModal, setShowCompteursModal] = useState(false);
-  const [compteursTarget, setCompteursTarget] = useState<Copieur | null>(null);
-  const [compteurs, setCompteurs] = useState<Compteur[]>([]);
-  const [loadingCompteurs, setLoadingCompteurs] = useState(false);
-  const [expandedCompteur, setExpandedCompteur] = useState<number | null>(null);
-  const [expandedSection, setExpandedSection] = useState<Record<number, 'tarifs' | 'releves' | null>>({});
-  // Formulaire nouveau compteur
-  const [showCompteurForm, setShowCompteurForm] = useState(false);
-  const [editingCompteur, setEditingCompteur] = useState<Compteur | null>(null);
-  const [compteurForm, setCompteurForm] = useState({ code: '', libelle: '', description: '', format: '', couleur: false });
-  const [savingCompteur, setSavingCompteur] = useState(false);
-  // Formulaire tarif
+  // ── Admin codes compteur (par marque) ──────────────────────────────────────
+  const [showCodesAdmin, setShowCodesAdmin] = useState(false);
+  const [codesAdmin, setCodesAdmin] = useState<CompteurCode[]>([]);
+  const [loadingCodes, setLoadingCodes] = useState(false);
+  const [mainteneursList, setMainteneursList] = useState<string[]>([]);
+  const [selectedMainteneur, setSelectedMainteneur] = useState<string>('');
+  const [expandedCodeId, setExpandedCodeId] = useState<number | null>(null);
+  const [showCodeForm, setShowCodeForm] = useState(false);
+  const [editingCode, setEditingCode] = useState<CompteurCode | null>(null);
+  const [codeForm, setCodeForm] = useState({ mainteneur: '', code: '', libelle: '', format: '', couleur: false, description: '' });
+  const [savingCode, setSavingCode] = useState(false);
   const [tarifForms, setTarifForms] = useState<Record<number, { tarif: string; date_debut: string; date_fin: string }>>({});
   const [savingTarif, setSavingTarif] = useState<Record<number, boolean>>({});
-  const [editingTarif, setEditingTarif] = useState<Record<number, Tarif | null>>({});
-  // Formulaire relevé
-  const [releveForms, setReleveForms] = useState<Record<number, { date_releve: string; valeur: string }>>({});
-  const [savingReleve, setSavingReleve] = useState<Record<number, boolean>>({});
+
+  // ── Relevés trimestriels par copieur ───────────────────────────────────────
+  const [showRelevesModal, setShowRelevesModal] = useState(false);
+  const [relevesTarget, setRelevesTarget] = useState<Copieur | null>(null);
+  const [copieurReleves, setCopieurReleves] = useState<CopieurReleve[]>([]);
+  const [codesForMainteneur, setCodesForMainteneur] = useState<CompteurCode[]>([]);
+  const [loadingReleves, setLoadingReleves] = useState(false);
+  const [releveDate, setReleveDate] = useState('');
+  const [releveValues, setReleveValues] = useState<Record<number, string>>({});
+  const [savingReleve, setSavingReleve] = useState(false);
 
   useEffect(() => {
     axios.get('/api/copieurs/boundary').then(r => setIvryBoundary(r.data)).catch(() => {});
@@ -438,106 +447,7 @@ const Copieurs: React.FC = () => {
     finally { setLoadingCopieurInterv(false); }
   };
 
-  // ── Fonctions Compteurs ────────────────────────────────────────────────────
-
-  const fetchCompteurs = async (copieurId: number) => {
-    setLoadingCompteurs(true);
-    try {
-      const res = await api.get(`/${copieurId}/compteurs`);
-      setCompteurs(res.data);
-    } catch { setCompteurs([]); }
-    finally { setLoadingCompteurs(false); }
-  };
-
-  const openCompteursModal = async (c: Copieur) => {
-    setCompteursTarget(c);
-    setShowCompteursModal(true);
-    setExpandedCompteur(null);
-    setExpandedSection({});
-    setShowCompteurForm(false);
-    setEditingCompteur(null);
-    setCompteurForm({ code: '', libelle: '', description: '', format: '', couleur: false });
-    setTarifForms({});
-    setReleveForms({});
-    await fetchCompteurs(c.id);
-  };
-
-  const handleSaveCompteur = async () => {
-    if (!compteursTarget || !compteurForm.code.trim()) return;
-    setSavingCompteur(true);
-    try {
-      if (editingCompteur) {
-        await api.put(`/${compteursTarget.id}/compteurs/${editingCompteur.id}`, compteurForm);
-      } else {
-        await api.post(`/${compteursTarget.id}/compteurs`, compteurForm);
-      }
-      setShowCompteurForm(false);
-      setEditingCompteur(null);
-      setCompteurForm({ code: '', libelle: '', description: '', format: '', couleur: false });
-      await fetchCompteurs(compteursTarget.id);
-    } catch (e: any) {
-      alert(e.response?.data?.message || 'Erreur lors de la sauvegarde');
-    } finally { setSavingCompteur(false); }
-  };
-
-  const handleDeleteCompteur = async (compteurId: number) => {
-    if (!compteursTarget || !confirm('Supprimer ce compteur et tous ses tarifs/relevés ?')) return;
-    try {
-      await api.delete(`/${compteursTarget.id}/compteurs/${compteurId}`);
-      await fetchCompteurs(compteursTarget.id);
-      if (expandedCompteur === compteurId) setExpandedCompteur(null);
-    } catch (e: any) {
-      alert(e.response?.data?.message || 'Erreur suppression');
-    }
-  };
-
-  const handleAddTarif = async (compteur: Compteur) => {
-    if (!compteursTarget) return;
-    const form = tarifForms[compteur.id];
-    if (!form?.tarif || !form?.date_debut) return;
-    setSavingTarif(p => ({ ...p, [compteur.id]: true }));
-    try {
-      await api.post(`/${compteursTarget.id}/compteurs/${compteur.id}/tarifs`, form);
-      setTarifForms(p => ({ ...p, [compteur.id]: { tarif: '', date_debut: '', date_fin: '' } }));
-      await fetchCompteurs(compteursTarget.id);
-    } catch (e: any) {
-      alert(e.response?.data?.message || 'Erreur ajout tarif');
-    } finally { setSavingTarif(p => ({ ...p, [compteur.id]: false })); }
-  };
-
-  const handleDeleteTarif = async (compteur: Compteur, tarifId: number) => {
-    if (!compteursTarget || !confirm('Supprimer ce tarif ?')) return;
-    try {
-      await api.delete(`/${compteursTarget.id}/compteurs/${compteur.id}/tarifs/${tarifId}`);
-      await fetchCompteurs(compteursTarget.id);
-    } catch { alert('Erreur suppression tarif'); }
-  };
-
-  const handleAddReleve = async (compteur: Compteur) => {
-    if (!compteursTarget) return;
-    const form = releveForms[compteur.id];
-    if (!form?.date_releve || form?.valeur === '') return;
-    setSavingReleve(p => ({ ...p, [compteur.id]: true }));
-    try {
-      await api.post(`/${compteursTarget.id}/compteurs/${compteur.id}/releves`, { date_releve: form.date_releve, valeur: parseInt(form.valeur) });
-      setReleveForms(p => ({ ...p, [compteur.id]: { date_releve: '', valeur: '' } }));
-      await fetchCompteurs(compteursTarget.id);
-    } catch (e: any) {
-      alert(e.response?.data?.message || 'Erreur ajout relevé');
-    } finally { setSavingReleve(p => ({ ...p, [compteur.id]: false })); }
-  };
-
-  const handleDeleteReleve = async (compteur: Compteur, releveId: number) => {
-    if (!compteursTarget || !confirm('Supprimer ce relevé ?')) return;
-    try {
-      await api.delete(`/${compteursTarget.id}/compteurs/${compteur.id}/releves/${releveId}`);
-      await fetchCompteurs(compteursTarget.id);
-    } catch { alert('Erreur suppression relevé'); }
-  };
-
-  const toggleCompteurSection = (compteurId: number, section: 'tarifs' | 'releves') => {
-    setExpandedSection(p => ({ ...p, [compteurId]: p[compteurId] === section ? null : section }));
-  };
+  // ── Utilitaires ────────────────────────────────────────────────────────────
 
   const fmtDate = (d: string | null) => {
     if (!d) return '—';
@@ -549,6 +459,126 @@ const Copieurs: React.FC = () => {
     if (!t) return '—';
     const n = parseFloat(t);
     return isNaN(n) ? t : `${n.toFixed(5)} €`;
+  };
+
+  // ── Admin codes compteur ───────────────────────────────────────────────────
+
+  const fetchCodesAdmin = async () => {
+    setLoadingCodes(true);
+    try {
+      const [codesRes, mainRes] = await Promise.all([
+        api.get('/compteur-codes'),
+        api.get('/mainteneurs'),
+      ]);
+      setCodesAdmin(codesRes.data);
+      setMainteneursList(mainRes.data);
+      if (!selectedMainteneur && mainRes.data.length > 0) setSelectedMainteneur(mainRes.data[0]);
+    } catch { setCodesAdmin([]); }
+    finally { setLoadingCodes(false); }
+  };
+
+  const openCodesAdmin = async () => {
+    setShowCodesAdmin(true);
+    setShowCodeForm(false);
+    setEditingCode(null);
+    setExpandedCodeId(null);
+    setTarifForms({});
+    await fetchCodesAdmin();
+  };
+
+  const handleSaveCode = async () => {
+    if (!codeForm.mainteneur.trim() || !codeForm.code.trim()) return;
+    setSavingCode(true);
+    try {
+      if (editingCode) {
+        await api.put(`/compteur-codes/${editingCode.id}`, codeForm);
+      } else {
+        await api.post('/compteur-codes', codeForm);
+      }
+      setShowCodeForm(false);
+      setEditingCode(null);
+      await fetchCodesAdmin();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur sauvegarde');
+    } finally { setSavingCode(false); }
+  };
+
+  const handleDeleteCode = async (codeId: number) => {
+    if (!confirm('Supprimer ce code et tous ses tarifs ?')) return;
+    try {
+      await api.delete(`/compteur-codes/${codeId}`);
+      await fetchCodesAdmin();
+      if (expandedCodeId === codeId) setExpandedCodeId(null);
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur suppression'); }
+  };
+
+  const handleAddCodeTarif = async (code: CompteurCode) => {
+    const form = tarifForms[code.id];
+    if (!form?.tarif || !form?.date_debut) return;
+    setSavingTarif(p => ({ ...p, [code.id]: true }));
+    try {
+      await api.post(`/compteur-codes/${code.id}/tarifs`, form);
+      setTarifForms(p => ({ ...p, [code.id]: { tarif: '', date_debut: new Date().toISOString().split('T')[0], date_fin: '' } }));
+      await fetchCodesAdmin();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur ajout tarif');
+    } finally { setSavingTarif(p => ({ ...p, [code.id]: false })); }
+  };
+
+  const handleDeleteCodeTarif = async (code: CompteurCode, tarifId: number) => {
+    if (!confirm('Supprimer ce tarif ?')) return;
+    try {
+      await api.delete(`/compteur-codes/${code.id}/tarifs/${tarifId}`);
+      await fetchCodesAdmin();
+    } catch { alert('Erreur suppression tarif'); }
+  };
+
+  // ── Relevés trimestriels par copieur ──────────────────────────────────────
+
+  const fetchCopieurReleves = async (copieurId: number, mainteneur: string) => {
+    setLoadingReleves(true);
+    try {
+      const [relevesRes, codesRes] = await Promise.all([
+        api.get(`/${copieurId}/releves`),
+        api.get(`/compteur-codes?mainteneur=${encodeURIComponent(mainteneur)}`),
+      ]);
+      setCopieurReleves(relevesRes.data);
+      setCodesForMainteneur(codesRes.data);
+    } catch { setCopieurReleves([]); setCodesForMainteneur([]); }
+    finally { setLoadingReleves(false); }
+  };
+
+  const openRelevesModal = async (c: Copieur) => {
+    setRelevesTarget(c);
+    setShowRelevesModal(true);
+    setReleveDate(new Date().toISOString().split('T')[0]);
+    setReleveValues({});
+    setSavingReleve(false);
+    await fetchCopieurReleves(c.id, c.mainteneur || '');
+  };
+
+  const handleAddReleve = async () => {
+    if (!relevesTarget || !releveDate) return;
+    const values = Object.entries(releveValues)
+      .filter(([, v]) => v !== '')
+      .map(([code_id, valeur]) => ({ code_id: parseInt(code_id), valeur: parseInt(valeur) }));
+    if (values.length === 0) return;
+    setSavingReleve(true);
+    try {
+      await api.post(`/${relevesTarget.id}/releves`, { date_releve: releveDate, values });
+      setReleveValues({});
+      await fetchCopieurReleves(relevesTarget.id, relevesTarget.mainteneur || '');
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur ajout relevé');
+    } finally { setSavingReleve(false); }
+  };
+
+  const handleDeleteReleve = async (releveId: number) => {
+    if (!relevesTarget || !confirm('Supprimer ce relevé ?')) return;
+    try {
+      await api.delete(`/${relevesTarget.id}/releves/${releveId}`);
+      await fetchCopieurReleves(relevesTarget.id, relevesTarget.mainteneur || '');
+    } catch { alert('Erreur suppression relevé'); }
   };
 
   const openVisitesModal = async (c: Copieur) => {
@@ -777,6 +807,9 @@ const Copieurs: React.FC = () => {
             <button className="btn btn-outline" onClick={openAllInterventions}>
               <History size={16} /> Toutes les interventions
             </button>
+            <button className="btn btn-outline" onClick={openCodesAdmin} style={{ color: '#0891b2', borderColor: '#a5f3fc' }}>
+              <Gauge size={16} /> Codes compteur
+            </button>
             <button className="btn btn-outline" onClick={handleGeocode} disabled={geocoding}>
               <MapPin size={16} /> {geocoding ? 'Géocodage...' : 'Géocoder'}
             </button>
@@ -996,7 +1029,7 @@ const Copieurs: React.FC = () => {
                           <button className="btn-icon" title="Modifier" onClick={() => handleEdit(c)}><Edit3 size={15} /></button>
                           <button className="btn-icon" title={c.archive ? 'Désarchiver' : 'Archiver'} onClick={() => handleArchive(c.id)}><Archive size={15} /></button>
                           <button className="btn-icon" title="Déménager" onClick={() => openMoveModal(c)}><Move size={15} /></button>
-                          <button className="btn-icon" title="Compteurs" onClick={() => openCompteursModal(c)} style={{ color: '#0891b2' }}><Gauge size={15} /></button>
+                          <button className="btn-icon" title="Relevés compteurs" onClick={() => openRelevesModal(c)} style={{ color: '#0891b2' }}><Gauge size={15} /></button>
                           <button className="btn-icon btn-icon-danger" title="Supprimer" onClick={() => handleDelete(c.id)}><Trash2 size={15} /></button>
                         </div>
                       </td>
@@ -1798,278 +1831,377 @@ const Copieurs: React.FC = () => {
         </div>
       )}
 
-      {/* ── Modal Compteurs ── */}
-      {showCompteursModal && compteursTarget && (
-        <div className="modal-overlay" onClick={() => setShowCompteursModal(false)}>
-          <div className="modal modal-compteurs" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div>
-                <h2 style={{ marginBottom: 2 }}>Compteurs — <code style={{ fontSize: 18, background: '#ecfeff', color: '#0891b2', padding: '2px 8px', borderRadius: 6 }}>{compteursTarget.numero_serie}</code></h2>
-                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{compteursTarget.direction}{compteursTarget.service ? ` / ${compteursTarget.service}` : ''} — {compteursTarget.modele}</p>
+      {/* ── Modal Admin : Codes compteur par marque ── */}
+      {showCodesAdmin && (() => {
+        const allMainteneurs = [...new Set([...mainteneursList, ...codesAdmin.map(c => c.mainteneur)])].sort();
+        const filteredCodes = selectedMainteneur ? codesAdmin.filter(c => c.mainteneur === selectedMainteneur) : codesAdmin;
+        return (
+          <div className="modal-overlay" onClick={() => setShowCodesAdmin(false)}>
+            <div className="modal modal-compteurs" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <div>
+                  <h2 style={{ marginBottom: 2 }}>Codes compteur par marque</h2>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Codes, formats, couleurs et tarifs — partagés entre tous les copieurs de même mainteneur</p>
+                </div>
+                <button className="btn-icon" onClick={() => setShowCodesAdmin(false)}><X size={20} /></button>
               </div>
-              <button className="btn-icon" onClick={() => setShowCompteursModal(false)}><X size={20} /></button>
-            </div>
 
-            <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="modal-body" style={{ padding: 0, maxHeight: '74vh', display: 'flex', flexDirection: 'column' }}>
+                {/* Barre mainteneurs + bouton nouveau code */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 24px', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 4, borderRadius: 10, flexWrap: 'wrap' }}>
+                    <button className={`tab ${!selectedMainteneur ? 'active' : ''}`} onClick={() => setSelectedMainteneur('')}>Tous</button>
+                    {allMainteneurs.map(m => (
+                      <button key={m} className={`tab ${selectedMainteneur === m ? 'active' : ''}`} onClick={() => setSelectedMainteneur(m)}>{m}</button>
+                    ))}
+                  </div>
+                  <button className="btn btn-primary" style={{ marginLeft: 'auto', background: '#0891b2' }}
+                    onClick={() => { setShowCodeForm(true); setEditingCode(null); setCodeForm({ mainteneur: selectedMainteneur || '', code: '', libelle: '', format: '', couleur: false, description: '' }); }}>
+                    <Plus size={15} /> Nouveau code
+                  </button>
+                </div>
 
-              {/* Bouton Nouveau compteur */}
-              {!showCompteurForm ? (
-                <button className="btn btn-primary" style={{ alignSelf: 'flex-start', background: '#0891b2' }}
-                  onClick={() => { setShowCompteurForm(true); setEditingCompteur(null); setCompteurForm({ code: '', libelle: '', description: '', format: '', couleur: false }); }}>
-                  <Plus size={15} /> Nouveau compteur
-                </button>
-              ) : (
-                <div style={{ background: '#f0fdff', border: '1px solid #a5f3fc', borderRadius: 14, padding: 20 }}>
-                  <h3 style={{ margin: '0 0 14px 0', fontSize: 14, fontWeight: 700, color: '#0e7490' }}>
-                    {editingCompteur ? `Modifier le compteur ${editingCompteur.code}` : 'Nouveau compteur'}
-                  </h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
-                    <div className="form-group">
-                      <label>Code *</label>
-                      <input type="text" value={compteurForm.code} onChange={e => setCompteurForm(p => ({ ...p, code: e.target.value }))} placeholder="ex: 101" />
+                {/* Formulaire nouveau/modifier code */}
+                {showCodeForm && (
+                  <div style={{ background: '#f0fdff', border: '1px solid #a5f3fc', margin: '16px 24px 0', borderRadius: 14, padding: 20 }}>
+                    <h3 style={{ margin: '0 0 14px 0', fontSize: 14, fontWeight: 700, color: '#0e7490' }}>
+                      {editingCode ? `Modifier le code ${editingCode.code} (${editingCode.mainteneur})` : 'Nouveau code compteur'}
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+                      <div className="form-group">
+                        <label>Mainteneur *</label>
+                        <input type="text" value={codeForm.mainteneur} onChange={e => setCodeForm(p => ({ ...p, mainteneur: e.target.value }))} placeholder="Canon, Toshiba..." list="mainteneurs-list" />
+                        <datalist id="mainteneurs-list">{allMainteneurs.map(m => <option key={m} value={m} />)}</datalist>
+                      </div>
+                      <div className="form-group">
+                        <label>Code *</label>
+                        <input type="text" value={codeForm.code} onChange={e => setCodeForm(p => ({ ...p, code: e.target.value }))} placeholder="ex: 101" />
+                      </div>
+                      <div className="form-group">
+                        <label>Format</label>
+                        <select value={codeForm.format} onChange={e => setCodeForm(p => ({ ...p, format: e.target.value }))} style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none' }}>
+                          <option value="">—</option>
+                          <option>A4</option><option>A3</option><option>A5</option><option>Autre</option>
+                        </select>
+                      </div>
+                      <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                        <label>Libellé</label>
+                        <input type="text" value={codeForm.libelle} onChange={e => setCodeForm(p => ({ ...p, libelle: e.target.value }))} placeholder="ex: A4 monochrome, A3 couleur..." />
+                      </div>
+                      <div className="form-group" style={{ justifyContent: 'center' }}>
+                        <label>Couleur</label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 8 }}>
+                          <input type="checkbox" checked={codeForm.couleur} onChange={e => setCodeForm(p => ({ ...p, couleur: e.target.checked }))} style={{ width: 16, height: 16 }} />
+                          <span style={{ fontSize: 14 }}>Impression couleur</span>
+                        </label>
+                      </div>
+                      <div className="form-group" style={{ gridColumn: 'span 3' }}>
+                        <label>Description</label>
+                        <input type="text" value={codeForm.description} onChange={e => setCodeForm(p => ({ ...p, description: e.target.value }))} placeholder="Détails..." />
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label>Format</label>
-                      <select value={compteurForm.format} onChange={e => setCompteurForm(p => ({ ...p, format: e.target.value }))} style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none' }}>
-                        <option value="">—</option>
-                        <option>A4</option>
-                        <option>A3</option>
-                        <option>A5</option>
-                        <option>Autre</option>
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ justifyContent: 'center' }}>
-                      <label>Couleur</label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 8 }}>
-                        <input type="checkbox" checked={compteurForm.couleur} onChange={e => setCompteurForm(p => ({ ...p, couleur: e.target.checked }))} style={{ width: 16, height: 16 }} />
-                        <span style={{ fontSize: 14 }}>Impression couleur</span>
-                      </label>
-                    </div>
-                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                      <label>Libellé</label>
-                      <input type="text" value={compteurForm.libelle} onChange={e => setCompteurForm(p => ({ ...p, libelle: e.target.value }))} placeholder="ex: A4 monochrome" />
-                    </div>
-                    <div className="form-group" style={{ gridColumn: 'span 3' }}>
-                      <label>Description</label>
-                      <input type="text" value={compteurForm.description} onChange={e => setCompteurForm(p => ({ ...p, description: e.target.value }))} placeholder="Détails supplémentaires..." />
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button className="btn btn-outline" onClick={() => { setShowCodeForm(false); setEditingCode(null); }}>Annuler</button>
+                      <button className="btn btn-primary" style={{ background: '#0891b2' }}
+                        disabled={!codeForm.mainteneur.trim() || !codeForm.code.trim() || savingCode}
+                        onClick={handleSaveCode}>
+                        {savingCode ? 'Enregistrement...' : editingCode ? 'Mettre à jour' : 'Créer'}
+                      </button>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    <button className="btn btn-outline" onClick={() => { setShowCompteurForm(false); setEditingCompteur(null); }}>Annuler</button>
-                    <button className="btn btn-primary" style={{ background: '#0891b2' }} disabled={!compteurForm.code.trim() || savingCompteur} onClick={handleSaveCompteur}>
-                      {savingCompteur ? 'Enregistrement...' : editingCompteur ? 'Mettre à jour' : 'Créer'}
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* Liste des compteurs */}
-              {loadingCompteurs ? (
-                <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>⏳ Chargement...</div>
-              ) : compteurs.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', border: '1px dashed #e2e8f0', borderRadius: 12, fontStyle: 'italic' }}>
-                  Aucun compteur configuré pour ce copieur.
-                </div>
-              ) : compteurs.map(compteur => (
-                <div key={compteur.id} style={{ border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden', background: '#fff' }}>
-                  {/* En-tête compteur */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: '#f8fafc', cursor: 'pointer', borderBottom: expandedCompteur === compteur.id ? '1px solid #e2e8f0' : 'none' }}
-                    onClick={() => setExpandedCompteur(expandedCompteur === compteur.id ? null : compteur.id)}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#64748b' }}>
-                      {expandedCompteur === compteur.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                {/* Liste des codes */}
+                <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {loadingCodes ? (
+                    <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>⏳ Chargement...</div>
+                  ) : filteredCodes.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', border: '1px dashed #e2e8f0', borderRadius: 12, fontStyle: 'italic' }}>
+                      Aucun code compteur configuré{selectedMainteneur ? ` pour ${selectedMainteneur}` : ''}.
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, flexWrap: 'wrap' }}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 800, color: '#0891b2', background: '#ecfeff', padding: '2px 10px', borderRadius: 8 }}>{compteur.code}</span>
-                      {compteur.libelle && <span style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>{compteur.libelle}</span>}
-                      {compteur.format && <span style={{ fontSize: 11, background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>{compteur.format}</span>}
-                      {compteur.couleur
-                        ? <span style={{ fontSize: 11, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>🎨 Couleur</span>
-                        : <span style={{ fontSize: 11, background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>⚫ Mono</span>}
-                      {compteur.tarif_actuel && (
-                        <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: '#16a34a', background: '#f0fdf4', padding: '3px 10px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <Euro size={12} /> {fmtTarif(compteur.tarif_actuel)} / page
-                        </span>
+                  ) : filteredCodes.map(code => (
+                    <div key={code.id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                      {/* En-tête code */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#f8fafc', cursor: 'pointer', borderBottom: expandedCodeId === code.id ? '1px solid #e2e8f0' : 'none' }}
+                        onClick={() => setExpandedCodeId(expandedCodeId === code.id ? null : code.id)}>
+                        {expandedCodeId === code.id ? <ChevronDown size={15} style={{ color: '#94a3b8', flexShrink: 0 }} /> : <ChevronRight size={15} style={{ color: '#94a3b8', flexShrink: 0 }} />}
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b', background: '#e2e8f0', padding: '2px 8px', borderRadius: 6 }}>{code.mainteneur}</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 800, color: '#0891b2', background: '#ecfeff', padding: '2px 10px', borderRadius: 8 }}>{code.code}</span>
+                        {code.libelle && <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>{code.libelle}</span>}
+                        {code.format && <span style={{ fontSize: 11, background: '#f1f5f9', color: '#64748b', padding: '2px 7px', borderRadius: 6 }}>{code.format}</span>}
+                        {code.couleur
+                          ? <span style={{ fontSize: 11, background: '#fef3c7', color: '#92400e', padding: '2px 7px', borderRadius: 6, fontWeight: 700 }}>🎨 Couleur</span>
+                          : <span style={{ fontSize: 11, background: '#f1f5f9', color: '#64748b', padding: '2px 7px', borderRadius: 6 }}>⚫ Mono</span>}
+                        {code.tarif_actuel
+                          ? <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: '#16a34a', background: '#f0fdf4', padding: '2px 10px', borderRadius: 8 }}>
+                              {fmtTarif(code.tarif_actuel)}/page
+                            </span>
+                          : <span style={{ marginLeft: 'auto', fontSize: 11, color: '#f59e0b', fontWeight: 600 }}>⚠ Pas de tarif actif</span>}
+                        <div style={{ display: 'flex', gap: 4, marginLeft: code.tarif_actuel ? 8 : 0 }} onClick={e => e.stopPropagation()}>
+                          <button className="btn-icon" title="Modifier" onClick={() => { setEditingCode(code); setCodeForm({ mainteneur: code.mainteneur, code: code.code, libelle: code.libelle, format: code.format, couleur: code.couleur, description: code.description }); setShowCodeForm(true); }}><Edit3 size={13} /></button>
+                          <button className="btn-icon btn-icon-danger" title="Supprimer" onClick={() => handleDeleteCode(code.id)}><Trash2 size={13} /></button>
+                        </div>
+                      </div>
+
+                      {/* Tarifs (expandés) */}
+                      {expandedCodeId === code.id && (
+                        <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          {code.description && <p style={{ margin: 0, fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>{code.description}</p>}
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                            <Euro size={13} style={{ color: '#16a34a' }} /> Historique des tarifs
+                          </div>
+                          {(code.tarifs || []).length > 0 && (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                              <thead>
+                                <tr style={{ background: '#f8fafc' }}>
+                                  {(['Tarif (€/page)', 'Début', 'Fin', 'Ajouté par', '']).map(h => (
+                                    <th key={h} style={{ padding: '6px 10px', textAlign: h === 'Tarif (€/page)' || h === '' ? undefined : 'left', fontWeight: 700, color: '#64748b', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(code.tarifs || []).map(t => {
+                                  const isActif = t.id === code.tarif_actuel_id;
+                                  return (
+                                    <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9', background: isActif ? '#f0fdf4' : undefined }}>
+                                      <td style={{ padding: '6px 10px', fontWeight: 700, color: isActif ? '#16a34a' : '#334155' }}>
+                                        {fmtTarif(t.tarif)}
+                                        {isActif && <span style={{ fontSize: 9, background: '#dcfce7', color: '#16a34a', padding: '1px 5px', borderRadius: 4, marginLeft: 5, fontWeight: 700 }}>ACTIF</span>}
+                                      </td>
+                                      <td style={{ padding: '6px 10px' }}>{fmtDate(t.date_debut)}</td>
+                                      <td style={{ padding: '6px 10px', color: t.date_fin ? '#475569' : '#94a3b8', fontStyle: t.date_fin ? 'normal' : 'italic' }}>{t.date_fin ? fmtDate(t.date_fin) : 'En cours'}</td>
+                                      <td style={{ padding: '6px 10px', color: '#94a3b8' }}>{t.created_by || '—'}</td>
+                                      <td style={{ padding: '6px 10px' }}><button className="btn-icon btn-icon-danger" onClick={() => handleDeleteCodeTarif(code, t.id)}><Trash2 size={12} /></button></td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          )}
+                          {/* Formulaire nouveau tarif */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'flex-end', background: '#f8fafc', padding: 10, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                            <div className="form-group">
+                              <label style={{ fontSize: 10 }}>Tarif (€/page) *</label>
+                              <input type="number" step="0.000001" min="0" placeholder="0.000500"
+                                value={tarifForms[code.id]?.tarif || ''}
+                                onChange={e => setTarifForms(p => ({ ...p, [code.id]: { ...p[code.id], tarif: e.target.value } }))} />
+                            </div>
+                            <div className="form-group">
+                              <label style={{ fontSize: 10 }}>Date début *</label>
+                              <input type="date"
+                                value={tarifForms[code.id]?.date_debut || ''}
+                                onChange={e => setTarifForms(p => ({ ...p, [code.id]: { ...p[code.id], date_debut: e.target.value } }))} />
+                            </div>
+                            <div className="form-group">
+                              <label style={{ fontSize: 10 }}>Date fin <span style={{ color: '#94a3b8' }}>(opt.)</span></label>
+                              <input type="date"
+                                value={tarifForms[code.id]?.date_fin || ''}
+                                onChange={e => setTarifForms(p => ({ ...p, [code.id]: { ...p[code.id], date_fin: e.target.value } }))} />
+                            </div>
+                            <button className="btn btn-primary" style={{ background: '#16a34a', padding: '8px 12px', height: 36, alignSelf: 'flex-end' }}
+                              disabled={!tarifForms[code.id]?.tarif || !tarifForms[code.id]?.date_debut || savingTarif[code.id]}
+                              onClick={() => handleAddCodeTarif(code)}>
+                              {savingTarif[code.id] ? '...' : <Plus size={14} />}
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-                      <button className="btn-icon" title="Modifier" onClick={() => { setEditingCompteur(compteur); setCompteurForm({ code: compteur.code, libelle: compteur.libelle, description: compteur.description, format: compteur.format, couleur: compteur.couleur }); setShowCompteurForm(true); }}><Edit3 size={14} /></button>
-                      <button className="btn-icon btn-icon-danger" title="Supprimer" onClick={() => handleDeleteCompteur(compteur.id)}><Trash2 size={14} /></button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 'auto' }}>
+                  <strong style={{ color: '#0891b2' }}>{filteredCodes.length}</strong> code{filteredCodes.length !== 1 ? 's' : ''} configuré{filteredCodes.length !== 1 ? 's' : ''}
+                  {selectedMainteneur ? ` pour ${selectedMainteneur}` : ''}
+                </span>
+                <button className="btn btn-outline" onClick={() => setShowCodesAdmin(false)}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Modal Relevés trimestriels par copieur ── */}
+      {showRelevesModal && relevesTarget && (() => {
+        // Grouper les relevés par date
+        const byDate = copieurReleves.reduce<Record<string, CopieurReleve[]>>((acc, r) => {
+          const d = r.date_releve.split('T')[0];
+          (acc[d] = acc[d] || []).push(r);
+          return acc;
+        }, {});
+        const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
+        const hasValues = Object.values(releveValues).some(v => v !== '');
+        return (
+          <div className="modal-overlay" onClick={() => setShowRelevesModal(false)}>
+            <div className="modal modal-compteurs" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <div>
+                  <h2 style={{ marginBottom: 2 }}>Relevés — <code style={{ fontSize: 18, background: '#ecfeff', color: '#0891b2', padding: '2px 8px', borderRadius: 6 }}>{relevesTarget.numero_serie}</code></h2>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
+                    {relevesTarget.direction}{relevesTarget.service ? ` / ${relevesTarget.service}` : ''}
+                    {relevesTarget.mainteneur && <span style={{ marginLeft: 10, background: '#e2e8f0', padding: '2px 8px', borderRadius: 6, fontWeight: 700, color: '#475569' }}>{relevesTarget.mainteneur}</span>}
+                  </p>
+                </div>
+                <button className="btn-icon" onClick={() => setShowRelevesModal(false)}><X size={20} /></button>
+              </div>
+
+              <div className="modal-body" style={{ padding: '20px 24px', maxHeight: '74vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {loadingReleves ? (
+                  <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>⏳ Chargement...</div>
+                ) : (
+                  <>
+                    {/* ── Nouveau relevé trimestriel ── */}
+                    <div style={{ background: '#f0fdff', border: '1px solid #a5f3fc', borderRadius: 14, padding: 20 }}>
+                      <h3 style={{ margin: '0 0 14px 0', fontSize: 14, fontWeight: 700, color: '#0e7490', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Plus size={16} /> Nouveau relevé trimestriel
+                      </h3>
+
+                      {codesForMainteneur.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '20px 0', color: '#f59e0b', fontSize: 13 }}>
+                          ⚠ Aucun code compteur configuré pour <strong>{relevesTarget.mainteneur || '(mainteneur non renseigné)'}</strong>.<br />
+                          <span style={{ color: '#64748b', fontSize: 12 }}>Configurez d'abord les codes via le bouton "Codes compteur" dans la barre d'actions.</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="form-group" style={{ marginBottom: 16, maxWidth: 240 }}>
+                            <label>Date du relevé *</label>
+                            <input type="date" value={releveDate} onChange={e => setReleveDate(e.target.value)} />
+                          </div>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 14 }}>
+                            <thead>
+                              <tr style={{ background: '#e0f9ff' }}>
+                                <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#0e7490', textTransform: 'uppercase', letterSpacing: '.04em' }}>Code</th>
+                                <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#0e7490', textTransform: 'uppercase', letterSpacing: '.04em' }}>Libellé</th>
+                                <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#0e7490', textTransform: 'uppercase', letterSpacing: '.04em' }}>Format</th>
+                                <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#0e7490', textTransform: 'uppercase', letterSpacing: '.04em' }}>Tarif actuel</th>
+                                <th style={{ padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#0e7490', textTransform: 'uppercase', letterSpacing: '.04em' }}>Valeur relevée *</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {codesForMainteneur.map(code => {
+                                const lastReleve = copieurReleves.find(r => r.code_id === code.id);
+                                return (
+                                  <tr key={code.id} style={{ borderBottom: '1px solid #cffafe' }}>
+                                    <td style={{ padding: '8px 12px' }}>
+                                      <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0891b2', background: '#ecfeff', padding: '2px 8px', borderRadius: 6 }}>{code.code}</span>
+                                    </td>
+                                    <td style={{ padding: '8px 12px', color: '#334155' }}>
+                                      {code.libelle}
+                                      {code.couleur
+                                        ? <span style={{ marginLeft: 6, fontSize: 10, background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: 4 }}>🎨</span>
+                                        : <span style={{ marginLeft: 6, fontSize: 10, background: '#f1f5f9', color: '#64748b', padding: '1px 6px', borderRadius: 4 }}>⚫</span>}
+                                    </td>
+                                    <td style={{ padding: '8px 12px', color: '#64748b', fontSize: 12 }}>{code.format || '—'}</td>
+                                    <td style={{ padding: '8px 12px', color: '#16a34a', fontWeight: 600, fontSize: 12 }}>{code.tarif_actuel ? fmtTarif(code.tarif_actuel) : <span style={{ color: '#f59e0b' }}>⚠</span>}</td>
+                                    <td style={{ padding: '8px 12px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <input type="number" min="0" step="1" placeholder={lastReleve ? `≥ ${lastReleve.valeur.toLocaleString('fr-FR')}` : 'ex: 1234567'}
+                                          value={releveValues[code.id] || ''}
+                                          onChange={e => setReleveValues(p => ({ ...p, [code.id]: e.target.value }))}
+                                          style={{ width: 140, padding: '6px 10px', border: '1px solid #a5f3fc', borderRadius: 8, fontSize: 13, outline: 'none' }} />
+                                        {lastReleve && <span style={{ fontSize: 11, color: '#94a3b8', whiteSpace: 'nowrap' }}>dernier: {lastReleve.valeur.toLocaleString('fr-FR')}</span>}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button className="btn btn-primary" style={{ background: '#0891b2' }}
+                              disabled={!releveDate || !hasValues || savingReleve}
+                              onClick={handleAddReleve}>
+                              {savingReleve ? 'Enregistrement...' : 'Enregistrer le relevé'}
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </div>
 
-                  {/* Détail expandé */}
-                  {expandedCompteur === compteur.id && (
-                    <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                      {compteur.description && <p style={{ margin: 0, fontSize: 13, color: '#64748b', fontStyle: 'italic' }}>{compteur.description}</p>}
-
-                      {/* ── Tarifs ── */}
+                    {/* ── Historique des relevés ── */}
+                    {dates.length > 0 && (
                       <div>
-                        <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: '#0f172a', padding: '4px 0', marginBottom: 8 }}
-                          onClick={() => toggleCompteurSection(compteur.id, 'tarifs')}>
-                          <Euro size={14} style={{ color: '#16a34a' }} />
-                          Tarifs ({(compteur.tarifs || []).length})
-                          {expandedSection[compteur.id] === 'tarifs' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        </button>
-
-                        {expandedSection[compteur.id] === 'tarifs' && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                            {(compteur.tarifs || []).length > 0 && (
+                        <h3 style={{ margin: '0 0 12px 0', fontSize: 14, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <BarChart2 size={16} style={{ color: '#7c3aed' }} /> Historique ({dates.length} relevé{dates.length > 1 ? 's' : ''})
+                        </h3>
+                        {dates.map(date => {
+                          const items = byDate[date];
+                          // Calculer les deltas et montants
+                          return (
+                            <div key={date} style={{ marginBottom: 16, border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                <span style={{ fontWeight: 700, color: '#334155', fontSize: 14 }}>
+                                  📅 {new Date(date + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                                </span>
+                                <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                                  Saisi par {[...new Set(items.map(i => i.created_by).filter(Boolean))].join(', ') || '—'}
+                                </span>
+                              </div>
                               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                                 <thead>
-                                  <tr style={{ background: '#f8fafc' }}>
-                                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Tarif (€/page)</th>
-                                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Date début</th>
-                                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Date fin</th>
-                                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Ajouté par</th>
-                                    <th style={{ width: 40, borderBottom: '1px solid #e2e8f0' }}></th>
+                                  <tr style={{ background: '#fafafa' }}>
+                                    <th style={{ padding: '6px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Code</th>
+                                    <th style={{ padding: '6px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Libellé</th>
+                                    <th style={{ padding: '6px 14px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Valeur</th>
+                                    <th style={{ padding: '6px 14px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Δ pages</th>
+                                    <th style={{ padding: '6px 14px', textAlign: 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.04em' }}>Montant</th>
+                                    <th style={{ width: 36 }}></th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {(compteur.tarifs || []).map(t => {
-                                    const isActif = t.id === compteur.tarif_actuel_id;
+                                  {items.map(r => {
+                                    const delta = r.valeur_precedente !== null ? r.valeur - Number(r.valeur_precedente) : null;
+                                    // Tarif applicable : chercher dans les codes
+                                    const code = codesForMainteneur.find(c => c.id === r.code_id);
+                                    const tarifApplicable = code?.tarifs?.find(t =>
+                                      t.date_debut <= date && (t.date_fin === null || t.date_fin >= date)
+                                    );
+                                    const montant = delta !== null && tarifApplicable ? delta * parseFloat(tarifApplicable.tarif) : null;
                                     return (
-                                      <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9', background: isActif ? '#f0fdf4' : undefined }}>
-                                        <td style={{ padding: '8px 12px', fontWeight: 700, color: isActif ? '#16a34a' : '#334155' }}>
-                                          {fmtTarif(t.tarif)} {isActif && <span style={{ fontSize: 10, background: '#dcfce7', color: '#16a34a', padding: '1px 6px', borderRadius: 6, fontWeight: 700 }}>ACTIF</span>}
+                                      <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        <td style={{ padding: '8px 14px' }}>
+                                          <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0891b2', background: '#ecfeff', padding: '1px 7px', borderRadius: 5, fontSize: 12 }}>{r.code}</span>
+                                          {r.couleur
+                                            ? <span style={{ marginLeft: 5, fontSize: 10, background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: 4 }}>🎨</span>
+                                            : <span style={{ marginLeft: 5, fontSize: 10, background: '#f1f5f9', color: '#64748b', padding: '1px 5px', borderRadius: 4 }}>⚫</span>}
                                         </td>
-                                        <td style={{ padding: '8px 12px', color: '#475569' }}>{fmtDate(t.date_debut)}</td>
-                                        <td style={{ padding: '8px 12px', color: t.date_fin ? '#475569' : '#94a3b8', fontStyle: t.date_fin ? 'normal' : 'italic' }}>{t.date_fin ? fmtDate(t.date_fin) : 'En cours'}</td>
-                                        <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 12 }}>{t.created_by || '—'}</td>
-                                        <td style={{ padding: '8px 12px' }}>
-                                          <button className="btn-icon btn-icon-danger" onClick={() => handleDeleteTarif(compteur, t.id)}><Trash2 size={13} /></button>
+                                        <td style={{ padding: '8px 14px', color: '#475569', fontSize: 12 }}>{r.libelle || '—'}</td>
+                                        <td style={{ padding: '8px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: '#334155' }}>{r.valeur.toLocaleString('fr-FR')}</td>
+                                        <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 700, color: delta !== null ? (delta < 0 ? '#dc2626' : '#7c3aed') : '#94a3b8' }}>
+                                          {delta !== null ? `+${delta.toLocaleString('fr-FR')}` : '—'}
+                                        </td>
+                                        <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 700, color: montant !== null ? '#16a34a' : '#94a3b8' }}>
+                                          {montant !== null ? `${montant.toFixed(2)} €` : '—'}
+                                        </td>
+                                        <td style={{ padding: '8px 14px' }}>
+                                          <button className="btn-icon btn-icon-danger" title="Supprimer" onClick={() => handleDeleteReleve(r.id)}><Trash2 size={12} /></button>
                                         </td>
                                       </tr>
                                     );
                                   })}
                                 </tbody>
                               </table>
-                            )}
-
-                            {/* Formulaire ajout tarif */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'flex-end', background: '#f8fafc', padding: 12, borderRadius: 10, border: '1px solid #e2e8f0' }}>
-                              <div className="form-group">
-                                <label style={{ fontSize: 11 }}>Tarif (€/page) *</label>
-                                <input type="number" step="0.000001" min="0" placeholder="0.000500"
-                                  value={tarifForms[compteur.id]?.tarif || ''}
-                                  onChange={e => setTarifForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], tarif: e.target.value } }))} />
-                              </div>
-                              <div className="form-group">
-                                <label style={{ fontSize: 11 }}>Date début *</label>
-                                <input type="date"
-                                  value={tarifForms[compteur.id]?.date_debut || ''}
-                                  onChange={e => setTarifForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], date_debut: e.target.value } }))} />
-                              </div>
-                              <div className="form-group">
-                                <label style={{ fontSize: 11 }}>Date fin <span style={{ color: '#94a3b8' }}>(optionnel)</span></label>
-                                <input type="date"
-                                  value={tarifForms[compteur.id]?.date_fin || ''}
-                                  onChange={e => setTarifForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], date_fin: e.target.value } }))} />
-                              </div>
-                              <button className="btn btn-primary" style={{ background: '#16a34a', padding: '8px 14px', height: 38, alignSelf: 'flex-end' }}
-                                disabled={!tarifForms[compteur.id]?.tarif || !tarifForms[compteur.id]?.date_debut || savingTarif[compteur.id]}
-                                onClick={() => handleAddTarif(compteur)}>
-                                {savingTarif[compteur.id] ? '...' : <Plus size={15} />}
-                              </button>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })}
                       </div>
+                    )}
+                  </>
+                )}
+              </div>
 
-                      {/* ── Relevés ── */}
-                      <div>
-                        <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: '#0f172a', padding: '4px 0', marginBottom: 8 }}
-                          onClick={() => toggleCompteurSection(compteur.id, 'releves')}>
-                          <BarChart2 size={14} style={{ color: '#7c3aed' }} />
-                          Relevés ({(compteur.releves || []).length})
-                          {expandedSection[compteur.id] === 'releves' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        </button>
-
-                        {expandedSection[compteur.id] === 'releves' && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                            {(compteur.releves || []).length > 0 && (() => {
-                              const sorted = [...(compteur.releves || [])].sort((a, b) => a.date_releve < b.date_releve ? -1 : 1);
-                              return (
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                                  <thead>
-                                    <tr style={{ background: '#f8fafc' }}>
-                                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Date</th>
-                                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Valeur</th>
-                                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Δ pages</th>
-                                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Montant estimé</th>
-                                      <th style={{ padding: '8px 12px', fontWeight: 700, color: '#64748b', fontSize: 11, borderBottom: '1px solid #e2e8f0' }}>Saisi par</th>
-                                      <th style={{ width: 40, borderBottom: '1px solid #e2e8f0' }}></th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {sorted.map((r, idx) => {
-                                      const prev = idx > 0 ? sorted[idx - 1] : null;
-                                      const delta = prev ? r.valeur - prev.valeur : null;
-                                      // Trouver le tarif applicable à cette date
-                                      const tarifsArr = compteur.tarifs || [];
-                                      const tarifApplicable = tarifsArr.find(t =>
-                                        t.date_debut <= r.date_releve && (t.date_fin === null || t.date_fin >= r.date_releve)
-                                      );
-                                      const montant = delta !== null && tarifApplicable ? delta * parseFloat(tarifApplicable.tarif) : null;
-                                      return (
-                                        <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                          <td style={{ padding: '8px 12px', fontWeight: 600, color: '#334155' }}>{fmtDate(r.date_releve)}</td>
-                                          <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>{r.valeur.toLocaleString('fr-FR')}</td>
-                                          <td style={{ padding: '8px 12px', textAlign: 'right', color: delta !== null && delta < 0 ? '#dc2626' : '#7c3aed', fontWeight: 600 }}>
-                                            {delta !== null ? `+${delta.toLocaleString('fr-FR')}` : '—'}
-                                          </td>
-                                          <td style={{ padding: '8px 12px', textAlign: 'right', color: '#16a34a', fontWeight: 600 }}>
-                                            {montant !== null ? `${montant.toFixed(2)} €` : '—'}
-                                          </td>
-                                          <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 12 }}>{r.created_by || '—'}</td>
-                                          <td style={{ padding: '8px 12px' }}>
-                                            <button className="btn-icon btn-icon-danger" onClick={() => handleDeleteReleve(compteur, r.id)}><Trash2 size={13} /></button>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              );
-                            })()}
-
-                            {/* Formulaire ajout relevé */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'flex-end', background: '#f8fafc', padding: 12, borderRadius: 10, border: '1px solid #e2e8f0' }}>
-                              <div className="form-group">
-                                <label style={{ fontSize: 11 }}>Date du relevé *</label>
-                                <input type="date"
-                                  value={releveForms[compteur.id]?.date_releve || ''}
-                                  onChange={e => setReleveForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], date_releve: e.target.value } }))} />
-                              </div>
-                              <div className="form-group">
-                                <label style={{ fontSize: 11 }}>Valeur du compteur *</label>
-                                <input type="number" min="0" step="1" placeholder="Ex: 1234567"
-                                  value={releveForms[compteur.id]?.valeur || ''}
-                                  onChange={e => setReleveForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], valeur: e.target.value } }))} />
-                              </div>
-                              <button className="btn btn-primary" style={{ background: '#7c3aed', padding: '8px 14px', height: 38, alignSelf: 'flex-end' }}
-                                disabled={!releveForms[compteur.id]?.date_releve || !releveForms[compteur.id]?.valeur || savingReleve[compteur.id]}
-                                onClick={() => handleAddReleve(compteur)}>
-                                {savingReleve[compteur.id] ? '...' : <Plus size={15} />}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="modal-footer">
-              <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 'auto' }}>
-                <strong style={{ color: '#0891b2' }}>{compteurs.length}</strong> compteur{compteurs.length !== 1 ? 's' : ''} configuré{compteurs.length !== 1 ? 's' : ''}
-              </span>
-              <button className="btn btn-outline" onClick={() => setShowCompteursModal(false)}>Fermer</button>
+              <div className="modal-footer">
+                <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 'auto' }}>
+                  <strong style={{ color: '#7c3aed' }}>{dates.length}</strong> relevé{dates.length !== 1 ? 's' : ''} trimestriel{dates.length !== 1 ? 's' : ''} enregistré{dates.length !== 1 ? 's' : ''}
+                </span>
+                <button className="btn btn-outline" onClick={() => setShowRelevesModal(false)}>Fermer</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {activeLightbox && (
         <div className="lightbox-overlay" onClick={() => setActiveLightbox(null)} style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: 20 }}>

@@ -1048,123 +1048,134 @@ module.exports = {
         }
     },
 
-    // ─── Compteurs ────────────────────────────────────────────────────────────
+    // ─── Mainteneurs ─────────────────────────────────────────────────────────
 
-    getCompteurs: async (req, res) => {
+    getMainteneurs: async (req, res) => {
         try {
             const { pool } = require('../../shared/database');
-            const { id } = req.params;
-            const rows = await pool.query(`
-                SELECT c.*,
-                  (SELECT json_agg(t ORDER BY t.date_debut DESC) FROM hub_copieurs.copieur_compteur_tarifs t WHERE t.compteur_id = c.id) AS tarifs,
-                  (SELECT json_agg(r ORDER BY r.date_releve DESC) FROM hub_copieurs.copieur_releves r WHERE r.compteur_id = c.id) AS releves,
-                  (SELECT t.tarif FROM hub_copieurs.copieur_compteur_tarifs t WHERE t.compteur_id = c.id AND t.date_debut <= CURRENT_DATE AND (t.date_fin IS NULL OR t.date_fin >= CURRENT_DATE) ORDER BY t.date_debut DESC LIMIT 1) AS tarif_actuel,
-                  (SELECT t.id FROM hub_copieurs.copieur_compteur_tarifs t WHERE t.compteur_id = c.id AND t.date_debut <= CURRENT_DATE AND (t.date_fin IS NULL OR t.date_fin >= CURRENT_DATE) ORDER BY t.date_debut DESC LIMIT 1) AS tarif_actuel_id
-                FROM hub_copieurs.copieur_compteurs c
-                WHERE c.copieur_id = $1
-                ORDER BY c.code
-            `, [id]);
-            res.json(rows.rows);
-        } catch (error) {
-            res.status(500).json({ message: 'Erreur récupération compteurs', error: error.message });
-        }
-    },
-
-    createCompteur: async (req, res) => {
-        try {
-            const { pool } = require('../../shared/database');
-            const { id } = req.params;
-            const { code, libelle, description, format, couleur } = req.body;
-            if (!code) return res.status(400).json({ message: 'Code obligatoire' });
-            const result = await pool.query(`
-                INSERT INTO hub_copieurs.copieur_compteurs (copieur_id, code, libelle, description, format, couleur)
-                VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
-            `, [id, code, libelle || '', description || '', format || '', couleur || false]);
-            res.status(201).json(result.rows[0]);
-        } catch (error) {
-            if (error.code === '23505') return res.status(409).json({ message: `Le code "${req.body.code}" existe déjà pour ce copieur` });
-            res.status(500).json({ message: 'Erreur création compteur', error: error.message });
-        }
-    },
-
-    updateCompteur: async (req, res) => {
-        try {
-            const { pool } = require('../../shared/database');
-            const { compteurId } = req.params;
-            const { code, libelle, description, format, couleur } = req.body;
-            const result = await pool.query(`
-                UPDATE hub_copieurs.copieur_compteurs
-                SET code = $1, libelle = $2, description = $3, format = $4, couleur = $5
-                WHERE id = $6 RETURNING *
-            `, [code, libelle || '', description || '', format || '', couleur || false, compteurId]);
-            if (result.rows.length === 0) return res.status(404).json({ message: 'Compteur non trouvé' });
-            res.json(result.rows[0]);
-        } catch (error) {
-            if (error.code === '23505') return res.status(409).json({ message: `Ce code existe déjà pour ce copieur` });
-            res.status(500).json({ message: 'Erreur mise à jour compteur', error: error.message });
-        }
-    },
-
-    deleteCompteur: async (req, res) => {
-        try {
-            const { pool } = require('../../shared/database');
-            const { compteurId } = req.params;
-            await pool.query('DELETE FROM hub_copieurs.copieur_compteurs WHERE id = $1', [compteurId]);
-            res.json({ message: 'Compteur supprimé' });
-        } catch (error) {
-            res.status(500).json({ message: 'Erreur suppression compteur', error: error.message });
-        }
-    },
-
-    // ─── Tarifs ───────────────────────────────────────────────────────────────
-
-    getTarifs: async (req, res) => {
-        try {
-            const { pool } = require('../../shared/database');
-            const { compteurId } = req.params;
             const result = await pool.query(
-                `SELECT * FROM hub_copieurs.copieur_compteur_tarifs WHERE compteur_id = $1 ORDER BY date_debut DESC`,
-                [compteurId]
+                `SELECT DISTINCT mainteneur FROM hub_copieurs.copieurs
+                 WHERE mainteneur IS NOT NULL AND mainteneur <> ''
+                 UNION
+                 SELECT DISTINCT mainteneur FROM hub_copieurs.compteur_codes
+                 ORDER BY mainteneur`
             );
+            res.json(result.rows.map(r => r.mainteneur));
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur récupération mainteneurs', error: error.message });
+        }
+    },
+
+    // ─── Codes compteur (par marque) ─────────────────────────────────────────
+
+    getCompteurCodes: async (req, res) => {
+        try {
+            const { pool } = require('../../shared/database');
+            const { mainteneur } = req.query;
+            const params = mainteneur ? [mainteneur] : [];
+            const where = mainteneur ? 'WHERE cc.mainteneur = $1' : '';
+            const result = await pool.query(`
+                SELECT cc.*,
+                  (SELECT json_agg(t ORDER BY t.date_debut DESC)
+                   FROM hub_copieurs.compteur_tarifs t WHERE t.code_id = cc.id) AS tarifs,
+                  (SELECT t.tarif FROM hub_copieurs.compteur_tarifs t
+                   WHERE t.code_id = cc.id
+                     AND t.date_debut <= CURRENT_DATE
+                     AND (t.date_fin IS NULL OR t.date_fin >= CURRENT_DATE)
+                   ORDER BY t.date_debut DESC LIMIT 1) AS tarif_actuel,
+                  (SELECT t.id FROM hub_copieurs.compteur_tarifs t
+                   WHERE t.code_id = cc.id
+                     AND t.date_debut <= CURRENT_DATE
+                     AND (t.date_fin IS NULL OR t.date_fin >= CURRENT_DATE)
+                   ORDER BY t.date_debut DESC LIMIT 1) AS tarif_actuel_id
+                FROM hub_copieurs.compteur_codes cc
+                ${where}
+                ORDER BY cc.mainteneur, cc.code
+            `, params);
             res.json(result.rows);
         } catch (error) {
-            res.status(500).json({ message: 'Erreur récupération tarifs', error: error.message });
+            res.status(500).json({ message: 'Erreur récupération codes compteur', error: error.message });
         }
     },
 
-    createTarif: async (req, res) => {
+    createCompteurCode: async (req, res) => {
         try {
             const { pool } = require('../../shared/database');
-            const { compteurId } = req.params;
+            const { mainteneur, code, libelle, format, couleur, description } = req.body;
+            if (!mainteneur || !code) return res.status(400).json({ message: 'Mainteneur et code obligatoires' });
+            const result = await pool.query(`
+                INSERT INTO hub_copieurs.compteur_codes (mainteneur, code, libelle, format, couleur, description)
+                VALUES ($1, $2, $3, $4, $5, $6) RETURNING *
+            `, [mainteneur, code, libelle || '', format || '', couleur || false, description || '']);
+            res.status(201).json(result.rows[0]);
+        } catch (error) {
+            if (error.code === '23505') return res.status(409).json({ message: `Le code "${req.body.code}" existe déjà pour ${req.body.mainteneur}` });
+            res.status(500).json({ message: 'Erreur création code compteur', error: error.message });
+        }
+    },
+
+    updateCompteurCode: async (req, res) => {
+        try {
+            const { pool } = require('../../shared/database');
+            const { codeId } = req.params;
+            const { mainteneur, code, libelle, format, couleur, description } = req.body;
+            const result = await pool.query(`
+                UPDATE hub_copieurs.compteur_codes
+                SET mainteneur=$1, code=$2, libelle=$3, format=$4, couleur=$5, description=$6
+                WHERE id=$7 RETURNING *
+            `, [mainteneur, code, libelle || '', format || '', couleur || false, description || '', codeId]);
+            if (result.rows.length === 0) return res.status(404).json({ message: 'Code non trouvé' });
+            res.json(result.rows[0]);
+        } catch (error) {
+            if (error.code === '23505') return res.status(409).json({ message: `Ce code existe déjà pour cette marque` });
+            res.status(500).json({ message: 'Erreur mise à jour code compteur', error: error.message });
+        }
+    },
+
+    deleteCompteurCode: async (req, res) => {
+        try {
+            const { pool } = require('../../shared/database');
+            const { codeId } = req.params;
+            await pool.query('DELETE FROM hub_copieurs.compteur_codes WHERE id=$1', [codeId]);
+            res.json({ message: 'Code supprimé' });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur suppression code compteur', error: error.message });
+        }
+    },
+
+    // ─── Tarifs par code ─────────────────────────────────────────────────────
+
+    createCodeTarif: async (req, res) => {
+        try {
+            const { pool } = require('../../shared/database');
+            const { codeId } = req.params;
             const { tarif, date_debut, date_fin } = req.body;
             const username = req.user?.username || req.user?.name || '';
             if (!tarif || !date_debut) return res.status(400).json({ message: 'Tarif et date de début obligatoires' });
-            // Fermer le tarif actuel si date_fin non précisée
+            // Auto-clôturer le tarif actif si pas de date_fin fournie
             if (!date_fin) {
                 await pool.query(
-                    `UPDATE hub_copieurs.copieur_compteur_tarifs SET date_fin = $1::date - INTERVAL '1 day' WHERE compteur_id = $2 AND date_fin IS NULL`,
-                    [date_debut, compteurId]
+                    `UPDATE hub_copieurs.compteur_tarifs SET date_fin = $1::date - INTERVAL '1 day' WHERE code_id=$2 AND date_fin IS NULL`,
+                    [date_debut, codeId]
                 );
             }
             const result = await pool.query(`
-                INSERT INTO hub_copieurs.copieur_compteur_tarifs (compteur_id, tarif, date_debut, date_fin, created_by)
+                INSERT INTO hub_copieurs.compteur_tarifs (code_id, tarif, date_debut, date_fin, created_by)
                 VALUES ($1, $2, $3, $4, $5) RETURNING *
-            `, [compteurId, tarif, date_debut, date_fin || null, username]);
+            `, [codeId, tarif, date_debut, date_fin || null, username]);
             res.status(201).json(result.rows[0]);
         } catch (error) {
             res.status(500).json({ message: 'Erreur création tarif', error: error.message });
         }
     },
 
-    updateTarif: async (req, res) => {
+    updateCodeTarif: async (req, res) => {
         try {
             const { pool } = require('../../shared/database');
             const { tarifId } = req.params;
             const { tarif, date_debut, date_fin } = req.body;
             const result = await pool.query(`
-                UPDATE hub_copieurs.copieur_compteur_tarifs
-                SET tarif = $1, date_debut = $2, date_fin = $3
-                WHERE id = $4 RETURNING *
+                UPDATE hub_copieurs.compteur_tarifs SET tarif=$1, date_debut=$2, date_fin=$3 WHERE id=$4 RETURNING *
             `, [tarif, date_debut, date_fin || null, tarifId]);
             if (result.rows.length === 0) return res.status(404).json({ message: 'Tarif non trouvé' });
             res.json(result.rows[0]);
@@ -1173,55 +1184,68 @@ module.exports = {
         }
     },
 
-    deleteTarif: async (req, res) => {
+    deleteCodeTarif: async (req, res) => {
         try {
             const { pool } = require('../../shared/database');
             const { tarifId } = req.params;
-            await pool.query('DELETE FROM hub_copieurs.copieur_compteur_tarifs WHERE id = $1', [tarifId]);
+            await pool.query('DELETE FROM hub_copieurs.compteur_tarifs WHERE id=$1', [tarifId]);
             res.json({ message: 'Tarif supprimé' });
         } catch (error) {
             res.status(500).json({ message: 'Erreur suppression tarif', error: error.message });
         }
     },
 
-    // ─── Relevés ──────────────────────────────────────────────────────────────
+    // ─── Relevés par copieur ─────────────────────────────────────────────────
 
-    getReleves: async (req, res) => {
+    getCopieurReleves: async (req, res) => {
         try {
             const { pool } = require('../../shared/database');
-            const { compteurId } = req.params;
-            const result = await pool.query(
-                `SELECT * FROM hub_copieurs.copieur_releves WHERE compteur_id = $1 ORDER BY date_releve DESC`,
-                [compteurId]
-            );
+            const { id } = req.params;
+            const result = await pool.query(`
+                SELECT r.*,
+                  cc.code, cc.libelle, cc.format, cc.couleur,
+                  LAG(r.valeur) OVER (PARTITION BY r.code_id ORDER BY r.date_releve) AS valeur_precedente
+                FROM hub_copieurs.copieur_releves r
+                JOIN hub_copieurs.compteur_codes cc ON cc.id = r.code_id
+                WHERE r.copieur_id = $1
+                ORDER BY r.date_releve DESC, cc.code
+            `, [id]);
             res.json(result.rows);
         } catch (error) {
             res.status(500).json({ message: 'Erreur récupération relevés', error: error.message });
         }
     },
 
-    createReleve: async (req, res) => {
+    addCopieurReleve: async (req, res) => {
         try {
             const { pool } = require('../../shared/database');
-            const { compteurId } = req.params;
-            const { date_releve, valeur } = req.body;
+            const { id } = req.params;
+            const { date_releve, values } = req.body; // values: [{code_id, valeur}]
             const username = req.user?.username || req.user?.name || '';
-            if (!date_releve || valeur === undefined || valeur === null) return res.status(400).json({ message: 'Date et valeur obligatoires' });
-            const result = await pool.query(`
-                INSERT INTO hub_copieurs.copieur_releves (compteur_id, date_releve, valeur, created_by)
-                VALUES ($1, $2, $3, $4) RETURNING *
-            `, [compteurId, date_releve, valeur, username]);
-            res.status(201).json(result.rows[0]);
+            if (!date_releve || !Array.isArray(values) || values.length === 0)
+                return res.status(400).json({ message: 'date_releve et values[] obligatoires' });
+            const inserted = [];
+            for (const v of values) {
+                if (v.valeur === undefined || v.valeur === null || !v.code_id) continue;
+                const r = await pool.query(`
+                    INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, created_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, created_by=$5
+                    RETURNING *
+                `, [id, v.code_id, date_releve, v.valeur, username]);
+                inserted.push(r.rows[0]);
+            }
+            res.status(201).json(inserted);
         } catch (error) {
-            res.status(500).json({ message: 'Erreur création relevé', error: error.message });
+            res.status(500).json({ message: 'Erreur ajout relevé', error: error.message });
         }
     },
 
-    deleteReleve: async (req, res) => {
+    deleteCopieurReleve: async (req, res) => {
         try {
             const { pool } = require('../../shared/database');
             const { releveId } = req.params;
-            await pool.query('DELETE FROM hub_copieurs.copieur_releves WHERE id = $1', [releveId]);
+            await pool.query('DELETE FROM hub_copieurs.copieur_releves WHERE id=$1', [releveId]);
             res.json({ message: 'Relevé supprimé' });
         } catch (error) {
             res.status(500).json({ message: 'Erreur suppression relevé', error: error.message });

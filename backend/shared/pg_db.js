@@ -2305,27 +2305,32 @@ async function setupPgDb() {
     `);
     await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_visites_copieur ON hub_copieurs.copieur_visites(copieur_id)');
 
-    // Compteurs (codes de comptage par copieur)
+    // Migration : supprimer les anciennes tables per-copieur si elles existent
+    try { await client.query('DROP TABLE IF EXISTS hub_copieurs.copieur_compteur_tarifs CASCADE'); } catch (e) {}
+    try { await client.query('DROP TABLE IF EXISTS hub_copieurs.copieur_compteurs CASCADE'); } catch (e) {}
+    try { await client.query('DROP TABLE IF EXISTS hub_copieurs.copieur_releves CASCADE'); } catch (e) {}
+
+    // Codes compteur par marque (Canon 101 = A4 mono, 104 = A3 couleur...)
     await client.query(`
-      CREATE TABLE IF NOT EXISTS hub_copieurs.copieur_compteurs (
+      CREATE TABLE IF NOT EXISTS hub_copieurs.compteur_codes (
         id SERIAL PRIMARY KEY,
-        copieur_id INTEGER NOT NULL REFERENCES hub_copieurs.copieurs(id) ON DELETE CASCADE,
+        mainteneur TEXT NOT NULL,
         code TEXT NOT NULL,
         libelle TEXT DEFAULT '',
-        description TEXT DEFAULT '',
         format TEXT DEFAULT '',
         couleur BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        description TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(mainteneur, code)
       );
     `);
-    await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_compteurs_copieur ON hub_copieurs.copieur_compteurs(copieur_id)');
-    try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_copieur_compteurs_code ON hub_copieurs.copieur_compteurs(copieur_id, code)`); } catch (e) {}
+    await client.query('CREATE INDEX IF NOT EXISTS idx_compteur_codes_mainteneur ON hub_copieurs.compteur_codes(mainteneur)');
 
-    // Tarifs par compteur (historique avec date début / fin)
+    // Tarifs par code compteur (niveau marque, historique daté)
     await client.query(`
-      CREATE TABLE IF NOT EXISTS hub_copieurs.copieur_compteur_tarifs (
+      CREATE TABLE IF NOT EXISTS hub_copieurs.compteur_tarifs (
         id SERIAL PRIMARY KEY,
-        compteur_id INTEGER NOT NULL REFERENCES hub_copieurs.copieur_compteurs(id) ON DELETE CASCADE,
+        code_id INTEGER NOT NULL REFERENCES hub_copieurs.compteur_codes(id) ON DELETE CASCADE,
         tarif NUMERIC(12,6) NOT NULL,
         date_debut DATE NOT NULL,
         date_fin DATE,
@@ -2333,20 +2338,23 @@ async function setupPgDb() {
         created_by TEXT
       );
     `);
-    await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_tarifs_compteur ON hub_copieurs.copieur_compteur_tarifs(compteur_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_compteur_tarifs_code ON hub_copieurs.compteur_tarifs(code_id)');
 
-    // Relevés de compteurs (historique des valeurs lues)
+    // Relevés trimestriels par copieur × code compteur
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_copieurs.copieur_releves (
         id SERIAL PRIMARY KEY,
-        compteur_id INTEGER NOT NULL REFERENCES hub_copieurs.copieur_compteurs(id) ON DELETE CASCADE,
+        copieur_id INTEGER NOT NULL REFERENCES hub_copieurs.copieurs(id) ON DELETE CASCADE,
+        code_id INTEGER NOT NULL REFERENCES hub_copieurs.compteur_codes(id) ON DELETE CASCADE,
         date_releve DATE NOT NULL,
         valeur BIGINT NOT NULL,
         created_by TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_releves_compteur ON hub_copieurs.copieur_releves(compteur_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_releves_copieur ON hub_copieurs.copieur_releves(copieur_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_releves_code ON hub_copieurs.copieur_releves(code_id)');
+    try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_copieur_releves_unique ON hub_copieurs.copieur_releves(copieur_id, code_id, date_releve)`); } catch (e) {}
 
     // Create hub_consommables schema and tables
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_consommables;');
