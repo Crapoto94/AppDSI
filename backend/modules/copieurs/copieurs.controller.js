@@ -1394,6 +1394,174 @@ module.exports = {
         }
     },
 
+    // ─── KPI / Tableau de bord ───────────────────────────────────────────────
+
+    getKPI: async (req, res) => {
+        try {
+            const { pool } = require('../../shared/database');
+
+            // 1) Toutes les lignes de delta (valeur courante − précédente) avec tarif applicable
+            const deltaRes = await pool.query(`
+                WITH base AS (
+                    SELECT
+                        r.copieur_id,
+                        c.direction, c.service, c.numero_serie, c.modele, c.source,
+                        r.date_releve,
+                        r.valeur::bigint                                                   AS valeur,
+                        cc.couleur,
+                        EXTRACT(YEAR FROM r.date_releve)::integer                         AS year,
+                        LAG(r.valeur::bigint) OVER (
+                            PARTITION BY r.copieur_id, r.code_id ORDER BY r.date_releve
+                        )                                                                  AS prev_valeur,
+                        (
+                            SELECT t.tarif::numeric
+                            FROM hub_copieurs.compteur_tarifs t
+                            WHERE t.code_id = r.code_id
+                              AND t.date_debut <= r.date_releve
+                              AND (t.date_fin IS NULL OR t.date_fin >= r.date_releve)
+                            ORDER BY t.date_debut DESC LIMIT 1
+                        )                                                                  AS tarif
+                    FROM hub_copieurs.copieur_releves r
+                    JOIN hub_copieurs.copieurs c   ON c.id  = r.copieur_id AND c.archive = false
+                    JOIN hub_copieurs.compteur_codes cc ON cc.id = r.code_id
+                )
+                SELECT * FROM base
+                WHERE prev_valeur IS NOT NULL AND valeur >= prev_valeur
+                ORDER BY copieur_id, date_releve
+            `);
+
+            // 2) Tous les copieurs actifs avec date de dernier relevé (pour les alertes)
+            const alertRes = await pool.query(`
+                SELECT c.id, c.direction, c.service, c.numero_serie, c.modele, c.source,
+                       (SELECT MAX(r.date_releve) FROM hub_copieurs.copieur_releves r
+                        WHERE r.copieur_id = c.id) AS last_releve
+                FROM hub_copieurs.copieurs c
+                WHERE c.archive = false
+                ORDER BY last_releve ASC NULLS FIRST
+            `);
+
+            // ── Agrégation JS ──────────────────────────────────────────────────
+            const byYearMap = {};
+            const byCopierMap = {};
+            const byDirMap = {};
+
+            for (const row of deltaRes.rows) {
+                const delta = Number(row.valeur) - Number(row.prev_valeur);
+                if (delta <= 0) continue;
+                const year  = Number(row.year);
+                const tarif = row.tarif ? Number(row.tarif) : 0;
+                const cost  = delta * tarif;
+                const coul  = row.couleur;
+                const copId = Number(row.copieur_id);
+                const dir   = row.direction || '(sans direction)';
+
+                // byYear
+                if (!byYearMap[year]) byYearMap[year] = { year, deltaNB: 0, deltaCoul: 0, coutNB: 0, coutCoul: 0, copieurIds: new Set() };
+                byYearMap[year].copieurIds.add(copId);
+                if (coul) { byYearMap[year].deltaCoul += delta; byYearMap[year].coutCoul += cost; }
+                else      { byYearMap[year].deltaNB   += delta; byYearMap[year].coutNB   += cost; }
+
+                // byCopier
+                if (!byCopierMap[copId]) byCopierMap[copId] = {
+                    copieur_id: copId, direction: row.direction, service: row.service,
+                    numero_serie: row.numero_serie, modele: row.modele, source: row.source,
+                    byYear: {}, totalNB: 0, totalCoul: 0, coutTotal: 0, lastReleve: null
+                };
+                const cop = byCopierMap[copId];
+                if (!cop.lastReleve || row.date_releve > cop.lastReleve) cop.lastReleve = row.date_releve;
+                if (!cop.byYear[year]) cop.byYear[year] = { deltaNB: 0, deltaCoul: 0, coutTotal: 0 };
+                if (coul) { cop.totalCoul += delta; cop.byYear[year].deltaCoul += delta; }
+                else      { cop.totalNB   += delta; cop.byYear[year].deltaNB   += delta; }
+                cop.coutTotal += cost;
+                cop.byYear[year].coutTotal += cost;
+
+                // byDirection
+                if (!byDirMap[dir]) byDirMap[dir] = { direction: dir, deltaNB: 0, deltaCoul: 0, coutTotal: 0, copieurIds: new Set() };
+                byDirMap[dir].copieurIds.add(copId);
+                if (coul) byDirMap[dir].deltaCoul += delta;
+                else      byDirMap[dir].deltaNB   += delta;
+                byDirMap[dir].coutTotal += cost;
+            }
+
+            // Finalize byYear
+            const years   = Object.keys(byYearMap).map(Number).sort();
+            const byYear  = Object.values(byYearMap).map(y => ({
+                year: y.year,
+                deltaNB: y.deltaNB, deltaCoul: y.deltaCoul,
+                deltaTotal: y.deltaNB + y.deltaCoul,
+                coutNB: +y.coutNB.toFixed(2), coutCoul: +y.coutCoul.toFixed(2),
+                coutTotal: +(y.coutNB + y.coutCoul).toFixed(2),
+                nbCopieurs: y.copieurIds.size,
+                ratio: y.deltaNB + y.deltaCoul > 0 ? Math.round(y.deltaNB / (y.deltaNB + y.deltaCoul) * 100) : null
+            })).sort((a, b) => a.year - b.year);
+
+            // byDirection top 10
+            const byDirection = Object.values(byDirMap).map(d => ({
+                direction: d.direction,
+                deltaNB: d.deltaNB, deltaCoul: d.deltaCoul,
+                totalPages: d.deltaNB + d.deltaCoul,
+                coutTotal: +d.coutTotal.toFixed(2), nbCopieurs: d.copieurIds.size
+            })).sort((a, b) => b.totalPages - a.totalPages).slice(0, 10);
+
+            const copieurList = Object.values(byCopierMap);
+            const totalNB   = copieurList.reduce((s, c) => s + c.totalNB,   0);
+            const totalCoul = copieurList.reduce((s, c) => s + c.totalCoul, 0);
+            const totalPages = totalNB + totalCoul;
+            const coutNB   = byYear.reduce((s, y) => s + y.coutNB,   0);
+            const coutCoul = byYear.reduce((s, y) => s + y.coutCoul, 0);
+            const coutTotal = +(coutNB + coutCoul).toFixed(2);
+
+            const global = {
+                totalNB, totalCoul, totalPages, coutNB: +coutNB.toFixed(2), coutCoul: +coutCoul.toFixed(2), coutTotal,
+                nbCopieursActifs: copieurList.length,
+                nbCopieursTotaux: alertRes.rows.length,
+                ratio: totalPages > 0 ? Math.round(totalNB / totalPages * 100) : null,
+                anneeMin: years[0] || null,
+                anneeMax: years[years.length - 1] || null,
+                coutMoyenNB:   totalNB   > 0 ? +(coutNB   / totalNB).toFixed(6)   : null,
+                coutMoyenCoul: totalCoul > 0 ? +(coutCoul / totalCoul).toFixed(6) : null
+            };
+
+            // Top 10 volume
+            const top10Volume = copieurList
+                .map(c => ({ copieur_id: c.copieur_id, direction: c.direction, service: c.service, numero_serie: c.numero_serie, modele: c.modele, source: c.source, totalNB: c.totalNB, totalCoul: c.totalCoul, totalPages: c.totalNB + c.totalCoul, coutTotal: +c.coutTotal.toFixed(2) }))
+                .sort((a, b) => b.totalPages - a.totalPages).slice(0, 10);
+
+            // Top 10 croissance / décroissance (année N vs N-1)
+            let top10Growing = [], top10Shrinking = [];
+            const lastYear = years[years.length - 1];
+            const prevYear = years.length >= 2 ? years[years.length - 2] : null;
+            if (prevYear) {
+                const withGrowth = copieurList
+                    .filter(c => c.byYear[lastYear] && c.byYear[prevYear])
+                    .map(c => {
+                        const last = (c.byYear[lastYear]?.deltaNB || 0) + (c.byYear[lastYear]?.deltaCoul || 0);
+                        const prev = (c.byYear[prevYear]?.deltaNB || 0) + (c.byYear[prevYear]?.deltaCoul || 0);
+                        return { copieur_id: c.copieur_id, direction: c.direction, service: c.service, numero_serie: c.numero_serie, modele: c.modele,
+                                 lastTotal: last, prevTotal: prev, deltaAbs: last - prev,
+                                 growth: prev > 0 ? +((last - prev) / prev * 100).toFixed(1) : null,
+                                 lastYear, prevYear };
+                    })
+                    .filter(c => c.growth !== null && c.prevTotal >= 500);
+                top10Growing   = [...withGrowth].sort((a, b) => (b.growth || 0) - (a.growth || 0)).slice(0, 10);
+                top10Shrinking = [...withGrowth].sort((a, b) => (a.growth || 0) - (b.growth || 0)).slice(0, 10);
+            }
+
+            // Alertes : copieurs sans relevé récent (> 12 mois ou jamais)
+            const twelveMonthsAgo = new Date();
+            twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
+            const alertsNoReleve = alertRes.rows
+                .filter(c => !c.last_releve || new Date(c.last_releve) < twelveMonthsAgo)
+                .slice(0, 30)
+                .map(c => ({ id: c.id, direction: c.direction, service: c.service, numero_serie: c.numero_serie, modele: c.modele, source: c.source, last_releve: c.last_releve }));
+
+            res.json({ global, byYear, byDirection, top10Volume, top10Growing, top10Shrinking, alertsNoReleve });
+
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur KPI copieurs', error: error.message });
+        }
+    },
+
     // ─── Relevés par copieur ─────────────────────────────────────────────────
 
     getCopieurReleves: async (req, res) => {

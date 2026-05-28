@@ -21,6 +21,7 @@ router.post('/import-compteur-excel',                                     authen
 router.post('/from-import',                                               authenticateJWT, copieursController.createFromImport);
 
 // ─── Codes compteur par marque (AVANT /:id — sinon Express capture "compteur-codes" comme id) ──
+router.get('/kpi',                                                        authenticateJWT, copieursController.getKPI);
 router.get('/mainteneurs',                                                authenticateJWT, copieursController.getMainteneurs);
 router.get('/compteur-codes',                                             authenticateJWT, copieursController.getCompteurCodes);
 router.post('/compteur-codes',                                            authenticateJWT, copieursController.createCompteurCode);

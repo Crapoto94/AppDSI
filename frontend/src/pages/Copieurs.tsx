@@ -904,6 +904,9 @@ const Copieurs: React.FC = () => {
             <button className="btn btn-outline" onClick={openImportCompteurModal} style={{ color: '#7c3aed', borderColor: '#ddd6fe' }}>
               <BarChart2 size={16} /> Import Excel compteurs
             </button>
+            <button className="btn btn-outline" onClick={() => window.location.href = '/copieurs/kpi'} style={{ color: '#7c3aed', borderColor: '#ddd6fe', fontWeight: 600 }}>
+              <BarChart2 size={16} /> Tableau de bord
+            </button>
             <button className="btn btn-outline" onClick={handleGeocode} disabled={geocoding}>
               <MapPin size={16} /> {geocoding ? 'Géocodage...' : 'Géocoder'}
             </button>
