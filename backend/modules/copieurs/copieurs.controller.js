@@ -1113,6 +1113,175 @@ module.exports = {
             const stats = { year, mainteneur, filename: req.file.originalname, totalRows: 0, copieursUpdated: 0, relevesInserted: 0, notFound: [], noCode: [], errors: [] };
             const username = req.user?.username || req.user?.name || '';
 
+            // ═══════════════════════════════════════════════════════════════════════
+            // ── CANON : format trimestriel spécifique ──────────────────────────────
+            //  • Colonnes AF-AM (0-indexed 31-38) = copies RÉALISÉES par trimestre
+            //    AF=Q1 A4, AG=Q1 A3, AH=Q2 A4, AI=Q2 A3,
+            //    AJ=Q3 A4, AK=Q3 A3, AL=Q4 A4, AM=Q4 A3
+            //  • Données = copies de la période (pas compteur cumulatif) → on cumule
+            //  • Les compteurs A3 et A4 sont trackés séparément (2 codes dans la DB)
+            //  • Numéro de série en H (col 7), date acquisition en L (col 11)
+            // ═══════════════════════════════════════════════════════════════════════
+            if (mainteneur.toLowerCase() === 'canon') {
+                const CANON_Q = [
+                    { quarter: 1, format: 'A4', col: 31 }, // AF
+                    { quarter: 1, format: 'A3', col: 32 }, // AG
+                    { quarter: 2, format: 'A4', col: 33 }, // AH
+                    { quarter: 2, format: 'A3', col: 34 }, // AI
+                    { quarter: 3, format: 'A4', col: 35 }, // AJ
+                    { quarter: 3, format: 'A3', col: 36 }, // AK
+                    { quarter: 4, format: 'A4', col: 37 }, // AL
+                    { quarter: 4, format: 'A3', col: 38 }, // AM
+                ];
+
+                // Compteurs de départ connus au 31/12/(year-1)
+                // A4 = mono + couleur, A3 = mono + couleur
+                // 3BR04659 fin 2020 : A4 mono 708 + coul 2344 = 3052 ; A3 mono 416 + coul 430 = 846
+                const CANON_BASELINES = {
+                    '3BR04659': { A4: 3052, A3: 846 },
+                };
+
+                // Codes compteur Canon par format (configurés via Codes compteur, champ "format" = "A4" ou "A3")
+                const codesRes = await pool.query(
+                    `SELECT id, format FROM hub_copieurs.compteur_codes WHERE LOWER(mainteneur)=LOWER($1)`,
+                    [mainteneur]
+                );
+                const codeIdByFormat = {};
+                for (const c of codesRes.rows) {
+                    const fmt = (c.format || '').toUpperCase().trim();
+                    if (fmt && !codeIdByFormat[fmt]) codeIdByFormat[fmt] = c.id;
+                }
+
+                // Regrouper colonnes par format → { A4: [{quarter,col},...], A3: [...] }
+                const formatGroups = {};
+                for (const q of CANON_Q) {
+                    if (!formatGroups[q.format]) formatGroups[q.format] = [];
+                    formatGroups[q.format].push(q);
+                }
+
+                const qDates = [DATES.q1, DATES.q2, DATES.q3, DATES.q4];
+
+                for (const row of rows) {
+                    if (!Array.isArray(row)) continue;
+                    const raw = row[7]; // col H = numéro de série
+                    if (!raw) continue;
+                    const serie = String(raw).trim();
+                    if (!serie || serie.length < 3 || isPlaceholder(serie)) continue;
+
+                    stats.totalRows++;
+                    try {
+                        const dateAcq = normalizeDateString(row[11]); // col L
+
+                        // Copies réalisées par format et par trimestre
+                        // consoByFormat = { A4: [q1, q2, q3, q4], A3: [...] }
+                        const consoByFormat = {};
+                        for (const [fmt, qs] of Object.entries(formatGroups)) {
+                            consoByFormat[fmt] = [0, 0, 0, 0];
+                            for (const q of qs) {
+                                consoByFormat[fmt][q.quarter - 1] = toInt(row[q.col]) || 0;
+                            }
+                        }
+
+                        // Chercher le copieur en base
+                        const cRes = await pool.query(
+                            `SELECT id FROM hub_copieurs.copieurs WHERE LOWER(TRIM(numero_serie)) = LOWER($1)`,
+                            [serie]
+                        );
+
+                        if (cRes.rows.length === 0) {
+                            // Copieur inconnu → pendingReleves pour les deux formats (baseline = 0 pour nouveau copieur)
+                            const pendingReleves = [];
+                            for (const [fmt, consumptions] of Object.entries(consoByFormat)) {
+                                const codeId = codeIdByFormat[fmt];
+                                if (!codeId || consumptions.every(v => v === 0)) continue;
+                                let cumul = 0;
+                                for (let i = 0; i < 4; i++) {
+                                    cumul += consumptions[i];
+                                    pendingReleves.push({ code_id: codeId, date: qDates[i], valeur: cumul });
+                                }
+                            }
+                            stats.notFound.push({
+                                serie, type: 'canon (A4+A3)',
+                                codeId: codeIdByFormat['A4'] || null,
+                                pendingReleves, dateAcq,
+                                prix: null, options: null, coutOpt: null,
+                            });
+                            continue;
+                        }
+
+                        const copieurId = cRes.rows[0].id;
+
+                        // Mise à jour date d'acquisition (sans écraser une valeur existante)
+                        if (dateAcq) {
+                            await pool.query(
+                                `UPDATE hub_copieurs.copieurs SET date_acquisition=COALESCE(date_acquisition,$1) WHERE id=$2`,
+                                [dateAcq, copieurId]
+                            );
+                            stats.copieursUpdated++;
+                        }
+
+                        // Pour chaque format (A4 puis A3) : baseline → cumul trimestriel → INSERT
+                        for (const [fmt, consumptions] of Object.entries(consoByFormat)) {
+                            const codeId = codeIdByFormat[fmt];
+                            if (!codeId) { stats.noCode.push({ serie, mainteneur, type: fmt }); continue; }
+
+                            // Aucune copie pour ce format cette année → pas de relevé à insérer
+                            if (consumptions.every(v => v === 0)) continue;
+
+                            // Baseline = dernier relevé connu avant le 1er janvier de l'année importée
+                            const baseRes = await pool.query(
+                                `SELECT valeur FROM hub_copieurs.copieur_releves
+                                 WHERE copieur_id=$1 AND code_id=$2 AND date_releve < $3
+                                 ORDER BY date_releve DESC LIMIT 1`,
+                                [copieurId, codeId, `${year}-01-01`]
+                            );
+
+                            let baseline = 0;
+                            if (baseRes.rows.length > 0) {
+                                baseline = Number(baseRes.rows[0].valeur);
+                            } else {
+                                // Pas d'historique : vérifier les compteurs de départ connus
+                                const serieUp = serie.toUpperCase();
+                                const known = CANON_BASELINES[serieUp];
+                                if (known && known[fmt] !== undefined) {
+                                    baseline = known[fmt];
+                                    // Insérer automatiquement le relevé de départ (31/12 année précédente)
+                                    await pool.query(`
+                                        INSERT INTO hub_copieurs.copieur_releves
+                                            (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                                        VALUES ($1,$2,$3,$4,$5,$6)
+                                        ON CONFLICT (copieur_id, code_id, date_releve)
+                                        DO UPDATE SET valeur=$4, mainteneur=$5, created_by=$6
+                                    `, [copieurId, codeId, `${year - 1}-12-31`, baseline, mainteneur, username]);
+                                }
+                                // Sinon baseline reste 0 (nouveau copieur sans historique antérieur)
+                            }
+
+                            // Cumul trimestriel → 4 relevés par format
+                            let cumul = baseline;
+                            for (let i = 0; i < 4; i++) {
+                                cumul += consumptions[i];
+                                await pool.query(`
+                                    INSERT INTO hub_copieurs.copieur_releves
+                                        (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                                    VALUES ($1,$2,$3,$4,$5,$6)
+                                    ON CONFLICT (copieur_id, code_id, date_releve)
+                                    DO UPDATE SET valeur=$4, mainteneur=$5, created_by=$6
+                                `, [copieurId, codeId, qDates[i], cumul, mainteneur, username]);
+                                stats.relevesInserted++;
+                            }
+                        }
+
+                    } catch (e) {
+                        stats.errors.push({ serie, error: e.message });
+                    }
+                }
+
+                try { fs.unlinkSync(req.file.path); } catch {}
+                return res.json(stats);
+            }
+            // ─── Fin bloc Canon ────────────────────────────────────────────────────
+
             for (const row of rows) {
                 if (!Array.isArray(row)) continue;
                 const raw = row[COL.SERIE];
