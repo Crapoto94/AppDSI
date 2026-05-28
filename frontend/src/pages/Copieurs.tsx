@@ -44,6 +44,7 @@ interface Copieur {
   last_visit_date?: string;
   last_releve_date?: string;
   created_at: string;
+  mainteneur_releve?: string;
   prix_acquisition?: number;
   options_achat?: string;
   cout_options?: number;
@@ -101,6 +102,7 @@ interface CopieurReleve {
   code_id: number;
   date_releve: string;
   valeur: number;
+  mainteneur: string | null;
   created_by: string | null;
   created_at: string;
   code: string;
@@ -179,9 +181,16 @@ const Copieurs: React.FC = () => {
   const [submittingVisite, setSubmittingVisite] = useState(false);
   const [activeLightbox, setActiveLightbox] = useState<string | null>(null);
 
-  // ── Import Excel compteurs ─────────────────────────────────────────────────
+  // ── Import Excel compteurs (modal multi-étapes) ────────────────────────────
+  const [showImportCompteurModal, setShowImportCompteurModal] = useState(false);
+  const [importCompteurStep, setImportCompteurStep] = useState<'form' | 'result'>('form');
+  const [importCompteurMainteneur, setImportCompteurMainteneur] = useState('');
+  const [importCompteurYear, setImportCompteurYear] = useState('');
+  const [importCompteurFile, setImportCompteurFile] = useState<File | null>(null);
   const [importingCompteur, setImportingCompteur] = useState(false);
   const [importCompteurResult, setImportCompteurResult] = useState<any>(null);
+  const [importNotFoundSelected, setImportNotFoundSelected] = useState<Set<string>>(new Set());
+  const [importCreating, setImportCreating] = useState(false);
   const compteurExcelRef = useRef<HTMLInputElement>(null);
 
   // ── Admin codes compteur (par marque) ──────────────────────────────────────
@@ -472,23 +481,75 @@ const Copieurs: React.FC = () => {
 
   // ── Import Excel compteurs ─────────────────────────────────────────────────
 
-  const handleImportCompteurExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImportingCompteur(true);
+  const openImportCompteurModal = () => {
+    setShowImportCompteurModal(true);
+    setImportCompteurStep('form');
     setImportCompteurResult(null);
+    setImportCompteurFile(null);
+    setImportCompteurMainteneur('');
+    setImportCompteurYear(String(new Date().getFullYear() - 1));
+    setImportNotFoundSelected(new Set());
+    // Charger la liste des mainteneurs si pas encore fait
+    if (mainteneursList.length === 0) {
+      api.get('/mainteneurs').then(r => setMainteneursList(r.data.map((m: any) => m.mainteneur || m))).catch(() => {});
+    }
+  };
+
+  const handleImportCompteurExcel = async () => {
+    if (!importCompteurFile || !importCompteurMainteneur.trim() || !importCompteurYear) return;
+    setImportingCompteur(true);
     const fd = new FormData();
-    fd.append('file', file);
+    fd.append('file', importCompteurFile);
+    fd.append('mainteneur', importCompteurMainteneur.trim());
+    fd.append('year', importCompteurYear);
     try {
       const res = await api.post('/import-compteur-excel', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setImportCompteurResult(res.data);
-      fetchCopieurs(); // Rafraîchir la liste (champs mis à jour)
+      setImportNotFoundSelected(new Set());
+      setImportCompteurStep('result');
+      fetchCopieurs();
     } catch (err: any) {
-      setImportCompteurResult({ error: err.response?.data?.message || err.message });
+      alert('Erreur import : ' + (err.response?.data?.message || err.message));
     } finally {
       setImportingCompteur(false);
-      e.target.value = '';
     }
+  };
+
+  const handleCreateFromImport = async () => {
+    if (!importCompteurResult || importNotFoundSelected.size === 0) return;
+    setImportCreating(true);
+    let created = 0;
+    let relevesAdded = 0;
+    const createErrors: string[] = [];
+    const toCreate = (importCompteurResult.notFound || []).filter((nf: any) => importNotFoundSelected.has(nf.serie));
+    for (const nf of toCreate) {
+      try {
+        const res = await api.post('/from-import', {
+          numero_serie: nf.serie,
+          mainteneur: importCompteurResult.mainteneur,
+          source: 'ville',
+          date_acquisition: nf.dateAcq || null,
+          prix_acquisition: nf.prix || null,
+          options_achat: nf.options || null,
+          cout_options: nf.coutOpt || null,
+          pendingReleves: nf.pendingReleves || []
+        });
+        created++;
+        relevesAdded += res.data.relevesInserted || 0;
+      } catch (err: any) {
+        createErrors.push(nf.serie + ' : ' + (err.response?.data?.message || err.message));
+      }
+    }
+    setImportCompteurResult((prev: any) => ({
+      ...prev,
+      notFound: (prev.notFound || []).filter((nf: any) => !importNotFoundSelected.has(nf.serie)),
+      copieursCreated: (prev.copieursCreated || 0) + created,
+      relevesInserted: (prev.relevesInserted || 0) + relevesAdded,
+      createErrors: [...(prev.createErrors || []), ...createErrors]
+    }));
+    setImportNotFoundSelected(new Set());
+    setImportCreating(false);
+    fetchCopieurs();
   };
 
   // ── Admin codes compteur ───────────────────────────────────────────────────
@@ -840,10 +901,9 @@ const Copieurs: React.FC = () => {
             <button className="btn btn-outline" onClick={openCodesAdmin} style={{ color: '#0891b2', borderColor: '#a5f3fc' }}>
               <Gauge size={16} /> Codes compteur
             </button>
-            <label className="btn btn-outline" style={{ cursor: 'pointer', color: '#7c3aed', borderColor: '#ddd6fe' }}>
-              <BarChart2 size={16} /> {importingCompteur ? 'Import...' : 'Import Excel compteurs'}
-              <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} ref={compteurExcelRef} onChange={handleImportCompteurExcel} disabled={importingCompteur} />
-            </label>
+            <button className="btn btn-outline" onClick={openImportCompteurModal} style={{ color: '#7c3aed', borderColor: '#ddd6fe' }}>
+              <BarChart2 size={16} /> Import Excel compteurs
+            </button>
             <button className="btn btn-outline" onClick={handleGeocode} disabled={geocoding}>
               <MapPin size={16} /> {geocoding ? 'Géocodage...' : 'Géocoder'}
             </button>
@@ -2252,119 +2312,237 @@ const Copieurs: React.FC = () => {
         );
       })()}
 
-      {/* ── Modal résultat import Excel compteurs ── */}
-      {importCompteurResult && (
-        <div className="modal-overlay" onClick={() => setImportCompteurResult(null)}>
-          <div className="modal" style={{ maxWidth: 680 }} onClick={e => e.stopPropagation()}>
+      {/* ── Modal import Excel compteurs (multi-étapes) ── */}
+      {showImportCompteurModal && (
+        <div className="modal-overlay" onClick={() => !importingCompteur && !importCreating && setShowImportCompteurModal(false)}>
+          <div className="modal" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <h2 style={{ marginBottom: 2 }}>Résultat import Excel compteurs</h2>
-                {importCompteurResult.filename && (
+                <h2 style={{ marginBottom: 2 }}>Import relevés compteurs Excel</h2>
+                {importCompteurStep === 'result' && importCompteurResult && (
                   <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
                     📄 {importCompteurResult.filename}
-                    {importCompteurResult.year && <span style={{ marginLeft: 8, fontWeight: 700, color: '#7c3aed' }}>Année {importCompteurResult.year}</span>}
+                    <span style={{ marginLeft: 8, fontWeight: 700, color: '#7c3aed' }}>{importCompteurResult.mainteneur} — {importCompteurResult.year}</span>
                   </p>
                 )}
               </div>
-              <button className="btn-icon" onClick={() => setImportCompteurResult(null)}><X size={20} /></button>
+              <button className="btn-icon" onClick={() => !importingCompteur && !importCreating && setShowImportCompteurModal(false)}><X size={20} /></button>
             </div>
-            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-              {importCompteurResult.error ? (
-                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: 16, color: '#dc2626' }}>
-                  ❌ {importCompteurResult.error}
+
+            {/* ── Étape 1 : formulaire ── */}
+            {importCompteurStep === 'form' && (
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                      Mainteneur <span style={{ color: '#dc2626' }}>*</span>
+                    </label>
+                    <input
+                      list="mainteneurs-import-list"
+                      value={importCompteurMainteneur}
+                      onChange={e => setImportCompteurMainteneur(e.target.value)}
+                      placeholder="Canon, Toshiba, Ricoh…"
+                      style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14 }}
+                    />
+                    <datalist id="mainteneurs-import-list">
+                      {mainteneursList.map(m => <option key={m} value={m} />)}
+                    </datalist>
+                    <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8' }}>
+                      Tapez un nouveau nom pour créer le mainteneur. Les codes compteur associés seront à configurer ensuite.
+                    </p>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                      Année <span style={{ color: '#dc2626' }}>*</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={importCompteurYear}
+                      onChange={e => setImportCompteurYear(e.target.value)}
+                      placeholder="2024"
+                      min="2000" max="2099"
+                      style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14 }}
+                    />
+                  </div>
                 </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {/* KPI bar */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-                    {[
-                      { label: 'Lignes traitées', value: importCompteurResult.totalRows, color: '#2563eb', bg: '#eff6ff' },
-                      { label: 'Copieurs mis à jour', value: importCompteurResult.copieursUpdated, color: '#16a34a', bg: '#f0fdf4' },
-                      { label: 'Relevés insérés', value: importCompteurResult.relevesInserted, color: '#7c3aed', bg: '#f5f3ff' },
-                      { label: 'Non trouvés', value: importCompteurResult.notFound?.length || 0, color: (importCompteurResult.notFound?.length || 0) > 0 ? '#dc2626' : '#94a3b8', bg: (importCompteurResult.notFound?.length || 0) > 0 ? '#fef2f2' : '#f8fafc' },
-                    ].map(k => (
-                      <div key={k.label} style={{ background: k.bg, borderRadius: 10, padding: '12px 14px', textAlign: 'center', border: `1px solid ${k.color}20` }}>
-                        <div style={{ fontSize: 26, fontWeight: 800, color: k.color }}>{k.value}</div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginTop: 2 }}>{k.label}</div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                    Fichier Excel <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  <input
+                    type="file" accept=".xlsx,.xls"
+                    ref={compteurExcelRef}
+                    onChange={e => setImportCompteurFile(e.target.files?.[0] || null)}
+                    style={{ width: '100%', padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, background: '#f8fafc' }}
+                  />
+                  {importCompteurFile && (
+                    <p style={{ margin: '4px 0 0', fontSize: 11, color: '#7c3aed', fontWeight: 600 }}>✓ {importCompteurFile.name}</p>
+                  )}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
+                  <button className="btn btn-outline" onClick={() => setShowImportCompteurModal(false)}>Annuler</button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleImportCompteurExcel}
+                    disabled={!importCompteurFile || !importCompteurMainteneur.trim() || !importCompteurYear || importingCompteur}
+                    style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
+                  >
+                    {importingCompteur ? '⏳ Import en cours…' : 'Importer'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Étape 2 : résultat ── */}
+            {importCompteurStep === 'result' && importCompteurResult && (
+              <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {/* KPI bar */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+                  {[
+                    { label: 'Lignes traitées', value: importCompteurResult.totalRows, color: '#2563eb', bg: '#eff6ff' },
+                    { label: 'Copieurs MàJ', value: importCompteurResult.copieursUpdated, color: '#16a34a', bg: '#f0fdf4' },
+                    { label: 'Relevés insérés', value: importCompteurResult.relevesInserted, color: '#7c3aed', bg: '#f5f3ff' },
+                    { label: 'Copieurs créés', value: importCompteurResult.copieursCreated || 0, color: '#0891b2', bg: '#e0f2fe' },
+                    { label: 'Non trouvés', value: importCompteurResult.notFound?.length || 0, color: (importCompteurResult.notFound?.length || 0) > 0 ? '#dc2626' : '#94a3b8', bg: (importCompteurResult.notFound?.length || 0) > 0 ? '#fef2f2' : '#f8fafc' },
+                  ].map(k => (
+                    <div key={k.label} style={{ background: k.bg, borderRadius: 10, padding: '10px 12px', textAlign: 'center', border: `1px solid ${k.color}20` }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: k.color }}>{k.value}</div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginTop: 2 }}>{k.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Non trouvés — avec sélection pour création */}
+                {importCompteurResult.notFound?.length > 0 && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626' }}>
+                        ⚠ {importCompteurResult.notFound.length} N° de série non trouvé{importCompteurResult.notFound.length > 1 ? 's' : ''} — créer ?
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button style={{ fontSize: 11, padding: '3px 8px', border: '1px solid #fca5a5', borderRadius: 5, background: '#fff', cursor: 'pointer' }}
+                          onClick={() => setImportNotFoundSelected(new Set(importCompteurResult.notFound.map((nf: any) => nf.serie)))}>
+                          Tout sélectionner
+                        </button>
+                        <button style={{ fontSize: 11, padding: '3px 8px', border: '1px solid #fca5a5', borderRadius: 5, background: '#fff', cursor: 'pointer' }}
+                          onClick={() => setImportNotFoundSelected(new Set())}>
+                          Désélectionner
+                        </button>
+                      </div>
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid #fecaca' }}>
+                          <th style={{ padding: '4px 8px', width: 30 }}></th>
+                          <th style={{ padding: '4px 8px', textAlign: 'left', color: '#dc2626' }}>N° Série</th>
+                          <th style={{ padding: '4px 8px', textAlign: 'left', color: '#dc2626' }}>Type</th>
+                          <th style={{ padding: '4px 8px', textAlign: 'left', color: '#dc2626' }}>Relevés en attente</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importCompteurResult.notFound.map((nf: any) => (
+                          <tr key={nf.serie} style={{ borderTop: '1px solid #fee2e2' }}>
+                            <td style={{ padding: '4px 8px' }}>
+                              <input type="checkbox" checked={importNotFoundSelected.has(nf.serie)}
+                                onChange={e => {
+                                  const s = new Set(importNotFoundSelected);
+                                  e.target.checked ? s.add(nf.serie) : s.delete(nf.serie);
+                                  setImportNotFoundSelected(s);
+                                }} />
+                            </td>
+                            <td style={{ padding: '4px 8px' }}>
+                              <code style={{ background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: 4 }}>{nf.serie}</code>
+                            </td>
+                            <td style={{ padding: '4px 8px' }}>
+                              <span style={{ background: nf.type === 'couleur' ? '#fef3c7' : '#f1f5f9', color: nf.type === 'couleur' ? '#92400e' : '#475569', padding: '1px 7px', borderRadius: 5, fontSize: 11, fontWeight: 600 }}>
+                                {nf.type === 'couleur' ? '🎨 couleur' : '⚫ mono'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '4px 8px', color: '#64748b', fontSize: 11 }}>
+                              {nf.pendingReleves?.length > 0
+                                ? <span style={{ color: '#7c3aed', fontWeight: 600 }}>{nf.pendingReleves.length} relevé(s)</span>
+                                : <span style={{ color: '#f59e0b' }}>⚠ Aucun code compteur pour ce type</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {importNotFoundSelected.size > 0 && (
+                      <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                        <button className="btn btn-primary" onClick={handleCreateFromImport} disabled={importCreating}
+                          style={{ background: '#dc2626', borderColor: '#dc2626' }}>
+                          {importCreating ? '⏳ Création…' : `Créer ${importNotFoundSelected.size} copieur(s) sélectionné(s)`}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Sans code compteur */}
+                {importCompteurResult.noCode?.length > 0 && (
+                  <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 8 }}>
+                      ⚠ {importCompteurResult.noCode.length} ligne{importCompteurResult.noCode.length > 1 ? 's' : ''} sans code compteur pour <strong>{importCompteurResult.mainteneur}</strong>
+                    </div>
+                    <p style={{ margin: '0 0 8px', fontSize: 12, color: '#78350f' }}>
+                      Configurez les codes compteur (bouton "Codes compteur") puis relancez l'import.
+                    </p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {importCompteurResult.noCode.slice(0, 30).map((nc: any, i: number) => (
+                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 6, padding: '2px 8px', fontSize: 11 }}>
+                          <code style={{ color: '#92400e' }}>{nc.serie}</code>
+                          <span style={{ color: nc.type === 'couleur' ? '#b45309' : '#64748b' }}>{nc.type === 'couleur' ? '🎨' : '⚫'}</span>
+                        </span>
+                      ))}
+                      {importCompteurResult.noCode.length > 30 && <span style={{ fontSize: 11, color: '#94a3b8' }}>… et {importCompteurResult.noCode.length - 30} autres</span>}
+                    </div>
+                  </div>
+                )}
+
+                {/* Erreurs de création */}
+                {importCompteurResult.createErrors?.length > 0 && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>❌ {importCompteurResult.createErrors.length} erreur(s) de création</div>
+                    {importCompteurResult.createErrors.map((e: string, i: number) => (
+                      <div key={i} style={{ fontSize: 12, color: '#b91c1c', marginBottom: 4 }}>{e}</div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Erreurs techniques */}
+                {importCompteurResult.errors?.length > 0 && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>❌ {importCompteurResult.errors.length} erreur(s) technique(s)</div>
+                    {importCompteurResult.errors.slice(0, 5).map((e: any, i: number) => (
+                      <div key={i} style={{ fontSize: 12, color: '#b91c1c', marginBottom: 4 }}>
+                        <code>{e.serie}</code> — {e.error}
                       </div>
                     ))}
                   </div>
+                )}
 
-                  {/* Non trouvés */}
-                  {importCompteurResult.notFound?.length > 0 && (
-                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: 14 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>
-                        ⚠ {importCompteurResult.notFound.length} numéro{importCompteurResult.notFound.length > 1 ? 's' : ''} de série non trouvé{importCompteurResult.notFound.length > 1 ? 's' : ''}
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {importCompteurResult.notFound.slice(0, 30).map((s: string) => (
-                          <code key={s} style={{ background: '#fee2e2', color: '#dc2626', padding: '2px 8px', borderRadius: 5, fontSize: 12 }}>{s}</code>
-                        ))}
-                        {importCompteurResult.notFound.length > 30 && <span style={{ fontSize: 12, color: '#94a3b8' }}>… et {importCompteurResult.notFound.length - 30} autres</span>}
-                      </div>
-                    </div>
-                  )}
+                {/* Copieurs créés avec succès */}
+                {(importCompteurResult.copieursCreated || 0) > 0 && (
+                  <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: 14, color: '#16a34a', fontWeight: 600, fontSize: 13 }}>
+                    ✅ {importCompteurResult.copieursCreated} copieur(s) créé(s) avec succès
+                  </div>
+                )}
 
-                  {/* Sans code compteur */}
-                  {importCompteurResult.noCode?.length > 0 && (
-                    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: 14 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 8 }}>
-                        ⚠ {importCompteurResult.noCode.length} ligne{importCompteurResult.noCode.length > 1 ? 's' : ''} sans code compteur correspondant
-                      </div>
-                      <p style={{ margin: '0 0 8px', fontSize: 12, color: '#78350f' }}>
-                        Configurez les codes compteur (bouton "Codes compteur") pour le mainteneur concerné avec couleur={' '}
-                        <strong>mono</strong> ou <strong>couleur</strong> avant de relancer l'import.
-                      </p>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                        <thead>
-                          <tr>
-                            <th style={{ padding: '4px 8px', textAlign: 'left', color: '#92400e' }}>N° série</th>
-                            <th style={{ padding: '4px 8px', textAlign: 'left', color: '#92400e' }}>Mainteneur</th>
-                            <th style={{ padding: '4px 8px', textAlign: 'left', color: '#92400e' }}>Type cherché</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {importCompteurResult.noCode.slice(0, 20).map((nc: any, i: number) => (
-                            <tr key={i} style={{ borderTop: '1px solid #fde68a' }}>
-                              <td style={{ padding: '4px 8px' }}><code style={{ background: '#fef9c3', padding: '1px 6px', borderRadius: 4 }}>{nc.serie}</code></td>
-                              <td style={{ padding: '4px 8px' }}>{nc.mainteneur}</td>
-                              <td style={{ padding: '4px 8px' }}>
-                                <span style={{ background: nc.type === 'couleur' ? '#fef3c7' : '#f1f5f9', color: nc.type === 'couleur' ? '#92400e' : '#475569', padding: '1px 7px', borderRadius: 5, fontWeight: 600 }}>
-                                  {nc.type === 'couleur' ? '🎨 couleur' : '⚫ mono'}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                          {importCompteurResult.noCode.length > 20 && <tr><td colSpan={3} style={{ padding: '4px 8px', color: '#94a3b8' }}>… et {importCompteurResult.noCode.length - 20} autres</td></tr>}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                {/* Succès complet */}
+                {(importCompteurResult.notFound?.length === 0 && importCompteurResult.noCode?.length === 0 && importCompteurResult.errors?.length === 0) && (
+                  <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: 14, color: '#16a34a', fontWeight: 600, fontSize: 14 }}>
+                    ✅ Import terminé sans anomalie.
+                  </div>
+                )}
 
-                  {/* Erreurs techniques */}
-                  {importCompteurResult.errors?.length > 0 && (
-                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: 14 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>❌ {importCompteurResult.errors.length} erreur(s) technique(s)</div>
-                      {importCompteurResult.errors.slice(0, 5).map((e: any, i: number) => (
-                        <div key={i} style={{ fontSize: 12, color: '#b91c1c', marginBottom: 4 }}>
-                          <code>{e.serie}</code> — {e.error}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Succès */}
-                  {(importCompteurResult.notFound?.length === 0 && importCompteurResult.noCode?.length === 0 && importCompteurResult.errors?.length === 0) && (
-                    <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: 14, color: '#16a34a', fontWeight: 600, fontSize: 14 }}>
-                      ✅ Import terminé sans anomalie.
-                    </div>
-                  )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
+                  <button className="btn btn-outline" onClick={() => { setImportCompteurStep('form'); setImportCompteurFile(null); if (compteurExcelRef.current) compteurExcelRef.current.value = ''; }}>
+                    ← Nouveau fichier
+                  </button>
+                  <button className="btn btn-primary" onClick={() => setShowImportCompteurModal(false)}>Fermer</button>
                 </div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-outline" onClick={() => setImportCompteurResult(null)}>Fermer</button>
-            </div>
+              </div>
+            )}
           </div>
         </div>
       )}

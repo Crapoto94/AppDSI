@@ -1057,10 +1057,12 @@ module.exports = {
             const XLSX = require('xlsx');
             const { pool } = require('../../shared/database');
 
-            // Année extraite du nom de fichier (ex: "copieurs 2021.xlsx" → 2021)
-            const filename = req.file.originalname || '';
-            const yearMatch = filename.match(/\b(20\d{2})\b/);
-            const year = yearMatch ? parseInt(yearMatch[1]) : new Date().getFullYear();
+            // Mainteneur et année fournis explicitement dans le corps de la requête
+            const mainteneur = (req.body.mainteneur || '').trim();
+            const yearRaw    = (req.body.year || '').trim();
+            if (!mainteneur) { fs.unlinkSync(req.file.path); return res.status(400).json({ message: 'Mainteneur obligatoire' }); }
+            const year = parseInt(yearRaw);
+            if (!year || year < 2000 || year > 2099) { fs.unlinkSync(req.file.path); return res.status(400).json({ message: 'Année invalide (format YYYY)' }); }
 
             // Indices colonnes (0-based) : A=0, B=1, C=2, D=3...
             const COL = { TYPE: 3, SERIE: 7, DATE_ACQ: 11, PRIX: 12, OPTIONS: 14, COUT_OPT: 15, COMPTEUR: 18, Z: 25, AA: 26, AB: 27, AC: 28 };
@@ -1076,12 +1078,39 @@ module.exports = {
             };
             const toInt = (v) => { const n = toNum(v); return n === null ? null : Math.round(n); };
 
+            // Calcul des trimestres depuis les colonnes Excel
+            const computeQuarters = (row) => {
+                const s = toInt(row[COL.COMPTEUR]);
+                if (s === null) return [];
+                const ac = toInt(row[COL.AC]);
+                const ab = toInt(row[COL.AB]);
+                const aa = toInt(row[COL.AA]);
+                const quarters = [{ date: DATES.q4, valeur: s }];
+                if (ac !== null) {
+                    const vQ3 = s - ac;
+                    if (vQ3 >= 0) {
+                        quarters.push({ date: DATES.q3, valeur: vQ3 });
+                        if (ab !== null) {
+                            const vQ2 = vQ3 - ab;
+                            if (vQ2 >= 0) {
+                                quarters.push({ date: DATES.q2, valeur: vQ2 });
+                                if (aa !== null) {
+                                    const vQ1 = vQ2 - aa;
+                                    if (vQ1 >= 0) quarters.push({ date: DATES.q1, valeur: vQ1 });
+                                }
+                            }
+                        }
+                    }
+                }
+                return quarters;
+            };
+
             // Lire le premier onglet
             const workbook = XLSX.readFile(req.file.path);
             const ws = workbook.Sheets[workbook.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
 
-            const stats = { year, filename, totalRows: 0, copieursUpdated: 0, relevesInserted: 0, notFound: [], noCode: [], errors: [] };
+            const stats = { year, mainteneur, filename: req.file.originalname, totalRows: 0, copieursUpdated: 0, relevesInserted: 0, notFound: [], noCode: [], errors: [] };
             const username = req.user?.username || req.user?.name || '';
 
             for (const row of rows) {
@@ -1093,81 +1122,68 @@ module.exports = {
 
                 stats.totalRows++;
                 try {
-                    // Trouver le copieur
+                    // Déterminer le type (mono / couleur) via colonne D
+                    const typeStr  = String(row[COL.TYPE] || '').toLowerCase();
+                    const isCouleur = typeStr.includes('coul') || typeStr.includes('color');
+
+                    // Données de mise à jour copieur (colonnes L, M, O, P)
+                    const dateAcq = normalizeDateString(row[COL.DATE_ACQ]);
+                    const prix    = toNum(row[COL.PRIX]);
+                    const options = row[COL.OPTIONS] ? String(row[COL.OPTIONS]).trim() : null;
+                    const coutOpt = toNum(row[COL.COUT_OPT]);
+
+                    // Trouver le code compteur correspondant (mainteneur fourni + type)
+                    const codeRes = await pool.query(
+                        `SELECT id FROM hub_copieurs.compteur_codes WHERE LOWER(mainteneur)=LOWER($1) AND couleur=$2 ORDER BY id LIMIT 1`,
+                        [mainteneur, isCouleur]
+                    );
+                    const codeId = codeRes.rows.length > 0 ? codeRes.rows[0].id : null;
+
+                    // Calcul des trimestres (réutilisables pour found ou notFound)
+                    const quarters = computeQuarters(row);
+                    const pendingReleves = codeId
+                        ? quarters.map(q => ({ code_id: codeId, date: q.date, valeur: q.valeur }))
+                        : [];
+
+                    // Chercher le copieur en base
                     const cRes = await pool.query(
-                        `SELECT id, mainteneur FROM hub_copieurs.copieurs WHERE LOWER(TRIM(numero_serie)) = LOWER($1)`,
+                        `SELECT id FROM hub_copieurs.copieurs WHERE LOWER(TRIM(numero_serie)) = LOWER($1)`,
                         [serie]
                     );
-                    if (cRes.rows.length === 0) { stats.notFound.push(serie); continue; }
-                    const copieur = cRes.rows[0];
 
-                    // Mise à jour des champs copieur
+                    if (cRes.rows.length === 0) {
+                        // Copieur inconnu → stocker les données pour création éventuelle
+                        stats.notFound.push({ serie, type: isCouleur ? 'couleur' : 'mono', codeId, pendingReleves, dateAcq, prix, options, coutOpt });
+                        continue;
+                    }
+
+                    const copieurId = cRes.rows[0].id;
+
+                    // Mise à jour des champs copieur (COALESCE : n'écrase pas une valeur existante)
                     const sets = []; const vals = [];
-                    const add = (col, val) => { if (val !== null && val !== undefined) { sets.push(`${col}=$${vals.length + 1}`); vals.push(val); } };
-
-                    add('date_acquisition', normalizeDateString(row[COL.DATE_ACQ]));
-                    add('prix_acquisition', toNum(row[COL.PRIX]));
-                    const opts = row[COL.OPTIONS] ? String(row[COL.OPTIONS]).trim() : null;
-                    if (opts) add('options_achat', opts);
-                    add('cout_options', toNum(row[COL.COUT_OPT]));
-
+                    const add = (col, val) => { if (val !== null && val !== undefined) { sets.push(`${col}=COALESCE(${col},$${vals.length + 1})`); vals.push(val); } };
+                    add('date_acquisition', dateAcq);
+                    add('prix_acquisition', prix);
+                    if (options) add('options_achat', options);
+                    add('cout_options', coutOpt);
                     if (sets.length > 0) {
-                        vals.push(copieur.id);
+                        vals.push(copieurId);
                         await pool.query(`UPDATE hub_copieurs.copieurs SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
                         stats.copieursUpdated++;
                     }
 
-                    // Déterminer le type (mono / couleur) via colonne D
-                    const typeStr = String(row[COL.TYPE] || '').toLowerCase();
-                    const isCouleur = typeStr.includes('coul') || typeStr.includes('color');
-
-                    // Trouver le code compteur correspondant (mainteneur + couleur)
-                    let codeId = null;
-                    if (copieur.mainteneur) {
-                        const codeRes = await pool.query(
-                            `SELECT id FROM hub_copieurs.compteur_codes WHERE LOWER(mainteneur)=LOWER($1) AND couleur=$2 ORDER BY id LIMIT 1`,
-                            [copieur.mainteneur, isCouleur]
-                        );
-                        if (codeRes.rows.length > 0) codeId = codeRes.rows[0].id;
-                    }
                     if (!codeId) {
-                        stats.noCode.push({ serie, mainteneur: copieur.mainteneur || '(non renseigné)', type: isCouleur ? 'couleur' : 'mono' });
+                        stats.noCode.push({ serie, mainteneur, type: isCouleur ? 'couleur' : 'mono' });
                         continue;
                     }
 
-                    // Calculer les compteurs trimestriels
-                    // S = compteur fin Q4 (31/12)
-                    // Fin Q3 = S - AC, Fin Q2 = S - AC - AB, Fin Q1 = S - AC - AB - AA
-                    const s  = toInt(row[COL.COMPTEUR]);
-                    if (s === null) continue;
-                    const ac = toInt(row[COL.AC]);
-                    const ab = toInt(row[COL.AB]);
-                    const aa = toInt(row[COL.AA]);
-
-                    const quarters = [{ date: DATES.q4, valeur: s }];
-                    if (ac !== null) {
-                        const vQ3 = s - ac;
-                        if (vQ3 >= 0) {
-                            quarters.push({ date: DATES.q3, valeur: vQ3 });
-                            if (ab !== null) {
-                                const vQ2 = vQ3 - ab;
-                                if (vQ2 >= 0) {
-                                    quarters.push({ date: DATES.q2, valeur: vQ2 });
-                                    if (aa !== null) {
-                                        const vQ1 = vQ2 - aa;
-                                        if (vQ1 >= 0) quarters.push({ date: DATES.q1, valeur: vQ1 });
-                                    }
-                                }
-                            }
-                        }
-                    }
-
+                    // Insérer / mettre à jour les relevés trimestriels avec mainteneur
                     for (const q of quarters) {
                         await pool.query(`
-                            INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, created_by)
-                            VALUES ($1,$2,$3,$4,$5)
-                            ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, created_by=$5
-                        `, [copieur.id, codeId, q.date, q.valeur, username]);
+                            INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                            VALUES ($1,$2,$3,$4,$5,$6)
+                            ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, mainteneur=$5, created_by=$6
+                        `, [copieurId, codeId, q.date, q.valeur, mainteneur, username]);
                         stats.relevesInserted++;
                     }
 
@@ -1181,6 +1197,53 @@ module.exports = {
         } catch (error) {
             try { fs.unlinkSync(req.file.path); } catch {}
             res.status(500).json({ message: 'Erreur import Excel compteurs', error: error.message });
+        }
+    },
+
+    // ─── Création copieur depuis import (avec relevés en attente) ────────────
+
+    createFromImport: async (req, res) => {
+        try {
+            const { pool } = require('../../shared/database');
+            const { numero_serie, mainteneur, source, date_acquisition, prix_acquisition, options_achat, cout_options, pendingReleves } = req.body;
+            if (!numero_serie) return res.status(400).json({ message: 'N° de série obligatoire' });
+            const username = req.user?.username || '';
+
+            // Vérifier si le copieur existe déjà
+            const existing = await pool.query(
+                `SELECT id FROM hub_copieurs.copieurs WHERE LOWER(TRIM(numero_serie))=LOWER($1)`,
+                [String(numero_serie).trim()]
+            );
+            let copieurId;
+            if (existing.rows.length > 0) {
+                copieurId = existing.rows[0].id;
+            } else {
+                const ins = await pool.query(
+                    `INSERT INTO hub_copieurs.copieurs
+                        (numero_serie, mainteneur, source, date_acquisition, prix_acquisition, options_achat, cout_options, archive)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,false) RETURNING id`,
+                    [String(numero_serie).trim(), mainteneur || '', source || 'ville',
+                     date_acquisition || null, prix_acquisition || null,
+                     options_achat || null, cout_options || null]
+                );
+                copieurId = ins.rows[0].id;
+            }
+
+            // Insérer les relevés en attente
+            let relevesInserted = 0;
+            for (const r of (pendingReleves || [])) {
+                if (!r.code_id || !r.date || r.valeur === undefined || r.valeur === null) continue;
+                await pool.query(`
+                    INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                    VALUES ($1,$2,$3,$4,$5,$6)
+                    ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, mainteneur=$5, created_by=$6
+                `, [copieurId, r.code_id, r.date, r.valeur, mainteneur, username]);
+                relevesInserted++;
+            }
+
+            res.status(201).json({ copieurId, relevesInserted });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur création copieur depuis import', error: error.message });
         }
     },
 
@@ -1340,6 +1403,7 @@ module.exports = {
             const result = await pool.query(`
                 SELECT r.*,
                   cc.code, cc.libelle, cc.format, cc.couleur,
+                  r.mainteneur,
                   LAG(r.valeur) OVER (PARTITION BY r.code_id ORDER BY r.date_releve) AS valeur_precedente
                 FROM hub_copieurs.copieur_releves r
                 JOIN hub_copieurs.compteur_codes cc ON cc.id = r.code_id
@@ -1356,7 +1420,7 @@ module.exports = {
         try {
             const { pool } = require('../../shared/database');
             const { id } = req.params;
-            const { date_releve, values } = req.body; // values: [{code_id, valeur}]
+            const { date_releve, values, mainteneur: releveMainteneur } = req.body; // values: [{code_id, valeur}]
             const username = req.user?.username || req.user?.name || '';
             if (!date_releve || !Array.isArray(values) || values.length === 0)
                 return res.status(400).json({ message: 'date_releve et values[] obligatoires' });
@@ -1364,11 +1428,11 @@ module.exports = {
             for (const v of values) {
                 if (v.valeur === undefined || v.valeur === null || !v.code_id) continue;
                 const r = await pool.query(`
-                    INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, created_by)
-                    VALUES ($1, $2, $3, $4, $5)
-                    ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, created_by=$5
+                    INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, mainteneur=$5, created_by=$6
                     RETURNING *
-                `, [id, v.code_id, date_releve, v.valeur, username]);
+                `, [id, v.code_id, date_releve, v.valeur, releveMainteneur || null, username]);
                 inserted.push(r.rows[0]);
             }
             res.status(201).json(inserted);

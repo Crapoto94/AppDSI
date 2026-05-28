@@ -2358,6 +2358,7 @@ async function setupPgDb() {
     await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_releves_copieur ON hub_copieurs.copieur_releves(copieur_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_releves_code ON hub_copieurs.copieur_releves(code_id)');
     try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_copieur_releves_unique ON hub_copieurs.copieur_releves(copieur_id, code_id, date_releve)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_copieurs.copieur_releves ADD COLUMN IF NOT EXISTS mainteneur TEXT`); } catch (e) {}
 
     // Create hub_consommables schema and tables
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_consommables;');
