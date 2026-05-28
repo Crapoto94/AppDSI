@@ -174,38 +174,54 @@ async function notifyEcoleGroup(session) {
         }
 
         const appBaseUrl = await getAppBaseUrl();
-        const link = `${appBaseUrl}/chatecole`;
-        const smsText = `Nouveau chat ecole ouvert. Prenez en charge sur ${link}`;
+        const baseSmsText = `Nouveau chat ecole ouvert. Prenez en charge ici : `;
 
         console.log('[LIVE] Authenticating with Frizbi...');
         const authRes = await axios.post(`${frizbi.api_url}/api/auth/login`, {
             login: frizbi.client_id,
             password: frizbi.client_secret
         });
-        const token = authRes.data?.token;
-        if (!token) {
+        const frizbiToken = authRes.data?.token;
+        if (!frizbiToken) {
             console.error('[LIVE] Frizbi auth failed');
             return;
         }
         console.log('[LIVE] Frizbi authenticated, sending SMS...');
 
-        const smsPayload = {
-            customerSmsId: `ecole_${session.id}_${Date.now()}`,
-            date: new Date().toISOString(),
-            title: 'Chat ecole',
-            message: smsText,
-            customerSenderId: frizbi.sender_id || 'IVRY',
-            smsContacts: members.map(m => ({
+        // Generate unique short-lived link per agent (5 min expiry)
+        const smsContacts = members.map(m => {
+            const smsJwt = jwt.sign({
+                type: 'sms_auth',
+                username: m.username,
+                displayName: m.display_name || m.username,
+                session_id: session.id,
+            }, SECRET_KEY, { expiresIn: '5m' });
+
+            const personalLink = `${appBaseUrl}/chatecole?st=${smsJwt}`;
+
+            return {
                 customerSmsContactId: `eco_${(m.mobile_phone || '').replace(/\D/g, '')}`.substring(0, 50),
                 mobile: (m.mobile_phone || '').replace(/\D/g, ''),
                 firstName: (m.display_name || '').split(' ')[0] || 'Agent',
                 lastName: (m.display_name || '').split(' ').slice(1).join(' ') || '',
-            }))
+                variables: [
+                    { variableKey: 'lien', variableValue: personalLink },
+                ],
+            };
+        });
+
+        const smsPayload = {
+            customerSmsId: `ecole_${session.id}_${Date.now()}`,
+            date: new Date().toISOString(),
+            title: 'Chat ecole',
+            message: baseSmsText + '$lien$',
+            customerSenderId: frizbi.sender_id || 'IVRY',
+            smsContacts,
         };
         console.log('[LIVE] Sending SMS payload:', JSON.stringify(smsPayload, null, 2));
 
         const smsRes = await axios.post(`${frizbi.api_url}/api/sms/send`, smsPayload, {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { Authorization: `Bearer ${frizbiToken}` }
         });
         console.log('[LIVE] Frizbi send response:', JSON.stringify(smsRes.data));
         console.log('[LIVE] SMS sent to Frizbi, logging...');
@@ -213,10 +229,17 @@ async function notifyEcoleGroup(session) {
         // Log SMS for each recipient
         for (const m of members) {
             try {
+                const smsJwt = jwt.sign({
+                    type: 'sms_auth',
+                    username: m.username,
+                    displayName: m.display_name || m.username,
+                    session_id: session.id,
+                }, SECRET_KEY, { expiresIn: '5m' });
+                const personalLink = `${appBaseUrl}/chatecole?st=${smsJwt}`;
                 await pgDb.run(`
                     INSERT INTO hub.sms_logs (recipient, message, sender_id, status, source, created_by)
                     VALUES ($1, $2, $3, $4, $5, $6)
-                `, [(m.mobile_phone || '').replace(/\D/g, ''), smsText, frizbi.sender_id || 'IVRY', 'sent', 'ecole_notify', 'system']);
+                `, [(m.mobile_phone || '').replace(/\D/g, ''), baseSmsText + personalLink, frizbi.sender_id || 'IVRY', 'sent', 'ecole_notify', 'system']);
                 console.log('[LIVE] SMS logged for', m.mobile_phone);
             } catch (logErr) {
                 console.error('[LIVE] Failed to log SMS:', logErr.message);
@@ -1324,4 +1347,45 @@ async function otpVerify(req, res) {
     }
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setSessionApp, submitSatisfaction, getSatisfactionStats, sendEmergencyMessage };
+// ── POST /api/live/auth/sms-token — validate short-lived SMS link token ─
+async function smsTokenAuth(req, res) {
+    try {
+        const { token } = req.body || {};
+        if (!token) return res.status(400).json({ message: 'Token requis' });
+
+        const decoded = jwt.verify(token, SECRET_KEY);
+        if (decoded.type !== 'sms_auth') {
+            return res.status(403).json({ message: 'Token invalide' });
+        }
+
+        const authToken = jwt.sign({
+            id: 0,
+            username: decoded.username,
+            displayName: decoded.displayName,
+            email: decoded.email || decoded.username + '@dsi',
+            role: 'user',
+            is_approved: true,
+            auth_method: 'sms_link',
+        }, SECRET_KEY);
+
+        res.json({
+            token: authToken,
+            user: {
+                username: decoded.username,
+                displayName: decoded.displayName,
+                email: decoded.email || decoded.username + '@dsi',
+                role: 'user',
+                is_approved: true,
+            },
+            session_id: decoded.session_id || null,
+        });
+    } catch (e) {
+        if (e.name === 'TokenExpiredError') {
+            return res.status(401).json({ message: 'Lien expiré (5 minutes)' });
+        }
+        console.error('[LIVE] smsTokenAuth error:', e.message);
+        res.status(403).json({ message: 'Token invalide' });
+    }
+}
+
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setSessionApp, submitSatisfaction, getSatisfactionStats, sendEmergencyMessage, smsTokenAuth };

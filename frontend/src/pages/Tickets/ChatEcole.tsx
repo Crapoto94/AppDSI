@@ -56,6 +56,37 @@ export default function ChatEcole() {
   let me: any = {};
   try { me = JSON.parse(userStr); } catch (e) {}
 
+  const pendingSessionRef = useRef<number | null>(null);
+
+  // Auto-login from SMS link token (?st=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const st = params.get('st');
+    if (st) {
+      (async () => {
+        try {
+          const res = await axios.post('/api/live/auth/sms-token', { token: st });
+          const { token: authToken, user: authUser, session_id } = res.data;
+          localStorage.setItem('token', authToken);
+          localStorage.setItem('user', JSON.stringify(authUser));
+          if (session_id) sessionStorage.setItem('pendingSessionId', String(session_id));
+          window.location.href = window.location.pathname;
+        } catch (e: any) {
+          alert(e.response?.data?.message || 'Lien invalide ou expiré');
+          window.location.href = window.location.pathname;
+        }
+      })();
+      return;
+    }
+
+    // Check if we have a pending session from SMS link
+    const pendingId = sessionStorage.getItem('pendingSessionId');
+    if (pendingId) {
+      sessionStorage.removeItem('pendingSessionId');
+      pendingSessionRef.current = Number(pendingId);
+    }
+  }, []);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, view]);
@@ -118,7 +149,20 @@ export default function ChatEcole() {
     });
 
     axios.get('/api/live/sessions?chat_type=ecole', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setSessions(r.data))
+      .then(r => {
+        setSessions(r.data);
+        if (pendingSessionRef.current) {
+          const target = (r.data as LiveSession[]).find(s => s.id === pendingSessionRef.current);
+          if (target) {
+            pendingSessionRef.current = null;
+            if (target.status === 'waiting') {
+              claimSession(target);
+            } else {
+              openSession(target);
+            }
+          }
+        }
+      })
       .catch(() => {});
 
     return () => {
