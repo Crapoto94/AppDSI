@@ -758,7 +758,7 @@ async function setupPgDb() {
       CREATE TABLE IF NOT EXISTS hub_tickets.mail_collector_logs (
         id SERIAL PRIMARY KEY,
         collector_id INTEGER NOT NULL REFERENCES hub_tickets.mail_collectors(id) ON DELETE CASCADE,
-        run_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        run_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         emails_received INTEGER DEFAULT 0,
         emails_imported INTEGER DEFAULT 0,
         emails_skipped INTEGER DEFAULT 0,
@@ -3001,6 +3001,15 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS auth_method VARCHAR(20) DEFAULT 'guest'`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ DEFAULT NOW()`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS close_reason VARCHAR(50)`); } catch (e) {}
+    // Ensure id column has proper serial/default/PK (survives CREATE TABLE IF NOT EXISTS being a no-op)
+    try { await client.query(`ALTER TABLE hub_tickets.live_sessions ALTER COLUMN id SET NOT NULL`); } catch (e) {}
+    try { await client.query(`CREATE SEQUENCE IF NOT EXISTS hub_tickets.live_sessions_id_seq`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_sessions ALTER COLUMN id SET DEFAULT nextval('hub_tickets.live_sessions_id_seq'::regclass)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD PRIMARY KEY (id)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_messages ALTER COLUMN id SET NOT NULL`); } catch (e) {}
+    try { await client.query(`CREATE SEQUENCE IF NOT EXISTS hub_tickets.live_messages_id_seq`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_messages ALTER COLUMN id SET DEFAULT nextval('hub_tickets.live_messages_id_seq'::regclass)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_messages ADD PRIMARY KEY (id)`); } catch (e) {}
     try { await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.live_otp_codes (
         id SERIAL PRIMARY KEY,
@@ -3027,6 +3036,69 @@ async function setupPgDb() {
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `); } catch (e) {}
+
+    // Mail collector TIMESTAMPTZ conversions
+    try { await client.query('ALTER TABLE hub_tickets.mail_collector_logs ALTER COLUMN run_at TYPE TIMESTAMPTZ'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.mail_collectors ALTER COLUMN last_run TYPE TIMESTAMPTZ'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.mail_collectors ALTER COLUMN next_run TYPE TIMESTAMPTZ'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.mail_collectors ALTER COLUMN created_at TYPE TIMESTAMPTZ'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub_tickets.mail_collectors ALTER COLUMN updated_at TYPE TIMESTAMPTZ'); } catch (e) {}
+
+    // Live chat destinations
+    try { await client.query("ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS chat_type VARCHAR(20) DEFAULT 'ville'"); } catch (e) {}
+
+    // ─── hub.ville_config ─────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.ville_config (
+        id SERIAL PRIMARY KEY,
+        nom VARCHAR(255),
+        code_postal VARCHAR(10),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // ─── hub.elus ──────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.elus (
+        id SERIAL PRIMARY KEY,
+        nom VARCHAR(255) NOT NULL,
+        prenom VARCHAR(255) NOT NULL,
+        email VARCHAR(255),
+        telephone VARCHAR(20),
+        role VARCHAR(100) NOT NULL,
+        delegation VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // ─── hub.sites ────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.sites (
+        id SERIAL PRIMARY KEY,
+        nom VARCHAR(255) NOT NULL,
+        adresse TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // ─── hub.ecoles ───────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.ecoles (
+        id SERIAL PRIMARY KEY,
+        nom VARCHAR(255) NOT NULL,
+        adresse TEXT,
+        code_postal VARCHAR(10),
+        email VARCHAR(255),
+        telephone VARCHAR(20),
+        directeur VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

@@ -96,16 +96,17 @@ export default function LiveSessionsPanel() {
       }
     });
 
-    socket.on('new_live_session', (session: LiveSession) => {
+    socket.on('new_live_session', (session: LiveSession & { chat_type?: string }) => {
+      if (session.chat_type && session.chat_type !== 'ville') return;
       setSessions(prev => {
         if (prev.find(s => s.id === session.id)) return prev;
         return [session, ...prev];
       });
     });
 
-    socket.on('session_updated', (session: LiveSession) => {
-      setSessions(prev => prev.map(s => s.id === session.id ? session : s));
-      setActiveSession(prev => prev?.id === session.id ? session : prev);
+    socket.on('session_updated', (update: Partial<LiveSession>) => {
+      setSessions(prev => prev.map(s => (s.id === update.id || s.id === (update as any).sessionId) ? { ...s, ...update } : s));
+      setActiveSession(prev => prev && (prev.id === update.id || prev.id === (update as any).sessionId) ? { ...prev, ...update } : prev);
     });
 
     socket.on('session_claimed', ({ session }: { session: LiveSession }) => {
@@ -137,7 +138,7 @@ export default function LiveSessionsPanel() {
       });
     });
 
-    axios.get('/api/live/sessions', { headers: { Authorization: `Bearer ${token}` } })
+    axios.get('/api/live/sessions?chat_type=ville', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setSessions(r.data))
       .catch(() => {});
 
@@ -186,7 +187,7 @@ export default function LiveSessionsPanel() {
   // Sessions list refresh every 5s (fallback for when socket not connected)
   useEffect(() => {
     const t = setInterval(() => {
-      axios.get('/api/live/sessions', { headers: { Authorization: `Bearer ${token}` } })
+      axios.get('/api/live/sessions?chat_type=ville', { headers: { Authorization: `Bearer ${token}` } })
         .then(r => setSessions(r.data)).catch(() => {});
     }, 5000);
     return () => clearInterval(t);

@@ -22,13 +22,21 @@ async function getAppBaseUrl() {
 // ── GET /api/live/sessions ─────────────────────────────────────────────
 async function getSessions(req, res) {
     try {
-        const rows = await pgDb.all(`
+        const { chat_type } = req.query;
+        let query = `
             SELECT ls.*, t.title as ticket_title
             FROM hub_tickets.live_sessions ls
             LEFT JOIN hub_tickets.tickets t ON ls.ticket_id = t.glpi_id
             WHERE ls.status NOT IN ('closed', 'pre_closed')
-            ORDER BY ls.created_at DESC
-        `);
+        `;
+        const params = [];
+        if (chat_type) {
+            query += ` AND ls.chat_type = $1`;
+            params.push(chat_type);
+        }
+        query += ` ORDER BY ls.created_at DESC`;
+
+        const rows = await pgDb.all(query, params);
         res.json(rows);
     } catch (e) {
         res.status(500).json({ message: e.message });
@@ -38,8 +46,10 @@ async function getSessions(req, res) {
 // ── GET /api/live/sessions/:id ─────────────────────────────────────────
 async function getSession(req, res) {
     try {
+        const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const session = await pgDb.get(
-            `SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [req.params.id]
+            `SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]
         );
         if (!session) return res.status(404).json({ message: 'Session introuvable' });
         res.json(session);
@@ -51,9 +61,11 @@ async function getSession(req, res) {
 // ── GET /api/live/sessions/:id/messages ───────────────────────────────
 async function getMessages(req, res) {
     try {
+        const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const messages = await pgDb.all(
             `SELECT * FROM hub_tickets.live_messages WHERE session_id = $1 ORDER BY created_at ASC`,
-            [req.params.id]
+            [id]
         );
         res.json(messages);
     } catch (e) {
@@ -86,28 +98,46 @@ async function createSession(req, res) {
 
         // Create live session
         const authMethod = user.auth_method || 'internal';
+        const chatType = user.chat_type || req.body.chat_type || 'ville';
         const sessionResult = await pgDb.run(`
             INSERT INTO hub_tickets.live_sessions
-                (ticket_id, user_username, user_display_name, user_email, status, auth_method, created_at)
-            VALUES ($1, $2, $3, $4, 'waiting', $5, NOW())
-        `, [ticketId, user.username, user.displayName || user.username, user.email || '', authMethod]);
+                (ticket_id, user_username, user_display_name, user_email, status, auth_method, chat_type, created_at)
+            VALUES ($1, $2, $3, $4, 'waiting', $5, $6, NOW())
+        `, [ticketId, user.username, user.displayName || user.username, user.email || '', authMethod, chatType]);
 
         const sessionId = sessionResult.lastID;
 
-        // Save first message in live_messages
-        await pgDb.run(`
-            INSERT INTO hub_tickets.live_messages
-                (session_id, sender_type, sender_name, sender_username, content, created_at)
-            VALUES ($1, 'user', $2, $3, $4, NOW())
-        `, [sessionId, user.displayName || user.username, user.username, content.trim()]);
+        // Save first message in live_messages (non-fatal)
+        try {
+            await pgDb.run(`
+                INSERT INTO hub_tickets.live_messages
+                    (session_id, sender_type, sender_name, sender_username, content, created_at)
+                VALUES ($1, 'user', $2, $3, $4, NOW())
+            `, [sessionId, user.displayName || user.username, user.username, content.trim()]);
+        } catch (msgErr) {
+            console.error('[LIVE] Failed to save first message (session created):', msgErr.message);
+        }
 
         const session = await pgDb.get(
             `SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [sessionId]
         );
 
+        if (!session) {
+            return res.status(500).json({ message: 'Session créée mais introuvable' });
+        }
+
         // Notify connected techs via socket
-        const io = getIO();
-        if (io) io.to('live:techs').emit('new_live_session', session);
+        try {
+            const io = getIO();
+            if (io) io.to('live:techs').emit('new_live_session', session);
+        } catch (ioErr) {
+            console.error('[LIVE] Socket notification failed:', ioErr.message);
+        }
+
+        // Notify "Ecoles" group via SMS (fire & forget)
+        if (chatType === 'ecole' && session) {
+            notifyEcoleGroup(session).catch(e => console.error('[LIVE] notifyEcoleGroup:', e.message));
+        }
 
         res.json({ session, ticketId });
     } catch (e) {
@@ -116,11 +146,67 @@ async function createSession(req, res) {
     }
 }
 
+// ── Notify "Ecoles" group via SMS for new school sessions ────────────
+async function notifyEcoleGroup(session) {
+    try {
+        const members = await pgDb.all(`
+            SELECT DISTINCT u.username, u."displayName" as display_name, tp.mobile_phone
+            FROM hub_tickets.technician_groups g
+            JOIN hub_tickets.technician_group_members gm ON g.id = gm.group_id
+            JOIN hub.users u ON gm.user_id = u.id
+            JOIN hub_tickets.technician_profiles tp ON u.id = tp.user_id
+            WHERE g.name = 'Ecoles' AND g.is_active = true
+              AND tp.mobile_phone IS NOT NULL AND tp.mobile_phone != ''
+        `);
+        if (members.length === 0) return;
+
+        const db = getSqlite();
+        const frizbi = await db.get('SELECT * FROM frizbi_settings WHERE id = 1');
+        if (!frizbi?.is_enabled || !frizbi.client_id || !frizbi.client_secret) {
+            console.log('[LIVE] Frizbi not configured, skipping ecole SMS');
+            return;
+        }
+
+        const appBaseUrl = await getAppBaseUrl();
+        const link = `${appBaseUrl}/chatecole`;
+        const smsText = `Nouveau chat ecole ouvert. Prenez en charge sur ${link}`;
+
+        const authRes = await axios.post(`${frizbi.api_url}/api/auth/login`, {
+            login: frizbi.client_id,
+            password: frizbi.client_secret
+        });
+        const token = authRes.data?.token;
+        if (!token) {
+            console.error('[LIVE] Frizbi auth failed');
+            return;
+        }
+
+        await axios.post(`${frizbi.api_url}/api/sms/send`, {
+            customerSmsId: `ecole_${session.id}_${Date.now()}`.substring(0, 50),
+            date: new Date().toISOString(),
+            title: 'Chat ecole',
+            message: smsText,
+            customerSenderId: frizbi.sender_id || 'IVRY',
+            smsContacts: members.map(m => ({
+                customerSmsContactId: `eco_${(m.mobile_phone || '').replace(/\D/g, '')}`,
+                mobile: (m.mobile_phone || '').replace(/\D/g, ''),
+                firstName: (m.display_name || '').split(' ')[0] || 'Agent',
+                lastName: (m.display_name || '').split(' ').slice(1).join(' ') || '',
+            }))
+        }, { headers: { Authorization: `Bearer ${token}` } });
+
+        console.log(`[LIVE] SMS sent to ${members.length} agent(s) for ecole session #${session.id}`);
+    } catch (e) {
+        console.error('[LIVE] notifyEcoleGroup error:', e.message);
+    }
+}
+
 // ── POST /api/live/sessions/:id/claim ─────────────────────────────────
 // ?force=true allows takeover of an active session
 async function claimSession(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const force = req.query.force === 'true' || req.body.force;
         const user = req.user;
 
@@ -163,6 +249,7 @@ async function claimSession(req, res) {
 async function closeSession(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const { newTitle, closeTicket = true } = req.body || {};
         const user = req.user;
 
@@ -218,7 +305,7 @@ async function closeSession(req, res) {
             const io = getIO();
             if (io) {
                 io.to(`live:session:${id}`).emit('session_closed', { sessionId: Number(id), reason: 'user_left' });
-                io.to('live:techs').emit('session_updated', { sessionId: Number(id), status: 'pre_closed' });
+                io.to('live:techs').emit('session_updated', { id: Number(id), status: 'pre_closed' });
             }
 
             return res.json({ success: true, preClosed: true });
@@ -298,11 +385,12 @@ async function closeSession(req, res) {
             `UPDATE hub_tickets.live_sessions SET status = 'closed', closed_at = NOW() WHERE id = $1`, [id]
         );
 
-        const io = getIO();
-        if (io) {
-            io.to(`live:session:${id}`).emit('session_closed', { sessionId: Number(id) });
-            io.to('live:techs').emit('session_closed', { sessionId: Number(id) });
-        }
+            const io = getIO();
+            if (io) {
+                io.to(`live:session:${id}`).emit('session_closed', { sessionId: Number(id) });
+                io.to('live:techs').emit('session_closed', { sessionId: Number(id) });
+                io.to('live:techs').emit('session_updated', { id: Number(id), status: 'closed' });
+            }
 
         res.json({ success: true });
     } catch (e) {
@@ -424,6 +512,7 @@ function buildSummaryEmail(messages, session, title, appBaseUrl = '') {
 async function sendMessage(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const { content } = req.body;
         const user = req.user;
         if (!content?.trim()) return res.status(400).json({ message: 'Contenu requis' });
@@ -465,6 +554,7 @@ async function sendMessage(req, res) {
 async function uploadAttachment(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const user = req.user;
         const file = req.file;
 
@@ -701,7 +791,7 @@ async function _autoCloseInactiveSessions() {
             );
             if (io) {
                 io.to(`live:session:${session.id}`).emit('session_closed', { sessionId: session.id, reason: 'inactivity' });
-                io.to('live:techs').emit('session_updated', { sessionId: session.id, status: 'pre_closed' });
+                io.to('live:techs').emit('session_updated', { id: session.id, status: 'pre_closed' });
             }
             console.log(`[LIVE] Pre-closed inactive session ${session.id}`);
         }
@@ -721,6 +811,7 @@ function startScheduler() {
 async function rejectSession(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
         if (!session) return res.status(404).json({ message: 'Session introuvable' });
         if (session.status === 'closed') return res.status(400).json({ message: 'Session déjà fermée' });
@@ -754,6 +845,7 @@ async function rejectSession(req, res) {
 async function createTask(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const { description, echeance } = req.body || {};
         if (!description?.trim()) return res.status(400).json({ message: 'Description requise' });
 
@@ -784,6 +876,7 @@ async function createTask(req, res) {
 async function setSessionApp(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const { app_id } = req.body || {};
 
         const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
@@ -807,6 +900,7 @@ async function setSessionApp(req, res) {
 async function submitSatisfaction(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const { rating, comment } = req.body || {};
 
         if (!rating || parseInt(rating) < 1 || parseInt(rating) > 5) {
@@ -880,6 +974,7 @@ async function getSatisfactionStats(req, res) {
 async function sendEmergencyMessage(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const { message } = req.body || {};
         if (!message?.trim()) return res.status(400).json({ message: 'Message requis' });
 
@@ -1003,6 +1098,7 @@ async function sendEmergencyMessage(req, res) {
 async function setTicketType(req, res) {
     try {
         const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
         const { type } = req.body || {};
         if (!type || !['1', '2'].includes(String(type))) {
             return res.status(400).json({ message: 'Type invalide (1=Incident, 2=Demande)' });
@@ -1026,13 +1122,14 @@ async function setTicketType(req, res) {
 // ── POST /api/live/guest-login (public) ───────────────────────────────────
 async function guestLogin(req, res) {
     try {
-        const { displayName, email } = req.body || {};
+        const { displayName, email, chat_type } = req.body || {};
         if (!displayName?.trim() || !email?.trim()) {
             return res.status(400).json({ message: 'Nom et email requis' });
         }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
             return res.status(400).json({ message: 'Adresse email invalide' });
         }
+        const chatType = chat_type === 'ecole' ? 'ecole' : 'ville';
         const username = `guest_${Date.now()}`;
         const token = jwt.sign({
             id: 0, username,
@@ -1040,8 +1137,9 @@ async function guestLogin(req, res) {
             email: email.trim().toLowerCase(),
             role: 'user', is_approved: true,
             auth_method: 'guest',
+            chat_type: chatType
         }, SECRET_KEY);
-        res.json({ token, user: { username, displayName: displayName.trim(), email: email.trim().toLowerCase() } });
+        res.json({ token, user: { username, displayName: displayName.trim(), email: email.trim().toLowerCase(), chat_type: chatType } });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }
@@ -1050,7 +1148,7 @@ async function guestLogin(req, res) {
 // ── POST /api/live/auth/ad (public) ───────────────────────────────────────
 async function adLogin(req, res) {
     try {
-        const { username, password } = req.body || {};
+        const { username, password, chat_type } = req.body || {};
         if (!username?.trim() || !password) {
             return res.status(400).json({ message: 'Identifiants requis' });
         }
@@ -1064,6 +1162,7 @@ async function adLogin(req, res) {
         if (!adUser) {
             return res.status(401).json({ message: 'Identifiants incorrects' });
         }
+        const chatType = chat_type === 'ecole' ? 'ecole' : 'ville';
         const email = adUser.email || `${clean.toLowerCase()}@ivry94.fr`;
         const token = jwt.sign({
             id: 0, username: clean.toLowerCase(),
@@ -1071,8 +1170,9 @@ async function adLogin(req, res) {
             email,
             role: 'user', is_approved: true,
             auth_method: 'ad',
+            chat_type: chatType,
         }, SECRET_KEY);
-        res.json({ token, user: { username: clean.toLowerCase(), displayName: adUser.displayName, email } });
+        res.json({ token, user: { username: clean.toLowerCase(), displayName: adUser.displayName, email, chat_type: chatType } });
     } catch (e) {
         console.error('[LIVE] adLogin error:', e.message);
         res.status(401).json({ message: e.message || 'Échec de l\'authentification AD' });
@@ -1150,7 +1250,7 @@ async function otpRequest(req, res) {
 // Accepts { username, code }. Returns JWT on success.
 async function otpVerify(req, res) {
     try {
-        const { username, code } = req.body || {};
+        const { username, code, chat_type } = req.body || {};
         if (!username?.trim() || !code?.trim()) {
             return res.status(400).json({ message: 'Identifiant et code requis' });
         }
@@ -1166,6 +1266,7 @@ async function otpVerify(req, res) {
         }
         await pgDb.run(`UPDATE hub_tickets.live_otp_codes SET used = TRUE WHERE id = $1`, [record.id]);
 
+        const chatType = chat_type === 'ecole' ? 'ecole' : 'ville';
         const otpUsername = `otp_${Date.now()}`;
         const token = jwt.sign({
             id: 0, username: otpUsername,
@@ -1173,8 +1274,9 @@ async function otpVerify(req, res) {
             email: record.email,
             role: 'user', is_approved: true,
             auth_method: 'otp',
+            chat_type: chatType,
         }, SECRET_KEY);
-        res.json({ token, user: { username: otpUsername, displayName: record.display_name || clean, email: record.email } });
+        res.json({ token, user: { username: otpUsername, displayName: record.display_name || clean, email: record.email, chat_type: chatType } });
     } catch (e) {
         console.error('[LIVE] otpVerify error:', e.message);
         res.status(500).json({ message: e.message });

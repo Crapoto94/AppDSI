@@ -115,6 +115,7 @@ export default function ChatPage({ token, user, onLogout, config }: Props) {
     socketRef.current = socket
 
     socket.on('new_message', (msg: Message) => {
+      if (!msg) return
       setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
     })
     socket.on('session_history', (msgs: Message[]) => setMessages(msgs))
