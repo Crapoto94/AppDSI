@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
   Smartphone, Shield, CheckCircle2, AlertCircle, 
-  Send, RefreshCw, Save, Server, Globe, Key, Lock
+  Send, RefreshCw, Save, Server, Globe, Key, Lock, Clock, Phone, MessageSquare, Check, X
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -29,6 +29,8 @@ const FrizbiSettings: React.FC = () => {
   const [testing, setTesting] = useState(false);
   const [testMobile, setTestMobile] = useState('');
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [smsLogs, setSmsLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -94,6 +96,22 @@ const FrizbiSettings: React.FC = () => {
       setTesting(false);
     }
   };
+
+  const fetchSmsLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const res = await axios.get('/api/admin/frizbi/sms-logs', { headers });
+      setSmsLogs(res.data || []);
+    } catch (err) {
+      console.error("Error fetching SMS logs", err);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!loading) fetchSmsLogs();
+  }, [loading]);
 
   if (loading) {
     return (
@@ -246,6 +264,64 @@ const FrizbiSettings: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* SMS Logs */}
+      <div className="settings-card full-width" style={{ marginTop: 25 }}>
+        <div className="card-header">
+          <Clock size={20} />
+          <h3>Historique des SMS envoyés</h3>
+          <button className="btn btn-secondary" onClick={fetchSmsLogs} disabled={logsLoading}
+            style={{ marginLeft: 'auto', padding: '6px 14px', fontSize: 13 }}>
+            <RefreshCw size={14} className={logsLoading ? 'animate-spin' : ''} />
+            Actualiser
+          </button>
+        </div>
+        <div className="card-body" style={{ padding: 0 }}>
+          {smsLogs.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>
+              Aucun SMS envoyé pour le moment.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table className="sms-logs-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Destinataire</th>
+                    <th>Message</th>
+                    <th>Expéditeur</th>
+                    <th>Source</th>
+                    <th>Statut</th>
+                    <th>Erreur</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {smsLogs.map((log: any) => (
+                    <tr key={log.id}>
+                      <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>
+                        {new Date(log.sent_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{log.recipient}</td>
+                      <td style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13 }}>{log.message}</td>
+                      <td style={{ fontSize: 13 }}>{log.sender_id}</td>
+                      <td>
+                        <span className={`source-badge source-${log.source}`}>
+                          {log.source === 'ecole_notify' ? 'École' : log.source === 'emergency' ? 'Urgence' : log.source === 'test' ? 'Test' : log.source}
+                        </span>
+                      </td>
+                      <td>
+                        {log.status === 'sent' ? <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, fontSize: 13 }}><Check size={14} /> Envoyé</span>
+                          : <span style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, fontSize: 13 }}><X size={14} /> Échec</span>}
+                      </td>
+                      <td style={{ color: '#ef4444', fontSize: 12, maxWidth: 200 }}>{log.error_message || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
 
@@ -487,6 +563,56 @@ const FrizbiSettings: React.FC = () => {
 
         .animate-spin { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        .sms-logs-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 13px;
+        }
+        .sms-logs-table th {
+          padding: 12px 16px;
+          text-align: left;
+          font-weight: 600;
+          color: #64748b;
+          background: #f8fafc;
+          border-bottom: 1px solid #e2e8f0;
+          white-space: nowrap;
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .sms-logs-table td {
+          padding: 10px 16px;
+          border-bottom: 1px solid #f1f5f9;
+          color: #334155;
+        }
+        .sms-logs-table tbody tr:hover {
+          background: #f8fafc;
+        }
+        .source-badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 3px 10px;
+          border-radius: 12px;
+          font-size: 11px;
+          font-weight: 600;
+        }
+        .source-badge.source-test {
+          background: #eff6ff;
+          color: #3b82f6;
+        }
+        .source-badge.source-ecole_notify {
+          background: #ecfdf5;
+          color: #059669;
+        }
+        .source-badge.source-emergency {
+          background: #fef2f2;
+          color: #dc2626;
+        }
+        .source-badge.source-system {
+          background: #f3f4f6;
+          color: #6b7280;
+        }
 
         @media (max-width: 600px) {
           .test-form { flex-direction: column; }

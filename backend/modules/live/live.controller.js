@@ -195,6 +195,18 @@ async function notifyEcoleGroup(session) {
             }))
         }, { headers: { Authorization: `Bearer ${token}` } });
 
+        // Log SMS for each recipient
+        for (const m of members) {
+            try {
+                await pgDb.run(`
+                    INSERT INTO hub.sms_logs (recipient, message, sender_id, status, source, created_by)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                `, [(m.mobile_phone || '').replace(/\D/g, ''), smsText, frizbi.sender_id || 'IVRY', 'sent', 'ecole_notify', 'system']);
+            } catch (logErr) {
+                console.error('[LIVE] Failed to log SMS:', logErr.message);
+            }
+        }
+
         console.log(`[LIVE] SMS sent to ${members.length} agent(s) for ecole session #${session.id}`);
     } catch (e) {
         console.error('[LIVE] notifyEcoleGroup error:', e.message);
@@ -1050,6 +1062,18 @@ async function sendEmergencyMessage(req, res) {
                             })),
                         }, { headers: { Authorization: `Bearer ${frizbiToken}` } });
                         results.sms = smsContacts.map(c => c.mobile_phone);
+                        // Log SMS for each emergency contact
+                        const emergMsg = `[DSI URGENCE] Session #${id}: ${msgText}`;
+                        for (const c of smsContacts) {
+                            try {
+                                await pgDb.run(`
+                                    INSERT INTO hub.sms_logs (recipient, message, sender_id, status, source, created_by)
+                                    VALUES ($1, $2, $3, $4, $5, $6)
+                                `, [(c.mobile_phone || '').replace(/\D/g, ''), emergMsg, frizbi.sender_id || 'IVRY', 'sent', 'emergency', req.user?.username || 'system']);
+                            } catch (logErr) {
+                                console.error('[LIVE] Failed to log emergency SMS:', logErr.message);
+                            }
+                        }
                     }
                 }
             } catch (e) {

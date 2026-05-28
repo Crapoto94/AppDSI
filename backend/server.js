@@ -1562,10 +1562,31 @@ app.get('/api/admin/rh/logs', authenticateAdmin, async (req, res) => {
     }
 });
 
+// ── Helper: log SMS to hub.sms_logs ──────────────────────────────────
+async function logSmsSend({ recipient, message, sender_id, status, error_message, source, created_by }) {
+    try {
+        await pgDb.run(`
+            INSERT INTO hub.sms_logs (recipient, message, sender_id, status, error_message, source, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [recipient, message, sender_id || 'IVRY', status || 'sent', error_message || null, source || 'system', created_by || null]);
+    } catch (e) {
+        console.error('[SMS_LOG] Failed to write log:', e.message);
+    }
+}
+
 // --- Paramètres Frizbi SMS ---
 
 app.get('/api/frizbi-test-public', (req, res) => {
     res.json({ message: 'Public Frizbi Route Reachable' });
+});
+
+app.get('/api/admin/frizbi/sms-logs', authenticateAdmin, async (req, res) => {
+    try {
+        const logs = await pgDb.all('SELECT * FROM hub.sms_logs ORDER BY sent_at DESC LIMIT 200');
+        res.json(logs);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lecture logs SMS', error: error.message });
+    }
 });
 
 app.get('/api/admin/frizbi-settings', authenticateAdmin, async (req, res) => {
@@ -1616,6 +1637,7 @@ app.post('/api/admin/frizbi/test-connection', authenticateAdmin, async (req, res
 app.post('/api/admin/frizbi/send-test', authenticateAdmin, async (req, res) => {
     const { mobile, message } = req.body;
     const username = req.user?.username || 'admin';
+    const smsMessage = message || "Ceci est un test de l'API HubDSI Ivry.";
     try {
         const settings = await db.get('SELECT * FROM frizbi_settings WHERE id = 1');
         if (!settings) throw new Error('Paramètres Frizbi non configurés');
@@ -1632,7 +1654,7 @@ app.post('/api/admin/frizbi/send-test', authenticateAdmin, async (req, res) => {
             customerSmsId: `test_${Date.now()}`,
             date: new Date().toISOString(),
             title: 'Test HubDSI',
-            message: message || "Ceci est un test de l'API HubDSI Ivry.",
+            message: smsMessage,
             customerSenderId: settings.sender_id,
             smsContacts: [
                 {
@@ -1646,11 +1668,31 @@ app.post('/api/admin/frizbi/send-test', authenticateAdmin, async (req, res) => {
             headers: { Authorization: `Bearer ${token}` }
         });
 
+        await logSmsSend({
+            recipient: mobile,
+            message: smsMessage,
+            sender_id: settings.sender_id,
+            status: 'sent',
+            source: 'test',
+            created_by: username,
+        });
+
         res.json({ success: true, data: sendRes.data });
     } catch (error) {
         const errData = error.response?.data;
         console.error('Test SMS Error:', errData || error.message);
         const detail = errData?.detail || errData?.message || errData?.title || error.message;
+
+        await logSmsSend({
+            recipient: mobile || 'unknown',
+            message: smsMessage,
+            sender_id: settings?.sender_id || 'IVRY',
+            status: 'failed',
+            error_message: detail,
+            source: 'test',
+            created_by: username,
+        });
+
         res.status(error.response?.status || 500).json({
             success: false,
             message: detail,

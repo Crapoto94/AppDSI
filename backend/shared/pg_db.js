@@ -2856,6 +2856,22 @@ async function setupPgDb() {
     `);
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_email_logs_sent_at ON hub.email_logs(sent_at DESC)`); } catch (e) {}
 
+    // Journal de tous les SMS envoyés via Frizbi
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.sms_logs (
+        id SERIAL PRIMARY KEY,
+        recipient TEXT NOT NULL,
+        message TEXT,
+        sender_id TEXT DEFAULT 'IVRY',
+        status TEXT DEFAULT 'sent',
+        error_message TEXT,
+        source TEXT DEFAULT 'system',
+        created_by TEXT,
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_sms_logs_sent_at ON hub.sms_logs(sent_at DESC)`); } catch (e) {}
+
     // Table de notes génériques pour toutes les tâches (Mes Tâches)
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.task_notes (
