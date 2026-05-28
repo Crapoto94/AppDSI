@@ -471,7 +471,7 @@ export default function CopieursKPI() {
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
                 <Pie data={donutData} cx="50%" cy="50%" innerRadius={45} outerRadius={72} dataKey="value" paddingAngle={3}
-                  label={({ name, percent }: { name: string; percent?: number }) => `${((percent ?? 0) * 100).toFixed(0)}%`} labelLine={false}>
+                  label={({ percent }: { percent?: number }) => `${((percent ?? 0) * 100).toFixed(0)}%`} labelLine={false}>
                   {donutData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
                 </Pie>
                 <Tooltip formatter={(v: any) => fmtM(Number(v))} />
