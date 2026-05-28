@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
 import { MapContainer, TileLayer, Marker, Popup, GeoJSON } from 'react-leaflet';
 import L from 'leaflet';
-import { Printer, Plus, Edit3, Archive, MapPin, List, Trash2, Download, Search, X, Building2, School, ArrowUpDown, ArrowUp, ArrowDown, Filter, Move, History } from 'lucide-react';
+import { Printer, Plus, Edit3, Archive, MapPin, List, Trash2, Download, Search, X, Building2, School, ArrowUpDown, ArrowUp, ArrowDown, Filter, Move, History, Gauge, ChevronDown, ChevronRight, Euro, BarChart2 } from 'lucide-react';
 import axios from 'axios';
 import 'leaflet/dist/leaflet.css';
 
@@ -65,6 +65,40 @@ interface CopieurForm {
   archive: boolean;
   latitude: string;
   longitude: string;
+}
+
+interface Tarif {
+  id: number;
+  compteur_id: number;
+  tarif: string;
+  date_debut: string;
+  date_fin: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+interface Releve {
+  id: number;
+  compteur_id: number;
+  date_releve: string;
+  valeur: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+interface Compteur {
+  id: number;
+  copieur_id: number;
+  code: string;
+  libelle: string;
+  description: string;
+  format: string;
+  couleur: boolean;
+  created_at: string;
+  tarifs: Tarif[] | null;
+  releves: Releve[] | null;
+  tarif_actuel: string | null;
+  tarif_actuel_id: number | null;
 }
 
 const emptyForm: CopieurForm = {
@@ -135,6 +169,26 @@ const Copieurs: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [submittingVisite, setSubmittingVisite] = useState(false);
   const [activeLightbox, setActiveLightbox] = useState<string | null>(null);
+
+  // ── Compteurs ──────────────────────────────────────────────────────────────
+  const [showCompteursModal, setShowCompteursModal] = useState(false);
+  const [compteursTarget, setCompteursTarget] = useState<Copieur | null>(null);
+  const [compteurs, setCompteurs] = useState<Compteur[]>([]);
+  const [loadingCompteurs, setLoadingCompteurs] = useState(false);
+  const [expandedCompteur, setExpandedCompteur] = useState<number | null>(null);
+  const [expandedSection, setExpandedSection] = useState<Record<number, 'tarifs' | 'releves' | null>>({});
+  // Formulaire nouveau compteur
+  const [showCompteurForm, setShowCompteurForm] = useState(false);
+  const [editingCompteur, setEditingCompteur] = useState<Compteur | null>(null);
+  const [compteurForm, setCompteurForm] = useState({ code: '', libelle: '', description: '', format: '', couleur: false });
+  const [savingCompteur, setSavingCompteur] = useState(false);
+  // Formulaire tarif
+  const [tarifForms, setTarifForms] = useState<Record<number, { tarif: string; date_debut: string; date_fin: string }>>({});
+  const [savingTarif, setSavingTarif] = useState<Record<number, boolean>>({});
+  const [editingTarif, setEditingTarif] = useState<Record<number, Tarif | null>>({});
+  // Formulaire relevé
+  const [releveForms, setReleveForms] = useState<Record<number, { date_releve: string; valeur: string }>>({});
+  const [savingReleve, setSavingReleve] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     axios.get('/api/copieurs/boundary').then(r => setIvryBoundary(r.data)).catch(() => {});
@@ -382,6 +436,119 @@ const Copieurs: React.FC = () => {
       setCopieurIntervList(res.data);
     } catch {}
     finally { setLoadingCopieurInterv(false); }
+  };
+
+  // ── Fonctions Compteurs ────────────────────────────────────────────────────
+
+  const fetchCompteurs = async (copieurId: number) => {
+    setLoadingCompteurs(true);
+    try {
+      const res = await api.get(`/${copieurId}/compteurs`);
+      setCompteurs(res.data);
+    } catch { setCompteurs([]); }
+    finally { setLoadingCompteurs(false); }
+  };
+
+  const openCompteursModal = async (c: Copieur) => {
+    setCompteursTarget(c);
+    setShowCompteursModal(true);
+    setExpandedCompteur(null);
+    setExpandedSection({});
+    setShowCompteurForm(false);
+    setEditingCompteur(null);
+    setCompteurForm({ code: '', libelle: '', description: '', format: '', couleur: false });
+    setTarifForms({});
+    setReleveForms({});
+    await fetchCompteurs(c.id);
+  };
+
+  const handleSaveCompteur = async () => {
+    if (!compteursTarget || !compteurForm.code.trim()) return;
+    setSavingCompteur(true);
+    try {
+      if (editingCompteur) {
+        await api.put(`/${compteursTarget.id}/compteurs/${editingCompteur.id}`, compteurForm);
+      } else {
+        await api.post(`/${compteursTarget.id}/compteurs`, compteurForm);
+      }
+      setShowCompteurForm(false);
+      setEditingCompteur(null);
+      setCompteurForm({ code: '', libelle: '', description: '', format: '', couleur: false });
+      await fetchCompteurs(compteursTarget.id);
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la sauvegarde');
+    } finally { setSavingCompteur(false); }
+  };
+
+  const handleDeleteCompteur = async (compteurId: number) => {
+    if (!compteursTarget || !confirm('Supprimer ce compteur et tous ses tarifs/relevés ?')) return;
+    try {
+      await api.delete(`/${compteursTarget.id}/compteurs/${compteurId}`);
+      await fetchCompteurs(compteursTarget.id);
+      if (expandedCompteur === compteurId) setExpandedCompteur(null);
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur suppression');
+    }
+  };
+
+  const handleAddTarif = async (compteur: Compteur) => {
+    if (!compteursTarget) return;
+    const form = tarifForms[compteur.id];
+    if (!form?.tarif || !form?.date_debut) return;
+    setSavingTarif(p => ({ ...p, [compteur.id]: true }));
+    try {
+      await api.post(`/${compteursTarget.id}/compteurs/${compteur.id}/tarifs`, form);
+      setTarifForms(p => ({ ...p, [compteur.id]: { tarif: '', date_debut: '', date_fin: '' } }));
+      await fetchCompteurs(compteursTarget.id);
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur ajout tarif');
+    } finally { setSavingTarif(p => ({ ...p, [compteur.id]: false })); }
+  };
+
+  const handleDeleteTarif = async (compteur: Compteur, tarifId: number) => {
+    if (!compteursTarget || !confirm('Supprimer ce tarif ?')) return;
+    try {
+      await api.delete(`/${compteursTarget.id}/compteurs/${compteur.id}/tarifs/${tarifId}`);
+      await fetchCompteurs(compteursTarget.id);
+    } catch { alert('Erreur suppression tarif'); }
+  };
+
+  const handleAddReleve = async (compteur: Compteur) => {
+    if (!compteursTarget) return;
+    const form = releveForms[compteur.id];
+    if (!form?.date_releve || form?.valeur === '') return;
+    setSavingReleve(p => ({ ...p, [compteur.id]: true }));
+    try {
+      await api.post(`/${compteursTarget.id}/compteurs/${compteur.id}/releves`, { date_releve: form.date_releve, valeur: parseInt(form.valeur) });
+      setReleveForms(p => ({ ...p, [compteur.id]: { date_releve: '', valeur: '' } }));
+      await fetchCompteurs(compteursTarget.id);
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur ajout relevé');
+    } finally { setSavingReleve(p => ({ ...p, [compteur.id]: false })); }
+  };
+
+  const handleDeleteReleve = async (compteur: Compteur, releveId: number) => {
+    if (!compteursTarget || !confirm('Supprimer ce relevé ?')) return;
+    try {
+      await api.delete(`/${compteursTarget.id}/compteurs/${compteur.id}/releves/${releveId}`);
+      await fetchCompteurs(compteursTarget.id);
+    } catch { alert('Erreur suppression relevé'); }
+  };
+
+  const toggleCompteurSection = (compteurId: number, section: 'tarifs' | 'releves') => {
+    setExpandedSection(p => ({ ...p, [compteurId]: p[compteurId] === section ? null : section }));
+  };
+
+  const fmtDate = (d: string | null) => {
+    if (!d) return '—';
+    const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : d;
+  };
+
+  const fmtTarif = (t: string | null) => {
+    if (!t) return '—';
+    const n = parseFloat(t);
+    return isNaN(n) ? t : `${n.toFixed(5)} €`;
   };
 
   const openVisitesModal = async (c: Copieur) => {
@@ -829,6 +996,7 @@ const Copieurs: React.FC = () => {
                           <button className="btn-icon" title="Modifier" onClick={() => handleEdit(c)}><Edit3 size={15} /></button>
                           <button className="btn-icon" title={c.archive ? 'Désarchiver' : 'Archiver'} onClick={() => handleArchive(c.id)}><Archive size={15} /></button>
                           <button className="btn-icon" title="Déménager" onClick={() => openMoveModal(c)}><Move size={15} /></button>
+                          <button className="btn-icon" title="Compteurs" onClick={() => openCompteursModal(c)} style={{ color: '#0891b2' }}><Gauge size={15} /></button>
                           <button className="btn-icon btn-icon-danger" title="Supprimer" onClick={() => handleDelete(c.id)}><Trash2 size={15} /></button>
                         </div>
                       </td>
@@ -1630,6 +1798,279 @@ const Copieurs: React.FC = () => {
         </div>
       )}
 
+      {/* ── Modal Compteurs ── */}
+      {showCompteursModal && compteursTarget && (
+        <div className="modal-overlay" onClick={() => setShowCompteursModal(false)}>
+          <div className="modal modal-compteurs" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 style={{ marginBottom: 2 }}>Compteurs — <code style={{ fontSize: 18, background: '#ecfeff', color: '#0891b2', padding: '2px 8px', borderRadius: 6 }}>{compteursTarget.numero_serie}</code></h2>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{compteursTarget.direction}{compteursTarget.service ? ` / ${compteursTarget.service}` : ''} — {compteursTarget.modele}</p>
+              </div>
+              <button className="btn-icon" onClick={() => setShowCompteursModal(false)}><X size={20} /></button>
+            </div>
+
+            <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+              {/* Bouton Nouveau compteur */}
+              {!showCompteurForm ? (
+                <button className="btn btn-primary" style={{ alignSelf: 'flex-start', background: '#0891b2' }}
+                  onClick={() => { setShowCompteurForm(true); setEditingCompteur(null); setCompteurForm({ code: '', libelle: '', description: '', format: '', couleur: false }); }}>
+                  <Plus size={15} /> Nouveau compteur
+                </button>
+              ) : (
+                <div style={{ background: '#f0fdff', border: '1px solid #a5f3fc', borderRadius: 14, padding: 20 }}>
+                  <h3 style={{ margin: '0 0 14px 0', fontSize: 14, fontWeight: 700, color: '#0e7490' }}>
+                    {editingCompteur ? `Modifier le compteur ${editingCompteur.code}` : 'Nouveau compteur'}
+                  </h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+                    <div className="form-group">
+                      <label>Code *</label>
+                      <input type="text" value={compteurForm.code} onChange={e => setCompteurForm(p => ({ ...p, code: e.target.value }))} placeholder="ex: 101" />
+                    </div>
+                    <div className="form-group">
+                      <label>Format</label>
+                      <select value={compteurForm.format} onChange={e => setCompteurForm(p => ({ ...p, format: e.target.value }))} style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none' }}>
+                        <option value="">—</option>
+                        <option>A4</option>
+                        <option>A3</option>
+                        <option>A5</option>
+                        <option>Autre</option>
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ justifyContent: 'center' }}>
+                      <label>Couleur</label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 8 }}>
+                        <input type="checkbox" checked={compteurForm.couleur} onChange={e => setCompteurForm(p => ({ ...p, couleur: e.target.checked }))} style={{ width: 16, height: 16 }} />
+                        <span style={{ fontSize: 14 }}>Impression couleur</span>
+                      </label>
+                    </div>
+                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                      <label>Libellé</label>
+                      <input type="text" value={compteurForm.libelle} onChange={e => setCompteurForm(p => ({ ...p, libelle: e.target.value }))} placeholder="ex: A4 monochrome" />
+                    </div>
+                    <div className="form-group" style={{ gridColumn: 'span 3' }}>
+                      <label>Description</label>
+                      <input type="text" value={compteurForm.description} onChange={e => setCompteurForm(p => ({ ...p, description: e.target.value }))} placeholder="Détails supplémentaires..." />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button className="btn btn-outline" onClick={() => { setShowCompteurForm(false); setEditingCompteur(null); }}>Annuler</button>
+                    <button className="btn btn-primary" style={{ background: '#0891b2' }} disabled={!compteurForm.code.trim() || savingCompteur} onClick={handleSaveCompteur}>
+                      {savingCompteur ? 'Enregistrement...' : editingCompteur ? 'Mettre à jour' : 'Créer'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Liste des compteurs */}
+              {loadingCompteurs ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>⏳ Chargement...</div>
+              ) : compteurs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', border: '1px dashed #e2e8f0', borderRadius: 12, fontStyle: 'italic' }}>
+                  Aucun compteur configuré pour ce copieur.
+                </div>
+              ) : compteurs.map(compteur => (
+                <div key={compteur.id} style={{ border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden', background: '#fff' }}>
+                  {/* En-tête compteur */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: '#f8fafc', cursor: 'pointer', borderBottom: expandedCompteur === compteur.id ? '1px solid #e2e8f0' : 'none' }}
+                    onClick={() => setExpandedCompteur(expandedCompteur === compteur.id ? null : compteur.id)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#64748b' }}>
+                      {expandedCompteur === compteur.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 800, color: '#0891b2', background: '#ecfeff', padding: '2px 10px', borderRadius: 8 }}>{compteur.code}</span>
+                      {compteur.libelle && <span style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>{compteur.libelle}</span>}
+                      {compteur.format && <span style={{ fontSize: 11, background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>{compteur.format}</span>}
+                      {compteur.couleur
+                        ? <span style={{ fontSize: 11, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: 6, fontWeight: 700 }}>🎨 Couleur</span>
+                        : <span style={{ fontSize: 11, background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>⚫ Mono</span>}
+                      {compteur.tarif_actuel && (
+                        <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700, color: '#16a34a', background: '#f0fdf4', padding: '3px 10px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Euro size={12} /> {fmtTarif(compteur.tarif_actuel)} / page
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                      <button className="btn-icon" title="Modifier" onClick={() => { setEditingCompteur(compteur); setCompteurForm({ code: compteur.code, libelle: compteur.libelle, description: compteur.description, format: compteur.format, couleur: compteur.couleur }); setShowCompteurForm(true); }}><Edit3 size={14} /></button>
+                      <button className="btn-icon btn-icon-danger" title="Supprimer" onClick={() => handleDeleteCompteur(compteur.id)}><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+
+                  {/* Détail expandé */}
+                  {expandedCompteur === compteur.id && (
+                    <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      {compteur.description && <p style={{ margin: 0, fontSize: 13, color: '#64748b', fontStyle: 'italic' }}>{compteur.description}</p>}
+
+                      {/* ── Tarifs ── */}
+                      <div>
+                        <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: '#0f172a', padding: '4px 0', marginBottom: 8 }}
+                          onClick={() => toggleCompteurSection(compteur.id, 'tarifs')}>
+                          <Euro size={14} style={{ color: '#16a34a' }} />
+                          Tarifs ({(compteur.tarifs || []).length})
+                          {expandedSection[compteur.id] === 'tarifs' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        </button>
+
+                        {expandedSection[compteur.id] === 'tarifs' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {(compteur.tarifs || []).length > 0 && (
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                <thead>
+                                  <tr style={{ background: '#f8fafc' }}>
+                                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Tarif (€/page)</th>
+                                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Date début</th>
+                                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Date fin</th>
+                                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Ajouté par</th>
+                                    <th style={{ width: 40, borderBottom: '1px solid #e2e8f0' }}></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(compteur.tarifs || []).map(t => {
+                                    const isActif = t.id === compteur.tarif_actuel_id;
+                                    return (
+                                      <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9', background: isActif ? '#f0fdf4' : undefined }}>
+                                        <td style={{ padding: '8px 12px', fontWeight: 700, color: isActif ? '#16a34a' : '#334155' }}>
+                                          {fmtTarif(t.tarif)} {isActif && <span style={{ fontSize: 10, background: '#dcfce7', color: '#16a34a', padding: '1px 6px', borderRadius: 6, fontWeight: 700 }}>ACTIF</span>}
+                                        </td>
+                                        <td style={{ padding: '8px 12px', color: '#475569' }}>{fmtDate(t.date_debut)}</td>
+                                        <td style={{ padding: '8px 12px', color: t.date_fin ? '#475569' : '#94a3b8', fontStyle: t.date_fin ? 'normal' : 'italic' }}>{t.date_fin ? fmtDate(t.date_fin) : 'En cours'}</td>
+                                        <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 12 }}>{t.created_by || '—'}</td>
+                                        <td style={{ padding: '8px 12px' }}>
+                                          <button className="btn-icon btn-icon-danger" onClick={() => handleDeleteTarif(compteur, t.id)}><Trash2 size={13} /></button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+
+                            {/* Formulaire ajout tarif */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, alignItems: 'flex-end', background: '#f8fafc', padding: 12, borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                              <div className="form-group">
+                                <label style={{ fontSize: 11 }}>Tarif (€/page) *</label>
+                                <input type="number" step="0.000001" min="0" placeholder="0.000500"
+                                  value={tarifForms[compteur.id]?.tarif || ''}
+                                  onChange={e => setTarifForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], tarif: e.target.value } }))} />
+                              </div>
+                              <div className="form-group">
+                                <label style={{ fontSize: 11 }}>Date début *</label>
+                                <input type="date"
+                                  value={tarifForms[compteur.id]?.date_debut || ''}
+                                  onChange={e => setTarifForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], date_debut: e.target.value } }))} />
+                              </div>
+                              <div className="form-group">
+                                <label style={{ fontSize: 11 }}>Date fin <span style={{ color: '#94a3b8' }}>(optionnel)</span></label>
+                                <input type="date"
+                                  value={tarifForms[compteur.id]?.date_fin || ''}
+                                  onChange={e => setTarifForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], date_fin: e.target.value } }))} />
+                              </div>
+                              <button className="btn btn-primary" style={{ background: '#16a34a', padding: '8px 14px', height: 38, alignSelf: 'flex-end' }}
+                                disabled={!tarifForms[compteur.id]?.tarif || !tarifForms[compteur.id]?.date_debut || savingTarif[compteur.id]}
+                                onClick={() => handleAddTarif(compteur)}>
+                                {savingTarif[compteur.id] ? '...' : <Plus size={15} />}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── Relevés ── */}
+                      <div>
+                        <button style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, color: '#0f172a', padding: '4px 0', marginBottom: 8 }}
+                          onClick={() => toggleCompteurSection(compteur.id, 'releves')}>
+                          <BarChart2 size={14} style={{ color: '#7c3aed' }} />
+                          Relevés ({(compteur.releves || []).length})
+                          {expandedSection[compteur.id] === 'releves' ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        </button>
+
+                        {expandedSection[compteur.id] === 'releves' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {(compteur.releves || []).length > 0 && (() => {
+                              const sorted = [...(compteur.releves || [])].sort((a, b) => a.date_releve < b.date_releve ? -1 : 1);
+                              return (
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                  <thead>
+                                    <tr style={{ background: '#f8fafc' }}>
+                                      <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Date</th>
+                                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Valeur</th>
+                                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Δ pages</th>
+                                      <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', borderBottom: '1px solid #e2e8f0' }}>Montant estimé</th>
+                                      <th style={{ padding: '8px 12px', fontWeight: 700, color: '#64748b', fontSize: 11, borderBottom: '1px solid #e2e8f0' }}>Saisi par</th>
+                                      <th style={{ width: 40, borderBottom: '1px solid #e2e8f0' }}></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {sorted.map((r, idx) => {
+                                      const prev = idx > 0 ? sorted[idx - 1] : null;
+                                      const delta = prev ? r.valeur - prev.valeur : null;
+                                      // Trouver le tarif applicable à cette date
+                                      const tarifsArr = compteur.tarifs || [];
+                                      const tarifApplicable = tarifsArr.find(t =>
+                                        t.date_debut <= r.date_releve && (t.date_fin === null || t.date_fin >= r.date_releve)
+                                      );
+                                      const montant = delta !== null && tarifApplicable ? delta * parseFloat(tarifApplicable.tarif) : null;
+                                      return (
+                                        <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                          <td style={{ padding: '8px 12px', fontWeight: 600, color: '#334155' }}>{fmtDate(r.date_releve)}</td>
+                                          <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace', color: '#475569' }}>{r.valeur.toLocaleString('fr-FR')}</td>
+                                          <td style={{ padding: '8px 12px', textAlign: 'right', color: delta !== null && delta < 0 ? '#dc2626' : '#7c3aed', fontWeight: 600 }}>
+                                            {delta !== null ? `+${delta.toLocaleString('fr-FR')}` : '—'}
+                                          </td>
+                                          <td style={{ padding: '8px 12px', textAlign: 'right', color: '#16a34a', fontWeight: 600 }}>
+                                            {montant !== null ? `${montant.toFixed(2)} €` : '—'}
+                                          </td>
+                                          <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 12 }}>{r.created_by || '—'}</td>
+                                          <td style={{ padding: '8px 12px' }}>
+                                            <button className="btn-icon btn-icon-danger" onClick={() => handleDeleteReleve(compteur, r.id)}><Trash2 size={13} /></button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              );
+                            })()}
+
+                            {/* Formulaire ajout relevé */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'flex-end', background: '#f8fafc', padding: 12, borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                              <div className="form-group">
+                                <label style={{ fontSize: 11 }}>Date du relevé *</label>
+                                <input type="date"
+                                  value={releveForms[compteur.id]?.date_releve || ''}
+                                  onChange={e => setReleveForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], date_releve: e.target.value } }))} />
+                              </div>
+                              <div className="form-group">
+                                <label style={{ fontSize: 11 }}>Valeur du compteur *</label>
+                                <input type="number" min="0" step="1" placeholder="Ex: 1234567"
+                                  value={releveForms[compteur.id]?.valeur || ''}
+                                  onChange={e => setReleveForms(p => ({ ...p, [compteur.id]: { ...p[compteur.id], valeur: e.target.value } }))} />
+                              </div>
+                              <button className="btn btn-primary" style={{ background: '#7c3aed', padding: '8px 14px', height: 38, alignSelf: 'flex-end' }}
+                                disabled={!releveForms[compteur.id]?.date_releve || !releveForms[compteur.id]?.valeur || savingReleve[compteur.id]}
+                                onClick={() => handleAddReleve(compteur)}>
+                                {savingReleve[compteur.id] ? '...' : <Plus size={15} />}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="modal-footer">
+              <span style={{ fontSize: 12, color: '#94a3b8', marginRight: 'auto' }}>
+                <strong style={{ color: '#0891b2' }}>{compteurs.length}</strong> compteur{compteurs.length !== 1 ? 's' : ''} configuré{compteurs.length !== 1 ? 's' : ''}
+              </span>
+              <button className="btn btn-outline" onClick={() => setShowCompteursModal(false)}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeLightbox && (
         <div className="lightbox-overlay" onClick={() => setActiveLightbox(null)} style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: 20 }}>
           <button style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 40, height: 40, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setActiveLightbox(null)}>
@@ -1824,6 +2265,7 @@ const Copieurs: React.FC = () => {
           transform: translateY(-1px);
           transition: all 0.2s ease;
         }
+        .modal-compteurs { max-width: 860px; width: 100%; }
       `}</style>
     </div>
   );

@@ -38,4 +38,21 @@ router.get('/:id/visites', authenticateJWT, copieursController.getVisites);
 router.post('/:id/visites', authenticateJWT, uploadExcel.array('photos', 10), copieursController.addVisite);
 router.delete('/:id/visites/:visiteId', authenticateJWT, copieursController.deleteVisite);
 
+// ─── Compteurs ────────────────────────────────────────────────────────────────
+router.get('/:id/compteurs',                                              authenticateJWT, copieursController.getCompteurs);
+router.post('/:id/compteurs',                                             authenticateJWT, copieursController.createCompteur);
+router.put('/:id/compteurs/:compteurId',                                  authenticateJWT, copieursController.updateCompteur);
+router.delete('/:id/compteurs/:compteurId',                               authenticateJWT, copieursController.deleteCompteur);
+
+// ─── Tarifs ───────────────────────────────────────────────────────────────────
+router.get('/:id/compteurs/:compteurId/tarifs',                           authenticateJWT, copieursController.getTarifs);
+router.post('/:id/compteurs/:compteurId/tarifs',                          authenticateJWT, copieursController.createTarif);
+router.put('/:id/compteurs/:compteurId/tarifs/:tarifId',                  authenticateJWT, copieursController.updateTarif);
+router.delete('/:id/compteurs/:compteurId/tarifs/:tarifId',               authenticateJWT, copieursController.deleteTarif);
+
+// ─── Relevés ──────────────────────────────────────────────────────────────────
+router.get('/:id/compteurs/:compteurId/releves',                          authenticateJWT, copieursController.getReleves);
+router.post('/:id/compteurs/:compteurId/releves',                         authenticateJWT, copieursController.createReleve);
+router.delete('/:id/compteurs/:compteurId/releves/:releveId',             authenticateJWT, copieursController.deleteReleve);
+
 module.exports = router;
