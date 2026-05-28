@@ -25,37 +25,83 @@ type SortDir = 'asc' | 'desc';
 const ROLES = ['Maire', 'Adjoint', 'Conseiller municipal'];
 
 const CATEGORY_ICONS: Record<string, string> = {
-  'ESPACES VERTS': '🌳',
-  'SPORTIF': '⚽',
-  'ADMINISTRATIF': '🏛️',
+  'ESPACES VERTS':        '🌳',
+  'SPORTIF':              '⚽',
+  'ADMINISTRATIF':        '🏛️',
   'AUTRE ADMINISTRATION': '🏢',
-  'LOGEMENT': '🏠',
-  'ACTIVITES': '🎯',
-  'HANG': '🏭',
-  'SCOLAIRE': '🏫',
-  'CULTE': '⛪',
-  'CULTUREL': '🎭',
-  'TECHNIQUE': '🔧',
-  'PARKING': '🅿️',
-  'SANITAIRES': '🚽',
-  'EQUIPEMENT': '⚙️',
+  'LOGEMENT':             '🏠',
+  'ACTIVITES':            '🎯',
+  'HANG':                 '🏭',
+  'SCOLAIRE':             '🏫',
+  'CULTE':                '⛪',
+  'CULTUREL':             '🎭',
+  'TECHNIQUE':            '🔧',
+  'PARKING':              '🅿️',
+  'SANITAIRES':           '🚽',
+  'EQUIPEMENT':           '⚙️',
+  'PRIVE OPERATIONNEL':   '🏗️',
+  'PRIVE HORS OPERATION': '🚧',
+  'PRIVE':                '🔒',
+  'ASSOCIATIF':           '🤝',
+  'SOCIAL / ASSOCIATIF':  '🤲',
+  'SOCIAL':               '🫂',
+  'PETITE ENFANCE':       '👶',
+  'CITE':                 '🏘️',
+  'FOYER':                '🏡',
+  'CENTRE DE VACANCES':   '🏖️',
+  'CENTRE DE LOISIRS':    '🎠',
+  'MAISON DE QUARTIER':   '🏘️',
+  'CIMETIERE':            '🪦',
+  'LOCAL TECHNIQUE':      '🔩',
+  'SANTE':                '🏥',
+  'STATIONNEMENT':        '🅿️',
+  'SANS AFFECTATION':     '❓',
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  'ESPACES VERTS': '#16a34a',
-  'SPORTIF': '#ea580c',
-  'ADMINISTRATIF': '#2563eb',
+  'ESPACES VERTS':        '#16a34a',
+  'SPORTIF':              '#ea580c',
+  'ADMINISTRATIF':        '#2563eb',
   'AUTRE ADMINISTRATION': '#7c3aed',
-  'LOGEMENT': '#db2777',
-  'ACTIVITES': '#ca8a04',
-  'HANG': '#4b5563',
-  'SCOLAIRE': '#0891b2',
-  'CULTE': '#9333ea',
-  'CULTUREL': '#c026d3',
-  'TECHNIQUE': '#0f766e',
-  'PARKING': '#374151',
-  'SANITAIRES': '#0284c7',
-  'EQUIPEMENT': '#7c3aed',
+  'LOGEMENT':             '#db2777',
+  'ACTIVITES':            '#ca8a04',
+  'HANG':                 '#4b5563',
+  'SCOLAIRE':             '#0891b2',
+  'CULTE':                '#9333ea',
+  'CULTUREL':             '#c026d3',
+  'TECHNIQUE':            '#0f766e',
+  'PARKING':              '#374151',
+  'SANITAIRES':           '#0284c7',
+  'EQUIPEMENT':           '#7c3aed',
+  'PRIVE OPERATIONNEL':   '#0369a1',
+  'PRIVE HORS OPERATION': '#92400e',
+  'PRIVE':                '#374151',
+  'ASSOCIATIF':           '#0891b2',
+  'SOCIAL / ASSOCIATIF':  '#0e7490',
+  'SOCIAL':               '#0e7490',
+  'PETITE ENFANCE':       '#ec4899',
+  'CITE':                 '#7c3aed',
+  'FOYER':                '#be185d',
+  'CENTRE DE VACANCES':   '#0284c7',
+  'CENTRE DE LOISIRS':    '#d97706',
+  'MAISON DE QUARTIER':   '#6d28d9',
+  'CIMETIERE':            '#1e293b',
+  'LOCAL TECHNIQUE':      '#334155',
+  'SANTE':                '#dc2626',
+  'STATIONNEMENT':        '#475569',
+  'SANS AFFECTATION':     '#9ca3af',
+};
+
+// "3-5-7 PLACE MARCEL CACHIN" → "3 PLACE MARCEL CACHIN"
+const parseAddress = (adresse: string): string => {
+  // Garder seulement le premier numéro si la rue a un format "N1-N2-N3 NOM RUE"
+  return adresse.replace(/^(\d+)(?:-\d+)+\s+/, '$1 ').trim();
+};
+
+const isCentreDeVacances = (site: Site): boolean => {
+  const nom = (site.nom || '').toUpperCase();
+  const cat = (site.categorie || '').toUpperCase();
+  return cat === 'CENTRE DE VACANCES' || nom.includes('VACANCES') || nom.includes('COLONIE') || nom.includes('SÉJOUR');
 };
 
 const getCategoryEmoji = (cat?: string): string =>
@@ -315,7 +361,9 @@ export default function ParamVille() {
       setGeocodingProgress(i + 1);
       if (site.adresse) {
         try {
-          const query = `${site.adresse}, ${city}, France`;
+          const cleanAddr = parseAddress(site.adresse);
+          const cityPart = isCentreDeVacances(site) ? '' : `, ${city}`;
+          const query = `${cleanAddr}${cityPart}, France`;
           const res = await fetch(
             `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
             { headers: { 'User-Agent': 'AppDSI-Ville/1.0' } }
@@ -335,7 +383,7 @@ export default function ParamVille() {
             // Sauvegarde en BDD (sans bloquer)
             if (site.id) {
               axios.patch(`/api/ville/sites/${site.id}/geocode`, { lat, lng }, { headers: getHeaders() })
-                .catch(() => { /* ignore */ });
+                .catch(err => console.warn(`[Géocodage] Échec sauvegarde ${site.code_bien}:`, err.message));
             }
           }
         } catch { /* skip */ }
