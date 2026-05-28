@@ -1528,19 +1528,45 @@ module.exports = {
                 .sort((a, b) => b.totalPages - a.totalPages).slice(0, 10);
 
             // Top 10 croissance / décroissance (année N vs N-1)
+            // Si lastYear est l'année en cours (incomplète), on projette au 31/12 au prorata
             let top10Growing = [], top10Shrinking = [];
-            const lastYear = years[years.length - 1];
-            const prevYear = years.length >= 2 ? years[years.length - 2] : null;
+            const currentYear  = new Date().getFullYear();
+            const lastYear     = years[years.length - 1];
+            const prevYear     = years.length >= 2 ? years[years.length - 2] : null;
+
+            // Fraction d'année écoulée : du 1er janvier au dernier relevé connu dans l'année
+            // On utilise la date du dernier relevé dans lastYear (ou aujourd'hui si lastYear < currentYear)
+            let yearFraction = 1; // 1 = année complète
+            let isProjected  = false;
+            if (lastYear === currentYear) {
+                // Trouver le dernier relevé dans l'année courante tous copieurs confondus
+                const lastReleves = deltaRes.rows
+                    .filter(r => Number(r.year) === currentYear)
+                    .map(r => new Date(r.date_releve));
+                const latestDate = lastReleves.length > 0
+                    ? new Date(Math.max(...lastReleves.map(d => d.getTime())))
+                    : new Date(); // fallback : aujourd'hui
+                const startOfYear = new Date(currentYear, 0, 1);
+                const endOfYear   = new Date(currentYear, 11, 31);
+                yearFraction  = Math.max(0.01, (latestDate - startOfYear) / (endOfYear - startOfYear));
+                isProjected   = true;
+            }
+
             if (prevYear) {
                 const withGrowth = copieurList
                     .filter(c => c.byYear[lastYear] && c.byYear[prevYear])
                     .map(c => {
-                        const last = (c.byYear[lastYear]?.deltaNB || 0) + (c.byYear[lastYear]?.deltaCoul || 0);
+                        const lastRaw = (c.byYear[lastYear]?.deltaNB || 0) + (c.byYear[lastYear]?.deltaCoul || 0);
+                        // Projection au 31/12 si année courante incomplète
+                        const last = isProjected ? Math.round(lastRaw / yearFraction) : lastRaw;
                         const prev = (c.byYear[prevYear]?.deltaNB || 0) + (c.byYear[prevYear]?.deltaCoul || 0);
-                        return { copieur_id: c.copieur_id, direction: c.direction, service: c.service, numero_serie: c.numero_serie, modele: c.modele,
-                                 lastTotal: last, prevTotal: prev, deltaAbs: last - prev,
-                                 growth: prev > 0 ? +((last - prev) / prev * 100).toFixed(1) : null,
-                                 lastYear, prevYear };
+                        return {
+                            copieur_id: c.copieur_id, direction: c.direction, service: c.service,
+                            numero_serie: c.numero_serie, modele: c.modele,
+                            lastTotal: last, lastRaw, prevTotal: prev, deltaAbs: last - prev,
+                            growth: prev > 0 ? +((last - prev) / prev * 100).toFixed(1) : null,
+                            lastYear, prevYear, isProjected
+                        };
                     })
                     .filter(c => c.growth !== null && c.prevTotal >= 500);
                 top10Growing   = [...withGrowth].sort((a, b) => (b.growth || 0) - (a.growth || 0)).slice(0, 10);

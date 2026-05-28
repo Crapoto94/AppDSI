@@ -60,14 +60,14 @@ interface KPIData {
   top10Growing: Array<{
     copieur_id: number; direction: string; service: string;
     numero_serie: string; modele: string;
-    lastTotal: number; prevTotal: number; deltaAbs: number;
-    growth: number; lastYear: number; prevYear: number;
+    lastTotal: number; lastRaw: number; prevTotal: number; deltaAbs: number;
+    growth: number; lastYear: number; prevYear: number; isProjected: boolean;
   }>;
   top10Shrinking: Array<{
     copieur_id: number; direction: string; service: string;
     numero_serie: string; modele: string;
-    lastTotal: number; prevTotal: number; deltaAbs: number;
-    growth: number; lastYear: number; prevYear: number;
+    lastTotal: number; lastRaw: number; prevTotal: number; deltaAbs: number;
+    growth: number; lastYear: number; prevYear: number; isProjected: boolean;
   }>;
   alertsNoReleve: Array<{
     id: number; direction: string; service: string;
@@ -426,17 +426,22 @@ export default function CopieursKPI() {
 
             {/* Croissance */}
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 20 }}>
-              <h3 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <h3 style={{ margin: '0 0 6px', fontSize: 14, fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <TrendingUp size={16} color="#16a34a" /> Top 10 croissance
                 {top10Growing[0] && <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>{top10Growing[0].prevYear} → {top10Growing[0].lastYear}</span>}
               </h3>
+              {top10Growing[0]?.isProjected && (
+                <div style={{ marginBottom: 10, padding: '5px 10px', background: '#fef9c3', borderRadius: 6, fontSize: 11, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>📐</span> An N projeté au 31/12 au prorata de la consommation actuelle
+                </div>
+              )}
               <table className="table-kpi">
                 <thead>
                   <tr>
                     <th>N° Série</th>
                     <th>Direction</th>
                     <th style={{ textAlign: 'right' }}>An N-1</th>
-                    <th style={{ textAlign: 'right' }}>An N</th>
+                    <th style={{ textAlign: 'right' }}>An N {top10Growing[0]?.isProjected ? '(proj.)' : ''}</th>
                     <th style={{ textAlign: 'right' }}>Évol.</th>
                   </tr>
                 </thead>
@@ -448,7 +453,10 @@ export default function CopieursKPI() {
                         {c.direction}{c.service ? ` / ${c.service}` : ''}
                       </td>
                       <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{fmtM(c.prevTotal)}</td>
-                      <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, fontWeight: 600 }}>{fmtM(c.lastTotal)}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, fontWeight: 600 }}>
+                        {fmtM(c.lastTotal)}
+                        {c.isProjected && <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>{fmtM(c.lastRaw)} réel</div>}
+                      </td>
                       <td style={{ textAlign: 'right' }}>
                         <span style={{ fontWeight: 700, color: c.growth > 0 ? '#16a34a' : c.growth < 0 ? '#dc2626' : '#94a3b8', fontSize: 12 }}>
                           {c.growth > 0 ? '▲' : '▼'} {Math.abs(c.growth).toFixed(0)} %
@@ -462,17 +470,22 @@ export default function CopieursKPI() {
 
             {/* Décroissance */}
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 20 }}>
-              <h3 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <h3 style={{ margin: '0 0 6px', fontSize: 14, fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <TrendingDown size={16} color="#dc2626" /> Top 10 décroissance
                 {top10Shrinking[0] && <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>{top10Shrinking[0].prevYear} → {top10Shrinking[0].lastYear}</span>}
               </h3>
+              {top10Shrinking[0]?.isProjected && (
+                <div style={{ marginBottom: 10, padding: '5px 10px', background: '#fef9c3', borderRadius: 6, fontSize: 11, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>📐</span> An N projeté au 31/12 au prorata de la consommation actuelle
+                </div>
+              )}
               <table className="table-kpi">
                 <thead>
                   <tr>
                     <th>N° Série</th>
                     <th>Direction</th>
                     <th style={{ textAlign: 'right' }}>An N-1</th>
-                    <th style={{ textAlign: 'right' }}>An N</th>
+                    <th style={{ textAlign: 'right' }}>An N {top10Shrinking[0]?.isProjected ? '(proj.)' : ''}</th>
                     <th style={{ textAlign: 'right' }}>Évol.</th>
                   </tr>
                 </thead>
@@ -484,7 +497,10 @@ export default function CopieursKPI() {
                         {c.direction}{c.service ? ` / ${c.service}` : ''}
                       </td>
                       <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{fmtM(c.prevTotal)}</td>
-                      <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, fontWeight: 600 }}>{fmtM(c.lastTotal)}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, fontWeight: 600 }}>
+                        {fmtM(c.lastTotal)}
+                        {c.isProjected && <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>{fmtM(c.lastRaw)} réel</div>}
+                      </td>
                       <td style={{ textAlign: 'right' }}>
                         <span style={{ fontWeight: 700, color: '#dc2626', fontSize: 12 }}>
                           ▼ {Math.abs(c.growth).toFixed(0)} %
