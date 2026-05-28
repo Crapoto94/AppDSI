@@ -2308,10 +2308,10 @@ async function setupPgDb() {
     `);
     await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_visites_copieur ON hub_copieurs.copieur_visites(copieur_id)');
 
-    // Migration : supprimer les anciennes tables per-copieur si elles existent
+    // Migration one-shot (anciens noms per-copieur → par marque, déjà exécutée)
     try { await client.query('DROP TABLE IF EXISTS hub_copieurs.copieur_compteur_tarifs CASCADE'); } catch (e) {}
     try { await client.query('DROP TABLE IF EXISTS hub_copieurs.copieur_compteurs CASCADE'); } catch (e) {}
-    try { await client.query('DROP TABLE IF EXISTS hub_copieurs.copieur_releves CASCADE'); } catch (e) {}
+    // NE PAS supprimer copieur_releves ici : ce nom est réutilisé pour la nouvelle table (données persistantes)
 
     // Codes compteur par marque (Canon 101 = A4 mono, 104 = A3 couleur...)
     await client.query(`
