@@ -281,7 +281,9 @@ async function setupDb() {
         ('anthropic_api_key', '', 'Clé API Anthropic'),
         ('ollama_host', 'http://localhost:11434', 'Hôte Ollama local'),
         ('anthropic_model', 'claude-3-5-sonnet-20240620', 'Modèle Anthropic par défaut'),
-        ('app_base_url', '', 'URL de base de l''application (ex: https://dsihub.ivry.local)');
+        ('app_base_url', '', 'URL de base de l''application (ex: https://dsihub.ivry.local)'),
+        ('inventaire_ip', '10.103.130.95', 'Adresse IP du serveur d''inventaire'),
+        ('inventaire_key', 'irs_hjThyQcvBMYvkWqvkA5NVapTB4EZctrOeUI1eoaE-dU', 'Clé API pour l''inventaire');
 
         CREATE TABLE IF NOT EXISTS rh.ad_proposals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

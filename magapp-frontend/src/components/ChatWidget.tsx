@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
+import EmojiPicker from './EmojiPicker';
 
 type ChatState = 'idle' | 'open' | 'connecting' | 'waiting' | 'active' | 'rating' | 'ended';
 
@@ -348,7 +349,8 @@ export default function ChatWidget({ liveEnabled }: Props) {
             onFocus={e => e.target.style.borderColor = PC}
             onBlur={e => e.target.style.borderColor = '#e2e8f0'}
           />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4, marginBottom: 2 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4, marginBottom: 2 }}>
+            <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
             <button type="button" onClick={toggleDictation}
               title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}
               style={{
@@ -445,6 +447,7 @@ export default function ChatWidget({ liveEnabled }: Props) {
             }}>
             🎤
           </button>
+          <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
           <textarea
             ref={textareaRef}
             value={input}

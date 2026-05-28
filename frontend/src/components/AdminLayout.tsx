@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, Users, MessageSquare, ShieldCheck,
   Mail, Settings, LayoutGrid, Activity,
-  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, Network, HardDrive
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, Network, HardDrive, Server
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -54,6 +54,7 @@ const AdminLayout: React.FC = () => {
     { title: "Azure AD / ENTRA", icon: Users, path: "/admin/azure-ad" },
     { title: "Configuration Hub", icon: LayoutGrid, path: "/admin/tiles" },
     { title: "Paramètres", icon: Sliders, path: "/admin/settings" },
+    { title: "Inventaire", icon: Server, path: "/admin/inventaire" },
     { title: "SMS Frizbi", icon: MessageSquare, path: "/admin/frizbi" },
     { title: "Intelligence Artificielle", icon: MessageSquare, path: "/admin/transcript" },
     { title: "Tickets", icon: Inbox, path: "/admin/tickets" },

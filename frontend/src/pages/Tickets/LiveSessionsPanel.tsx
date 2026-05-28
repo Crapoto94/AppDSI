@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 import AddTaskModal from '../../components/AddTaskModal';
+import EmojiPicker from '../../components/LiveChat/EmojiPicker';
 
 interface LiveSession {
   id: number;
@@ -32,6 +33,7 @@ interface LiveMessage {
 
 export default function LiveSessionsPanel() {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
+  const [ecoleSessions, setEcoleSessions] = useState<LiveSession[]>([]);
   const [activeSession, setActiveSession] = useState<LiveSession | null>(null);
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [input, setInput] = useState('');
@@ -142,6 +144,10 @@ export default function LiveSessionsPanel() {
       .then(r => setSessions(r.data))
       .catch(() => {});
 
+    axios.get('/api/live/sessions?chat_type=ecole', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setEcoleSessions(r.data))
+      .catch(() => {});
+
     // Load MagApp apps for association picker
     axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setApps((r.data || []).filter((a: any) => a.present_magapp === 'oui' || a.is_active)))
@@ -189,6 +195,8 @@ export default function LiveSessionsPanel() {
     const t = setInterval(() => {
       axios.get('/api/live/sessions?chat_type=ville', { headers: { Authorization: `Bearer ${token}` } })
         .then(r => setSessions(r.data)).catch(() => {});
+      axios.get('/api/live/sessions?chat_type=ecole', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => setEcoleSessions(r.data)).catch(() => {});
     }, 5000);
     return () => clearInterval(t);
   }, []);
@@ -847,6 +855,93 @@ export default function LiveSessionsPanel() {
             })}
           </div>
         )}
+
+        {/* ── Ecoles section ──────────────────────────────────────────── */}
+        <div style={{ borderTop: '2px solid #e2e8f0', paddingTop: 12, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span style={{ fontSize: 14 }}>🏫</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#059669' }}>
+              Écoles
+            </span>
+            {ecoleSessions.filter(s => s.status === 'waiting').length > 0 && (
+              <span style={{
+                marginLeft: 'auto', background: '#f59e0b', color: '#fff',
+                borderRadius: 12, padding: '1px 8px', fontSize: 11, fontWeight: 700,
+              }}>
+                {ecoleSessions.filter(s => s.status === 'waiting').length} en attente
+              </span>
+            )}
+          </div>
+
+          {ecoleSessions.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: '16px 0' }}>
+              Aucune session école
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {ecoleSessions.map(s => {
+                const isSelected = activeSession?.id === s.id;
+                const isWaiting = s.status === 'waiting';
+                const isMine = s.tech_username === me.username;
+                return (
+                  <div
+                    key={s.id}
+                    onClick={() => openSession(s)}
+                    style={{
+                      background: isSelected ? '#f0fdf4' : '#fff',
+                      border: isSelected ? '2px solid #10b981' : isWaiting ? '2px solid #f59e0b' : '1px solid #e2e8f0',
+                      borderRadius: 10, padding: '8px 12px', cursor: 'pointer',
+                      transition: 'box-shadow 0.15s',
+                      boxShadow: isSelected ? '0 0 0 3px rgba(16,185,129,0.1)' : 'none',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          🏫 {s.user_display_name || s.user_username}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+                          {isWaiting ? '⏳ En attente'
+                            : isMine ? '✅ Vous gérez'
+                            : `🔒 ${s.tech_display_name || 'Terminé'}`}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }}>
+                        {formatAge(s.created_at)}
+                      </span>
+                    </div>
+
+                    {isWaiting && (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); claimSession(s); }}
+                          style={{
+                            flex: 1, padding: '4px',
+                            background: '#10b981', color: '#fff', border: 'none', borderRadius: 6,
+                            fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                          }}
+                        >
+                          🖐 Répondre
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); rejectSession(s); }}
+                          style={{
+                            padding: '4px 8px',
+                            background: '#fef2f2', color: '#dc2626',
+                            border: '1px solid #fecaca', borderRadius: 6,
+                            fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                          }}
+                        >
+                          🚫
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Chat area (right panel) ────────────────────────────────────── */}
@@ -1172,6 +1267,7 @@ export default function LiveSessionsPanel() {
                     }}>
                     🎤
                   </button>
+                  <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
                   <textarea
                     ref={inputRef}
                     value={input}

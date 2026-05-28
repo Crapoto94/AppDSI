@@ -22,14 +22,22 @@ async function getAppBaseUrl() {
 // ── GET /api/live/sessions ─────────────────────────────────────────────
 async function getSessions(req, res) {
     try {
-        const { chat_type } = req.query;
+        const { chat_type, status } = req.query;
+        const params = [];
+        let whereClause;
+        if (status === 'all') {
+            whereClause = '1=1';
+        } else if (status === 'closed') {
+            whereClause = `ls.status IN ('closed', 'pre_closed')`;
+        } else {
+            whereClause = `ls.status NOT IN ('closed', 'pre_closed')`;
+        }
         let query = `
             SELECT ls.*, t.title as ticket_title
             FROM hub_tickets.live_sessions ls
             LEFT JOIN hub_tickets.tickets t ON ls.ticket_id = t.glpi_id
-            WHERE ls.status NOT IN ('closed', 'pre_closed')
+            WHERE ${whereClause}
         `;
-        const params = [];
         if (chat_type) {
             query += ` AND ls.chat_type = $1`;
             params.push(chat_type);

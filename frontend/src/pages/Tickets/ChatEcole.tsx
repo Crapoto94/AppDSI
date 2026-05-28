@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
+import EmojiPicker from '../../components/LiveChat/EmojiPicker';
 
 interface LiveSession {
   id: number;
@@ -31,6 +32,8 @@ interface LiveMessage {
 
 export default function ChatEcole() {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
+  const [closedSessions, setClosedSessions] = useState<LiveSession[]>([]);
+  const [showClosed, setShowClosed] = useState(false);
   const [activeSession, setActiveSession] = useState<LiveSession | null>(null);
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [input, setInput] = useState('');
@@ -420,91 +423,186 @@ export default function ChatEcole() {
             </a>
           </header>
 
-          <main style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-            <h2 style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Conversations en attente ou actives ({sessions.length})
-            </h2>
+          {/* Tab toggle */}
+          <div style={{
+            display: 'flex', borderBottom: '2px solid #e2e8f0', background: '#fff',
+            padding: '0 16px'
+          }}>
+            <button
+              onClick={() => setShowClosed(false)}
+              style={{
+                flex: 1, padding: '12px 0', border: 'none', background: 'none',
+                fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                color: showClosed ? '#94a3b8' : '#059669',
+                borderBottom: `3px solid ${showClosed ? 'transparent' : '#059669'}`,
+                marginBottom: -2, transition: 'all 0.15s'
+              }}
+            >
+              🟢 Actives ({sessions.length})
+            </button>
+            <button
+              onClick={() => {
+                setShowClosed(true);
+                if (closedSessions.length === 0) {
+                  axios.get('/api/live/sessions?chat_type=ecole&status=closed', { headers: { Authorization: `Bearer ${token}` } })
+                    .then(r => setClosedSessions(r.data))
+                    .catch(() => {});
+                }
+              }}
+              style={{
+                flex: 1, padding: '12px 0', border: 'none', background: 'none',
+                fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                color: showClosed ? '#64748b' : '#94a3b8',
+                borderBottom: `3px solid ${showClosed ? '#64748b' : 'transparent'}`,
+                marginBottom: -2, transition: 'all 0.15s'
+              }}
+            >
+              ⚪ Terminées ({closedSessions.length})
+            </button>
+          </div>
 
-            {sessions.length === 0 ? (
-              <div style={{
-                textAlign: 'center', padding: '48px 24px', color: '#94a3b8',
-                background: '#fff', borderRadius: 16, border: '1px dashed #cbd5e1', marginTop: 12
-              }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>💤</div>
-                <div style={{ fontWeight: 600 }}>Aucune session école</div>
-                <div style={{ fontSize: 12, marginTop: 4 }}>Les nouveaux messages apparaîtront ici.</div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {sessions.map(s => {
-                  const isWaiting = s.status === 'waiting';
-                  const isMine = s.tech_username === me.username;
-                  return (
-                    <div
-                      key={s.id}
-                      onClick={() => { if (!isWaiting) openSession(s); }}
-                      style={{
-                        background: '#fff', borderRadius: 14, padding: '14px',
-                        border: isWaiting ? '2px solid #f59e0b' : '1px solid #e2e8f0',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
-                        cursor: isWaiting ? 'default' : 'pointer'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
-                            {s.user_display_name || s.user_username}
+          <main style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+            {!showClosed ? (
+              <>
+                {sessions.length === 0 ? (
+                  <div style={{
+                    textAlign: 'center', padding: '48px 24px', color: '#94a3b8',
+                    background: '#fff', borderRadius: 16, border: '1px dashed #cbd5e1', marginTop: 12
+                  }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>💤</div>
+                    <div style={{ fontWeight: 600 }}>Aucune session école</div>
+                    <div style={{ fontSize: 12, marginTop: 4 }}>Les nouveaux messages apparaîtront ici.</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {sessions.map(s => {
+                      const isWaiting = s.status === 'waiting';
+                      const isMine = s.tech_username === me.username;
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => { if (!isWaiting) openSession(s); }}
+                          style={{
+                            background: '#fff', borderRadius: 14, padding: '14px',
+                            border: isWaiting ? '2px solid #f59e0b' : '1px solid #e2e8f0',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                            cursor: isWaiting ? 'default' : 'pointer'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                                {s.user_display_name || s.user_username}
+                              </div>
+                              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                                {s.user_email}
+                              </div>
+                            </div>
+                            <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                              {formatAge(s.created_at)}
+                            </span>
                           </div>
-                          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                            {s.user_email}
+
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+                            <span style={{
+                              padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700,
+                              background: isWaiting ? '#fef3c7' : isMine ? '#dcfce7' : '#f1f5f9',
+                              color: isWaiting ? '#b45309' : isMine ? '#15803d' : '#475569'
+                            }}>
+                              {isWaiting ? '⏳ En attente' : isMine ? '✅ Votre chat' : `🔒 ${s.tech_display_name}`}
+                            </span>
+
+                            {isWaiting ? (
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); claimSession(s); }}
+                                  style={{
+                                    background: '#10b981', color: '#fff', border: 'none',
+                                    padding: '6px 12px', borderRadius: 8, fontSize: 12,
+                                    fontWeight: 700, cursor: 'pointer'
+                                  }}
+                                >
+                                  🖐 Répondre
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); rejectSession(s); }}
+                                  style={{
+                                    background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca',
+                                    padding: '6px 10px', borderRadius: 8, fontSize: 12, cursor: 'pointer'
+                                  }}
+                                >
+                                  🚫
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 12, color: '#10b981', fontWeight: 600 }}>
+                                Ouvrir →
+                              </span>
+                            )}
                           </div>
                         </div>
-                        <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                          {formatAge(s.created_at)}
-                        </span>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
-                        <span style={{
-                          padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700,
-                          background: isWaiting ? '#fef3c7' : isMine ? '#dcfce7' : '#f1f5f9',
-                          color: isWaiting ? '#b45309' : isMine ? '#15803d' : '#475569'
-                        }}>
-                          {isWaiting ? '⏳ En attente' : isMine ? '✅ Votre chat' : `🔒 ${s.tech_display_name}`}
-                        </span>
-
-                        {isWaiting ? (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); claimSession(s); }}
-                              style={{
-                                background: '#10b981', color: '#fff', border: 'none',
-                                padding: '6px 12px', borderRadius: 8, fontSize: 12,
-                                fontWeight: 700, cursor: 'pointer'
-                              }}
-                            >
-                              🖐 Répondre
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); rejectSession(s); }}
-                              style={{
-                                background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca',
-                                padding: '6px 10px', borderRadius: 8, fontSize: 12, cursor: 'pointer'
-                              }}
-                            >
-                              🚫
-                            </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {closedSessions.length === 0 ? (
+                  <div style={{
+                    textAlign: 'center', padding: '48px 24px', color: '#94a3b8',
+                    background: '#fff', borderRadius: 16, border: '1px dashed #cbd5e1', marginTop: 12
+                  }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
+                    <div style={{ fontWeight: 600 }}>Aucune session terminée</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {closedSessions.map(s => (
+                      <div
+                        key={s.id}
+                        onClick={() => openSession(s)}
+                        style={{
+                          background: '#f8fafc', borderRadius: 14, padding: '14px',
+                          border: '1px solid #e2e8f0',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
+                          cursor: 'pointer', opacity: 0.85
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                              {s.user_display_name || s.user_username}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                              {s.user_email}
+                            </div>
                           </div>
-                        ) : (
-                          <span style={{ fontSize: 12, color: '#10b981', fontWeight: 600 }}>
-                            Ouvrir →
+                          <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                            {formatAge(s.created_at)}
                           </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+                          <span style={{
+                            padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700,
+                            background: '#f1f5f9', color: '#64748b'
+                          }}>
+                            ✅ Terminé
+                          </span>
+                          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                            Voir →
+                          </span>
+                        </div>
+                        {s.tech_display_name && (
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
+                            Technicien : {s.tech_display_name}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </main>
         </div>
@@ -695,6 +793,8 @@ export default function ChatEcole() {
                 >
                   🎤
                 </button>
+
+                <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
 
                 <button
                   onClick={handleReformulate}

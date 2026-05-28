@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, type FormEvent } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import axios from 'axios'
 import type { UserInfo, AppConfig } from './App'
+import EmojiPicker from './EmojiPicker'
 
 interface Message {
   id: number
@@ -343,6 +344,9 @@ export default function ChatPage({ token, user, onLogout, config }: Props) {
                       🎤
                     </button>
                   </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+                    <EmojiPicker onEmojiSelect={e => setInitMsg(prev => prev + e)} />
+                  </div>
                   <button type="submit" disabled={!initMsg.trim()}
                     style={{
                       width: '100%', padding: '13px',
@@ -416,6 +420,7 @@ export default function ChatPage({ token, user, onLogout, config }: Props) {
                       }}>
                       🎤
                     </button>
+                    <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
                     <textarea
                       ref={inputRef}
                       value={input}

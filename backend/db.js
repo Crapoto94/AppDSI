@@ -245,7 +245,9 @@ async function setupDb() {
         INSERT OR IGNORE INTO app_settings (setting_key, setting_value, description)
         VALUES 
         ('budget_principal', '00001000000000001901000', 'Code du budget principal'),
-        ('url_sedit_fi', 'https://seditgfprod.ivry.local/SeditGfSMProd', 'URL de base Sedit Finances');
+        ('url_sedit_fi', 'https://seditgfprod.ivry.local/SeditGfSMProd', 'URL de base Sedit Finances'),
+        ('inventaire_ip', '10.103.130.95', 'Adresse IP du serveur d''inventaire'),
+        ('inventaire_key', 'irs_hjThyQcvBMYvkWqvkA5NVapTB4EZctrOeUI1eoaE-dU', 'Clé API pour l''inventaire');
 
         CREATE TABLE IF NOT EXISTS rh.ad_proposals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

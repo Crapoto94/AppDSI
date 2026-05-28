@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
+import EmojiPicker from './EmojiPicker';
 
 type ChatState = 'idle' | 'open' | 'connecting' | 'waiting' | 'active' | 'renaming' | 'rating' | 'ended';
 
@@ -432,7 +433,8 @@ export default function ChatWidget() {
             disabled={state === 'connecting'}
             autoFocus
           />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4, marginBottom: 2 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4, marginBottom: 2 }}>
+            <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
             <button type="button" onClick={toggleDictation}
               title={listening ? 'Arrêter la dictée' : 'Dictée vocale'}
               style={{ padding: '4px 10px', background: listening ? '#fef2f2' : 'transparent', color: listening ? '#dc2626' : '#94a3b8', border: `1px solid ${listening ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 7, cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -511,6 +513,7 @@ export default function ChatWidget() {
             }}>
             🎤
           </button>
+          <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
           <textarea
             ref={textareaRef}
             value={input}

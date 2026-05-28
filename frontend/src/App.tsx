@@ -12,6 +12,7 @@ import Tiers from './pages/Tiers';
 import MagappAdmin from './pages/MagappAdmin';
 import AdminSQL from './pages/AdminSQL';
 import AdminSettings from './pages/AdminSettings';
+import AdminInventaire from './pages/AdminInventaire';
 import AdminFinance from './pages/AdminFinance';
 import TelecomManagement from './pages/TelecomManagement';
 import AdminMessages from './pages/AdminMessages';
@@ -173,6 +174,7 @@ function App() {
           <Route path="organisation" element={<AdminOrganisation />} />
           <Route path="tickets" element={<TicketAdmin />} />
           <Route path="ged" element={<AdminGED />} />
+          <Route path="inventaire" element={<AdminInventaire />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />
