@@ -112,7 +112,7 @@ module.exports = {
     getAll: async (req, res) => {
         try {
             const filter = req.query.filter || 'actifs';
-            let sql = 'SELECT c.*, (SELECT MAX(date_visite) FROM hub_copieurs.copieur_visites v WHERE v.copieur_id = c.id) as last_visit_date FROM hub_copieurs.copieurs c';
+            let sql = 'SELECT c.*, (SELECT MAX(date_visite) FROM hub_copieurs.copieur_visites v WHERE v.copieur_id = c.id) as last_visit_date, (SELECT MAX(date_releve) FROM hub_copieurs.copieur_releves r WHERE r.copieur_id = c.id) as last_releve_date FROM hub_copieurs.copieurs c';
             if (filter === 'archives') sql += ' WHERE c.archive = true';
             else if (filter === 'tous') ;
             else sql += ' WHERE c.archive = false';

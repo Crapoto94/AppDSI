@@ -42,6 +42,7 @@ interface Copieur {
   kpax_status: string;
   kpax_last_collecte: string;
   last_visit_date?: string;
+  last_releve_date?: string;
   created_at: string;
   prix_acquisition?: number;
   options_achat?: string;
@@ -986,13 +987,14 @@ const Copieurs: React.FC = () => {
                     )}
                   </th>
                   <th className="sortable" onClick={() => handleSort('last_visit_date')}>Dernière visite {sortIcon('last_visit_date')}</th>
+                  <th className="sortable" onClick={() => handleSort('last_releve_date')}>Dernier relevé {sortIcon('last_releve_date')}</th>
                   <th className="sortable" style={{ width: 60 }} onClick={() => handleSort('interventions')}>Int. {sortIcon('interventions')}</th>
                   <th style={{ width: 120 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={12} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
+                  <tr><td colSpan={13} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
                 )}
                 {filtered.map(c => (
                   <React.Fragment key={c.id}>
@@ -1049,6 +1051,17 @@ const Copieurs: React.FC = () => {
                         ) : (
                           <span className="visit-badge visit-badge-empty" onClick={(e) => { e.stopPropagation(); openVisitesModal(c); }}>
                             Aucune (Ajouter)
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {c.last_releve_date ? (
+                          <span className="visit-badge visit-badge-active" onClick={(e) => { e.stopPropagation(); openRelevesModal(c); }}>
+                            {formatDate(c.last_releve_date)}
+                          </span>
+                        ) : (
+                          <span className="visit-badge visit-badge-empty" onClick={(e) => { e.stopPropagation(); openRelevesModal(c); }}>
+                            Aucun
                           </span>
                         )}
                       </td>
