@@ -15,6 +15,18 @@ router.get('/boundary', copieursController.getBoundary);
 router.get('/interventions/all', authenticateJWT, copieursController.getAllInterventions);
 router.get('/interventions/:interventionId/email-link', authenticateJWT, copieursController.getEmailLink);
 router.get('/intervention-counts', authenticateJWT, copieursController.getInterventionCounts);
+
+// ─── Codes compteur par marque (AVANT /:id — sinon Express capture "compteur-codes" comme id) ──
+router.get('/mainteneurs',                                                authenticateJWT, copieursController.getMainteneurs);
+router.get('/compteur-codes',                                             authenticateJWT, copieursController.getCompteurCodes);
+router.post('/compteur-codes',                                            authenticateJWT, copieursController.createCompteurCode);
+router.put('/compteur-codes/:codeId',                                     authenticateJWT, copieursController.updateCompteurCode);
+router.delete('/compteur-codes/:codeId',                                  authenticateJWT, copieursController.deleteCompteurCode);
+router.post('/compteur-codes/:codeId/tarifs',                             authenticateJWT, copieursController.createCodeTarif);
+router.put('/compteur-codes/:codeId/tarifs/:tarifId',                     authenticateJWT, copieursController.updateCodeTarif);
+router.delete('/compteur-codes/:codeId/tarifs/:tarifId',                  authenticateJWT, copieursController.deleteCodeTarif);
+
+// ─── Routes par copieur (/:id en dernier pour les GET génériques) ─────────────
 router.get('/:id', authenticateJWT, copieursController.getById);
 router.post('/', authenticateJWT, copieursController.create);
 router.put('/:id', authenticateJWT, copieursController.update);
@@ -37,16 +49,6 @@ router.delete('/:id/interventions/:interventionId', authenticateJWT, copieursCon
 router.get('/:id/visites', authenticateJWT, copieursController.getVisites);
 router.post('/:id/visites', authenticateJWT, uploadExcel.array('photos', 10), copieursController.addVisite);
 router.delete('/:id/visites/:visiteId', authenticateJWT, copieursController.deleteVisite);
-
-// ─── Codes compteur par marque (AVANT /:id pour éviter les conflits) ──────────
-router.get('/mainteneurs',                                                authenticateJWT, copieursController.getMainteneurs);
-router.get('/compteur-codes',                                             authenticateJWT, copieursController.getCompteurCodes);
-router.post('/compteur-codes',                                            authenticateJWT, copieursController.createCompteurCode);
-router.put('/compteur-codes/:codeId',                                     authenticateJWT, copieursController.updateCompteurCode);
-router.delete('/compteur-codes/:codeId',                                  authenticateJWT, copieursController.deleteCompteurCode);
-router.post('/compteur-codes/:codeId/tarifs',                             authenticateJWT, copieursController.createCodeTarif);
-router.put('/compteur-codes/:codeId/tarifs/:tarifId',                     authenticateJWT, copieursController.updateCodeTarif);
-router.delete('/compteur-codes/:codeId/tarifs/:tarifId',                  authenticateJWT, copieursController.deleteCodeTarif);
 
 // ─── Relevés trimestriels par copieur ─────────────────────────────────────────
 router.get('/:id/releves',                                                authenticateJWT, copieursController.getCopieurReleves);
