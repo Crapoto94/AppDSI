@@ -9,6 +9,12 @@ services:
     ports:
       # Mappe le port 3001 du conteneur vers le port 3001 de l'hôte Proxmox
       - "3001:3001"
+    extra_hosts:
+      # Le conteneur Linux (réseau bridge) ne résout pas le nom NetBIOS court
+      # "nas-syno05" comme le fait Windows via le DNS AD (ivry.local).
+      # On mappe explicitement le nom du filer SMB vers son IP pour que
+      # l'accès au partage UNC (\\nas-syno05\editions$\DSIHUB) fonctionne.
+      - "nas-syno05:10.103.131.136"
     environment:
       # PostgreSQL externe (10.103.130.106)
       - POSTGRES_HOST=10.103.130.106

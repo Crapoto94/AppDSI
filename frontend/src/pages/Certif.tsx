@@ -58,6 +58,7 @@ const Certif: React.FC = () => {
   const [openActionMenu, setOpenActionMenu] = useState<number | null>(null);
   const [nonRenewalModal, setNonRenewalModal] = useState<{ id: number; orderNum: string } | null>(null);
   const [nonRenewalComment, setNonRenewalComment] = useState<string>('');
+  const [viewer, setViewer] = useState<{ url: string; title: string } | null>(null);
   const actionMenuRef = useRef<HTMLDivElement>(null);
 
   const isExpiringSoon = (expiryStr: string | null, renewal_status: string | null) => {
@@ -547,6 +548,28 @@ const Certif: React.FC = () => {
           </div>
         )}
 
+        {viewer && (
+          <div className="viewer-overlay" onClick={() => setViewer(null)}>
+            <div className="viewer-box" onClick={(e) => e.stopPropagation()}>
+              <div className="viewer-header">
+                <span className="viewer-title"><FileText size={16} /> {viewer.title}</span>
+                <div className="viewer-actions">
+                  <a href={viewer.url} target="_blank" rel="noopener noreferrer" className="viewer-link" title="Ouvrir dans un nouvel onglet">
+                    <Eye size={15} /> Onglet
+                  </a>
+                  <a href={viewer.url} download className="viewer-link" title="Télécharger">
+                    <Upload size={15} style={{ transform: 'rotate(180deg)' }} /> Télécharger
+                  </a>
+                  <button className="viewer-close" onClick={() => setViewer(null)} title="Fermer">
+                    <CloseIcon size={18} />
+                  </button>
+                </div>
+              </div>
+              <iframe className="viewer-frame" src={viewer.url} title={viewer.title} />
+            </div>
+          </div>
+        )}
+
         {editMode && showManualForm && (
           <div className="manual-form">
             <h3>Ajouter un certificat manuellement</h3>
@@ -813,10 +836,15 @@ const Certif: React.FC = () => {
                           ) : (
                             <>
                               {cert.file_path && (
-                                <a href={`/${cert.file_path}`} target="_blank" rel="noopener noreferrer" className="view-btn" title="Voir le PDF">
+                                <button
+                                  type="button"
+                                  onClick={() => setViewer({ url: `/api/${cert.file_path}`, title: `Certificat — ${cert.order_number}` })}
+                                  className="view-btn"
+                                  title="Voir le PDF"
+                                >
                                   <Eye size={16} />
                                   <span>Voir</span>
-                                </a>
+                                </button>
                               )}
                               {editMode && (
                                 <>
@@ -1573,6 +1601,84 @@ const Certif: React.FC = () => {
           display: flex;
           align-items: center;
           justify-content: center;
+        }
+        /* Visionneuse PDF intégrée */
+        .viewer-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(15,23,42,0.65);
+          z-index: 1100;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 24px;
+        }
+        .viewer-box {
+          background: #fff;
+          border-radius: 12px;
+          width: 980px;
+          max-width: 95vw;
+          height: 90vh;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          box-shadow: 0 24px 70px rgba(0,0,0,0.35);
+        }
+        .viewer-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 12px 16px;
+          border-bottom: 1px solid #e2e8f0;
+          background: #f8fafc;
+        }
+        .viewer-title {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          color: #0f172a;
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+        .viewer-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        .viewer-link {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 12px;
+          border-radius: 8px;
+          background: #fff;
+          border: 1px solid #cbd5e1;
+          color: #1e293b;
+          font-size: 13px;
+          text-decoration: none;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+        .viewer-link:hover { background: #f1f5f9; }
+        .viewer-close {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
+          border: 1px solid #cbd5e1;
+          background: #fff;
+          color: #64748b;
+          cursor: pointer;
+          transition: background 0.15s, color 0.15s;
+        }
+        .viewer-close:hover { background: #fee2e2; color: #b91c1c; }
+        .viewer-frame {
+          flex: 1;
+          width: 100%;
+          border: 0;
+          background: #525659;
         }
         .modal-box {
           background: white;
