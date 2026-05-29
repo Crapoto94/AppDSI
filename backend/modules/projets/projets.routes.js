@@ -7,12 +7,9 @@ const ctrl = require('./projets.controller');
 const { authenticateJWT, authenticateAdmin, authenticateAdminOrPMO } = require('../../shared/middleware');
 const { SECRET_KEY } = require('../../shared/config');
 
-const DOCUMENTS_DIR = path.join(__dirname, '..', '..', 'file_projets');
-const uploadDoc = multer({ dest: DOCUMENTS_DIR, limits: { fileSize: 100 * 1024 * 1024 } });
-
-const NOTES_DIR = path.join(__dirname, '..', '..', 'file_notes_taches');
-if (!require('fs').existsSync(NOTES_DIR)) require('fs').mkdirSync(NOTES_DIR, { recursive: true });
-const uploadNote = multer({ dest: NOTES_DIR, limits: { fileSize: 50 * 1024 * 1024 } });
+// Multer en memory storage - sauvegarde via storage service
+const uploadDoc = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+const uploadNote = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // Middleware that accepts token from query param or Authorization header
 const authenticateJWTQuery = (req, res, next) => {

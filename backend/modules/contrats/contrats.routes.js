@@ -7,18 +7,8 @@ const controller = require('./contrats.controller');
 
 const router = express.Router();
 
-// Configuration multer pour documents
-const docStorage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const docsDir = path.join(__dirname, '../../file_contrats');
-        cb(null, docsDir);
-    },
-    filename: (req, file, cb) => {
-        const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, unique + '-' + file.originalname);
-    }
-});
-const uploadDoc = multer({ storage: docStorage });
+// Configuration multer pour documents (en memory, sauvegarde via storage service)
+const uploadDoc = multer({ storage: multer.memoryStorage() });
 
 const upload = multer({ storage: multer.memoryStorage() });
 

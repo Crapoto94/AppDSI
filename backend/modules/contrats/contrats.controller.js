@@ -2,6 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
 const { pgDb } = require('../../shared/database');
+const storage = require('../../shared/storage');
+
+const MODULE = 'contrats';
 
 // Helpers
 function excelDateToISO(value) {
@@ -330,15 +333,21 @@ module.exports = {
                 await db.run('UPDATE contrat_documents SET est_principal = 0 WHERE contrat_id = ?', [req.params.id]);
             }
 
+            // Corrige l'encodage du nom de fichier
+            if (req.file && req.file.originalname) req.file.originalname = storage.fixUploadName(req.file.originalname);
+
+            // Sauvegarde via le service de stockage unifié
+            const saved = await storage.saveFile(MODULE, req.params.id, req.file);
+
             const result = await db.run(
                 'INSERT INTO contrat_documents (contrat_id, file_path, file_name, nature, est_principal) VALUES (?,?,?,?,?)',
-                [req.params.id, `file_contrats/${req.file.filename}`, req.file.originalname, nature, isPrincipal ? 1 : 0]
+                [req.params.id, saved.dbPath, req.file.originalname, nature, isPrincipal ? 1 : 0]
             );
 
             if (isPrincipal) {
                 await db.run(
                     'UPDATE contrats SET doc_principal_path = ?, doc_principal_nom = ? WHERE id = ?',
-                    [`file_contrats/${req.file.filename}`, req.file.originalname, req.params.id]
+                    [saved.dbPath, req.file.originalname, req.params.id]
                 );
             }
 
@@ -354,8 +363,15 @@ module.exports = {
         try {
             const doc = await db.get('SELECT * FROM contrat_documents WHERE id = ? AND contrat_id = ?', [req.params.docId, req.params.id]);
             if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
-            const fullPath = path.join(__dirname, '../../', doc.file_path);
-            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+
+            // Supprime via le service de stockage (nouveau ou legacy)
+            if (storage.isStoragePath(doc.file_path)) {
+                await storage.deleteFile(doc.file_path);
+            } else {
+                const fullPath = path.join(__dirname, '../../', doc.file_path);
+                if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+            }
+
             await db.run('DELETE FROM contrat_documents WHERE id = ?', [doc.id]);
             if (doc.est_principal) {
                 await db.run('UPDATE contrats SET doc_principal_path = ?, doc_principal_nom = ? WHERE id = ?', ['', '', req.params.id]);

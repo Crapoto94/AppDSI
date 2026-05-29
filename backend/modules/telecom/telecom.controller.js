@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');
-const { getSqlite } = require('../../shared/database');
+const { getSqlite, pgDb } = require('../../shared/database');
+const storage = require('../../shared/storage');
+
+const MODULE = 'telecom';
 
 module.exports = {
     // --- Operators ---
@@ -315,22 +318,29 @@ module.exports = {
                 }
             }
 
+            // Corrige l'encodage et sauvegarde via storage
+            if (req.file && req.file.originalname) req.file.originalname = storage.fixUploadName(req.file.originalname);
+            const saved = await storage.saveFile(MODULE, invoice_number || Date.now(), req.file);
+
             let finalId = existingInvoice ? existingInvoice.id : null;
-            const relativePath = `file_telecom/${req.file.filename}`;
 
             if (existingInvoice && overwrite === 'true') {
                 if (existingInvoice.file_path) {
-                    const oldPath = path.join(__dirname, '..', '..', existingInvoice.file_path);
-                    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+                    if (storage.isStoragePath(existingInvoice.file_path)) {
+                        await storage.deleteFile(existingInvoice.file_path);
+                    } else {
+                        const oldPath = path.join(__dirname, '..', '..', existingInvoice.file_path);
+                        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+                    }
                 }
                 await db.run(
                     'UPDATE telecom_invoices SET operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ?, file_path = ?, uploaded_at = CURRENT_TIMESTAMP WHERE id = ?',
-                    [operator_id, billing_account_id, amount_ttc, invoice_date, relativePath, existingInvoice.id]
+                    [operator_id, billing_account_id, amount_ttc, invoice_date, saved.dbPath, existingInvoice.id]
                 );
             } else {
                 const result = await db.run(
                     'INSERT INTO telecom_invoices (invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, file_path) VALUES (?, ?, ?, ?, ?, ?)',
-                    [invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, relativePath]
+                    [invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, saved.dbPath]
                 );
                 finalId = result.lastID;
             }
@@ -343,7 +353,7 @@ module.exports = {
                 invoice_date,
                 operator_id,
                 billing_account_id,
-                file_path: relativePath,
+                file_path: saved.dbPath,
                 message: existingInvoice ? 'Facture mise à jour' : 'Analyse terminée'
             });
         } catch (error) {

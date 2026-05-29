@@ -5,17 +5,8 @@ const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware'
 const multer = require('multer');
 const path = require('path');
 
-// Multer config for telecom invoices
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, path.join(__dirname, '..', '..', 'file_telecom'));
-    },
-    filename: (req, file, cb) => {
-        const targetId = (req.body.target_id || 'unknown').replace(/[^a-z0-9]/gi, '_');
-        cb(null, `${targetId}_${Date.now()}${path.extname(file.originalname)}`);
-    }
-});
-const upload = multer({ storage });
+// Multer config for telecom invoices (memory storage - sauvegarde via storage service)
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Operators
 router.get('/operators', authenticateJWT, telecomController.getOperators);

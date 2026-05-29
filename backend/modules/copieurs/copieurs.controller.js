@@ -1,6 +1,9 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
+const storage = require('../../shared/storage');
 const axios = require('axios');
+
+const MODULE = 'copieurs';
 const https = require('https');
 const http = require('http');
 const { HttpsProxyAgent } = require('https-proxy-agent');
@@ -978,17 +981,10 @@ module.exports = {
 
             const photos = [];
             if (req.files && req.files.length > 0) {
-                const fs = require('fs');
-                const path = require('path');
-                
                 for (const file of req.files) {
-                    const extension = path.extname(file.originalname).toLowerCase();
-                    const filename = `visit_${Date.now()}_${Math.round(Math.random() * 1E9)}${extension}`;
-                    const destPath = path.join(__dirname, '..', '..', 'uploads', filename);
-                    
-                    fs.renameSync(file.path, destPath);
-                    photos.push(`/uploads/${filename}`);
-                }
+                    if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
+                    const saved = await storage.saveFile(MODULE, req.params.id, file);
+                    photos.push(saved.dbPath);
             }
 
             const result = await pgDb.run(
@@ -1026,17 +1022,20 @@ module.exports = {
                 photos = JSON.parse(visite.photos || '[]');
             } catch {}
 
-            const fs = require('fs');
-            const path = require('path');
-            photos.forEach(photoPath => {
-                const filename = path.basename(photoPath);
-                const fullPath = path.join(__dirname, '..', '..', 'uploads', filename);
+            for (const photoPath of photos) {
                 try {
-                    if (fs.existsSync(fullPath)) {
-                        fs.unlinkSync(fullPath);
+                    if (storage.isStoragePath(photoPath)) {
+                        await storage.deleteFile(photoPath);
+                    } else {
+                        // Legacy path
+                        const fs = require('fs');
+                        const path = require('path');
+                        const filename = path.basename(photoPath);
+                        const fullPath = path.join(__dirname, '..', '..', 'uploads', filename);
+                        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
                     }
                 } catch (e) {
-                    console.error('Erreur suppression fichier photo:', fullPath, e.message);
+                    console.error('Erreur suppression fichier photo:', photoPath, e.message);
                 }
             });
 

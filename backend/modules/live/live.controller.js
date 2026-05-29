@@ -1,9 +1,12 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { getIO } = require('./live.socket');
+const storage = require('../../shared/storage');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { SECRET_KEY } = require('../../shared/config');
 const { authenticateAD, lookupADUser } = require('../../shared/ad_auth');
+
+const MODULE = 'live';
 
 let _sendMail = null;
 function setSendMail(fn) { _sendMail = fn; }
@@ -633,7 +636,11 @@ async function uploadAttachment(req, res) {
         const isTech = session.tech_username === user.username ||
             ['superadmin', 'admin'].includes(user.role);
         const senderType = isTech ? 'tech' : 'user';
-        const attachmentUrl = `/uploads/live/${file.filename}`;
+
+        // Corrige l'encodage et sauvegarde via storage
+        if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
+        const saved = await storage.saveFile(MODULE, id, file);
+        const attachmentUrl = `/${saved.dbPath}`;
 
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.live_messages

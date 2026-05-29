@@ -9,13 +9,8 @@ const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateAdm
 // Multer: memory storage for CSV/Excel import
 const uploadMemory = multer({ storage: multer.memoryStorage() });
 
-// Multer: disk storage for reunion attachments
-const uploadReunion = multer({
-    storage: multer.diskStorage({
-        destination: (req, file, cb) => cb(null, path.join(__dirname, '..', '..', 'file_reunions')),
-        filename: (req, file, cb) => cb(null, `${Date.now()}_${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`)
-    })
-});
+// Multer: memory storage for reunion attachments (sauvegarde via storage service)
+const uploadReunion = multer({ storage: multer.memoryStorage() });
 
 // ===== RENCONTRES BUDGÉTAIRES =====
 router.get('/', authenticateJWT, rencontresCtrl.getAll);

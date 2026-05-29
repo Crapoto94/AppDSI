@@ -2,7 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const { pgDb, getSqlite } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
+const storage = require('../../shared/storage');
 const { isSuperAdmin } = require('../../shared/middleware');
+
+const MODULE = 'projets';
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
@@ -835,8 +838,15 @@ const supprimerDocument = async (req, res) => {
         if (!doc) return res.status(404).json({ error: 'Document non trouvé' });
         const versions = await pgDb.all('SELECT * FROM projet_versions_document WHERE document_id = $1', [did]);
         for (const v of versions) {
-            const chemin = path.join(DOCUMENTS_DIR, v.fichier_nom);
-            try { if (fs.existsSync(chemin)) fs.unlinkSync(chemin); } catch {}
+            try {
+                if (storage.isStoragePath(v.fichier_nom)) {
+                    await storage.deleteFile(v.fichier_nom);
+                } else {
+                    // Legacy path
+                    const chemin = path.join(DOCUMENTS_DIR, v.fichier_nom);
+                    if (fs.existsSync(chemin)) fs.unlinkSync(chemin);
+                }
+            } catch {}
         }
         await pgDb.run('DELETE FROM projet_versions_document WHERE document_id = $1', [did]);
         await pgDb.run('DELETE FROM projet_documents WHERE id = $1 AND projet_id = $2', [did, id]);
@@ -879,15 +889,14 @@ const uploadVersion = async (req, res) => {
             }
         }
 
-        const ext = path.extname(req.file.originalname);
-        const stockage = `${Date.now()}_${did}${ext}`;
-        const destPath = path.join(DOCUMENTS_DIR, stockage);
-        fs.renameSync(req.file.path, destPath);
+        // Corrige l'encodage et sauvegarde via storage
+        if (req.file && req.file.originalname) req.file.originalname = storage.fixUploadName(req.file.originalname);
+        const saved = await storage.saveFile(MODULE, id, req.file);
 
         await pgDb.run(`
             INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, commentaire, est_version_courante, depose_par_username)
             VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8)
-        `, [did, newVersion, stockage, req.file.originalname, req.file.size, req.file.mimetype, req.body.commentaire || null, username]);
+        `, [did, newVersion, saved.dbPath, req.file.originalname, req.file.size, req.file.mimetype, req.body.commentaire || null, username]);
 
         if (req.body.journal === 'true') {
             await ajouterJournal(id, 'document_depose', `Version ${newVersion} de ${doc.type_documentaire} déposée`, { document_id: did, version: newVersion, type: doc.type_documentaire }, username);
@@ -914,13 +923,12 @@ const uploadVersionsVrac = async (req, res) => {
                 [id, username]
             );
             const did = docResult.lastID;
-            const ext = path.extname(file.originalname);
-            const stockage = `${Date.now()}_${did}${ext}`;
-            const destPath = path.join(DOCUMENTS_DIR, stockage);
-            fs.renameSync(file.path, destPath);
+            // Corrige l'encodage et sauvegarde via storage
+            if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
+            const saved = await storage.saveFile(MODULE, id, file);
             await pgDb.run(
                 `INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username) VALUES ($1, 'v1.0', $2, $3, $4, $5, 1, $6)`,
-                [did, stockage, file.originalname, file.size, file.mimetype, username]
+                [did, saved.dbPath, file.originalname, file.size, file.mimetype, username]
             );
             results.push({ id: did, nom: file.originalname });
         }

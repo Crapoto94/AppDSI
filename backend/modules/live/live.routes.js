@@ -6,20 +6,9 @@ const router = express.Router();
 const { authenticateJWT } = require('../../shared/middleware');
 const controller = require('./live.controller');
 
-// ── Multer for live attachments ────────────────────────────────────────
-const liveUploadDir = path.join(__dirname, '../../uploads/live');
-if (!fs.existsSync(liveUploadDir)) fs.mkdirSync(liveUploadDir, { recursive: true });
-
-const liveStorage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, liveUploadDir),
-    filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
-        const safe = path.basename(file.originalname, ext).replace(/[^a-z0-9_\-]/gi, '_');
-        cb(null, `${Date.now()}_${safe}${ext}`);
-    }
-});
+// ── Multer for live attachments (en memory, sauvegarde via storage service) ────
 const uploadLive = multer({
-    storage: liveStorage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
 });
 

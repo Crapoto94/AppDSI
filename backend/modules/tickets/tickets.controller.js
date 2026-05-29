@@ -1,5 +1,8 @@
 const { pgDb, pool, getSqlite } = require('../../shared/database');
+const storage = require('../../shared/storage');
 const ticketRepo = require('./repositories/ticket.repository');
+
+const MODULE = 'tickets';
 const commentRepo = require('./repositories/comment.repository');
 const attachmentRepo = require('./repositories/attachment.repository');
 const historyRepo = require('./repositories/history.repository');
@@ -53,18 +56,9 @@ function verifyReplyToken(token) {
     } catch { return null; }
 }
 
-const UPLOAD_DIR = path.join(__dirname, '../../file_tickets');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-    filename: (req, file, cb) => {
-        const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, unique + '-' + file.originalname);
-    }
-});
+// Multer memory storage - sauvegarde via storage service
 const upload = multer({
-    storage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: 20 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'application/msword',
