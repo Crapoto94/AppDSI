@@ -42,7 +42,10 @@ function makeClient(config) {
     const { server, share, basePrefix } = parseUnc(config.root_path);
     const client = new SMB2({
         share: `\\\\${server}\\${share}`,
-        domain: config.domain || config.login_domain || 'WORKGROUP',
+        // IMPORTANT : ne PAS forcer "WORKGROUP" quand le domaine est vide.
+        // Sur un NAS (Synology) avec compte local, un domaine non vide fait
+        // échouer l'écriture (STATUS_ACCESS_DENIED) alors que la lecture passe.
+        domain: config.domain || '',
         username: config.login,
         password: config.password,
         autoCloseTimeout: 10000,
@@ -79,7 +82,11 @@ async function ensureDir(p, smbPath) {
         const exists = await p.exists(cur).catch(() => false);
         if (!exists) {
             await p.mkdir(cur).catch(err => {
-                if (err && err.code !== 'STATUS_OBJECT_NAME_COLLISION') throw err;
+                // "déjà existant" peut remonter sans code (.message uniquement) :
+                // on ignore aussi bien le code SMB que le message texte.
+                const msg = String((err && (err.code || err.message)) || '');
+                if (/already exists|STATUS_OBJECT_NAME_COLLISION/i.test(msg)) return;
+                throw err;
             });
         }
     }
