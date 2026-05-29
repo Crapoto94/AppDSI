@@ -6,13 +6,15 @@ import EmailAutomation from './EmailAutomation';
 import MailCollector from './Admin/MailCollector';
 import MailNotificationQueue from './Admin/MailNotificationQueue';
 import MailLogs from './Admin/MailLogs';
+import O365MailSettings from './O365MailSettings';
 import axios from 'axios';
 
-type MailTab = 'configuration' | 'templates' | 'automation' | 'collector' | 'queue' | 'logs';
+type MailTab = 'configuration' | 'templates' | 'o365' | 'automation' | 'collector' | 'queue' | 'logs';
 
 const TABS: { id: MailTab; label: string; Icon: React.ElementType }[] = [
   { id: 'configuration', label: 'Serveur Mail',       Icon: Settings   },
   { id: 'templates',     label: "Modèles d'emails",   Icon: Mail       },
+  { id: 'o365',          label: 'Messagerie O365',     Icon: Mail       },
   { id: 'automation',    label: 'Automatisation',      Icon: Zap        },
   { id: 'collector',     label: 'Collecteur',          Icon: Mail       },
   { id: 'queue',         label: 'File d\'attente',     Icon: ScrollText },
@@ -76,6 +78,7 @@ const AdminMail: React.FC = () => {
       <div className="ap-body">
         {tab === 'configuration' && <MailSettings />}
         {tab === 'templates'     && <EmailTemplates />}
+        {tab === 'o365'          && <O365MailSettings />}
         {tab === 'automation'    && <EmailAutomation />}
         {tab === 'collector'     && <MailCollector />}
         {tab === 'queue'         && <MailNotificationQueue />}
