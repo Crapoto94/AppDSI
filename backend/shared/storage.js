@@ -375,4 +375,5 @@ module.exports = {
     createDirectory,
     saveFileAt,
     deletePath,
+    recoverMisplaced,
 };

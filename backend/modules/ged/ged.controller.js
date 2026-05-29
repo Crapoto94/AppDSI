@@ -299,6 +299,24 @@ exports.migrateStorage = async (req, res) => {
   }
 };
 
+// Récupère les fichiers écrits par erreur dans un dossier dont le nom contient
+// des antislashs (chemin Windows interprété littéralement sur Linux) et les
+// déplace vers la racine de stockage POSIX correcte (point de montage Samba).
+exports.recoverStorage = async (req, res) => {
+  try {
+    const cfg = await storage.getStorageConfig();
+    if (cfg.backend && cfg.backend !== 'filesystem') {
+      return res.status(400).json({ error: 'Récupération disponible uniquement en mode filesystem.' });
+    }
+    const dryRun = !!req.body.dryRun;
+    const report = await storage.recoverMisplaced({ dryRun });
+    res.json({ dryRun, ...report });
+  } catch (err) {
+    console.error('[STORAGE recover ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.testConnection = async (req, res) => {
   try {
     const { url, username, password } = await getConfig();

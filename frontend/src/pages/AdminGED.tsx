@@ -39,6 +39,16 @@ interface MigrationReport {
   items: MigrationItem[];
 }
 
+interface RecoverReport {
+  dryRun: boolean;
+  correctRoot: string;
+  scannedBases: string[];
+  badRoots: string[];
+  moved: number;
+  errors: { path?: string; error: string }[];
+  items: { from: string; to: string }[];
+}
+
 const ROOT_NODE = '-root-';
 
 function formatSize(bytes?: number): string {
@@ -87,6 +97,11 @@ const AdminGED: React.FC = () => {
   const [migRunning, setMigRunning] = useState(false);
   const [migReport, setMigReport] = useState<MigrationReport | null>(null);
   const [migError, setMigError] = useState('');
+
+  // Recovery state (fichiers mal placés sur Linux : dossier au nom contenant des antislashs)
+  const [recRunning, setRecRunning] = useState(false);
+  const [recReport, setRecReport] = useState<RecoverReport | null>(null);
+  const [recError, setRecError] = useState('');
 
   // Config state
   const [cfgUrl, setCfgUrl] = useState('');
@@ -179,6 +194,25 @@ const AdminGED: React.FC = () => {
       setMigError(axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : 'Erreur lors de la migration');
     } finally {
       setMigRunning(false);
+    }
+  };
+
+  const runRecovery = async (dryRun: boolean) => {
+    if (!dryRun && !window.confirm(
+      'Déplacer RÉELLEMENT les fichiers mal placés vers la racine de stockage configurée ?\n' +
+      'Seuls les dossiers dont le nom contient un antislash (chemin Windows écrit par erreur sur Linux) sont concernés.\n' +
+      'Les fichiers d\'origine du serveur (file_certif, file_projets…) ne sont PAS touchés.'
+    )) return;
+    setRecRunning(true);
+    setRecError('');
+    setRecReport(null);
+    try {
+      const r = await axios.post('/api/ged/storage/recover', { dryRun }, { headers });
+      setRecReport(r.data);
+    } catch (err) {
+      setRecError(axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : 'Erreur lors de la récupération');
+    } finally {
+      setRecRunning(false);
     }
   };
 
@@ -562,6 +596,71 @@ const AdminGED: React.FC = () => {
                   {migReport.items.filter(it => it.status === 'missing').map(it => (
                     <div key={`m-${it.id}`} style={{ padding: '8px 16px', borderTop: '1px solid #f1f5f9', fontSize: '0.8rem', color: '#92400e' }}>
                       <strong>#{it.id}</strong> — fichier introuvable : {it.from}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Récupération fichiers mal placés (Linux/Samba) ── */}
+        <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginTop: 20 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: '1.05rem', color: '#1e293b' }}>Récupérer les fichiers mal placés</h3>
+          <p style={{ margin: '0 0 16px', fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5 }}>
+            Sur Linux, un chemin Windows (UNC) configuré par erreur crée un dossier local dont le nom contient des antislashs.
+            Cet outil déplace le contenu de ces dossiers vers la racine de stockage POSIX configurée (point de montage Samba),
+            sans toucher aux fichiers d'origine du serveur.
+            <strong> Configurez d'abord la racine sur un chemin POSIX (ex : /mnt/dsihub) puis lancez la récupération.</strong>
+          </p>
+
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            <button type="button" onClick={() => runRecovery(true)} disabled={recRunning} style={btnSecondary}>
+              {recRunning ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Eye size={14} />}
+              Simuler
+            </button>
+            <button type="button" onClick={() => runRecovery(false)} disabled={recRunning} style={btnPrimary}>
+              {recRunning ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />}
+              Récupérer maintenant
+            </button>
+          </div>
+
+          {recError && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fca5a5', marginBottom: 12 }}>
+              <XCircle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.85rem', color: '#b91c1c' }}>{recError}</span>
+            </div>
+          )}
+
+          {recReport && (
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px', background: recReport.dryRun ? '#eff6ff' : '#f0fdf4', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                {recReport.dryRun
+                  ? <Info size={16} style={{ color: '#2563eb' }} />
+                  : <CheckCircle size={16} style={{ color: '#16a34a' }} />}
+                <span style={{ fontWeight: 700, fontSize: '0.9rem', color: recReport.dryRun ? '#1d4ed8' : '#15803d' }}>
+                  {recReport.dryRun ? 'Simulation' : 'Récupération terminée'}
+                </span>
+                <span style={{ fontSize: '0.82rem', color: '#475569' }}>
+                  Dossiers détectés {recReport.badRoots.length} · {recReport.dryRun ? 'à déplacer' : 'déplacés'} {recReport.moved} · erreurs {recReport.errors.length}
+                </span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: '#94a3b8', fontFamily: 'Consolas, monospace' }}>{recReport.correctRoot}</span>
+              </div>
+              {recReport.badRoots.length === 0 && recReport.errors.length === 0 && (
+                <div style={{ padding: '10px 16px', fontSize: '0.8rem', color: '#64748b' }}>
+                  Aucun dossier mal placé détecté.
+                </div>
+              )}
+              {(recReport.items.length > 0 || recReport.errors.length > 0) && (
+                <div style={{ maxHeight: 240, overflow: 'auto' }}>
+                  {recReport.errors.map((er, i) => (
+                    <div key={`re-${i}`} style={{ padding: '8px 16px', borderTop: '1px solid #f1f5f9', fontSize: '0.8rem', color: '#b91c1c' }}>
+                      erreur : {er.error}{er.path ? ` (${er.path})` : ''}
+                    </div>
+                  ))}
+                  {recReport.items.map((it, i) => (
+                    <div key={`ri-${i}`} style={{ padding: '8px 16px', borderTop: '1px solid #f1f5f9', fontSize: '0.78rem', color: '#475569', fontFamily: 'Consolas, monospace', wordBreak: 'break-all' }}>
+                      {it.from} <span style={{ color: '#94a3b8' }}>→</span> {it.to}
                     </div>
                   ))}
                 </div>

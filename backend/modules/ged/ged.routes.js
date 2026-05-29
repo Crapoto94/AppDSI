@@ -25,6 +25,7 @@ router.post('/storage/folder', authenticateAdminUI, ctrl.createStorageFolder);
 router.post('/storage/upload', authenticateAdminUI, upload.single('file'), ctrl.uploadStorage);
 router.delete('/storage/node', authenticateAdminUI, ctrl.deleteStorageNode);
 router.post('/storage/migrate', authenticateAdminUI, ctrl.migrateStorage);
+router.post('/storage/recover', authenticateAdminUI, ctrl.recoverStorage);
 
 router.get('/nodes/:nodeId', authenticateAdminUI, ctrl.getNode);
 router.get('/nodes/:nodeId/children', authenticateAdminUI, ctrl.listChildren);
