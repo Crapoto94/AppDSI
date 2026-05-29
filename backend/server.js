@@ -3094,6 +3094,18 @@ app.post('/api/mail-settings', authenticateAdmin, async (req, res) => {
     }
 });
 
+// Kill-switch rapide : active/désactive tous les envois d'emails
+app.post('/api/mail-settings/global-enable', authenticateAdmin, async (req, res) => {
+    const { enabled } = req.body;
+    try {
+        await db.run('UPDATE mail_settings SET global_enable = ? WHERE id = 1', [enabled ? 1 : 0]);
+        console.log(`[MAIL] Envoi d'emails ${enabled ? 'ACTIVÉ' : 'DÉSACTIVÉ'} globalement`);
+        res.json({ message: `Envoi d'emails ${enabled ? 'activé' : 'désactivé'}`, global_enable: !!enabled });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+});
+
 app.post('/api/send-test-mail', authenticateAdmin, async (req, res) => {
     const { to } = req.body;
     try {

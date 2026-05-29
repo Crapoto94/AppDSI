@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
-import { Mail, Settings, Zap, ScrollText } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Mail, Settings, Zap, ScrollText, Power } from 'lucide-react';
 import MailSettings from './MailSettings';
 import EmailTemplates from './EmailTemplates';
 import EmailAutomation from './EmailAutomation';
 import MailCollector from './Admin/MailCollector';
 import MailNotificationQueue from './Admin/MailNotificationQueue';
 import MailLogs from './Admin/MailLogs';
+import axios from 'axios';
 
 type MailTab = 'configuration' | 'templates' | 'automation' | 'collector' | 'queue' | 'logs';
 
@@ -20,6 +21,27 @@ const TABS: { id: MailTab; label: string; Icon: React.ElementType }[] = [
 
 const AdminMail: React.FC = () => {
   const [tab, setTab] = useState<MailTab>('configuration');
+  const [globalEnabled, setGlobalEnabled] = useState(true);
+  const [toggling, setToggling] = useState(false);
+  const token = localStorage.getItem('token');
+
+  useEffect(() => {
+    axios.get('/api/mail-settings', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setGlobalEnabled(!!r.data?.global_enable))
+      .catch(() => {});
+  }, []);
+
+  const toggleMail = async () => {
+    setToggling(true);
+    try {
+      await axios.post('/api/mail-settings/global-enable',
+        { enabled: !globalEnabled },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setGlobalEnabled(!globalEnabled);
+    } catch (e) { alert('Erreur'); }
+    finally { setToggling(false); }
+  };
 
   return (
     <div className="ap-root">
@@ -27,10 +49,15 @@ const AdminMail: React.FC = () => {
         <span className="ap-header-icon" style={{ background: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd' }}>
           <Mail size={16} />
         </span>
-        <div>
+        <div style={{ flex: 1 }}>
           <h1 className="ap-title">Messagerie &amp; Emails</h1>
-          <p className="ap-desc">Serveur SMTP, modèles, automatisations et intégration Office 365</p>
+          <p className="ap-desc">Serveur SMTP, modèles, automatisations et collecteurs</p>
         </div>
+        <button onClick={toggleMail} disabled={toggling}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: 'none', cursor: toggling ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, background: globalEnabled ? '#fef2f2' : '#f0fdf4', color: globalEnabled ? '#dc2626' : '#16a34a', transition: 'all .15s' }}>
+          <Power size={15} />
+          {toggling ? '...' : globalEnabled ? 'Couper les envois' : 'Rétablir les envois'}
+        </button>
       </div>
 
       <nav className="ap-tabs">
