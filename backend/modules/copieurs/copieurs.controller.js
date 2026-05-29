@@ -691,12 +691,12 @@ module.exports = {
     importEmails: async (req, res) => {
         try {
             const db = getSqlite();
-            const settings = await db.get('SELECT * FROM o365_settings WHERE id = 1');
+            const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
             if (!settings || !settings.is_enabled || !settings.client_id || !settings.client_secret || !settings.tenant_id || !settings.mailbox) {
                 const missing = [];
                 if (!settings) missing.push('settings=null');
                 else { if (!settings.is_enabled) missing.push('is_enabled'); if (!settings.client_id) missing.push('client_id'); if (!settings.client_secret) missing.push('client_secret'); if (!settings.tenant_id) missing.push('tenant_id'); if (!settings.mailbox) missing.push('mailbox'); }
-                return res.status(400).json({ message: 'O365 non configuré — configurez la messagerie dans /admin', missing });
+                return res.status(400).json({ message: 'Azure AD non configuré — configurez dans /admin > AD et Entra', missing });
             }
 
             const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || null;
@@ -897,8 +897,8 @@ module.exports = {
             if (!intervention.email_message_id) return res.status(400).json({ message: 'Pas de message email associé' });
 
             const db = getSqlite();
-            const settings = await db.get('SELECT * FROM o365_settings WHERE id = 1');
-            if (!settings || !settings.is_enabled) return res.status(400).json({ message: 'O365 non configuré' });
+            const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+            if (!settings || !settings.is_enabled) return res.status(400).json({ message: 'Azure AD non configuré' });
 
             const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || null;
             const axiosOpts = proxyUrl

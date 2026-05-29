@@ -7,7 +7,7 @@ import {
   ShieldAlert, Box, LayoutGrid, Brain, Sparkles,
   Globe, Key, Fingerprint, Check, AlertTriangle, BarChart3,
   Zap, History as HistoryIcon, Hash, Lock, Download, MessageSquare,
-  Clock, Play
+  Clock, Play, Mail
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import axios from 'axios';
@@ -137,7 +137,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     tenant_id: '',
     client_id: '',
     client_secret: '',
-    redirect_uri: window.location.origin + '/api/auth/azure/callback'
+    redirect_uri: window.location.origin + '/api/auth/azure/callback',
+    mailbox: ''
   });
   const [testUser, setTestUser] = useState({ username: '' });
   const [azureTestUser, setAzureTestUser] = useState({ username: '' });
@@ -487,7 +488,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           tenant_id: data.tenant_id || '',
           client_id: data.client_id || '',
           client_secret: data.client_secret ? '••••••••' : '',
-          redirect_uri: data.redirect_uri || (window.location.origin + '/api/auth/azure/callback')
+          redirect_uri: data.redirect_uri || (window.location.origin + '/api/auth/azure/callback'),
+          mailbox: data.mailbox || ''
         });
       }
     } catch (error) {
@@ -2403,6 +2405,15 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         value={azureConfig.redirect_uri} 
                                         onChange={e => setAzureConfig({...azureConfig, redirect_uri: e.target.value})} 
                                         placeholder="https://votre-hub.fr/api/auth/azure/callback"
+                                    />
+                                </div>
+                                <div className="form-field full-width">
+                                    <label className="field-label"><Mail size={14} /> BAL par défaut (collecteurs/copieurs)</label>
+                                    <input 
+                                        className="admin-input font-mono text-xs"
+                                        value={azureConfig.mailbox} 
+                                        onChange={e => setAzureConfig({...azureConfig, mailbox: e.target.value})} 
+                                        placeholder="dsia@ivry94.fr"
                                     />
                                 </div>
                             </div>

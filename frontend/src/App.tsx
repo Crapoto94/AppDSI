@@ -50,7 +50,6 @@ import ChatEcole from './pages/Tickets/ChatEcole';
 import AdminGED from './pages/AdminGED';
 import PublicTicketReply from './pages/PublicTicketReply';
 import ChatWidget from './components/LiveChat/ChatWidget';
-import MailCollector from './pages/Admin/MailCollector';
 import ParamVille from './pages/Admin/ParamVille';
 
 // Protected Route Component
@@ -154,7 +153,6 @@ function App() {
           <Route path="users" element={<Admin section="users" />} />
           <Route path="tiles" element={<Admin section="tiles" />} />
           <Route path="ad" element={<AdminSync />} />
-          <Route path="azure-ad" element={<AdminSync />} />
           <Route path="glpi" element={<AdminDatabases />} />
           <Route path="oracle" element={<AdminDatabases />} />
           <Route path="mariadb" element={<AdminDatabases />} />
@@ -171,7 +169,6 @@ function App() {
           <Route path="email-automation" element={<AdminMail />} />
           <Route path="backlog" element={<AdminBacklogMerged />} />
           <Route path="o365-mail" element={<AdminMail />} />
-          <Route path="mail-collector" element={<MailCollector />} />
           <Route path="param-ville" element={<ParamVille />} />
           <Route path="organisation" element={<AdminOrganisation />} />
           <Route path="tickets" element={<TicketAdmin />} />

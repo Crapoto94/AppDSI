@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import {
     Plus, Trash2, Edit3, Search, Mail, Clock, CheckCircle, XCircle,
-    Play, ChevronDown, X, Bell, ScrollText, ListTodo, RefreshCw
+    Play, ChevronDown, X, Bell, ListTodo, RefreshCw
 } from 'lucide-react';
 
 /* ─── types ──────────────────────────────────────────────────────────────── */
@@ -15,26 +15,10 @@ interface Automation {
     created_at: string; updated_at: string; recipients: Recipient[];
 }
 interface TaskAlertUser { username: string; displayname: string; email: string; }
-interface MailLog {
-    id: number; recipient: string; subject: string; status: string;
-    error_message: string | null; source: string; sent_at: string;
-}
 
-type Tab = 'automations' | 'taches' | 'logs';
+type Tab = 'automations' | 'taches';
 
 /* ─── helpers ────────────────────────────────────────────────────────────── */
-const SOURCE_COLORS: Record<string, { bg: string; color: string }> = {
-    task_alert:  { bg: '#dbeafe', color: '#1d4ed8' },
-    automation:  { bg: '#ede9fe', color: '#7c3aed' },
-    projet:      { bg: '#d1fae5', color: '#065f46' },
-    system:      { bg: '#f1f5f9', color: '#475569' },
-};
-const sourceChip = (src: string) => {
-    const c = SOURCE_COLORS[src] || SOURCE_COLORS.system;
-    const labels: Record<string, string> = { task_alert: 'Tâches', automation: 'Automation', projet: 'Projet', system: 'Système' };
-    return <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, background: c.bg, color: c.color, fontWeight: 700 }}>{labels[src] || src}</span>;
-};
-
 const freqLabel = (f: string) => {
     if (f.startsWith('every:')) { const [, n] = f.match(/every:(\d+)/) || []; return `Toutes les ${n} min`; }
     if (f.startsWith('daily:')) { const [, h, m] = f.match(/daily:(\d{2}):(\d{2})/) || []; return `Quotidien à ${h}:${m}`; }
@@ -78,12 +62,6 @@ const EmailAutomation: React.FC = () => {
     const [taskUsers, setTaskUsers] = useState<TaskAlertUser[]>([]);
     const [loadingTaskUsers, setLoadingTaskUsers] = useState(false);
 
-    /* ── logs globaux ── */
-    const [mailLogs, setMailLogs] = useState<MailLog[]>([]);
-    const [loadingLogs, setLoadingLogs] = useState(false);
-    const [logFilterSource, setLogFilterSource] = useState('');
-    const [logFilterStatus, setLogFilterStatus] = useState('');
-
     /* ─── fetch helpers ─────────────────────────────────────────────────────── */
     const fetchAutomations = useCallback(async () => {
         setLoadingAuto(true);
@@ -99,21 +77,8 @@ const EmailAutomation: React.FC = () => {
         finally { setLoadingTaskUsers(false); }
     }, []);
 
-    const fetchMailLogs = useCallback(async () => {
-        setLoadingLogs(true);
-        try {
-            const params: Record<string, string> = { limit: '300' };
-            if (logFilterSource) params.source = logFilterSource;
-            if (logFilterStatus) params.status = logFilterStatus;
-            const r = await axios.get('/api/admin/email-automation/mail-logs', { headers, params });
-            setMailLogs(r.data);
-        } catch (e) { console.error(e); }
-        finally { setLoadingLogs(false); }
-    }, [logFilterSource, logFilterStatus]);
-
     useEffect(() => { fetchAutomations(); }, [fetchAutomations]);
     useEffect(() => { if (tab === 'taches') fetchTaskUsers(); }, [tab, fetchTaskUsers]);
-    useEffect(() => { if (tab === 'logs') fetchMailLogs(); }, [tab, fetchMailLogs]);
 
     /* ─── automations actions ──────────────────────────────────────────────── */
     const openCreate = () => {
@@ -218,7 +183,6 @@ const EmailAutomation: React.FC = () => {
             <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #e2e8f0', marginBottom: 0 }}>
                 {tabBtn('automations', <Mail size={15} />, 'Automations', automations.length)}
                 {tabBtn('taches',      <Bell size={15} />, 'Alertes Tâches', taskUsers.length)}
-                {tabBtn('logs',        <ScrollText size={15} />, 'Logs globaux')}
             </div>
 
             <div style={{ background: 'white', border: '1px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 16px 16px', padding: 24, minHeight: 300 }}>
@@ -345,73 +309,6 @@ const EmailAutomation: React.FC = () => {
                     </div>
                 )}
 
-                {/* ─── ONGLET LOGS GLOBAUX ────────────────────────────────── */}
-                {tab === 'logs' && (
-                    <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-                            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a', flex: 1 }}>
-                                <ScrollText size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-                                Journal global des emails ({mailLogs.length})
-                            </h3>
-                            <select value={logFilterSource} onChange={e => setLogFilterSource(e.target.value)}
-                                style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, color: '#475569' }}>
-                                <option value=''>Toutes les sources</option>
-                                <option value='task_alert'>Alertes tâches</option>
-                                <option value='automation'>Automations</option>
-                                <option value='projet'>Projets</option>
-                                <option value='system'>Système</option>
-                            </select>
-                            <select value={logFilterStatus} onChange={e => setLogFilterStatus(e.target.value)}
-                                style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, color: '#475569' }}>
-                                <option value=''>Tous les statuts</option>
-                                <option value='sent'>Envoyé ✓</option>
-                                <option value='failed'>Échec ✗</option>
-                            </select>
-                            <button onClick={fetchMailLogs} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', fontSize: 13, color: '#475569' }}>
-                                <RefreshCw size={13} style={{ animation: loadingLogs ? 'spin 1s linear infinite' : 'none' }} /> Actualiser
-                            </button>
-                        </div>
-
-                        {loadingLogs ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: 40 }}>Chargement...</p> :
-                        mailLogs.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
-                                <ScrollText size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
-                                <p>Aucun email enregistré.</p>
-                            </div>
-                        ) : (
-                            <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                                    <thead>
-                                        <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                                            <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Statut</th>
-                                            <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase' }}>Destinataire</th>
-                                            <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase' }}>Objet</th>
-                                            <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase' }}>Source</th>
-                                            <th style={{ padding: '9px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>Date</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {mailLogs.map((l, i) => (
-                                            <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? 'white' : '#fafafa' }}
-                                                title={l.error_message || ''}>
-                                                <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                                                    {l.status === 'sent'
-                                                        ? <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#16a34a', fontWeight: 600 }}><CheckCircle size={13} /> Envoyé</span>
-                                                        : <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#dc2626', fontWeight: 600 }} title={l.error_message || ''}><XCircle size={13} /> Échec</span>
-                                                    }
-                                                </td>
-                                                <td style={{ padding: '8px 12px', color: '#334155', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.recipient}</td>
-                                                <td style={{ padding: '8px 12px', color: '#475569', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.subject}</td>
-                                                <td style={{ padding: '8px 12px' }}>{sourceChip(l.source)}</td>
-                                                <td style={{ padding: '8px 12px', color: '#94a3b8', fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(l.sent_at)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
-                )}
             </div>
 
             {/* ─── Modal création/édition ────────────────────────────────── */}

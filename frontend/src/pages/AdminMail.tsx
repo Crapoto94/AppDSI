@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
-import { Mail, Settings, Zap, Inbox } from 'lucide-react';
+import { Mail, Settings, Zap, ScrollText } from 'lucide-react';
 import MailSettings from './MailSettings';
 import EmailTemplates from './EmailTemplates';
 import EmailAutomation from './EmailAutomation';
-import O365MailSettings from './O365MailSettings';
+import MailCollector from './Admin/MailCollector';
+import MailNotificationQueue from './Admin/MailNotificationQueue';
+import MailLogs from './Admin/MailLogs';
 
-type MailTab = 'configuration' | 'templates' | 'automation' | 'o365';
+type MailTab = 'configuration' | 'templates' | 'automation' | 'collector' | 'queue' | 'logs';
 
 const TABS: { id: MailTab; label: string; Icon: React.ElementType }[] = [
-  { id: 'configuration', label: 'Serveur Mail',       Icon: Settings },
-  { id: 'templates',     label: "Modèles d'emails",   Icon: Mail     },
-  { id: 'automation',    label: 'Automatisation',      Icon: Zap      },
-  { id: 'o365',          label: 'Messagerie Copieurs', Icon: Inbox    },
+  { id: 'configuration', label: 'Serveur Mail',       Icon: Settings   },
+  { id: 'templates',     label: "Modèles d'emails",   Icon: Mail       },
+  { id: 'automation',    label: 'Automatisation',      Icon: Zap        },
+  { id: 'collector',     label: 'Collecteur',          Icon: Mail       },
+  { id: 'queue',         label: 'File d\'attente',     Icon: ScrollText },
+  { id: 'logs',          label: 'Logs',                 Icon: ScrollText },
 ];
 
 const AdminMail: React.FC = () => {
@@ -46,7 +50,9 @@ const AdminMail: React.FC = () => {
         {tab === 'configuration' && <MailSettings />}
         {tab === 'templates'     && <EmailTemplates />}
         {tab === 'automation'    && <EmailAutomation />}
-        {tab === 'o365'          && <O365MailSettings />}
+        {tab === 'collector'     && <MailCollector />}
+        {tab === 'queue'         && <MailNotificationQueue />}
+        {tab === 'logs'          && <MailLogs />}
       </div>
 
       <style>{`

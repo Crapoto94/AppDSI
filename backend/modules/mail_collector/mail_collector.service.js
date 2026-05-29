@@ -448,13 +448,13 @@ class MailCollectorService {
         log.tickets_created = res.emails_imported || 0;
       } else {
         const sqlite = getSqlite();
-        const o365Settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
+        const o365Settings = await sqlite.get('SELECT * FROM azure_ad_settings WHERE id = 1');
 
         if (!o365Settings || !o365Settings.is_enabled || !o365Settings.client_id || !o365Settings.client_secret || !o365Settings.tenant_id) {
-          throw new Error('O365 non configuré dans les paramètres (/admin > Messagerie & Emails)');
+          throw new Error('Azure AD non configuré dans les paramètres (/admin > AD et Entra)');
         }
 
-        // Credentials depuis o365_settings, mailbox propre à ce collecteur
+        // Credentials depuis azure_ad_settings, mailbox propre à ce collecteur
         o365Settings.mailbox = collector.mailbox;
 
         const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || null;

@@ -214,18 +214,18 @@ module.exports = {
   testConfig: async (req, res) => {
     try {
       const sqlite = getSqlite();
-      const o365Settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
+      const o365Settings = await sqlite.get('SELECT * FROM azure_ad_settings WHERE id = 1');
 
       if (!o365Settings || !o365Settings.is_enabled) {
         return res.status(400).json({
-          message: 'O365 non configuré',
+          message: 'Azure AD non configuré',
           configured: false
         });
       }
 
       if (!o365Settings.client_id || !o365Settings.client_secret || !o365Settings.tenant_id) {
         return res.status(400).json({
-          message: 'Paramètres O365 incomplets',
+          message: 'Paramètres Azure AD incomplets',
           configured: false,
           missing: [
             !o365Settings.client_id && 'client_id',
@@ -236,7 +236,7 @@ module.exports = {
       }
 
       res.json({
-        message: 'O365 configuré',
+        message: 'Azure AD configuré',
         configured: true,
         tenant: o365Settings.tenant_id.substring(0, 8) + '...',
         defaultMailbox: o365Settings.mailbox || 'non défini'

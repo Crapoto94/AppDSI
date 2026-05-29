@@ -279,6 +279,7 @@ async function setupDb() {
             client_id TEXT DEFAULT '',
             client_secret TEXT DEFAULT '',
             redirect_uri TEXT DEFAULT '',
+            mailbox TEXT DEFAULT '',
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 

@@ -366,23 +366,35 @@ const EmailAutomationExtra = {
     // GET /api/admin/email-automation/mail-logs
     getAllMailLogs: async (req, res) => {
         try {
-            const limit = Math.min(parseInt(req.query.limit) || 300, 1000);
-            const source = req.query.source || null;
-            const status = req.query.status || null;
+            const source    = req.query.source || null;
+            const status    = req.query.status || null;
+            const q         = req.query.q || null;
+            const page      = Math.max(parseInt(req.query.page)   || 1, 1);
+            const perPage   = Math.min(Math.max(parseInt(req.query.perPage) || 50, 10), 500);
 
-            let where = '';
-            const params = [];
-            const conditions = [];
-            if (source) { params.push(source); conditions.push(`source = $${params.length}`); }
-            if (status) { params.push(status); conditions.push(`status = $${params.length}`); }
-            if (conditions.length) where = 'WHERE ' + conditions.join(' AND ');
-            params.push(limit);
+            const params  = [];
+            const wheres  = [];
+            let idx = 0;
+
+            if (source) { idx++; params.push(source);  wheres.push(`source = $${idx}`); }
+            if (status) { idx++; params.push(status);  wheres.push(`status = $${idx}`); }
+            if (q)      { idx++; params.push(`%${q}%`); wheres.push(`(recipient ILIKE $${idx} OR subject ILIKE $${idx})`); }
+
+            const where = wheres.length ? 'WHERE ' + wheres.join(' AND ') : '';
+
+            const countR = await pool.query(`SELECT COUNT(*) AS total FROM hub.email_logs ${where}`, params);
+            const total  = parseInt(countR.rows[0].total) || 0;
+
+            const offset = (page - 1) * perPage;
+            idx++; params.push(perPage);
+            idx++; params.push(offset);
 
             const { rows } = await pool.query(
-                `SELECT * FROM hub.email_logs ${where} ORDER BY sent_at DESC LIMIT $${params.length}`,
+                `SELECT * FROM hub.email_logs ${where} ORDER BY sent_at DESC LIMIT $${idx - 1} OFFSET $${idx}`,
                 params
             );
-            res.json(rows);
+
+            res.json({ data: rows, total, page, perPage });
         } catch (err) {
             res.status(500).json({ message: err.message });
         }

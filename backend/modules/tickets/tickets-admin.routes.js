@@ -911,4 +911,54 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
     }
 });
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+ *  Notification Queue — GET / DELETE
+ *  ═══════════════════════════════════════════════════════════════════════════════ */
+const { pool } = require('../../shared/database');
+
+router.get('/notification-queue', authenticateAdmin, async (req, res) => {
+    try {
+        const { limit, status } = req.query;
+        let sql = `SELECT * FROM hub_tickets.notification_queue`;
+        const params = [];
+        if (status) {
+            sql += ` WHERE status = $1`;
+            params.push(status);
+        }
+        sql += ` ORDER BY created_at DESC`;
+        if (limit) sql += ` LIMIT ${parseInt(limit) || 300}`;
+        const r = await pool.query(sql, params);
+        res.json(r.rows);
+    } catch (err) {
+        console.error('[NOTIFICATION-QUEUE] GET error:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+router.delete('/notification-queue/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await pool.query(`DELETE FROM hub_tickets.notification_queue WHERE id = $1`, [req.params.id]);
+        res.json({ message: 'Supprimé' });
+    } catch (err) {
+        console.error('[NOTIFICATION-QUEUE] DELETE error:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+router.delete('/notification-queue', authenticateAdmin, async (req, res) => {
+    try {
+        const { status } = req.query;
+        if (status) {
+            const r = await pool.query(`DELETE FROM hub_tickets.notification_queue WHERE status = $1`, [status]);
+            res.json({ message: `${r.rowCount} lignes supprimées (status=${status})` });
+        } else {
+            const r = await pool.query(`DELETE FROM hub_tickets.notification_queue`);
+            res.json({ message: `${r.rowCount} lignes supprimées (total)` });
+        }
+    } catch (err) {
+        console.error('[NOTIFICATION-QUEUE] CLEAR error:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+});
+
 module.exports = router;

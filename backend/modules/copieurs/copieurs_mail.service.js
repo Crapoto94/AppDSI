@@ -5,9 +5,9 @@ const { pgDb, getSqlite } = require('../../shared/database');
 
 async function importEmailsService(mailbox, domainFilter) {
   const db = getSqlite();
-  const settings = await db.get('SELECT * FROM o365_settings WHERE id = 1');
+  const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
   if (!settings || !settings.is_enabled || !settings.client_id || !settings.client_secret || !settings.tenant_id) {
-    throw new Error('O365 non configuré');
+    throw new Error('Azure AD non configuré');
   }
 
   const targetMailbox = mailbox || settings.mailbox;

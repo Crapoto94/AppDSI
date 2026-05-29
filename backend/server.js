@@ -734,6 +734,9 @@ app.get('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
         if (settings && settings.client_secret) {
             settings.client_secret = '••••••••';
         }
+        if (!settings) {
+            return res.json({ id: 1, is_enabled: 0, tenant_id: '', client_id: '', client_secret: '', redirect_uri: '', mailbox: '' });
+        }
         res.json(settings);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lecture paramètres Azure AD' });
@@ -741,52 +744,22 @@ app.get('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
 });
 
 app.post('/api/azure-ad-settings', authenticateAdmin, async (req, res) => {
-    const { is_enabled, tenant_id, client_id, client_secret, redirect_uri } = req.body;
+    const { is_enabled, tenant_id, client_id, client_secret, redirect_uri, mailbox } = req.body;
     try {
         if (!client_secret || client_secret === '********' || client_secret === '••••••••') {
             await db.run(
-                'UPDATE azure_ad_settings SET is_enabled = ?, tenant_id = ?, client_id = ?, redirect_uri = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
-                [is_enabled ? 1 : 0, tenant_id, client_id, redirect_uri]
+                'UPDATE azure_ad_settings SET is_enabled = ?, tenant_id = ?, client_id = ?, redirect_uri = ?, mailbox = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+                [is_enabled ? 1 : 0, tenant_id, client_id, redirect_uri, mailbox || '']
             );
         } else {
             await db.run(
-                'UPDATE azure_ad_settings SET is_enabled = ?, tenant_id = ?, client_id = ?, client_secret = ?, redirect_uri = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
-                [is_enabled ? 1 : 0, tenant_id, client_id, client_secret, redirect_uri]
+                'UPDATE azure_ad_settings SET is_enabled = ?, tenant_id = ?, client_id = ?, client_secret = ?, redirect_uri = ?, mailbox = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+                [is_enabled ? 1 : 0, tenant_id, client_id, client_secret, redirect_uri, mailbox || '']
             );
         }
         res.json({ message: 'Paramètres Azure AD enregistrés' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur enregistrement paramètres Azure AD' });
-    }
-});
-
-// --- O365 Mail Settings (copieurs) ---
-app.get('/api/o365-mail-settings', authenticateAdmin, async (req, res) => {
-    try {
-        const settings = await db.get('SELECT * FROM o365_settings WHERE id = 1');
-        res.json(settings || { id: 1, is_enabled: 0, tenant_id: '', client_id: '', client_secret: '', mailbox: '' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur lecture paramètres O365 mail' });
-    }
-});
-
-app.post('/api/o365-mail-settings', authenticateAdmin, async (req, res) => {
-    const { is_enabled, tenant_id, client_id, client_secret, mailbox } = req.body;
-    try {
-        if (!client_secret || client_secret === '••••••••') {
-            await db.run(
-                'UPDATE o365_settings SET is_enabled=?, tenant_id=?, client_id=?, mailbox=?, updated_at=CURRENT_TIMESTAMP WHERE id=1',
-                [is_enabled ? 1 : 0, tenant_id || '', client_id || '', mailbox || '']
-            );
-        } else {
-            await db.run(
-                'UPDATE o365_settings SET is_enabled=?, tenant_id=?, client_id=?, client_secret=?, mailbox=?, updated_at=CURRENT_TIMESTAMP WHERE id=1',
-                [is_enabled ? 1 : 0, tenant_id || '', client_id || '', client_secret, mailbox || '']
-            );
-        }
-        res.json({ message: 'Paramètres O365 mail enregistrés' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erreur enregistrement paramètres O365 mail' });
     }
 });
 

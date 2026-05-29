@@ -315,6 +315,7 @@ async function setupDb() {
             client_id TEXT DEFAULT '',
             client_secret TEXT DEFAULT '',
             redirect_uri TEXT DEFAULT '',
+            mailbox TEXT DEFAULT '',
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -886,6 +887,9 @@ async function setupDb() {
     try { await db.run("ALTER TABLE postgres_settings ADD COLUMN connect_timeout INTEGER DEFAULT 10"); } catch (e) {}
     try { await db.run("ALTER TABLE postgres_settings ADD COLUMN application_name TEXT DEFAULT 'DSIHub'"); } catch (e) {}
     try { await db.run("ALTER TABLE postgres_settings ADD COLUMN schema_name TEXT DEFAULT 'public'"); } catch (e) {}
+
+    // Azure AD Settings migration — ajout mailbox pour fusion o365_settings
+    try { await db.run("ALTER TABLE azure_ad_settings ADD COLUMN mailbox TEXT DEFAULT ''"); } catch (e) {}
 
 
     try {
