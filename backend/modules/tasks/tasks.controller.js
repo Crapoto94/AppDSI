@@ -530,7 +530,7 @@ module.exports = {
                         `UPDATE hub_rencontres.rencontres_reunions
                          SET liste_taches = jsonb_set(
                              COALESCE(liste_taches::jsonb, '[]'::jsonb),
-                             ('{' || $1 || ',statut}')::text[],
+                             ('{' || $1 || ',"statut"}')::text[],
                              to_jsonb($2::text)
                          )
                          WHERE id = $3`,
@@ -571,9 +571,26 @@ module.exports = {
         const username = req.user.username;
         const { id } = req.params;
         try {
+            // Check if task exists and get its owner and creator
+            const { rows } = await pool.query(
+                'SELECT username, created_by FROM hub.user_tasks WHERE id = $1',
+                [id]
+            );
+            if (rows.length === 0) return res.status(404).json({ error: 'Tâche non trouvée' });
+
+            const taskOwner = rows[0].username;
+            const taskCreator = rows[0].created_by;
+            const isAdmin = req.user?.role === 'superadmin' || req.user?.role === 'admin';
+            const isOwner = username.toLowerCase() === taskOwner.toLowerCase();
+            const isCreator = taskCreator && username.toLowerCase() === taskCreator.toLowerCase();
+
+            if (!isAdmin && !isOwner && !isCreator) {
+                return res.status(403).json({ error: 'Vous ne pouvez supprimer que vos propres tâches' });
+            }
+
             await pool.query(
-                'DELETE FROM hub.user_tasks WHERE id = $1 AND LOWER(username) = LOWER($2)',
-                [id, username]
+                'DELETE FROM hub.user_tasks WHERE id = $1',
+                [id]
             );
             // cleanup notes
             await pool.query('DELETE FROM hub.task_notes WHERE source = $1 AND task_id = $2', ['personal', String(id)]);

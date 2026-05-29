@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { pgDb } = require('../../shared/database');
-const { isSuperAdmin } = require('../../shared/middleware');
+const { isSuperAdmin, isAdminLike } = require('../../shared/middleware');
 
 // Forward declaration - sendMail will be injected from server.js
 let sendMailFn = null;
@@ -314,12 +314,18 @@ ${tasksHtml}
         try {
             const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [req.params.id]);
             if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
-            const isAdmin = isSuperAdmin(req.user);
+            const isAdmin = isAdminLike(req.user);
             const isCreator = req.user?.username && reunion.created_by === req.user.username;
             if (!isAdmin && !isCreator) return res.status(403).json({ error: 'Seuls l\'administrateur ou le créateur peuvent supprimer cette réunion' });
 
             // Supprimer les liaisons avec les projets avant de supprimer la réunion
             await pgDb.run('DELETE FROM projets.projet_reunions WHERE reunion_id = $1', [req.params.id]);
+
+            // Supprimer les tâches personnelles liées à cette réunion
+            await pgDb.run('DELETE FROM hub.user_tasks WHERE context_source = $1 AND context_id = $2', ['reunion', req.params.id]);
+
+            // Supprimer les tâches dans la liste_taches de la réunion
+            await pgDb.run('UPDATE rencontres_reunions SET liste_taches = NULL WHERE id = $1', [req.params.id]);
 
             // Supprimer la réunion
             await pgDb.run('DELETE FROM rencontres_reunions WHERE id=?', [req.params.id]);

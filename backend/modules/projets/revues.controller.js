@@ -288,7 +288,7 @@ module.exports = {
     deleteOne: async (req, res) => {
         try {
             const { id } = req.params;
-            const isAdmin = isSuperAdmin(req.user);
+            const isAdmin = req.user?.role === 'superadmin' || req.user?.role === 'admin';
             const isPMO = await estPMO(req.user.username);
             if (!isAdmin && !isPMO) {
                 return res.status(403).json({ error: 'Accès refusé' });
@@ -296,6 +296,9 @@ module.exports = {
 
             const revue = await pgDb.get('SELECT titre FROM hub_rencontres.revues WHERE id = $1', [id]);
             if (!revue) return res.status(404).json({ error: 'Revue non trouvée' });
+
+            // Supprimer les tâches de revue associées
+            await pgDb.run('DELETE FROM hub_rencontres.revue_taches WHERE revue_id = $1', [id]);
 
             await pgDb.run('DELETE FROM hub_rencontres.revues WHERE id = $1', [id]);
             logMouchard(`Revue de projets supprimée: ${revue.titre} par ${req.user.username}`);

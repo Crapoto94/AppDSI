@@ -162,6 +162,42 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
   );
 }
 
+// ─── Confirmation modal ───────────────────────────────────────────────────────
+function ConfirmationModal({ title, message, confirmText = 'Confirmer', cancelText = 'Annuler', onConfirm, onClose, isDangerous = false }: {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm: () => void;
+  onClose: () => void;
+  isDangerous?: boolean;
+}) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', zIndex: 9300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: 'white', borderRadius: 12, padding: 24, width: '100%', maxWidth: 400, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+        <h3 style={{ margin: '0 0 6px', color: isDangerous ? '#dc2626' : '#1e293b', fontSize: 16, fontWeight: 800 }}>
+          {isDangerous && <XCircle size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />}
+          {title}
+        </h3>
+        <p style={{ margin: '6px 0 20px', fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
+          {message}
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '9px', border: '1px solid #e2e8f0', borderRadius: 8, background: 'white', cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#64748b' }}>
+            {cancelText}
+          </button>
+          <button
+            onClick={onConfirm}
+            style={{ flex: 1, padding: '9px', border: 'none', borderRadius: 8, background: isDangerous ? '#dc2626' : '#2563eb', cursor: 'pointer', color: 'white', fontWeight: 700, fontSize: 13 }}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Refuse modal ─────────────────────────────────────────────────────────────
 function RefuseModal({ task, onConfirm, onClose }: {
   task: Task;
@@ -235,6 +271,9 @@ const MesTaches: React.FC = () => {
 
   // ── Refuse modal ─────────────────────────────────────────────────────────────
   const [refuseTask, setRefuseTask] = useState<Task | null>(null);
+
+  // ── Confirmation modal ────────────────────────────────────────────────────────
+  const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => void; isDangerous?: boolean } | null>(null);
 
   // ── Alert pref ───────────────────────────────────────────────────────────────
   const [alertEnabled, setAlertEnabled] = useState(false);
@@ -372,9 +411,38 @@ const MesTaches: React.FC = () => {
   };
 
   const deleteTask = async (task: Task) => {
-    if (task.source !== 'personal') return;
-    await fetch(`/api/tasks/personal/${task.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-    setTasks(prev => prev.filter(t => !(t.source === 'personal' && t.id === task.id)));
+    if (task.source !== 'personal' && task.source !== 'ticket') return;
+    setConfirmModal({
+      title: 'Supprimer la tâche',
+      message: `Êtes-vous sûr de vouloir supprimer la tâche "${task.description}" ? Cette action est irréversible.`,
+      isDangerous: true,
+      onConfirm: async () => {
+        try {
+          await fetch(`/api/tasks/personal/${task.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+          setTasks(prev => prev.filter(t => !(t.source === task.source && t.id === task.id)));
+        } catch (err) {
+          console.error('Erreur suppression:', err);
+        }
+        setConfirmModal(null);
+      }
+    });
+  };
+
+  const deleteAssignedTask = async (taskId: number) => {
+    setConfirmModal({
+      title: 'Supprimer la tâche affectée',
+      message: 'Êtes-vous sûr de vouloir supprimer cette tâche affectée ? Cette action est irréversible.',
+      isDangerous: true,
+      onConfirm: async () => {
+        try {
+          await fetch(`/api/tasks/personal/${taskId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+          setAssignedTasks(prev => prev.filter(t => t.id !== taskId));
+        } catch (err) {
+          console.error('Erreur suppression:', err);
+        }
+        setConfirmModal(null);
+      }
+    });
   };
 
   const handleCreated = (created: any) => {
@@ -742,6 +810,7 @@ const MesTaches: React.FC = () => {
                     <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', width: 120 }}>Assignée à</th>
                     <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', width: 110 }}>Échéance</th>
                     <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', width: 100 }}>Statut</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 700, color: '#475569', fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e2e8f0', width: 50 }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -756,6 +825,15 @@ const MesTaches: React.FC = () => {
                       <td style={{ padding: '8px 12px', color: '#475569', fontSize: 12 }}>{t.responsable}</td>
                       <td style={{ padding: '8px 12px' }}><EcheanceBadge d={t.echeance} /></td>
                       <td style={{ padding: '8px 12px' }}>{statusBadge(t.statut)}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <button
+                          onClick={() => deleteAssignedTask(t.id)}
+                          title="Supprimer"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, verticalAlign: 'middle' }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1010,6 +1088,17 @@ const MesTaches: React.FC = () => {
           contextSource="personal"
           onCreated={handleCreated}
           onClose={() => setShowModal(false)}
+        />
+      )}
+
+      {/* ── Modal Confirmation ───────────────────────────────────────────── */}
+      {confirmModal && (
+        <ConfirmationModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          onConfirm={confirmModal.onConfirm}
+          onClose={() => setConfirmModal(null)}
+          isDangerous={confirmModal.isDangerous}
         />
       )}
 

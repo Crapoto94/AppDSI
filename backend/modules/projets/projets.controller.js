@@ -550,7 +550,8 @@ const remove = async (req, res) => {
     try {
         const { id } = req.params;
         const username = req.user.username;
-        const isAdmin = isSuperAdmin(req.user);
+        const { pool } = require('../../shared/database');
+        const isAdmin = req.user?.role === 'superadmin' || req.user?.role === 'admin';
         const isPMO = await estPMO(username);
         if (!isAdmin && !isPMO) return res.status(403).json({ error: 'Accès refusé' });
 
@@ -581,6 +582,9 @@ const remove = async (req, res) => {
             await pgDb.run('DELETE FROM projet_comites WHERE projet_id = $1', [e.id]);
             await pgDb.run('DELETE FROM projet_dependances WHERE projet_id = $1', [e.id]);
             await pgDb.run('DELETE FROM projet_favoris WHERE projet_id = $1', [e.id]);
+            // Supprimer les tâches personnelles liées au sous-projet
+            await pool.query('DELETE FROM hub.user_tasks WHERE context_source IN ($1, $2) AND context_id = $3',
+                ['projet', 'projet_standalone', e.id]);
             await pgDb.run('DELETE FROM projets WHERE id = $1', [e.id]);
         }
 
@@ -605,6 +609,9 @@ const remove = async (req, res) => {
         await pgDb.run('DELETE FROM projet_comites WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projet_dependances WHERE projet_id = $1', [id]);
         await pgDb.run('DELETE FROM projet_favoris WHERE projet_id = $1', [id]);
+        // Supprimer les tâches personnelles liées au projet
+        await pool.query('DELETE FROM hub.user_tasks WHERE context_source IN ($1, $2) AND context_id = $3',
+            ['projet', 'projet_standalone', id]);
         await pgDb.run('DELETE FROM projets WHERE id = $1', [id]);
 
         res.json({ message: `Projet ${projet.code} et ses sous-projets supprimés` });

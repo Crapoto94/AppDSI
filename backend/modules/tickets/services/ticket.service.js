@@ -154,6 +154,14 @@ module.exports = {
     },
 
     async softDelete(id, user) {
+        const { pool } = require('../../../shared/database');
+
+        // Supprimer les tâches liées à ce ticket
+        await pool.query(
+            'DELETE FROM hub.user_tasks WHERE context_source = $1 AND context_id = $2',
+            ['ticket', id]
+        );
+
         await ticketRepo.softDelete(id);
         await historyRepo.log(id, user.id, 'deleted', 'status', null, '8', 'Ticket supprimé');
     },
