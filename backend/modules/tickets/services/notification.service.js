@@ -158,8 +158,13 @@ module.exports = {
             LIMIT 20
         `);
 
+        if (pending.length > 0) {
+            console.log(`[NOTIFICATION-QUEUE] Processing ${pending.length} items`);
+        }
+
         for (const item of pending) {
             try {
+                console.log(`[NOTIFICATION-QUEUE] Sending to ${item.recipient_email}: ${item.subject}`);
                 await sendMailFn(item.recipient_email, item.subject, item.body_html, [], 'ticket');
                 await pgDb.run(
                     "UPDATE hub_tickets.notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2",

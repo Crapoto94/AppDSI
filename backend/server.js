@@ -4817,6 +4817,11 @@ app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) =>
         const s = await db.get('SELECT * FROM mail_settings WHERE id = 1');
         if (!s) throw new Error("Paramètres mail non configurés");
 
+        if (s.global_enable === 0 || s.global_enable === false) {
+            console.log(`[MAIL SYSTEM] Envoi global désactivé. Bon de commande ignoré pour: ${validEmails.join(', ')}`);
+            return res.status(503).json({ message: 'Envoi désactivé globalement' });
+        }
+
         const transporter = nodemailer.createTransport(
             new brevoTransport({ apiKey: s.smtp_pass })
         );
@@ -4880,6 +4885,7 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
     if (!s) throw new Error("Paramètres mail non configurés");
 
     // Check if emails are globally disabled
+    console.log(`[MAIL-DEBUG] global_enable=${s.global_enable} (${typeof s.global_enable}), check=${s.global_enable === 0 || s.global_enable === false}, to=${to}, subject=${subject}`);
     if (s.global_enable === 0 || s.global_enable === false) {
         console.log(`[MAIL SYSTEM] Envoi global désactivé. Mail ignoré pour: ${to}`);
         _skipped = true;
@@ -5355,6 +5361,11 @@ console.log('[TICKETS CRON] SLA check registered');
 // Cron: Traitement file d'attente notifications toutes les 30s
 cron.schedule('*/30 * * * * *', async () => {
     try {
+        const mailCfg = await db.get('SELECT global_enable FROM mail_settings WHERE id = 1');
+        if (mailCfg && (mailCfg.global_enable === 0 || mailCfg.global_enable === false)) {
+            console.log('[NOTIFICATION-QUEUE] Bloqué — envoi global désactivé');
+            return;
+        }
         await notificationService.processQueue(sendMail);
     } catch (e) {
         console.error('[CRON NOTIF]', e.message);

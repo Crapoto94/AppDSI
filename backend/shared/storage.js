@@ -42,12 +42,25 @@ function normalizeRootPath(p) {
     if (!p) return '';
     let s = String(p).trim();
     if (!s) return '';
-    const isUnc = /^[\\/]{2,}/.test(s);
-    s = s.replace(/[\\/]+/g, '\\');      // tout antislash/slash répété -> un seul antislash
-    if (isUnc) s = '\\' + s;             // restaure le double antislash UNC
-    s = s.replace(/\\+$/, '');           // pas d'antislash final
-    if (/^[A-Za-z]:$/.test(s)) s += '\\'; // garde "C:\" pour une racine de lecteur
+    // Style Windows : présence d'un antislash ou d'une lettre de lecteur "X:".
+    const isWindows = /\\/.test(s) || /^[A-Za-z]:/.test(s);
+    if (isWindows) {
+        const isUnc = /^[\\/]{2,}/.test(s);
+        s = s.replace(/[\\/]+/g, '\\');      // antislash/slash répété -> un seul antislash
+        if (isUnc) s = '\\' + s;             // restaure le double antislash UNC
+        s = s.replace(/\\+$/, '');           // pas d'antislash final
+        if (/^[A-Za-z]:$/.test(s)) s += '\\'; // garde "C:\" pour une racine de lecteur
+    } else {
+        // Style POSIX (Linux/Docker) : on garde les slashs avant.
+        s = s.replace(/\/+/g, '/');          // slash répété -> un seul slash
+        if (s.length > 1) s = s.replace(/\/+$/, ''); // pas de slash final (sauf "/")
+    }
     return s;
+}
+
+/** Vrai si le chemin est de style Windows (antislash ou lettre de lecteur). */
+function isWindowsStylePath(p) {
+    return typeof p === 'string' && (/\\/.test(p) || /^[A-Za-z]:/.test(p));
 }
 
 /** Lit la configuration de stockage depuis app_settings (SQLite). */
@@ -112,10 +125,22 @@ function sanitizeSegment(value) {
 
 /** Résout la racine effective à partir de la config. */
 function resolveRoot(config) {
+    let root;
     if (config && config.root_path && config.root_path.trim()) {
-        return normalizeRootPath(config.root_path);
+        root = normalizeRootPath(config.root_path);
+    } else {
+        root = defaultRoot();
     }
-    return defaultRoot();
+    // Garde-fou : un chemin Windows (UNC / lettre de lecteur) ne fonctionne pas
+    // sur un serveur Linux (les antislashs y sont des caractères normaux et les
+    // fichiers finiraient dans un dossier local mal nommé au lieu du partage).
+    if (process.platform !== 'win32' && isWindowsStylePath(root)) {
+        throw new Error(
+            `Chemin de stockage Windows ("${root}") incompatible avec ce serveur Linux. ` +
+            `Montez le partage Samba (CIFS) et configurez un point de montage POSIX, ex : /mnt/dsihub.`
+        );
+    }
+    return root;
 }
 
 /**
@@ -254,6 +279,74 @@ async function saveFileAt(relPath, file) {
     fs.writeFileSync(path.join(dirAbs, base), file.buffer);
     const cleanRel = (relPath || '').replace(/\\/g, '/').replace(/\/$/, '');
     return { relPath: cleanRel ? `${cleanRel}/${base}` : base };
+}
+
+// ─── Récupération des fichiers mal placés (chemin Windows sur Linux) ──────────
+
+function _walkAndMove(current, badRoot, correctRoot, report, dryRun) {
+    let entries;
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); }
+    catch (e) { report.errors.push({ path: current, error: e.message }); return; }
+    for (const ent of entries) {
+        const src = path.join(current, ent.name);
+        if (ent.isDirectory()) {
+            _walkAndMove(src, badRoot, correctRoot, report, dryRun);
+        } else {
+            const rel = path.relative(badRoot, src);          // ex: certificats/25/xxx.pdf
+            const dest = path.join(correctRoot, rel);
+            report.items.push({ from: src, to: dest });
+            if (dryRun) { report.moved++; continue; }
+            try {
+                fs.mkdirSync(path.dirname(dest), { recursive: true });
+                try { fs.renameSync(src, dest); }
+                catch (e) {                                     // cross-device (conteneur -> CIFS)
+                    fs.copyFileSync(src, dest);
+                    fs.unlinkSync(src);
+                }
+                report.moved++;
+            } catch (e) {
+                report.errors.push({ path: src, error: e.message });
+            }
+        }
+    }
+}
+
+function _removeEmptyDirs(dir) {
+    let entries;
+    try { entries = fs.readdirSync(dir); } catch (e) { return; }
+    for (const name of entries) {
+        const p = path.join(dir, name);
+        try { if (fs.statSync(p).isDirectory()) _removeEmptyDirs(p); } catch (e) { /* ignore */ }
+    }
+    try { if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir); } catch (e) { /* ignore */ }
+}
+
+/**
+ * Récupère les fichiers écrits par erreur dans un dossier au nom contenant des
+ * antislashs (cas d'un chemin Windows interprété littéralement sur Linux) et
+ * les déplace vers la racine de stockage correcte (point de montage POSIX).
+ * Les chemins en base (storage/<module>/<id>/...) restent valides après coup.
+ */
+async function recoverMisplaced({ dryRun } = {}) {
+    const config = await getStorageConfig();
+    const correctRoot = resolveRoot(config); // lève une erreur si racine encore Windows sur Linux
+    const scanBases = Array.from(new Set([process.cwd(), defaultRoot()]));
+    const report = { correctRoot, scannedBases: scanBases, badRoots: [], moved: 0, errors: [], items: [] };
+    for (const base of scanBases) {
+        let names;
+        try { names = fs.readdirSync(base); } catch (e) { continue; }
+        for (const name of names) {
+            if (!name.includes('\\')) continue;                // dossier mal nommé
+            const badRoot = path.join(base, name);
+            try { if (!fs.statSync(badRoot).isDirectory()) continue; } catch (e) { continue; }
+            // évite de se déplacer dans la racine correcte elle-même
+            if (path.resolve(badRoot) === path.resolve(correctRoot)) continue;
+            report.badRoots.push(badRoot);
+            _walkAndMove(badRoot, badRoot, correctRoot, report, dryRun);
+            if (!dryRun) _removeEmptyDirs(badRoot);
+        }
+    }
+    return report;
 }
 
 /** Supprime un fichier ou dossier (récursif). Refuse la racine. */
