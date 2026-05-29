@@ -351,6 +351,8 @@ async function setupPgDb() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_file_ticket ON hub_tickets.ticket_attachments(ticket_id)`);
+    // Stockage partagé : flag "fichier perdu" (migration vers storage/<module>/<id>/<f>)
+    try { await client.query(`ALTER TABLE hub_tickets.ticket_attachments ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_links (
@@ -1318,6 +1320,9 @@ async function setupPgDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    // Stockage partagé : chemin "storage/reunions/<id>/<f>" + flag "fichier perdu".
+    try { await client.query(`ALTER TABLE hub_rencontres.reunion_attachments ADD COLUMN IF NOT EXISTS file_path TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.reunion_attachments ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_rencontres.revues (
@@ -1491,6 +1496,9 @@ async function setupPgDb() {
         depose_par_username TEXT
       );
     `);
+    // Stockage partagé : chemin "storage/projets/<doc>/<f>" + flag "fichier perdu".
+    try { await client.query(`ALTER TABLE projets.projet_versions_document ADD COLUMN IF NOT EXISTS file_path TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE projets.projet_versions_document ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS projets.projet_scores (
@@ -2316,6 +2324,8 @@ async function setupPgDb() {
       );
     `);
     await client.query('CREATE INDEX IF NOT EXISTS idx_copieur_visites_copieur ON hub_copieurs.copieur_visites(copieur_id)');
+    // Stockage partagé : liste JSON des photos perdues (URLs introuvables).
+    try { await client.query(`ALTER TABLE hub_copieurs.copieur_visites ADD COLUMN IF NOT EXISTS photos_missing TEXT DEFAULT '[]'`); } catch (e) {}
 
     // Migration one-shot (anciens noms per-copieur → par marque, déjà exécutée)
     try { await client.query('DROP TABLE IF EXISTS hub_copieurs.copieur_compteur_tarifs CASCADE'); } catch (e) {}
@@ -3079,6 +3089,7 @@ async function setupPgDb() {
     // Attachments support (non-destructive migrations)
     try { await client.query(`ALTER TABLE hub_tickets.live_messages ADD COLUMN IF NOT EXISTS attachment_url VARCHAR(500)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_tickets.live_messages ADD COLUMN IF NOT EXISTS attachment_name VARCHAR(255)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.live_messages ADD COLUMN IF NOT EXISTS attachment_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
     // Live auth
     try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS auth_method VARCHAR(20) DEFAULT 'guest'`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ DEFAULT NOW()`); } catch (e) {}
