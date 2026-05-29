@@ -85,6 +85,8 @@ const AdminGED: React.FC = () => {
   const [stoRoot, setStoRoot] = useState('');
   const [stoLogin, setStoLogin] = useState('');
   const [stoPass, setStoPass] = useState('');
+  const [stoDomain, setStoDomain] = useState('');
+  const [stoSmbMode, setStoSmbMode] = useState(false);
   const [showStoPass, setShowStoPass] = useState(false);
   const [stoLoading, setStoLoading] = useState(true);
   const [stoSaving, setStoSaving] = useState(false);
@@ -138,6 +140,8 @@ const AdminGED: React.FC = () => {
       setStoBackend(r.data.backend === 'ged' ? 'ged' : 'filesystem');
       setStoRoot(r.data.root_path || '');
       setStoLogin(r.data.login || '');
+      setStoDomain(r.data.domain || '');
+      setStoSmbMode(!!r.data.smbMode);
       if (r.data.hasPassword) setStoPass('••••••••');
     }).finally(() => setStoLoading(false));
   }, []);
@@ -146,9 +150,14 @@ const AdminGED: React.FC = () => {
     e.preventDefault();
     setStoSaving(true);
     try {
-      const payload: Record<string, string> = { backend: stoBackend, root_path: stoRoot, login: stoLogin };
+      const payload: Record<string, string> = { backend: stoBackend, root_path: stoRoot, login: stoLogin, domain: stoDomain };
       if (stoPass && stoPass !== '••••••••') payload.password = stoPass;
       await axios.post('/api/ged/storage-config', payload, { headers });
+      // Recharge l'état (notamment smbMode) après sauvegarde.
+      try {
+        const r = await axios.get('/api/ged/storage-config', { headers });
+        setStoSmbMode(!!r.data.smbMode);
+      } catch { /* ignore */ }
       setStoStatus('unknown');
       setStoMsg('');
     } catch {
@@ -199,9 +208,9 @@ const AdminGED: React.FC = () => {
 
   const runRecovery = async (dryRun: boolean) => {
     if (!dryRun && !window.confirm(
-      'Déplacer RÉELLEMENT les fichiers mal placés vers la racine de stockage configurée ?\n' +
+      'Copier RÉELLEMENT les fichiers mal placés vers le stockage configuré (partage SMB) ?\n' +
       'Seuls les dossiers dont le nom contient un antislash (chemin Windows écrit par erreur sur Linux) sont concernés.\n' +
-      'Les fichiers d\'origine du serveur (file_certif, file_projets…) ne sont PAS touchés.'
+      'Opération non destructive : aucun fichier d\'origine n\'est supprimé.'
     )) return;
     setRecRunning(true);
     setRecError('');
@@ -446,17 +455,38 @@ const AdminGED: React.FC = () => {
                   />
                   <small style={{ color: '#94a3b8' }}>UNC ou local. Les fichiers iront dans &lt;racine&gt;\&lt;module&gt;\&lt;id&gt;\. Vide = dossier du backend.</small>
                 </label>
+                {stoSmbMode && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                    <CheckCircle size={16} style={{ color: '#2563eb', flexShrink: 0 }} />
+                    <span style={{ fontSize: '0.82rem', color: '#1d4ed8' }}>
+                      <strong>Mode SMB actif</strong> — accès au partage UNC directement depuis le serveur (lib smb2, sans montage CIFS).
+                      Fonctionne sur l'instance Docker Linux.
+                    </span>
+                  </div>
+                )}
                 <label style={labelStyle}>
-                  <span>Identifiant (optionnel)</span>
+                  <span>Identifiant (UNC/SMB)</span>
                   <input
                     type="text"
                     value={stoLogin}
                     onChange={e => setStoLogin(e.target.value)}
-                    placeholder="DOMAINE\\utilisateur"
+                    placeholder="utilisateur"
                     style={inputStyle}
                     autoComplete="off"
                   />
-                  <small style={{ color: '#94a3b8' }}>Stocké uniquement. L'accès au partage repose sur le compte de service du backend.</small>
+                  <small style={{ color: '#94a3b8' }}>Pour un partage UNC sur serveur Linux : identifiant + mot de passe activent l'accès SMB direct au partage.</small>
+                </label>
+                <label style={labelStyle}>
+                  <span>Domaine SMB (optionnel)</span>
+                  <input
+                    type="text"
+                    value={stoDomain}
+                    onChange={e => setStoDomain(e.target.value)}
+                    placeholder="WORKGROUP"
+                    style={inputStyle}
+                    autoComplete="off"
+                  />
+                  <small style={{ color: '#94a3b8' }}>Domaine/atelier du compte (par défaut : WORKGROUP).</small>
                 </label>
                 <label style={labelStyle}>
                   <span>Mot de passe (optionnel)</span>
@@ -608,10 +638,10 @@ const AdminGED: React.FC = () => {
         <div style={{ background: '#fff', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginTop: 20 }}>
           <h3 style={{ margin: '0 0 4px', fontSize: '1.05rem', color: '#1e293b' }}>Récupérer les fichiers mal placés</h3>
           <p style={{ margin: '0 0 16px', fontSize: '0.85rem', color: '#64748b', lineHeight: 1.5 }}>
-            Sur Linux, un chemin Windows (UNC) configuré par erreur crée un dossier local dont le nom contient des antislashs.
-            Cet outil déplace le contenu de ces dossiers vers la racine de stockage POSIX configurée (point de montage Samba),
-            sans toucher aux fichiers d'origine du serveur.
-            <strong> Configurez d'abord la racine sur un chemin POSIX (ex : /mnt/dsihub) puis lancez la récupération.</strong>
+            Sur Linux, un chemin Windows (UNC) sans identifiants avait créé un dossier local dont le nom contient des antislashs.
+            Cet outil <strong>copie</strong> le contenu de ces dossiers vers le stockage configuré (partage SMB si identifiants
+            renseignés, sinon racine locale). Opération <strong>non destructive</strong> : aucun fichier d'origine n'est supprimé.
+            <strong> Renseignez d'abord le chemin UNC + identifiant + mot de passe (mode SMB) puis lancez la récupération.</strong>
           </p>
 
           <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
@@ -642,7 +672,7 @@ const AdminGED: React.FC = () => {
                   {recReport.dryRun ? 'Simulation' : 'Récupération terminée'}
                 </span>
                 <span style={{ fontSize: '0.82rem', color: '#475569' }}>
-                  Dossiers détectés {recReport.badRoots.length} · {recReport.dryRun ? 'à déplacer' : 'déplacés'} {recReport.moved} · erreurs {recReport.errors.length}
+                  Dossiers détectés {recReport.badRoots.length} · {recReport.dryRun ? 'à copier' : 'copiés'} {recReport.moved} · erreurs {recReport.errors.length}
                 </span>
                 <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: '#94a3b8', fontFamily: 'Consolas, monospace' }}>{recReport.correctRoot}</span>
               </div>
