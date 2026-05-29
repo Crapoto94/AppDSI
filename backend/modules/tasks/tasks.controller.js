@@ -523,19 +523,25 @@ module.exports = {
                     break;
                 case 'reunion': {
                     // Composite id = reunion_id * 10000 + ordinality (1-based)
+                    // liste_taches is a TEXT column holding a JSON string: read-modify-write.
                     const compositeId = parseInt(id);
                     const reunionId = Math.floor(compositeId / 10000);
-                    const arrayIndex = (compositeId % 10000) - 1; // 0-based for jsonb_set
-                    await pool.query(
-                        `UPDATE hub_rencontres.rencontres_reunions
-                         SET liste_taches = jsonb_set(
-                             COALESCE(liste_taches::jsonb, '[]'::jsonb),
-                             ARRAY[$1::integer, 'statut'],
-                             to_jsonb($2::text)
-                         )
-                         WHERE id = $3`,
-                        [arrayIndex, statut, reunionId]
+                    const arrayIndex = (compositeId % 10000) - 1; // 0-based
+                    const { rows } = await pool.query(
+                        'SELECT liste_taches FROM hub_rencontres.rencontres_reunions WHERE id = $1',
+                        [reunionId]
                     );
+                    if (rows.length > 0) {
+                        let taches;
+                        try { taches = JSON.parse(rows[0].liste_taches || '[]'); } catch { taches = []; }
+                        if (Array.isArray(taches) && taches[arrayIndex]) {
+                            taches[arrayIndex].statut = statut;
+                            await pool.query(
+                                'UPDATE hub_rencontres.rencontres_reunions SET liste_taches = $1 WHERE id = $2',
+                                [JSON.stringify(taches), reunionId]
+                            );
+                        }
+                    }
                     break;
                 }
                 default:
