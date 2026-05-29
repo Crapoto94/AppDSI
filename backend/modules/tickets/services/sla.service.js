@@ -102,7 +102,7 @@ module.exports = {
                     await notificationService.trigger('ticket.sla_breached', {
                         ticket_id: sla.ticket_id, sla_data: sla, sla_type: 'first_response'
                     });
-                } else if (pct >= 90) {
+                } else if (pct >= 90 && sla.sla_status !== 'warning') {
                     await slaRepo.updateSlaStatus(sla.id, 'warning');
                     await notificationService.trigger('ticket.sla_warning', {
                         ticket_id: sla.ticket_id, sla_data: sla, sla_type: 'first_response'
