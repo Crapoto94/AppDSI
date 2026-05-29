@@ -411,6 +411,23 @@ app.use('/api/file_projets', express.static(path.join(__dirname, 'file_projets')
 app.use('/file_contrats', express.static(path.join(__dirname, 'file_contrats')));
 app.use('/api/file_contrats', express.static(path.join(__dirname, 'file_contrats')));
 
+// ─── Stockage de documents unifié (filesystem configurable, local ou UNC) ─────
+// Sert les fichiers stockés sous "<root>/<module>/<id>/<fichier>" via le
+// préfixe d'URL /storage/... (chemin BD = "storage/<module>/<id>/<fichier>").
+const documentStorage = require('./shared/storage');
+const serveDocumentStorage = async (req, res) => {
+    try {
+        const rel = decodeURIComponent(req.path.replace(/^\/+/, ''));
+        const abs = await documentStorage.getAbsolutePath(rel);
+        if (!abs || !fs.existsSync(abs)) return res.status(404).send('Fichier introuvable');
+        return res.sendFile(abs);
+    } catch (e) {
+        return res.status(500).send('Erreur de lecture du fichier');
+    }
+};
+app.use('/storage', serveDocumentStorage);
+app.use('/api/storage', serveDocumentStorage);
+
 // Route API pour servir les documents des contrats (compatible avec développement multi-port)
 app.get(/^\/api\/contrats\/documents\/(.+)$/, (req, res) => {
     try {

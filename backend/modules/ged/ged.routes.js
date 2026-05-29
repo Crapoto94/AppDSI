@@ -13,6 +13,19 @@ router.get('/config', authenticateAdminUI, ctrl.getConfig);
 router.post('/config', authenticateAdminUI, ctrl.saveConfig);
 router.post('/test-connection', authenticateAdminUI, ctrl.testConnection);
 
+// Configuration du stockage de documents (filesystem / ged)
+router.get('/storage-config', authenticateAdminUI, ctrl.getStorageConfig);
+router.post('/storage-config', authenticateAdminUI, ctrl.saveStorageConfig);
+router.post('/storage-test', authenticateAdminUI, ctrl.testStorage);
+
+// Explorateur du stockage filesystem (admin)
+router.get('/storage/browse', authenticateAdminUI, ctrl.browseStorage);
+router.get('/storage/file', authenticateAdminUI, ctrl.downloadStorage);
+router.post('/storage/folder', authenticateAdminUI, ctrl.createStorageFolder);
+router.post('/storage/upload', authenticateAdminUI, upload.single('file'), ctrl.uploadStorage);
+router.delete('/storage/node', authenticateAdminUI, ctrl.deleteStorageNode);
+router.post('/storage/migrate', authenticateAdminUI, ctrl.migrateStorage);
+
 router.get('/nodes/:nodeId', authenticateAdminUI, ctrl.getNode);
 router.get('/nodes/:nodeId/children', authenticateAdminUI, ctrl.listChildren);
 router.get('/nodes/:nodeId/content', authenticateAdminUI, ctrl.downloadContent);

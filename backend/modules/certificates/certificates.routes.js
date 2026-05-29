@@ -3,22 +3,11 @@ const router = express.Router();
 const certificatesController = require('./certificates.controller');
 const { authenticateJWT } = require('../../shared/middleware');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 
-// Storage config consistent with source
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const dir = 'file_certif';
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        cb(null, dir);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, uniqueSuffix + '-' + file.originalname);
-    }
-});
-const upload = multer({ storage });
+// PDF de certificats : stockés en mémoire puis écrits via le service de stockage
+// configurable (filesystem local/UNC) sous "<root>/certificats/<id>/<fichier>".
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+// Import Excel : fichier temporaire sur disque (lu puis supprimé).
 const uploadExcel = multer({ dest: 'uploads/' });
 
 // Routes

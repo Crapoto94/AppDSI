@@ -4,7 +4,10 @@ const axios = axiosOriginal.create({
   httpsAgent: new https.Agent({ rejectUnauthorized: false })
 });
 const FormData = require('form-data');
-const { getSqlite } = require('../../shared/database');
+const fs = require('fs');
+const path = require('path');
+const { getSqlite, pgDb } = require('../../shared/database');
+const storage = require('../../shared/storage');
 
 function alfrescoBase(url) {
   return `${url.replace(/\/$/, '')}/alfresco/api/-default-/public/alfresco/versions/1`;
@@ -116,6 +119,183 @@ exports.saveConfig = async (req, res) => {
   } catch (err) {
     console.error('[GED saveConfig ERROR]', err.message, err.stack);
     res.status(500).json({ error: `Échec de la sauvegarde GED : ${err.message}` });
+  }
+};
+
+// ─── Configuration du stockage de documents (filesystem / ged) ───────────────
+
+exports.getStorageConfig = async (req, res) => {
+  try {
+    const cfg = await storage.getStorageConfig();
+    res.json({
+      backend: cfg.backend || 'filesystem',
+      root_path: cfg.root_path || '',
+      login: cfg.login || '',
+      hasPassword: !!cfg.password,
+    });
+  } catch (err) {
+    console.error('[STORAGE getConfig ERROR]', err.message);
+    res.status(500).json({ error: `Impossible de charger la configuration de stockage : ${err.message}` });
+  }
+};
+
+exports.saveStorageConfig = async (req, res) => {
+  try {
+    const { backend, root_path, login, password } = req.body;
+    if (backend && !['filesystem', 'ged'].includes(backend)) {
+      return res.status(400).json({ error: 'Backend invalide (filesystem | ged).' });
+    }
+    await storage.saveStorageConfig({ backend, root_path, login, password });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[STORAGE saveConfig ERROR]', err.message);
+    res.status(500).json({ error: `Échec de la sauvegarde du stockage : ${err.message}` });
+  }
+};
+
+exports.testStorage = async (req, res) => {
+  try {
+    const cfg = await storage.getStorageConfig();
+    if (cfg.backend && cfg.backend !== 'filesystem') {
+      return res.json({ success: false, error: `Test non disponible pour le backend "${cfg.backend}" (filesystem uniquement pour le moment).` });
+    }
+    const root = storage.resolveRoot(cfg);
+    // Vérifie l'accès en écriture en créant puis supprimant un fichier témoin.
+    const testDir = path.join(root, '.storage_test');
+    fs.mkdirSync(testDir, { recursive: true });
+    const testFile = path.join(testDir, `test_${Date.now()}.tmp`);
+    fs.writeFileSync(testFile, 'ok');
+    fs.unlinkSync(testFile);
+    try { fs.rmdirSync(testDir); } catch (e) { /* ignore */ }
+    res.json({ success: true, root });
+  } catch (err) {
+    res.json({ success: false, error: `Accès au chemin de stockage impossible : ${err.message}` });
+  }
+};
+
+// ─── Explorateur filesystem (admin) ──────────────────────────────────────────
+
+exports.browseStorage = async (req, res) => {
+  try {
+    const result = await storage.listDirectory(req.query.path || '');
+    res.json(result);
+  } catch (err) {
+    console.error('[STORAGE browse ERROR]', err.message);
+    res.status(500).json({ error: `Impossible de lister le dossier : ${err.message}` });
+  }
+};
+
+exports.downloadStorage = async (req, res) => {
+  try {
+    const abs = await storage.getAbsolutePath(req.query.path || '');
+    if (!abs || !fs.existsSync(abs)) return res.status(404).json({ error: 'Fichier introuvable.' });
+    res.download(abs, path.basename(abs));
+  } catch (err) {
+    console.error('[STORAGE download ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.createStorageFolder = async (req, res) => {
+  try {
+    const { path: relPath, name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Nom du dossier requis.' });
+    const r = await storage.createDirectory(relPath || '', name.trim());
+    res.json(r);
+  } catch (err) {
+    console.error('[STORAGE createFolder ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.uploadStorage = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu.' });
+    req.file.originalname = storage.fixUploadName(req.file.originalname);
+    const r = await storage.saveFileAt(req.query.path || '', req.file);
+    res.json(r);
+  } catch (err) {
+    console.error('[STORAGE upload ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.deleteStorageNode = async (req, res) => {
+  try {
+    await storage.deletePath(req.query.path || '');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[STORAGE delete ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ─── Migration des fichiers existants vers le stockage configuré ──────────────
+
+/** Dossier racine du backend (où vivent les fichiers legacy comme file_certif/). */
+const BACKEND_DIR = path.join(__dirname, '..', '..');
+
+/**
+ * Migre les PJ d'un module depuis l'emplacement legacy vers le stockage actuel.
+ * @param {object} opts { module, table, idCol, pathCol, legacyModule, dryRun, deleteLegacy }
+ */
+async function migrateModuleFiles({ module, table, idCol, pathCol, dryRun, deleteLegacy }) {
+  const rows = await pgDb.all(
+    `SELECT ${idCol} AS id, ${pathCol} AS file_path FROM ${table} WHERE ${pathCol} IS NOT NULL AND ${pathCol} <> '' ORDER BY ${idCol}`
+  );
+  const report = { total: rows.length, alreadyMigrated: 0, migrated: 0, missing: 0, errors: [], items: [] };
+
+  for (const r of rows) {
+    if (storage.isStoragePath(r.file_path)) { report.alreadyMigrated++; continue; }
+    const legacyAbs = path.resolve(BACKEND_DIR, r.file_path);
+    if (!fs.existsSync(legacyAbs)) {
+      report.missing++;
+      report.items.push({ id: r.id, status: 'missing', from: r.file_path });
+      continue;
+    }
+    // Récupère un nom lisible : retire le préfixe legacy "<timestamp>-<rand>-"
+    const originalname = path.basename(legacyAbs).replace(/^\d+-\d+-/, '');
+    if (dryRun) {
+      report.migrated++;
+      report.items.push({ id: r.id, status: 'would-migrate', from: r.file_path, name: originalname });
+      continue;
+    }
+    try {
+      const buffer = fs.readFileSync(legacyAbs);
+      const saved = await storage.saveFile(module, r.id, { buffer, originalname });
+      await pgDb.run(`UPDATE ${table} SET ${pathCol} = ? WHERE ${idCol} = ?`, [saved.dbPath, r.id]);
+      if (deleteLegacy) { try { fs.unlinkSync(legacyAbs); } catch (e) { /* ignore */ } }
+      report.migrated++;
+      report.items.push({ id: r.id, status: 'migrated', from: r.file_path, to: saved.dbPath });
+    } catch (e) {
+      report.errors.push({ id: r.id, error: e.message });
+    }
+  }
+  return report;
+}
+
+// Modules migrables (le pilote : certificats)
+const MIGRATORS = {
+  certificats: { module: 'certificats', table: 'hub.certificates', idCol: 'id', pathCol: 'file_path' },
+};
+
+exports.migrateStorage = async (req, res) => {
+  try {
+    const cfg = await storage.getStorageConfig();
+    if (cfg.backend && cfg.backend !== 'filesystem') {
+      return res.status(400).json({ error: 'Migration disponible uniquement en mode filesystem.' });
+    }
+    const moduleKey = req.body.module || 'certificats';
+    const def = MIGRATORS[moduleKey];
+    if (!def) return res.status(400).json({ error: `Module non supporté : ${moduleKey}` });
+
+    const dryRun = !!req.body.dryRun;
+    const deleteLegacy = !!req.body.deleteLegacy;
+    const report = await migrateModuleFiles({ ...def, dryRun, deleteLegacy });
+    res.json({ module: moduleKey, dryRun, deleteLegacy, root: storage.resolveRoot(cfg), ...report });
+  } catch (err) {
+    console.error('[STORAGE migrate ERROR]', err.message);
+    res.status(500).json({ error: err.message });
   }
 };
 

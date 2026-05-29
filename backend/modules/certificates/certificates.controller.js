@@ -1,9 +1,38 @@
 const { pgDb } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
+const storage = require('../../shared/storage');
 const pdf = require('pdf-parse');
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
+
+const MODULE = 'certificats';
+
+/** Supprime le fichier d'un certificat, qu'il soit dans le nouveau stockage ou en legacy. */
+async function deleteCertFile(filePath) {
+    if (!filePath) return;
+    try {
+        if (storage.isStoragePath(filePath)) {
+            await storage.deleteFile(filePath);
+        } else {
+            // Ancien stockage : file_certif/<fichier> relatif au dossier backend
+            const legacy = path.join(__dirname, '../../', filePath);
+            if (fs.existsSync(legacy)) fs.unlinkSync(legacy);
+        }
+    } catch (e) { /* ignore */ }
+}
+
+/** Écrit le fichier d'un certificat via le service de stockage et met à jour file_path. */
+async function storeCertFile(certId, file, previousPath) {
+    // Corrige l'encodage du nom (multer décode en latin1) avant l'écriture
+    if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
+    const saved = await storage.saveFile(MODULE, certId, file);
+    await pgDb.run('UPDATE hub.certificates SET file_path = ? WHERE id = ?', [saved.dbPath, certId]);
+    if (previousPath && previousPath !== saved.dbPath) {
+        await deleteCertFile(previousPath);
+    }
+    return saved.dbPath;
+}
 
 // Helper for date normalization to ISO format (for database storage)
 const normalizeDateString = (dateValue) => {
@@ -121,37 +150,30 @@ const upsertCertificate = async (data) => {
         const finalProvisional = (existing.is_provisional === 0 && existing.expiry_date) ? 0 : data.is_provisional;
         const finalObservations = existing.observations && existing.observations.trim().length > 0 ? existing.observations : data.observations;
 
+        // file_path n'est pas géré ici : le contrôleur enregistre le fichier
+        // via le service de stockage après l'upsert (il connaît alors l'id).
         await db.run(
-            `UPDATE hub.certificates SET request_date = ?, beneficiary_name = ?, beneficiary_email = ?, product_code = ?, product_label = ?, file_path = ?, expiry_date = ?, sedit_number = ?, is_provisional = ?, observations = ? WHERE id = ?`,
-            [data.request_date, data.beneficiary_name, data.beneficiary_email, data.product_code, data.product_label, data.file_path, finalExpiry, finalSedit, finalProvisional, finalObservations, existing.id]
+            `UPDATE hub.certificates SET request_date = ?, beneficiary_name = ?, beneficiary_email = ?, product_code = ?, product_label = ?, expiry_date = ?, sedit_number = ?, is_provisional = ?, observations = ? WHERE id = ?`,
+            [data.request_date, data.beneficiary_name, data.beneficiary_email, data.product_code, data.product_label, finalExpiry, finalSedit, finalProvisional, finalObservations, existing.id]
         );
-
-        if (existing.file_path && existing.file_path !== data.file_path) {
-            try {
-                const oldPath = path.join(__dirname, '../../../', existing.file_path);
-                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-            } catch (e) {}
-        }
         result = { lastID: existing.id };
     } else {
         result = await db.run(
             `INSERT INTO hub.certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [data.order_number, data.request_date, data.beneficiary_name, data.beneficiary_email, data.product_code, data.product_label, data.file_path, data.expiry_date, data.sedit_number, data.is_provisional, data.observations || '']
+            [data.order_number, data.request_date, data.beneficiary_name, data.beneficiary_email, data.product_code, data.product_label, '', data.expiry_date, data.sedit_number, data.is_provisional, data.observations || '']
         );
     }
     return await db.get('SELECT * FROM hub.certificates WHERE id = ?', [result.lastID]);
 };
 
 const parseCertificateFile = async (file) => {
-    const filePath = file.path;
     const fileName = file.originalname;
 
     if (!fileName.toLowerCase().endsWith('.pdf')) {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         throw new Error('Seuls les fichiers PDF sont acceptés pour les certificats.');
     }
 
-    const dataBuffer = fs.readFileSync(filePath);
+    const dataBuffer = file.buffer;
     const pdfData = await pdf(dataBuffer);
     const content = pdfData.text || '';
 
@@ -195,7 +217,6 @@ const parseCertificateFile = async (file) => {
         beneficiary_email: emailMatch ? emailMatch[0] : 'Inconnu',
         product_code: productCodeMatch ? productCodeMatch[0] : 'Inconnu',
         product_label: 'Certificat Standard',
-        file_path: `file_certif/${file.filename}`,
         sedit_number: '',
         is_provisional: 1,
         observations: ''
@@ -309,10 +330,7 @@ module.exports = {
             const db = pgDb;
             const cert = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
             if (!cert) return res.status(404).json({ message: 'Certificat non trouvé' });
-            if (cert.file_path) {
-                const fullPath = path.join(__dirname, '../../../', cert.file_path);
-                if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-            }
+            await deleteCertFile(cert.file_path);
             await db.run('DELETE FROM hub.certificates WHERE id = ?', [req.params.id]);
             logMouchard(`Certificat supprimé: ID ${req.params.id} (${cert.order_number})`);
             res.json({ message: 'Certificat supprimé avec succès' });
@@ -327,12 +345,7 @@ module.exports = {
             const db = pgDb;
             const cert = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
             if (!cert) return res.status(404).json({ message: 'Certificat non trouvé' });
-            if (cert.file_path) {
-                const oldPath = path.join(__dirname, '../../../', cert.file_path);
-                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-            }
-            const newFilePath = `file_certif/${req.file.filename}`;
-            await db.run('UPDATE hub.certificates SET file_path = ? WHERE id = ?', [newFilePath, req.params.id]);
+            await storeCertFile(req.params.id, req.file, cert.file_path);
             const updated = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
             const formatted = { ...updated, request_date: formatDateFrench(updated.request_date), expiry_date: formatDateFrench(updated.expiry_date) };
             res.json(formatted);
@@ -398,7 +411,9 @@ module.exports = {
         try {
             const data = await parseCertificateFile(req.file);
             const saved = await upsertCertificate(data);
-            const formatted = { ...saved, request_date: formatDateFrench(saved.request_date), expiry_date: formatDateFrench(saved.expiry_date) };
+            await storeCertFile(saved.id, req.file, saved.file_path);
+            const finalCert = await pgDb.get('SELECT * FROM hub.certificates WHERE id = ?', [saved.id]);
+            const formatted = { ...finalCert, request_date: formatDateFrench(finalCert.request_date), expiry_date: formatDateFrench(finalCert.expiry_date) };
             res.json(formatted);
         } catch (error) {
             logMouchard(`ERREUR upload PDF: ${error.message}`);
@@ -414,7 +429,9 @@ module.exports = {
             try {
                 const data = await parseCertificateFile(file);
                 const saved = await upsertCertificate(data);
-                const formatted = { ...saved, request_date: formatDateFrench(saved.request_date), expiry_date: formatDateFrench(saved.expiry_date) };
+                await storeCertFile(saved.id, file, saved.file_path);
+                const finalCert = await pgDb.get('SELECT * FROM hub.certificates WHERE id = ?', [saved.id]);
+                const formatted = { ...finalCert, request_date: formatDateFrench(finalCert.request_date), expiry_date: formatDateFrench(finalCert.expiry_date) };
                 results.push({ file: file.originalname, status: 'ok', certificate: formatted });
             } catch (error) {
                 results.push({ file: file.originalname, status: 'error', message: error.message });
