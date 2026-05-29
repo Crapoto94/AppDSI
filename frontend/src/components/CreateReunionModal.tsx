@@ -9,7 +9,7 @@ interface Participant {
   email?: string;
   service?: string;
   direction?: string;
-  type_presence: 'metier' | 'dsi';
+  type_presence: 'metier' | 'dsi' | 'externe';
   statut_presence: 'present' | 'excuse' | 'info';
   ad_username?: string;
 }
@@ -38,7 +38,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
   const [newReunion, setNewReunion] = useState({ titre: '', date_reunion: '', lieu: '' });
   const [comiteId, setComiteId] = useState('');
   const [participants, setParticipants] = useState<Participant[]>([]);
-  const [newParticipant, setNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier' as 'metier' | 'dsi', statut_presence: 'present' as 'present' | 'excuse' | 'info' });
+  const [newParticipant, setNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'externe' as 'metier' | 'dsi' | 'externe', statut_presence: 'present' as 'present' | 'excuse' | 'info' });
   const [adQuery, setAdQuery] = useState('');
   const [adResults, setAdResults] = useState<ADUser[]>([]);
   const [adSearching, setAdSearching] = useState(false);
@@ -63,7 +63,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
           email: m.email || '',
           service: m.service || '',
           direction: m.direction || '',
-          type_presence: 'metier' as 'metier' | 'dsi',
+          type_presence: (m.ad_username ? 'metier' : 'externe') as 'metier' | 'dsi' | 'externe',
           statut_presence: 'present' as 'present' | 'excuse' | 'info',
           ad_username: m.ad_username || ''
         }));
@@ -106,7 +106,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
   const addParticipantManuel = () => {
     if (!newParticipant.nom) return;
     setParticipants(prev => [...prev, { ...newParticipant, id: Date.now(), reunion_id: 0 }]);
-    setNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier', statut_presence: 'present' });
+    setNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'externe', statut_presence: 'present' });
   };
 
   const handleCreate = async () => {
@@ -247,7 +247,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
                 )}
                 {metiers.length > 0 && (
                   <div>
-                    <h4 style={{margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em'}}>👥 Métiers ({metiers.length})</h4>
+                    <h4 style={{margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em'}}>👥 Autres ({metiers.length})</h4>
                     <div style={{border: '1px solid #bbf7d0', borderRadius: '8px', overflow: 'hidden', background: '#f0fdf4'}}>
                       {metiers.map((p, i) => (
                         <div key={p.id} style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: i < metiers.length - 1 ? '1px solid #86efac' : 'none'}}>

@@ -369,9 +369,9 @@ const ProjetDetail: React.FC = () => {
           <h3 style={{ margin: '0 0 16px', fontSize: '14px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Général</h3>
           {editingInfos ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <EditField label="Titre" value={infosForm.titre} onChange={v => setInfosForm({...infosForm, titre: v})} />
+              <EditField label="Titre" value={infosForm.titre} onChange={v => setInfosForm({...infosForm, titre: v})} required />
               <EditField label="Niveau" value={infosForm.niveau_projet} onChange={v => setInfosForm({...infosForm, niveau_projet: v})} type="select" options={[{v:'mineur',l:'Mineur'},{v:'standard',l:'Standard'},{v:'structurant',l:'Structurant'}]} />
-              <EditField label="Service pilote" value={infosForm.service_pilote} onChange={v => setInfosForm({...infosForm, service_pilote: v})} type="select" options={[{v:'',l:'Sélectionner...'},{v:'BF1',l:'BF1 — DSI'},{v:'BF6',l:'BF6 — Infrastructure'},{v:'BF8',l:'BF8 — Bureau des Projets'},{v:'BF9',l:'BF9 — Support & Déploiement'}]} />
+              <EditField label="Service pilote" value={infosForm.service_pilote} onChange={v => setInfosForm({...infosForm, service_pilote: v})} type="select" options={[{v:'',l:'Sélectionner...'},{v:'BF1',l:'BF1 — DSI'},{v:'BF6',l:'BF6 — Infrastructure'},{v:'BF8',l:'BF8 — Bureau des Projets'},{v:'BF9',l:'BF9 — Support & Déploiement'}]} required />
               <EditField label="Priorité (1-5)" value={String(infosForm.priorite)} onChange={v => setInfosForm({...infosForm, priorite: parseInt(v) || 0})} type="number" />
               <EditField label="Avancement %" value={String(infosForm.avancement)} onChange={v => setInfosForm({...infosForm, avancement: parseInt(v) || 0})} type="number" />
               <EditField label="Début prévu" value={infosForm.date_debut_prevue} onChange={v => setInfosForm({...infosForm, date_debut_prevue: v})} type="date" />
@@ -843,9 +843,9 @@ const _EditGovField: React.FC<{ label: string; value: string; onChange: (v: stri
   </div>
 );
 
-const EditField: React.FC<{ label: string; value: string; onChange: (v: string) => void; type?: string; options?: {v: string; l: string}[] }> = ({ label, value, onChange, type, options }) => (
+const EditField: React.FC<{ label: string; value: string; onChange: (v: string) => void; type?: string; options?: {v: string; l: string}[]; required?: boolean }> = ({ label, value, onChange, type, options, required }) => (
   <div style={{ marginBottom: '8px' }}>
-    <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '3px' }}>{label}</label>
+    <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '3px' }}>{label}{required ? <span style={{ color: '#ef4444' }}> *</span> : ''}</label>
     {type === 'select' && options ? (
       <select value={value} onChange={e => onChange(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
         {options.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
@@ -924,6 +924,8 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
   const [adQuery, setAdQuery] = useState('');
   const [adResults, setAdResults] = useState<any[]>([]);
   const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [comiteEditing, setComiteEditing] = useState<number | null>(null);
+  const [comiteEditNom, setComiteEditNom] = useState('');
 
   const load = useCallback(async () => {
     try { const r = await fetch(`/api/projets/${projetId}/comites`, { headers: { Authorization: `Bearer ${token}` } }); const d = await r.json(); if (Array.isArray(d)) setComites(d); } catch {}
@@ -936,6 +938,12 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
     setNewComite({ nom: '', role: '', frequence: '', responsable_username: '' }); setShowForm(false); load();
   };
   const supprimerComite = async (comiteId: number) => { await fetch(`/api/projets/${projetId}/comites/${comiteId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); load(); };
+  const editComite = async (comiteId: number) => {
+    if (!comiteEditNom) return;
+    await fetch(`/api/projets/${projetId}/comites/${comiteId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ nom: comiteEditNom }) });
+    setComiteEditing(null); setComiteEditNom(''); load();
+  };
+  const startEditComite = (c: Comite) => { setComiteEditing(c.id); setComiteEditNom(c.nom); };
   const addMembre = async (comiteId: number) => {
     if (!newMembre.nom) return;
     await fetch(`/api/projets/${projetId}/comites/${comiteId}/membres`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(newMembre) });
@@ -972,15 +980,31 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
       ) : comites.map(c => (
         <div key={c.id} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', marginBottom: '10px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontWeight: '700', fontSize: '14px', color: '#1e293b' }}>{c.nom}</div>
-              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-                {c.role && <span>{c.role}</span>}
-                {c.frequence && <span> · {c.frequence}</span>}
-                {c.responsable_username && <span> · Resp: {c.responsable_username}</span>}
-              </div>
+            <div style={{ flex: 1 }}>
+              {comiteEditing === c.id ? (
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <input value={comiteEditNom} onChange={e => setComiteEditNom(e.target.value)}
+                    style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #2563eb', fontSize: '14px', fontWeight: '700', flex: 1, minWidth: '100px' }}
+                    autoFocus onKeyDown={e => { if (e.key === 'Enter') editComite(c.id); if (e.key === 'Escape') setComiteEditing(null); }} />
+                  <button onClick={() => editComite(c.id)} disabled={!comiteEditNom} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>OK</button>
+                  <button onClick={() => setComiteEditing(null)} style={{ padding: '4px 10px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px', color: '#475569' }}>Annuler</button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontWeight: '700', fontSize: '14px', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {c.nom}
+                    <button onClick={() => startEditComite(c)} title="Renommer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '1px 4px', fontSize: '12px' }}
+                      onMouseEnter={e => (e.currentTarget.style.color = '#2563eb')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}>✏️</button>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                    {c.role && <span>{c.role}</span>}
+                    {c.frequence && <span> · {c.frequence}</span>}
+                    {c.responsable_username && <span> · Resp: {c.responsable_username}</span>}
+                  </div>
+                </div>
+              )}
             </div>
-            <button onClick={() => supprimerComite(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px', fontSize: '13px' }}
+            <button onClick={() => supprimerComite(c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '2px', fontSize: '13px', flexShrink: 0 }}
               onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}>✕</button>
           </div>
           {/* Membres */}

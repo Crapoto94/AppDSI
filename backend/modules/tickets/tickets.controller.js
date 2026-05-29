@@ -496,11 +496,17 @@ async assign(req, res) {
                 }
 
                 try {
-                    await pgDb.run(`
-                        INSERT INTO hub_tickets.notification_queue
-                            (ticket_id, recipient_email, recipient_name, subject, body_html, status)
-                        VALUES ($1, $2, $3, $4, $5, 'pending')
-                    `, [ticketId, requesterEmail, ticket.requester?.name || '', subject, body]);
+                    const dup = await pgDb.get(`
+                        SELECT id FROM hub_tickets.notification_queue
+                        WHERE ticket_id = $1 AND recipient_email = $2 AND subject = $3 AND status = 'pending'
+                    `, [ticketId, requesterEmail, subject]);
+                    if (!dup) {
+                        await pgDb.run(`
+                            INSERT INTO hub_tickets.notification_queue
+                                (ticket_id, recipient_email, recipient_name, subject, body_html, status)
+                            VALUES ($1, $2, $3, $4, $5, 'pending')
+                        `, [ticketId, requesterEmail, ticket.requester?.name || '', subject, body]);
+                    }
                 } catch (qErr) {
                     console.error('[NOTIFICATION] Queue insert failed, sending directly:', qErr.message);
                     await _sendMail(requesterEmail, subject, body);

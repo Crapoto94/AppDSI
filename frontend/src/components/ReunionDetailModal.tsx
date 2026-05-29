@@ -42,7 +42,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [detailAdQuery, setDetailAdQuery] = useState('');
   const [detailAdResults, setDetailAdResults] = useState<ADUser[]>([]);
   const [detailAdSearching, setDetailAdSearching] = useState(false);
-  const [detailNewParticipant, setDetailNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier' as 'metier' | 'dsi', statut_presence: 'present' as 'present' | 'excuse' | 'info', commentaire: '' });
+  const [detailNewParticipant, setDetailNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'externe' as 'metier' | 'dsi' | 'externe', statut_presence: 'present' as 'present' | 'excuse' | 'info', commentaire: '' });
   const [isAddingDetailParticipant, setIsAddingDetailParticipant] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [isSavingReunion, setIsSavingReunion] = useState(false);
@@ -238,7 +238,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
         body: JSON.stringify(detailNewParticipant)
       });
       if (res.ok) {
-        setDetailNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'metier', statut_presence: 'present', commentaire: '' });
+        setDetailNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'externe', statut_presence: 'present', commentaire: '' });
         setShowAddParticipantDetail(false);
         fetchReunion();
       } else { const err = await res.json(); alert(`Erreur : ${err.error}`); }
@@ -367,7 +367,8 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                     <div><input type="text" placeholder="Commentaire" style={{width: '100%', padding: '6px 8px', border: '1px solid #bbf7d0', borderRadius: '4px', fontSize: '12px'}} value={detailNewParticipant.commentaire || ''} onChange={e => setDetailNewParticipant(v => ({...v, commentaire: e.target.value}))} /></div>
                   </div>
                   <div style={{display: 'flex', gap: '6px', alignItems: 'center'}}>
-                    <select style={{padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={detailNewParticipant.type_presence} onChange={e => setDetailNewParticipant(v => ({...v, type_presence: e.target.value as 'metier' | 'dsi'}))}>
+                    <select style={{padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={detailNewParticipant.type_presence} onChange={e => setDetailNewParticipant(v => ({...v, type_presence: e.target.value as 'metier' | 'dsi' | 'externe'}))}>
+                      <option value="externe">Externe</option>
                       <option value="metier">Métier</option>
                       <option value="dsi">DSI</option>
                     </select>

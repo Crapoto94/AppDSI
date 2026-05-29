@@ -88,6 +88,11 @@ async function ajouterJournal(projetId, typeEntree, message, details, username) 
 }
 
 async function creerNotification(projetId, destinataire, typeNotification, message) {
+    const existing = await pgDb.get(
+        `SELECT id FROM projet_notifications WHERE projet_id = $1 AND destinataire_username = $2 AND type_notification = $3 AND message = $4 AND envoye = 0`,
+        [projetId, destinataire, typeNotification, message]
+    );
+    if (existing) return;
     await pgDb.run(
         `INSERT INTO projet_notifications (projet_id, destinataire_username, type_notification, message) VALUES ($1, $2, $3, $4)`,
         [projetId, destinataire, typeNotification, message]
@@ -729,6 +734,7 @@ const ajouterRole = async (req, res) => {
         const projet = await pgDb.get('SELECT code FROM projets WHERE id = $1', [id]);
         await ajouterJournal(id, 'partie_prenante_ajoutee', `${targetUser} ajouté comme ${role}`, { username: targetUser, role }, username);
         await creerNotification(id, targetUser, 'partie_prenante_ajoutee', `Vous avez été ajouté comme ${role} au projet ${projet.code}`);
+        await envoyerNotifications(id);
 
         res.status(201).json({ message: 'Rôle ajouté' });
     } catch (error) {

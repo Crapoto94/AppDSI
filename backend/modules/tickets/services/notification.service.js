@@ -29,6 +29,11 @@ module.exports = {
                     const bodyHtml = this.fillTemplate(trigger.body_html, { ...context, ticket, recipient });
                     const subject = this.fillTemplate(trigger.subject, { ...context, ticket, recipient });
 
+                    const dup = await pgDb.get(`
+                        SELECT id FROM hub_tickets.notification_queue
+                        WHERE ticket_id = $1 AND recipient_email = $2 AND subject = $3 AND status = 'pending'
+                    `, [context.ticket_id, recipient.email, subject]);
+                    if (dup) continue;
                     await pgDb.run(`
                         INSERT INTO hub_tickets.notification_queue
                             (ticket_id, recipient_email, recipient_name, subject, body_html, status)
