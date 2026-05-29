@@ -31,7 +31,7 @@ module.exports = {
 
                     const dup = await pgDb.get(`
                         SELECT id FROM hub_tickets.notification_queue
-                        WHERE ticket_id = $1 AND recipient_email = $2 AND subject = $3 AND status = 'pending'
+                        WHERE ticket_id = $1 AND recipient_email = $2 AND subject = $3 AND status IN ('pending', 'sent') AND created_at > NOW() - INTERVAL '1 hour'
                     `, [context.ticket_id, recipient.email, subject]);
                     if (dup) continue;
                     await pgDb.run(`
