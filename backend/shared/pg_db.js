@@ -509,6 +509,33 @@ async function setupPgDb() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_nq_status ON hub_tickets.notification_queue(status)`);
 
+    // Migration: répare les tables créées sans id SERIAL PRIMARY KEY
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'notification_queue_id_seq') THEN
+            CREATE SEQUENCE hub_tickets.notification_queue_id_seq;
+          END IF;
+          UPDATE hub_tickets.notification_queue SET id = nextval('hub_tickets.notification_queue_id_seq') WHERE id IS NULL;
+          ALTER TABLE hub_tickets.notification_queue ALTER COLUMN id SET DEFAULT nextval('hub_tickets.notification_queue_id_seq');
+          ALTER TABLE hub_tickets.notification_queue ALTER COLUMN id SET NOT NULL;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'hub_tickets.notification_queue'::regclass AND contype = 'p') THEN
+            ALTER TABLE hub_tickets.notification_queue ADD PRIMARY KEY (id);
+          END IF;
+        END $$;
+      `);
+      // Nettoie les doublons accumulés (garde le dernier par ticket+dest+subject)
+      await client.query(`
+        DELETE FROM hub_tickets.notification_queue nq
+        USING hub_tickets.notification_queue nq2
+        WHERE nq.id < nq2.id
+          AND COALESCE(nq.ticket_id, 0) = COALESCE(nq2.ticket_id, 0)
+          AND nq.recipient_email = nq2.recipient_email
+          AND nq.subject = nq2.subject
+      `);
+      console.log('[DB] notification_queue id column repaired');
+    } catch (e) { console.log('[DB] notification_queue migration skipped:', e.message); }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.notification_logs (
         id SERIAL PRIMARY KEY,
