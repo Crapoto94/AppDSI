@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getSqlite } = require('./database');
+const smb = require('./smb_client');
 
 const STORAGE_PREFIX = 'storage';
 
@@ -23,7 +24,26 @@ const SETTING_KEYS = {
     root_path: 'storage.root_path',
     login: 'storage.login',
     password: 'storage.password',
+    domain: 'storage.domain',
 };
+
+/**
+ * Mode SMB applicatif (accès au partage UNC directement depuis Node, comme le
+ * module de facturation d'ODP) : actif si le chemin est UNC ET que des
+ * identifiants sont fournis. Cela évite tout montage CIFS/Samba au niveau de
+ * l'OS et fonctionne donc sur une instance Linux (Docker) sans docker-compose.
+ * Sur Windows sans identifiants, on continue d'utiliser le FS (l'OS gère l'UNC).
+ */
+function isSmbConfig(config) {
+    return !!(config && config.login && config.password && smb.isUncPath(config.root_path));
+}
+
+/** Convertit un chemin BD/relatif en chemin relatif au stockage (sans préfixe). */
+function toStorageRelative(storageRelative) {
+    let rel = String(storageRelative || '').replace(/\\/g, '/');
+    if (rel.startsWith(STORAGE_PREFIX + '/')) rel = rel.slice(STORAGE_PREFIX.length + 1);
+    return rel.split('/').filter(seg => seg && seg !== '.' && seg !== '..').join('/');
+}
 
 /** Racine de repli si aucun chemin n'est configuré : le dossier du backend. */
 function defaultRoot() {
@@ -65,7 +85,7 @@ function isWindowsStylePath(p) {
 
 /** Lit la configuration de stockage depuis app_settings (SQLite). */
 async function getStorageConfig() {
-    const config = { backend: 'filesystem', root_path: '', login: '', password: '' };
+    const config = { backend: 'filesystem', root_path: '', login: '', password: '', domain: '' };
     const db = getSqlite();
     if (!db) return config;
     for (const [field, key] of Object.entries(SETTING_KEYS)) {
@@ -81,7 +101,7 @@ async function getStorageConfig() {
 }
 
 /** Sauvegarde la configuration de stockage. Ne touche pas au mot de passe si absent. */
-async function saveStorageConfig({ backend, root_path, login, password }) {
+async function saveStorageConfig({ backend, root_path, login, password, domain }) {
     const db = getSqlite();
     if (!db) throw new Error('Base SQLite non initialisée.');
 
@@ -100,6 +120,9 @@ async function saveStorageConfig({ backend, root_path, login, password }) {
     }
     if (password !== undefined && password !== '' && password !== '••••••••') {
         await db.run(upsert, [SETTING_KEYS.password, password, 'Mot de passe pour le partage de stockage (si applicable)']);
+    }
+    if (domain !== undefined) {
+        await db.run(upsert, [SETTING_KEYS.domain, domain || '', 'Domaine SMB pour le partage de stockage (si applicable)']);
     }
 }
 
@@ -132,12 +155,14 @@ function resolveRoot(config) {
         root = defaultRoot();
     }
     // Garde-fou : un chemin Windows (UNC / lettre de lecteur) ne fonctionne pas
-    // sur un serveur Linux (les antislashs y sont des caractères normaux et les
-    // fichiers finiraient dans un dossier local mal nommé au lieu du partage).
-    if (process.platform !== 'win32' && isWindowsStylePath(root)) {
+    // sur un serveur Linux en accès FS direct. EXCEPTION : en mode SMB applicatif
+    // (UNC + identifiants), on parle au partage via la lib smb2, le chemin UNC
+    // est donc volontairement conservé et géré par le client SMB.
+    if (process.platform !== 'win32' && isWindowsStylePath(root) && !isSmbConfig(config)) {
         throw new Error(
-            `Chemin de stockage Windows ("${root}") incompatible avec ce serveur Linux. ` +
-            `Montez le partage Samba (CIFS) et configurez un point de montage POSIX, ex : /mnt/dsihub.`
+            `Chemin de stockage Windows ("${root}") incompatible avec ce serveur Linux en accès direct. ` +
+            `Renseignez un identifiant et un mot de passe pour activer l'accès SMB au partage, ` +
+            `ou configurez un chemin POSIX local.`
         );
     }
     return root;
@@ -173,18 +198,28 @@ async function saveFile(moduleName, id, file) {
     }
     if (!file || !file.buffer) throw new Error('Aucun contenu de fichier fourni.');
 
-    const root = resolveRoot(config);
     const moduleSeg = sanitizeSegment(moduleName);
     const idSeg = sanitizeSegment(id);
-    const dir = path.join(root, moduleSeg, idSeg);
-    fs.mkdirSync(dir, { recursive: true });
-
     const base = path.basename(file.originalname || 'fichier');
     const safeName = `${Date.now()}-${Math.round(Math.random() * 1e9)}-${base}`.replace(/[\r\n]/g, '');
+    const relativePath = `${moduleSeg}/${idSeg}/${safeName}`;
+
+    if (isSmbConfig(config)) {
+        await smb.writeFileRel(config, relativePath, file.buffer);
+        return {
+            filename: safeName,
+            relativePath,
+            dbPath: `${STORAGE_PREFIX}/${relativePath}`,
+            absolutePath: null,
+        };
+    }
+
+    const root = resolveRoot(config);
+    const dir = path.join(root, moduleSeg, idSeg);
+    fs.mkdirSync(dir, { recursive: true });
     const absolutePath = path.join(dir, safeName);
     fs.writeFileSync(absolutePath, file.buffer);
 
-    const relativePath = `${moduleSeg}/${idSeg}/${safeName}`;
     return {
         filename: safeName,
         relativePath,                                   // ex. "certificats/25/123-abc.pdf"
@@ -197,6 +232,10 @@ async function saveFile(moduleName, id, file) {
 async function deleteFile(dbPath) {
     if (!dbPath) return;
     const config = await getStorageConfig();
+    if (isSmbConfig(config)) {
+        try { await smb.deleteRel(config, toStorageRelative(dbPath)); } catch (e) { /* ignore */ }
+        return;
+    }
     const root = resolveRoot(config);
     const abs = resolveAbsolute(root, dbPath);
     if (abs && fs.existsSync(abs)) {
@@ -204,11 +243,32 @@ async function deleteFile(dbPath) {
     }
 }
 
-/** Renvoie le chemin absolu d'un fichier (pour streaming), ou null. */
+/** Renvoie le chemin absolu d'un fichier (pour streaming), ou null. (FS uniquement) */
 async function getAbsolutePath(storageRelative) {
     const config = await getStorageConfig();
+    if (isSmbConfig(config)) return null; // pas de chemin local en mode SMB
     const root = resolveRoot(config);
     return resolveAbsolute(root, storageRelative);
+}
+
+/**
+ * Renvoie de quoi servir un fichier, quel que soit le backend :
+ *   - { absolutePath, filename } en mode FS (à servir via res.sendFile)
+ *   - { buffer, filename }       en mode SMB (à servir via res.send)
+ * Renvoie null si le fichier est introuvable.
+ */
+async function getFileForServe(storageRelative) {
+    const config = await getStorageConfig();
+    const rel = toStorageRelative(storageRelative);
+    if (isSmbConfig(config)) {
+        const buffer = await smb.readFileRel(config, rel);
+        if (!buffer) return null;
+        return { buffer, filename: path.basename(rel) };
+    }
+    const root = resolveRoot(config);
+    const abs = resolveAbsolute(root, storageRelative);
+    if (!abs || !fs.existsSync(abs)) return null;
+    return { absolutePath: abs, filename: path.basename(abs) };
 }
 
 /** Vrai si un chemin BD relève du nouveau stockage (préfixe "storage/"). */
@@ -229,6 +289,10 @@ async function listDirectory(relPath) {
     const config = await getStorageConfig();
     if (config.backend && config.backend !== 'filesystem') {
         throw new Error(`Explorateur indisponible pour le backend "${config.backend}".`);
+    }
+    if (isSmbConfig(config)) {
+        const r = await smb.listRel(config, relPath || '');
+        return { entries: r.entries, root: normalizeRootPath(config.root_path), relPath: r.relPath };
     }
     const root = resolveRoot(config);
     const abs = absForRel(root, relPath);
@@ -257,52 +321,62 @@ async function listDirectory(relPath) {
 /** Crée un sous-dossier sous un chemin relatif. */
 async function createDirectory(relPath, name) {
     const config = await getStorageConfig();
+    const seg = sanitizeSegment(name);
+    const cleanRel = (relPath || '').replace(/\\/g, '/').replace(/\/$/, '');
+    const newRel = cleanRel ? `${cleanRel}/${seg}` : seg;
+    if (isSmbConfig(config)) {
+        await smb.mkdirRel(config, newRel);
+        return { relPath: newRel };
+    }
     const root = resolveRoot(config);
     const parentAbs = absForRel(root, relPath);
     if (!parentAbs) throw new Error('Chemin invalide.');
-    const seg = sanitizeSegment(name);
     const abs = path.join(parentAbs, seg);
     fs.mkdirSync(abs, { recursive: true });
-    const cleanRel = (relPath || '').replace(/\\/g, '/').replace(/\/$/, '');
-    return { relPath: cleanRel ? `${cleanRel}/${seg}` : seg };
+    return { relPath: newRel };
 }
 
 /** Écrit un fichier dans un dossier relatif (conserve le nom d'origine). */
 async function saveFileAt(relPath, file) {
     if (!file || !file.buffer) throw new Error('Aucun contenu de fichier fourni.');
     const config = await getStorageConfig();
+    const base = path.basename(file.originalname || 'fichier');
+    const cleanRel = (relPath || '').replace(/\\/g, '/').replace(/\/$/, '');
+    const newRel = cleanRel ? `${cleanRel}/${base}` : base;
+    if (isSmbConfig(config)) {
+        await smb.writeFileRel(config, newRel, file.buffer);
+        return { relPath: newRel };
+    }
     const root = resolveRoot(config);
     const dirAbs = absForRel(root, relPath);
     if (!dirAbs) throw new Error('Chemin invalide.');
     fs.mkdirSync(dirAbs, { recursive: true });
-    const base = path.basename(file.originalname || 'fichier');
     fs.writeFileSync(path.join(dirAbs, base), file.buffer);
-    const cleanRel = (relPath || '').replace(/\\/g, '/').replace(/\/$/, '');
-    return { relPath: cleanRel ? `${cleanRel}/${base}` : base };
+    return { relPath: newRel };
 }
 
 // ─── Récupération des fichiers mal placés (chemin Windows sur Linux) ──────────
 
-function _walkAndMove(current, badRoot, correctRoot, report, dryRun) {
+/**
+ * Parcourt récursivement un dossier local mal placé et COPIE chaque fichier vers
+ * la destination correcte (FS local ou partage SMB). Opération NON destructive :
+ * les fichiers d'origine ne sont jamais supprimés (consigne : ne rien supprimer
+ * sur le serveur). Les copies locales parasites pourront être nettoyées à la main.
+ */
+async function _walkAndCopy(current, badRoot, dest, report, dryRun) {
     let entries;
     try { entries = fs.readdirSync(current, { withFileTypes: true }); }
     catch (e) { report.errors.push({ path: current, error: e.message }); return; }
     for (const ent of entries) {
         const src = path.join(current, ent.name);
         if (ent.isDirectory()) {
-            _walkAndMove(src, badRoot, correctRoot, report, dryRun);
+            await _walkAndCopy(src, badRoot, dest, report, dryRun);
         } else {
-            const rel = path.relative(badRoot, src);          // ex: certificats/25/xxx.pdf
-            const dest = path.join(correctRoot, rel);
-            report.items.push({ from: src, to: dest });
+            const rel = path.relative(badRoot, src).replace(/\\/g, '/'); // ex: certificats/25/xxx.pdf
+            report.items.push({ from: src, to: dest.label(rel) });
             if (dryRun) { report.moved++; continue; }
             try {
-                fs.mkdirSync(path.dirname(dest), { recursive: true });
-                try { fs.renameSync(src, dest); }
-                catch (e) {                                     // cross-device (conteneur -> CIFS)
-                    fs.copyFileSync(src, dest);
-                    fs.unlinkSync(src);
-                }
+                await dest.copy(src, rel);
                 report.moved++;
             } catch (e) {
                 report.errors.push({ path: src, error: e.message });
@@ -311,27 +385,35 @@ function _walkAndMove(current, badRoot, correctRoot, report, dryRun) {
     }
 }
 
-function _removeEmptyDirs(dir) {
-    let entries;
-    try { entries = fs.readdirSync(dir); } catch (e) { return; }
-    for (const name of entries) {
-        const p = path.join(dir, name);
-        try { if (fs.statSync(p).isDirectory()) _removeEmptyDirs(p); } catch (e) { /* ignore */ }
-    }
-    try { if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir); } catch (e) { /* ignore */ }
-}
-
 /**
  * Récupère les fichiers écrits par erreur dans un dossier au nom contenant des
- * antislashs (cas d'un chemin Windows interprété littéralement sur Linux) et
- * les déplace vers la racine de stockage correcte (point de montage POSIX).
+ * antislashs (cas d'un chemin Windows interprété littéralement sur Linux) et les
+ * COPIE vers la racine de stockage correcte (FS local POSIX ou partage SMB).
  * Les chemins en base (storage/<module>/<id>/...) restent valides après coup.
+ * Non destructif : aucun fichier d'origine n'est supprimé.
  */
 async function recoverMisplaced({ dryRun } = {}) {
     const config = await getStorageConfig();
-    const correctRoot = resolveRoot(config); // lève une erreur si racine encore Windows sur Linux
+    const smbMode = isSmbConfig(config);
+    const correctRoot = smbMode ? normalizeRootPath(config.root_path) : resolveRoot(config);
     const scanBases = Array.from(new Set([process.cwd(), defaultRoot()]));
-    const report = { correctRoot, scannedBases: scanBases, badRoots: [], moved: 0, errors: [], items: [] };
+    const report = { correctRoot, mode: smbMode ? 'smb' : 'filesystem', scannedBases: scanBases, badRoots: [], moved: 0, errors: [], items: [] };
+
+    // Destination : abstraction FS local vs SMB.
+    const dest = smbMode
+        ? {
+            label: (rel) => `${correctRoot}\\${rel.replace(/\//g, '\\')}`,
+            copy: async (src, rel) => { await smb.writeFileRel(config, rel, fs.readFileSync(src)); },
+        }
+        : {
+            label: (rel) => path.join(correctRoot, rel),
+            copy: async (src, rel) => {
+                const d = path.join(correctRoot, rel);
+                fs.mkdirSync(path.dirname(d), { recursive: true });
+                fs.copyFileSync(src, d);
+            },
+        };
+
     for (const base of scanBases) {
         let names;
         try { names = fs.readdirSync(base); } catch (e) { continue; }
@@ -339,11 +421,9 @@ async function recoverMisplaced({ dryRun } = {}) {
             if (!name.includes('\\')) continue;                // dossier mal nommé
             const badRoot = path.join(base, name);
             try { if (!fs.statSync(badRoot).isDirectory()) continue; } catch (e) { continue; }
-            // évite de se déplacer dans la racine correcte elle-même
-            if (path.resolve(badRoot) === path.resolve(correctRoot)) continue;
+            if (!smbMode && path.resolve(badRoot) === path.resolve(correctRoot)) continue;
             report.badRoots.push(badRoot);
-            _walkAndMove(badRoot, badRoot, correctRoot, report, dryRun);
-            if (!dryRun) _removeEmptyDirs(badRoot);
+            await _walkAndCopy(badRoot, badRoot, dest, report, dryRun);
         }
     }
     return report;
@@ -352,11 +432,32 @@ async function recoverMisplaced({ dryRun } = {}) {
 /** Supprime un fichier ou dossier (récursif). Refuse la racine. */
 async function deletePath(relPath) {
     const config = await getStorageConfig();
+    if (isSmbConfig(config)) {
+        await smb.deleteRel(config, relPath);
+        return;
+    }
     const root = resolveRoot(config);
     const abs = resolveAbsolute(root, relPath);
     if (!abs) throw new Error('Chemin invalide.');
     if (abs === path.resolve(root)) throw new Error('Suppression de la racine interdite.');
     if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
+}
+
+/** Test d'accès en écriture sur le stockage (FS ou SMB). Renvoie la racine effective. */
+async function testAccess() {
+    const config = await getStorageConfig();
+    if (isSmbConfig(config)) {
+        await smb.testAccess(config);
+        return { root: normalizeRootPath(config.root_path), mode: 'smb' };
+    }
+    const root = resolveRoot(config);
+    const testDir = path.join(root, '.storage_test');
+    fs.mkdirSync(testDir, { recursive: true });
+    const testFile = path.join(testDir, `test_${Date.now()}.tmp`);
+    fs.writeFileSync(testFile, 'ok');
+    fs.unlinkSync(testFile);
+    try { fs.rmdirSync(testDir); } catch (e) { /* ignore */ }
+    return { root, mode: 'filesystem' };
 }
 
 module.exports = {
@@ -366,9 +467,12 @@ module.exports = {
     saveFile,
     deleteFile,
     getAbsolutePath,
+    getFileForServe,
     resolveAbsolute,
     resolveRoot,
     isStoragePath,
+    isSmbConfig,
+    testAccess,
     sanitizeSegment,
     fixUploadName,
     listDirectory,

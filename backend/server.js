@@ -418,9 +418,12 @@ const documentStorage = require('./shared/storage');
 const serveDocumentStorage = async (req, res) => {
     try {
         const rel = decodeURIComponent(req.path.replace(/^\/+/, ''));
-        const abs = await documentStorage.getAbsolutePath(rel);
-        if (!abs || !fs.existsSync(abs)) return res.status(404).send('Fichier introuvable');
-        return res.sendFile(abs);
+        const f = await documentStorage.getFileForServe(rel);
+        if (!f) return res.status(404).send('Fichier introuvable');
+        if (f.absolutePath) return res.sendFile(f.absolutePath);
+        // Mode SMB : on sert le buffer lu sur le partage.
+        res.type(path.extname(f.filename || '') || 'application/octet-stream');
+        return res.send(f.buffer);
     } catch (e) {
         return res.status(500).send('Erreur de lecture du fichier');
     }

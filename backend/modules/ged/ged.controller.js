@@ -131,7 +131,9 @@ exports.getStorageConfig = async (req, res) => {
       backend: cfg.backend || 'filesystem',
       root_path: cfg.root_path || '',
       login: cfg.login || '',
+      domain: cfg.domain || '',
       hasPassword: !!cfg.password,
+      smbMode: storage.isSmbConfig(cfg),
     });
   } catch (err) {
     console.error('[STORAGE getConfig ERROR]', err.message);
@@ -141,11 +143,11 @@ exports.getStorageConfig = async (req, res) => {
 
 exports.saveStorageConfig = async (req, res) => {
   try {
-    const { backend, root_path, login, password } = req.body;
+    const { backend, root_path, login, password, domain } = req.body;
     if (backend && !['filesystem', 'ged'].includes(backend)) {
       return res.status(400).json({ error: 'Backend invalide (filesystem | ged).' });
     }
-    await storage.saveStorageConfig({ backend, root_path, login, password });
+    await storage.saveStorageConfig({ backend, root_path, login, password, domain });
     res.json({ success: true });
   } catch (err) {
     console.error('[STORAGE saveConfig ERROR]', err.message);
@@ -159,15 +161,8 @@ exports.testStorage = async (req, res) => {
     if (cfg.backend && cfg.backend !== 'filesystem') {
       return res.json({ success: false, error: `Test non disponible pour le backend "${cfg.backend}" (filesystem uniquement pour le moment).` });
     }
-    const root = storage.resolveRoot(cfg);
-    // Vérifie l'accès en écriture en créant puis supprimant un fichier témoin.
-    const testDir = path.join(root, '.storage_test');
-    fs.mkdirSync(testDir, { recursive: true });
-    const testFile = path.join(testDir, `test_${Date.now()}.tmp`);
-    fs.writeFileSync(testFile, 'ok');
-    fs.unlinkSync(testFile);
-    try { fs.rmdirSync(testDir); } catch (e) { /* ignore */ }
-    res.json({ success: true, root });
+    const r = await storage.testAccess();
+    res.json({ success: true, root: r.root, mode: r.mode });
   } catch (err) {
     res.json({ success: false, error: `Accès au chemin de stockage impossible : ${err.message}` });
   }
@@ -187,9 +182,13 @@ exports.browseStorage = async (req, res) => {
 
 exports.downloadStorage = async (req, res) => {
   try {
-    const abs = await storage.getAbsolutePath(req.query.path || '');
-    if (!abs || !fs.existsSync(abs)) return res.status(404).json({ error: 'Fichier introuvable.' });
-    res.download(abs, path.basename(abs));
+    const f = await storage.getFileForServe(req.query.path || '');
+    if (!f) return res.status(404).json({ error: 'Fichier introuvable.' });
+    if (f.absolutePath) return res.download(f.absolutePath, f.filename);
+    // Mode SMB : on renvoie le buffer en pièce jointe.
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(f.filename)}"`);
+    res.type(path.extname(f.filename || '') || 'application/octet-stream');
+    return res.send(f.buffer);
   } catch (err) {
     console.error('[STORAGE download ERROR]', err.message);
     res.status(500).json({ error: err.message });
