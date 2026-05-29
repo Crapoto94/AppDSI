@@ -530,7 +530,7 @@ module.exports = {
                         `UPDATE hub_rencontres.rencontres_reunions
                          SET liste_taches = jsonb_set(
                              COALESCE(liste_taches::jsonb, '[]'::jsonb),
-                             ('{' || $1 || ',"statut"}')::text[],
+                             ARRAY[$1::integer, 'statut'],
                              to_jsonb($2::text)
                          )
                          WHERE id = $3`,
