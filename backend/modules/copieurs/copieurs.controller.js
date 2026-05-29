@@ -985,6 +985,7 @@ module.exports = {
                     if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
                     const saved = await storage.saveFile(MODULE, req.params.id, file);
                     photos.push(saved.dbPath);
+                }
             }
 
             const result = await pgDb.run(
@@ -1037,7 +1038,7 @@ module.exports = {
                 } catch (e) {
                     console.error('Erreur suppression fichier photo:', photoPath, e.message);
                 }
-            });
+            }
 
             await pgDb.run('DELETE FROM hub_copieurs.copieur_visites WHERE id = ?', [req.params.visiteId]);
             logMouchard(`Visite ${req.params.visiteId} supprimée du copieur ${visite.copieur_id}`);
