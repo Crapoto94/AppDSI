@@ -465,19 +465,22 @@ module.exports = {
         try {
             const dbStatut = normalizeStatutIn(statut, source);
 
-            // For personal/ticket tasks, fetch context before update
+            // Tasks stored in hub.user_tasks (personal, ticket, todo, and any
+            // assigned task created from a context like reunion/projet/etc.) all
+            // carry a normal user_tasks id. Detect them up-front so they are
+            // updated in place rather than mis-routed to a synthetic-id branch.
             let taskContext = null;
-            if (source === 'personal' || source === 'ticket') {
-                const { rows } = await pool.query(
-                    'SELECT context_source, context_id, description FROM hub.user_tasks WHERE id = $1',
-                    [id]
-                );
-                if (rows.length > 0) taskContext = rows[0];
-            }
+            const { rows: utRows } = await pool.query(
+                'SELECT context_source, context_id, description FROM hub.user_tasks WHERE id = $1',
+                [id]
+            );
+            if (utRows.length > 0) taskContext = utRows[0];
+            const isUserTask = utRows.length > 0;
 
             switch (source) {
                 case 'personal':
                 case 'ticket':
+                case 'todo':
                     // Both are stored in hub.user_tasks
                     if (statut === 'refuse' && refus_raison) {
                         await pool.query(
@@ -522,7 +525,17 @@ module.exports = {
                     );
                     break;
                 case 'reunion': {
-                    // Composite id = reunion_id * 10000 + ordinality (1-based)
+                    // An assigned reunion task lives in hub.user_tasks with a
+                    // normal id (context_source='reunion'); update it in place.
+                    if (isUserTask) {
+                        await pool.query(
+                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [statut, id]
+                        );
+                        break;
+                    }
+                    // Otherwise it is a synthetic JSON-derived task:
+                    // composite id = reunion_id * 10000 + ordinality (1-based)
                     // liste_taches is a TEXT column holding a JSON string: read-modify-write.
                     const compositeId = parseInt(id);
                     const reunionId = Math.floor(compositeId / 10000);
@@ -545,6 +558,14 @@ module.exports = {
                     break;
                 }
                 default:
+                    // Fallback: any other source backed by a real hub.user_tasks row.
+                    if (isUserTask) {
+                        await pool.query(
+                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [statut, id]
+                        );
+                        break;
+                    }
                     return res.status(400).json({ error: 'Source inconnue' });
             }
 

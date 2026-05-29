@@ -337,6 +337,9 @@ ${tasksHtml}
     deleteAll: async (req, res) => {
         try {
             await pgDb.run('UPDATE rencontres_budgetaires SET reunion_id = NULL WHERE reunion_id IS NOT NULL');
+            // Supprimer les dépendances avant les réunions (sinon violation FK)
+            await pgDb.run('DELETE FROM projets.projet_reunions');
+            await pgDb.run('DELETE FROM hub.user_tasks WHERE context_source = $1', ['reunion']);
             await pgDb.run('DELETE FROM reunion_participants');
             await pgDb.run('DELETE FROM reunion_attachments');
             const result = await pgDb.run('DELETE FROM rencontres_reunions');

@@ -33,6 +33,19 @@ const Dashboard: React.FC = () => {
 
   const isApproved = user?.is_approved === 1 || user?.role === 'admin' || user?.username?.toLowerCase() === 'admin';
 
+  // Pour un superadmin, les tuiles personnelles ("Mes ...") sont affichées
+  // sans le possessif et donnent accès à toutes les données.
+  const isSuperAdmin = user?.role === 'superadmin'
+    || user?.username?.toLowerCase() === 'admin'
+    || user?.username?.toLowerCase() === 'adminhub';
+
+  const adminLabel = (text: string): string => {
+    if (!isSuperAdmin || !text) return text;
+    return text
+      .replace(/^Mes\s+/, '')      // "Mes Réunions" -> "Réunions"
+      .replace(/\bmes\s+/gi, 'les '); // "Voir mes réunions" -> "Voir les réunions"
+  };
+
   const saveTileOrder = async (order: number[]) => {
     try {
       await fetch('/api/user-tile-order', {
@@ -205,10 +218,10 @@ const Dashboard: React.FC = () => {
                     <Tile
                     key={`${tile.id}-${tile.pending_requests || 0}-${tile.warning_count || 0}-${tile.info_count || 0}`}
                     id={tile.id}
-                    title={tile.title}
+                    title={adminLabel(tile.title)}
                     icon={tile.icon}
                     description={tile.description}
-                    links={tile.links}
+                    links={(tile.links || []).map(l => ({ ...l, label: adminLabel(l.label) }))}
                     status={tile.status}
                     is_authorized={tile.is_authorized}
                     is_public={tile.is_public === 1}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Users, ArrowLeft, Eye, Plus } from 'lucide-react';
+import { Calendar, Users, ArrowLeft, Eye, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
@@ -29,6 +29,13 @@ const MesReunions: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [detailReunionId, setDetailReunionId] = useState<number | null>(null);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [actionMsg, setActionMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const isSuperAdmin = user?.role === 'superadmin'
+    || user?.username?.toLowerCase() === 'admin'
+    || user?.username?.toLowerCase() === 'adminhub';
 
   const fetchReunions = useCallback(async () => {
     try {
@@ -47,6 +54,30 @@ const MesReunions: React.FC = () => {
 
   useEffect(() => { fetchReunions(); }, [fetchReunions]);
 
+  const handleDeleteAllReunions = async () => {
+    setDeletingAll(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch('/api/rencontres-reunions', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setActionMsg({ ok: true, text: `${data.deleted ?? 0} réunion(s) supprimée(s).` });
+        setReunions([]);
+        fetchReunions();
+      } else {
+        setActionMsg({ ok: false, text: data.error || 'Erreur lors de la suppression.' });
+      }
+    } catch (e) {
+      setActionMsg({ ok: false, text: 'Erreur réseau lors de la suppression.' });
+    } finally {
+      setDeletingAll(false);
+      setConfirmDeleteAll(false);
+    }
+  };
+
   return (
     <div style={{minHeight: '100vh', background: '#f8fafc'}}>
       <Header />
@@ -55,18 +86,29 @@ const MesReunions: React.FC = () => {
           <button onClick={() => navigate('/')} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b'}}>
             <ArrowLeft size={20} />
           </button>
-          <h1 style={{margin: 0, fontSize: '22px', fontWeight: '800', color: '#1e293b', flex: 1}}>📅 Mes Réunions</h1>
+          <h1 style={{margin: 0, fontSize: '22px', fontWeight: '800', color: '#1e293b', flex: 1}}>📅 {isSuperAdmin ? 'Réunions' : 'Mes Réunions'}</h1>
+          {isSuperAdmin && reunions.length > 0 && (
+            <button onClick={() => setConfirmDeleteAll(true)} style={{padding: '10px 18px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px'}}>
+              <Trash2 size={18} /> Supprimer toutes les réunions
+            </button>
+          )}
           <button onClick={() => setShowCreateModal(true)} style={{padding: '10px 18px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px'}}>
             <Plus size={18} /> Ajouter une réunion
           </button>
         </div>
+
+        {actionMsg && (
+          <div style={{marginBottom: '16px', padding: '12px 16px', borderRadius: '8px', fontSize: '14px', fontWeight: 600, background: actionMsg.ok ? '#dcfce7' : '#fee2e2', color: actionMsg.ok ? '#16a34a' : '#dc2626', border: `1px solid ${actionMsg.ok ? '#bbf7d0' : '#fecaca'}`}}>
+            {actionMsg.text}
+          </div>
+        )}
 
         {loading ? (
           <p style={{color: '#94a3b8', textAlign: 'center', padding: '40px'}}>Chargement...</p>
         ) : reunions.length === 0 ? (
           <div style={{textAlign: 'center', padding: '60px 20px', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0'}}>
             <Users size={48} color="#cbd5e1" style={{marginBottom: '16px'}} />
-            <p style={{color: '#94a3b8', fontSize: '16px'}}>Vous n'êtes inscrit à aucune réunion.</p>
+            <p style={{color: '#94a3b8', fontSize: '16px'}}>{isSuperAdmin ? 'Aucune réunion enregistrée.' : "Vous n'êtes inscrit à aucune réunion."}</p>
           </div>
         ) : (
           <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
@@ -122,6 +164,31 @@ const MesReunions: React.FC = () => {
         onDeleted={() => { setDetailReunionId(null); fetchReunions(); }}
         onTranscriptSuccess={() => fetchReunions()}
       />
+
+      {confirmDeleteAll && (
+        <div style={{position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)'}}>
+          <div style={{background: 'white', borderRadius: '16px', maxWidth: '440px', width: '100%', padding: '28px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px'}}>
+              <div style={{width: '44px', height: '44px', borderRadius: '12px', background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0}}>
+                <AlertTriangle size={24} />
+              </div>
+              <h2 style={{margin: 0, fontSize: '18px', fontWeight: 800, color: '#1e293b'}}>Supprimer toutes les réunions</h2>
+            </div>
+            <p style={{margin: '0 0 24px', color: '#475569', fontSize: '14px', lineHeight: 1.6}}>
+              Êtes-vous sûr de vouloir supprimer <strong>toutes les réunions</strong> ? Les participants, pièces jointes,
+              associations aux projets et tâches dépendantes seront également supprimés. Cette action est irréversible.
+            </p>
+            <div style={{display: 'flex', justifyContent: 'flex-end', gap: '10px'}}>
+              <button onClick={() => setConfirmDeleteAll(false)} disabled={deletingAll} style={{padding: '10px 18px', background: 'white', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '14px'}}>
+                Annuler
+              </button>
+              <button onClick={handleDeleteAllReunions} disabled={deletingAll} style={{padding: '10px 18px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', cursor: deletingAll ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '14px', opacity: deletingAll ? 0.7 : 1}}>
+                {deletingAll ? 'Suppression…' : 'Tout supprimer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

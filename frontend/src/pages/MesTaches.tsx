@@ -392,11 +392,21 @@ const MesTaches: React.FC = () => {
     const key = `${task.source}-${task.id}`;
     setUpdating(key);
     try {
-      await fetch(`/api/tasks/${task.source}/${task.id}`, {
+      const res = await fetch(`/api/tasks/${task.source}/${task.id}`, {
         method: 'PATCH',
         headers: authHeaders,
         body: JSON.stringify({ statut: newStatut, ...(refus_raison ? { refus_raison } : {}) })
       });
+      if (!res.ok) {
+        let msg = 'Échec de la mise à jour de la tâche';
+        try { const data = await res.json(); if (data?.error) msg = data.error; } catch { /* ignore */ }
+        setConfirmModal({
+          title: 'Erreur',
+          message: msg,
+          onConfirm: () => setConfirmModal(null),
+        });
+        return;
+      }
       setTasks(prev => prev.map(t =>
         t.source === task.source && t.id === task.id
           ? { ...t, statut: newStatut, refus_raison: refus_raison || null, updated_at: new Date().toISOString() }

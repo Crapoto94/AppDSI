@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const rencontresCtrl = require('./rencontres.controller');
 const reunionsCtrl = require('./reunions.controller');
-const { authenticateJWT, authenticateAdmin, authenticateAdminOrFinances } = require('../../shared/middleware');
+const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateAdminOrFinances } = require('../../shared/middleware');
 
 // Multer: memory storage for CSV/Excel import
 const uploadMemory = multer({ storage: multer.memoryStorage() });
@@ -51,7 +51,7 @@ reunionRouter.get('/:id', authenticateJWT, reunionsCtrl.getById);
 reunionRouter.post('/:id/compte-rendu', authenticateJWT, reunionsCtrl.sendCompteRendu);
 reunionRouter.put('/:id', authenticateJWT, reunionsCtrl.update);
 reunionRouter.delete('/:id', authenticateJWT, reunionsCtrl.deleteOne);
-reunionRouter.delete('/', authenticateAdmin, reunionsCtrl.deleteAll);
+reunionRouter.delete('/', authenticateAdminUI, reunionsCtrl.deleteAll);
 
 // Reunion participants
 reunionRouter.post('/:id/participants', authenticateJWT, reunionsCtrl.addParticipant);
