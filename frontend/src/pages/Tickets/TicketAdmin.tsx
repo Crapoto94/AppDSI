@@ -2143,28 +2143,28 @@ const selectStyle: React.CSSProperties = { padding: '8px 12px', border: '1px sol
 // TEMPLATE / TRIGGER MANAGERS
 // ─────────────────────────────────────────────────────────────────────────────
 function TemplateManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) {
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
   const [editSubject, setEditSubject] = useState('');
   const [editBody, setEditBody] = useState('');
   const [saving, setSaving] = useState(false);
 
   function startEdit(t: any) {
-    setEditingId(t.id);
+    setEditingSlug(t.slug);
     setEditLabel(t.label || '');
     setEditSubject(t.subject || '');
     setEditBody(t.body_html || '');
   }
 
   async function save() {
-    if (!editingId) return;
+    if (!editingSlug) return;
     setSaving(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`/api/tickets/admin/notification-templates/${editingId}`, {
+      await axios.put(`/api/tickets/admin/notification-templates/${editingSlug}`, {
         label: editLabel, subject: editSubject, body_html: editBody,
       }, { headers: { Authorization: `Bearer ${token}` } });
-      setEditingId(null);
+      setEditingSlug(null);
       onUpdate();
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors de la sauvegarde');
@@ -2172,16 +2172,37 @@ function TemplateManager({ data, onUpdate }: { data: any[], onUpdate: () => void
     setSaving(false);
   }
 
+  async function reinitNotifications() {
+    const token = localStorage.getItem('token');
+    setSaving(true);
+    try {
+      const res = await axios.post('/api/tickets/admin/reinit-notifications', {}, { headers: { Authorization: `Bearer ${token}` } });
+      alert('✅ ' + res.data.message);
+      onUpdate();
+    } catch (e: any) {
+      alert('❌ ' + (e.response?.data?.message || e.message));
+    }
+    finally { setSaving(false); }
+  }
+
   return (
     <div>
-      <h3 style={{ margin: '0 0 8px 0', fontSize: 16 }}>Templates de notification</h3>
-      <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b' }}>
-        Variables disponibles : {'{{ticket_id}}, {{ticket_title}}, {{ticket_content}}, {{priority_label}}, {{type_label}}, {{status_label}}, {{requester_name}}, {{recipient_name}}, {{assignee_name}}, {{technician_name}}, {{author_name}}, {{old_status}}, {{new_status}}, {{solution_text}}, {{comment_content}}, {{app_name}}, {{app_url}}'}
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 16 }}>Templates de notification</h3>
+          <p style={{ margin: '4px 0 0 0', fontSize: 12, color: '#64748b' }}>
+            Variables : {'{{ticket_id}}, {{ticket_title}}, {{priority_label}}, {{requester_name}}, {{author_name}}, {{comment_content}}, ...'}
+          </p>
+        </div>
+        <button onClick={reinitNotifications} disabled={saving}
+          style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer', fontWeight: 600, opacity: saving ? 0.6 : 1 }}>
+          {saving ? '⏳ Réinitialisation...' : '🔄 Réinitialiser templates'}
+        </button>
+      </div>
       <div style={{ display: 'grid', gap: 12 }}>
         {data.map(t => (
-          <div key={t.id} style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 8 }}>
-            {editingId === t.id ? (
+          <div key={t.slug} style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            {editingSlug === t.slug ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace', minWidth: 140 }}>{t.slug}</span>
@@ -2203,7 +2224,7 @@ function TemplateManager({ data, onUpdate }: { data: any[], onUpdate: () => void
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                  <button onClick={() => setEditingId(null)} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+                  <button onClick={() => setEditingSlug(null)} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
                   <button onClick={save} disabled={saving}
                     style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: saving ? '#94a3b8' : '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
                     {saving ? 'Enregistrement...' : 'Enregistrer'}
@@ -2248,7 +2269,7 @@ function TriggerManager({ data, onUpdate }: { data: any[], onUpdate?: () => void
       <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Déclencheurs de notifications</h3>
       <div style={{ display: 'grid', gap: 8 }}>
         {data.map(t => (
-          <div key={t.id} style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+          <div key={`${t.event}|${t.recipient_type}`} style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button onClick={() => toggleActive(t)}
                 style={{ width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', position: 'relative', background: t.is_active ? '#22c55e' : '#cbd5e1', transition: 'background 0.2s' }}>
@@ -2292,8 +2313,23 @@ function TeamManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
   const [phoneValue, setPhoneValue] = useState('');
   const [savingPhone, setSavingPhone] = useState(false);
   const [savingEmergency, setSavingEmergency] = useState<number | null>(null);
+  const [reapplying, setReapplying] = useState(false);
 
   const filtered = filter === 'all' ? data : data.filter(t => t.status === filter);
+
+  async function reapplyAssignments() {
+    setReapplying(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/tickets/admin/technicians/reapply-assignments', {}, { headers: { Authorization: `Bearer ${token}` } });
+      const d = res.data;
+      alert(`${d.message}\n\nTickets assignés dans GLPI : ${d.glpi_assigned_tickets}\nRésolus (login → utilisateur) : ${d.resolvable_tickets}`);
+      onUpdate();
+    } catch (e: any) {
+      alert('❌ ' + (e.response?.data?.message || e.message));
+    }
+    finally { setReapplying(false); }
+  }
 
   async function searchAD(q: string) {
     if (q.length < 2) { setAdResults([]); return; }
@@ -2379,6 +2415,11 @@ function TeamManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
         <button onClick={() => setShowAdSearch(true)}
           style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
           + Ajouter depuis l'AD
+        </button>
+        <button onClick={reapplyAssignments} disabled={reapplying}
+          title="Rejoue la transposition des tickets assignés GLPI vers les techniciens (sans reset complet)"
+          style={{ padding: '8px 16px', background: reapplying ? '#94a3b8' : '#0ea5e9', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+          {reapplying ? '⏳ Réapplication...' : '🔄 Réappliquer assignations'}
         </button>
         <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
           {['all', 'active', 'paused', 'inactive'].map(f => (
@@ -2470,9 +2511,12 @@ function TeamManager({ data, onUpdate }: { data: any[], onUpdate: () => void }) 
                 <option value="admin">⚙️ Admin</option>
               </select>
 
-              <div style={{ textAlign: 'center', minWidth: 50 }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{t.active_tickets || 0}</div>
-                <div style={{ fontSize: 11, color: '#64748b' }}>tickets</div>
+              <div style={{ textAlign: 'center', minWidth: 64 }} title={`${t.active_tickets || 0} ticket(s) en cours · ${t.total_tickets || 0} au total`}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>
+                  {t.active_tickets || 0}
+                  <span style={{ fontSize: 12, fontWeight: 500, color: '#94a3b8' }}> / {t.total_tickets || 0}</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b' }}>actifs / total</div>
               </div>
 
               <span style={{ padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: (TECH_STATUS_COLORS[t.status] || '#94a3b8') + '20', color: TECH_STATUS_COLORS[t.status] || '#64748b' }}>
@@ -2543,15 +2587,29 @@ function PauseModal({ tech, onConfirm, onClose }: { tech: any, onConfirm: (id: n
   const [mode, setMode] = useState<string>('');
   const [targetId, setTargetId] = useState<number | undefined>(undefined);
   const [availableTechs, setAvailableTechs] = useState<any[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
 
   useEffect(() => {
     if (tech.active_tickets > 0) {
       const token = localStorage.getItem('token');
-      axios.get('/api/tickets/admin/technicians/available', { headers: { Authorization: `Bearer ${token}` } })
+      const h = { headers: { Authorization: `Bearer ${token}` } };
+      axios.get('/api/tickets/admin/technicians/available', h)
         .then(r => setAvailableTechs(r.data.filter((t: any) => t.user_id !== tech.user_id)))
+        .catch(() => {});
+      axios.get('/api/tickets/admin/groups', h)
+        .then(r => setGroups(r.data || []))
         .catch(() => {});
     }
   }, [tech.active_tickets]);
+
+  // Sélection encodée "user:<id>" / "group:<id>" pour distinguer technicien et groupe
+  const selValue = mode === 'single' && targetId ? `user:${targetId}`
+    : mode === 'group' && targetId ? `group:${targetId}` : '';
+  function onSelectTarget(v: string) {
+    if (v.startsWith('group:')) { setMode('group'); setTargetId(Number(v.slice(6))); }
+    else if (v.startsWith('user:')) { setMode('single'); setTargetId(Number(v.slice(5))); }
+    else { setTargetId(undefined); }
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={onClose}>
@@ -2569,14 +2627,25 @@ function PauseModal({ tech, onConfirm, onClose }: { tech: any, onConfirm: (id: n
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                <input type="radio" name="reassign" onChange={() => setMode('single')} />
+                <input type="radio" name="reassign" checked={mode === 'single' || mode === 'group'} onChange={() => { setMode('single'); setTargetId(undefined); }} />
                 <span>Réassigner à :</span>
-                <select disabled={mode !== 'single'} value={targetId || ''} onChange={e => setTargetId(Number(e.target.value))}
+                <select disabled={mode !== 'single' && mode !== 'group'} value={selValue} onChange={e => onSelectTarget(e.target.value)}
                   style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, background: '#fff' }}>
                   <option value="">Choisir...</option>
-                  {availableTechs.map((t: any) => (
-                    <option key={t.user_id} value={t.user_id}>{t.displayName} ({t.active_tickets} tickets)</option>
-                  ))}
+                  {availableTechs.length > 0 && (
+                    <optgroup label="👤 Techniciens">
+                      {availableTechs.map((t: any) => (
+                        <option key={`u${t.user_id}`} value={`user:${t.user_id}`}>{t.displayname || t.displayName || t.email || `#${t.user_id}`} ({t.active_tickets} tickets)</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {groups.length > 0 && (
+                    <optgroup label="👥 Groupes">
+                      {groups.map((g: any) => (
+                        <option key={`g${g.id}`} value={`group:${g.id}`}>{g.name}{g.members?.length ? ` (${g.members.length} membres)` : ''}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>

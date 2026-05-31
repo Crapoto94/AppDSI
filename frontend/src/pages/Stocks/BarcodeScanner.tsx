@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Html5Qrcode } from 'html5-qrcode';
 import { X } from 'lucide-react';
 
@@ -49,8 +50,17 @@ export default function BarcodeScanner({ onResult, onClose }: { onResult: (code:
     };
   }, [onResult]);
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 1100, display: 'flex', flexDirection: 'column' }}>
+  // Verrouille le scroll/zoom du body pendant le scan (évite le pinch-zoom qui rend l'app minuscule)
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prevOverflow; };
+  }, []);
+
+  // Rendu via portal sur <body> : l'overlay échappe à tout ancêtre transformé
+  // (sinon position:fixed se confine au parent → scanner à moitié d'écran + header visible).
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 100000, display: 'flex', flexDirection: 'column' }}>
       {/* Force la vidéo injectée par html5-qrcode à remplir tout l'espace */}
       <style>{`
         #stk-reader { width: 100%; height: 100%; position: relative; overflow: hidden; }
@@ -71,6 +81,7 @@ export default function BarcodeScanner({ onResult, onClose }: { onResult: (code:
           Placez le code-barres dans le cadre
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

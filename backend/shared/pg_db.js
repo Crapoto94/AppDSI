@@ -828,7 +828,104 @@ async function setupPgDb() {
         `);
         // Resynchroniser la séquence SERIAL au cas où elle aurait dérivé
         await client.query(`SELECT setval(pg_get_serial_sequence('hub_tickets.technician_groups','id'), COALESCE((SELECT MAX(id) FROM hub_tickets.technician_groups), 0) + 1, false)`);
+        // Réparer le DEFAULT de la colonne id si perdu (ex: ancienne migration)
+        await client.query(`CREATE SEQUENCE IF NOT EXISTS hub_tickets.technician_groups_id_seq OWNED BY hub_tickets.technician_groups.id`);
+        await client.query(`ALTER TABLE hub_tickets.technician_groups ALTER COLUMN id SET DEFAULT nextval('hub_tickets.technician_groups_id_seq')`);
+        await client.query(`SELECT setval('hub_tickets.technician_groups_id_seq', COALESCE((SELECT MAX(id) FROM hub_tickets.technician_groups), 0) + 1, false)`);
+        // Réparer le DEFAULT de is_active (perdu lors d'une ancienne migration)
+        await client.query(`UPDATE hub_tickets.technician_groups SET is_active = true WHERE is_active IS NULL`);
+        await client.query(`ALTER TABLE hub_tickets.technician_groups ALTER COLUMN is_active SET DEFAULT true`);
     } catch (e) { console.error('[MIGRATIONS] technician_groups PK repair:', e.message); }
+
+    // Réparation de technician_group_members (a perdu PK, UNIQUE, NOT NULL et DEFAULT SERIAL)
+    try {
+        await client.query(`DELETE FROM hub_tickets.technician_group_members WHERE id IS NULL`);
+        await client.query(`ALTER TABLE hub_tickets.technician_group_members ALTER COLUMN id SET NOT NULL`);
+        await client.query(`CREATE SEQUENCE IF NOT EXISTS hub_tickets.technician_group_members_id_seq OWNED BY hub_tickets.technician_group_members.id`);
+        await client.query(`ALTER TABLE hub_tickets.technician_group_members ALTER COLUMN id SET DEFAULT nextval('hub_tickets.technician_group_members_id_seq')`);
+        await client.query(`SELECT setval('hub_tickets.technician_group_members_id_seq', COALESCE((SELECT MAX(id) FROM hub_tickets.technician_group_members), 0) + 1, false)`);
+        // Re-créer PK si absente
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'hub_tickets.technician_group_members'::regclass AND contype = 'p') THEN
+                    ALTER TABLE hub_tickets.technician_group_members ADD PRIMARY KEY (id);
+                END IF;
+            END $$;
+        `);
+        // Re-créer UNIQUE si absente
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'hub_tickets.technician_group_members'::regclass AND contype = 'u') THEN
+                    ALTER TABLE hub_tickets.technician_group_members ADD CONSTRAINT uq_group_user UNIQUE (group_id, user_id);
+                END IF;
+            END $$;
+        `);
+    } catch (e) { console.error('[MIGRATIONS] technician_group_members repair:', e.message); }
+
+    // ── Réparation complète de toutes les tables hub_tickets ayant perdu leurs contraintes ──
+    const repairSerialTable = async (schema, table, uniqueDefs) => {
+        const full = `${schema}.${table}`;
+        const seq = `${schema}.${table}_id_seq`;
+        await client.query(`DELETE FROM ${full} WHERE id IS NULL`);
+        await client.query(`ALTER TABLE ${full} ALTER COLUMN id SET NOT NULL`);
+        await client.query(`CREATE SEQUENCE IF NOT EXISTS ${seq} OWNED BY ${full}.id`);
+        await client.query(`ALTER TABLE ${full} ALTER COLUMN id SET DEFAULT nextval('${seq}')`);
+        await client.query(`SELECT setval('${seq}', COALESCE((SELECT MAX(id) FROM ${full}), 0) + 1, false)`);
+        // PK
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = '${full}'::regclass AND contype = 'p') THEN
+                    ALTER TABLE ${full} ADD PRIMARY KEY (id);
+                END IF;
+            END $$;
+        `);
+        // UNIQUE constraints
+        for (const cols of uniqueDefs) {
+            const safeCols = cols.replace(/'/g, "''");
+            await client.query(`
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid = '${full}'::regclass
+                          AND contype = 'u'
+                          AND pg_get_constraintdef(oid) LIKE 'UNIQUE (${safeCols})%'
+                    ) THEN
+                        ALTER TABLE ${full} ADD UNIQUE (${cols});
+                    END IF;
+                END $$;
+            `);
+        }
+    };
+
+    try { await repairSerialTable('hub_tickets', 'ticket_assignments', ['ticket_id']); } catch (e) { console.error('[REPAIR] ticket_assignments:', e.message); }
+    try { await repairSerialTable('hub_tickets', 'ticket_tag_links', ['ticket_id, tag_id']); } catch (e) { console.error('[REPAIR] ticket_tag_links:', e.message); }
+    try { await repairSerialTable('hub_tickets', 'sla_calendar_hours', ['calendar_id, day_of_week, start_time']); } catch (e) { console.error('[REPAIR] sla_calendar_hours:', e.message); }
+    try { await repairSerialTable('hub_tickets', 'notification_triggers', ['event, recipient_type']); } catch (e) { console.error('[REPAIR] notification_triggers:', e.message); }
+    try { await repairSerialTable('hub_tickets', 'vip_users', ['username']); } catch (e) { console.error('[REPAIR] vip_users:', e.message); }
+    try { await repairSerialTable('hub_tickets', 'ticket_favorites', ['user_id, ticket_id']); } catch (e) { console.error('[REPAIR] ticket_favorites:', e.message); }
+    try { await repairSerialTable('hub_tickets', 'role_permissions', ['role, permission']); } catch (e) { console.error('[REPAIR] role_permissions:', e.message); }
+
+    // technician_profiles : pas de colonne id, PK sur user_id
+    try {
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'hub_tickets.technician_profiles'::regclass AND contype = 'p') THEN
+                    ALTER TABLE hub_tickets.technician_profiles ADD PRIMARY KEY (user_id);
+                END IF;
+            END $$;
+        `);
+    } catch (e) { console.error('[REPAIR] technician_profiles:', e.message); }
+
+    // projets.projet_roles : PK probablement OK, UNIQUE (projet_id, username, role) peut manquer
+    try {
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'projets.projet_roles'::regclass AND contype = 'u') THEN
+                    ALTER TABLE projets.projet_roles ADD UNIQUE (projet_id, username, role);
+                END IF;
+            END $$;
+        `);
+    } catch (e) { console.error('[REPAIR] projet_roles unique:', e.message); }
 
     // ── Historique quotidien des KPI ────────────────────────────────
     await client.query(`
@@ -3235,9 +3332,16 @@ async function setupPgDb() {
         // Seed notification templates
         await client.query(`
             INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html) VALUES
-            ('ticket_created', 'Création de ticket', '{{app_name}} - Ticket #{{ticket_id}} créé : {{ticket_title}}', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Un nouveau ticket a été créé.</p><table><tr><td>Priorité :</td><td>{{priority_label}}</td></tr><tr><td>Type :</td><td>{{type_label}}</td></tr></table><p><a href="{{app_url}}/tickets/{{ticket_id}}">Voir le ticket</a></p>'),
-            ('ticket_assigned', 'Assignation de ticket', '{{app_name}} - Ticket #{{ticket_id}} vous a été assigné', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{assignee_name}},</p><p>Le ticket <strong>#{{ticket_id}}</strong> vous a été assigné.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}">Voir le ticket</a></p>'),
+            ('ticket_created', 'Création de ticket', '{{app_name}} - Ticket #{{ticket_id}} créé : {{ticket_title}}', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Un nouveau ticket a été créé :</p><table cellpadding="4"><tr><td><strong>Priorité :</strong></td><td>{{priority_label}}</td></tr><tr><td><strong>Type :</strong></td><td>{{type_label}}</td></tr><tr><td><strong>Statut :</strong></td><td>{{status_label}}</td></tr></table><p>{{ticket_content}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+            ('ticket_assigned', 'Assignation de ticket', '{{app_name}} - Ticket #{{ticket_id}} vous a été assigné', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{assignee_name}},</p><p>Le ticket <strong>#{{ticket_id}}</strong> vous a été assigné.</p><table cellpadding="4"><tr><td><strong>Priorité :</strong></td><td>{{priority_label}}</td></tr><tr><td><strong>Demandeur :</strong></td><td>{{requester_name}}</td></tr></table><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+            ('ticket_status_changed', 'Changement de statut', '{{app_name}} - Ticket #{{ticket_id}} : {{old_status}} → {{new_status}}', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le statut du ticket est passé de <strong>{{old_status}}</strong> à <strong>{{new_status}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+            ('ticket_new_comment', 'Nouveau commentaire', '{{app_name}} - Nouveau commentaire sur le ticket #{{ticket_id}}', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p><strong>{{author_name}}</strong> a ajouté un commentaire :</p><blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:8px 0;">{{comment_content}}</blockquote><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
             ('ticket_comment_reply', 'Réponse à un ticket', '[Ticket #{{ticket_id}}] Réponse à votre demande', '<p>Bonjour {{recipient_name}},</p><p>Vous avez reçu une réponse concernant votre ticket <strong>#{{ticket_id}} – {{ticket_title}}</strong> :</p><blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;">{{comment_content}}</blockquote><p style="margin-top:16px;"><a href="{{reply_url}}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">↩ Répondre à ce message</a></p><p style="font-size:12px;color:#94a3b8;">Ou copiez ce lien : {{reply_url}}</p><p>Cordialement,<br>{{author_name}}</p>'),
+            ('sla_warning', 'Alerte SLA - Limite proche', '{{app_name}} - ALERTE SLA : Ticket #{{ticket_id}} approche de la limite', '<h2>⚠️ Alerte SLA</h2><p>Le ticket <strong>#{{ticket_id}} - {{ticket_title}}</strong> approche de sa deadline.</p><p><strong>{{sla_type}} :</strong> {{sla_deadline}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#ef4444;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Agir maintenant</a></p>'),
+            ('sla_breached', 'Dépassement SLA', '{{app_name}} - DÉPASSEMENT SLA : Ticket #{{ticket_id}}', '<h2>🚨 Dépassement SLA</h2><p>Le ticket <strong>#{{ticket_id}} - {{ticket_title}}</strong> a dépassé sa deadline.</p><p><strong>{{sla_type}} :</strong> {{sla_deadline}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#dc2626;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+            ('ticket_resolved', 'Ticket résolu', '{{app_name}} - Ticket #{{ticket_id}} résolu', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Votre ticket a été résolu par <strong>{{technician_name}}</strong>.</p><blockquote style="border-left:4px solid #22c55e;padding:8px 16px;margin:8px 0;">{{solution_text}}</blockquote><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#22c55e;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir la solution</a></p>'),
+            ('ticket_closed', 'Ticket fermé', '{{app_name}} - Ticket #{{ticket_id}} fermé', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket est maintenant fermé.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+            ('ticket_reopened', 'Ticket réouvert', '{{app_name}} - Ticket #{{ticket_id}} réouvert', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket a été réouvert par <strong>{{reopened_by}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#f59e0b;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
             ('live_summary', 'Résumé échange live', '[DSI Support] Résumé de votre échange live — Ticket #{{ticket_id}}', '<div style="font-family:ui-sans-serif,system-ui,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0"><div style="background:linear-gradient(135deg,#6366f1,#818cf8);padding:20px 24px;color:#fff"><div style="font-size:18px;font-weight:700">💬 Résumé de votre échange DSI</div><div style="font-size:13px;opacity:0.85;margin-top:4px">{{ticket_title}}</div></div><div style="padding:20px 24px"><p style="font-size:14px;color:#374151">Bonjour <strong>{{recipient_name}}</strong>,</p><p style="font-size:14px;color:#374151">Voici le résumé de votre échange avec le support DSI :</p></div><div style="padding:16px 24px;background:#f8fafc;border-top:1px solid #e2e8f0"><a href="{{app_url}}/tickets/{{ticket_id}}" style="color:#6366f1;font-size:13px">→ Voir le ticket #{{ticket_id}}</a></div></div>')
             ON CONFLICT (slug) DO NOTHING
         `);
@@ -3245,9 +3349,52 @@ async function setupPgDb() {
         // Seed triggers
         await client.query(`
             INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type) VALUES
+            -- Création de ticket
             ('ticket.created', 'ticket_created', 'requester'),
             ('ticket.created', 'ticket_created', 'technician'),
-            ('ticket.assigned', 'ticket_assigned', 'technician')
+            ('ticket.created', 'ticket_created', 'group'),
+            ('ticket.created', 'ticket_created', 'supervisor'),
+            ('ticket.created', 'ticket_created', 'watchers'),
+            -- Assignation de ticket
+            ('ticket.assigned', 'ticket_assigned', 'technician'),
+            ('ticket.assigned', 'ticket_assigned', 'requester'),
+            ('ticket.assigned', 'ticket_assigned', 'group'),
+            ('ticket.assigned', 'ticket_assigned', 'supervisor'),
+            -- Changement de statut
+            ('ticket.status_changed', 'ticket_status_changed', 'requester'),
+            ('ticket.status_changed', 'ticket_status_changed', 'technician'),
+            ('ticket.status_changed', 'ticket_status_changed', 'group'),
+            ('ticket.status_changed', 'ticket_status_changed', 'watchers'),
+            -- Nouveau commentaire
+            ('ticket.comment_added', 'ticket_new_comment', 'requester'),
+            ('ticket.comment_added', 'ticket_new_comment', 'watchers'),
+            ('ticket.comment_added', 'ticket_new_comment', 'technician'),
+            ('ticket.comment_added', 'ticket_new_comment', 'group'),
+            -- Alerte SLA (limite proche)
+            ('ticket.sla_warning', 'sla_warning', 'technician'),
+            ('ticket.sla_warning', 'sla_warning', 'group'),
+            ('ticket.sla_warning', 'sla_warning', 'supervisor'),
+            ('ticket.sla_warning', 'sla_warning', 'admin'),
+            -- Dépassement SLA
+            ('ticket.sla_breached', 'sla_breached', 'technician'),
+            ('ticket.sla_breached', 'sla_breached', 'group'),
+            ('ticket.sla_breached', 'sla_breached', 'supervisor'),
+            ('ticket.sla_breached', 'sla_breached', 'admin'),
+            -- Ticket résolu
+            ('ticket.resolved', 'ticket_resolved', 'requester'),
+            ('ticket.resolved', 'ticket_resolved', 'watchers'),
+            ('ticket.resolved', 'ticket_resolved', 'admin'),
+            -- Ticket fermé
+            ('ticket.closed', 'ticket_closed', 'requester'),
+            ('ticket.closed', 'ticket_closed', 'technician'),
+            ('ticket.closed', 'ticket_closed', 'group'),
+            ('ticket.closed', 'ticket_closed', 'admin'),
+            ('ticket.closed', 'ticket_closed', 'watchers'),
+            -- Ticket réouvert
+            ('ticket.reopened', 'ticket_reopened', 'technician'),
+            ('ticket.reopened', 'ticket_reopened', 'group'),
+            ('ticket.reopened', 'ticket_reopened', 'supervisor'),
+            ('ticket.reopened', 'ticket_reopened', 'watchers')
             ON CONFLICT (event, recipient_type) DO NOTHING
         `);
 

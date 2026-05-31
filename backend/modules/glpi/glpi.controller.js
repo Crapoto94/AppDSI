@@ -1326,9 +1326,11 @@ const glpiController = {
 
             // 1. Collect all unique numeric GLPI user IDs from both tables
             // Use simple IS NOT NULL filter — JavaScript handles the numeric parsing
-            const [ticketReqRes, observerIdsRes, followupAuthorRes] = await Promise.all([
+            const [ticketReqRes, observerIdsRes, assigneeIdsRes, followupAuthorRes] = await Promise.all([
                 pool.query(`SELECT DISTINCT requester_name FROM glpi.tickets WHERE requester_name IS NOT NULL AND requester_name != ''`),
                 pool.query(`SELECT DISTINCT user_id FROM glpi.observers WHERE user_id IS NOT NULL`),
+                // Techniciens assignés : indispensable pour résoudre leur login (sinon JOIN transposition KO)
+                pool.query(`SELECT DISTINCT user_id FROM glpi.assignees WHERE user_id IS NOT NULL`),
                 // Auteurs de suivis stockés sous forme d'id GLPI numérique (ex. "2984")
                 pool.query(`SELECT DISTINCT author_name FROM glpi.ticket_followups WHERE author_name ~ '^[0-9]+$'`)
             ]);
@@ -1344,6 +1346,9 @@ const glpiController = {
                 });
             }
             for (const row of observerIdsRes.rows) {
+                if (row.user_id > 0) allIds.add(row.user_id);
+            }
+            for (const row of assigneeIdsRes.rows) {
                 if (row.user_id > 0) allIds.add(row.user_id);
             }
             for (const row of followupAuthorRes.rows) {
@@ -1614,18 +1619,100 @@ const glpiController = {
                 await glpiController.saveGlpiGroupsToPg(groups);
             }
 
-            await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders }).catch(() => {});
+            // Répond tout de suite : le scan tickets→groupes (long) continue en tâche de fond.
+            // Le front suit la progression via /api/glpi/sync-groups-status.
+            res.json({ success: true, count: 0, groups: groups.length, background: true });
 
-            groupsSyncProgress.active = false;
-            groupsSyncProgress.processed = 1;
-            groupsSyncProgress.lastUpdate = new Date().toISOString();
-
-            res.json({ success: true, count: 0, groups: groups.length });
+            // Tâche de fond — non attendue par la requête HTTP (évite le timeout).
+            glpiController.syncTicketGroups({ url, commonHeaders, authHeader, sessionToken })
+                .catch(e => console.error('[GLPI] syncTicketGroups bg error:', e.message))
+                .finally(() => {
+                    groupsSyncProgress.active = false;
+                    groupsSyncProgress.lastUpdate = new Date().toISOString();
+                });
         } catch (error) {
             console.error('[GLPI] Group fetch error:', error.response?.status, error.response?.data, error.message);
             groupsSyncProgress.active = false;
             const msg = error.response?.data?.[1] || error.response?.data?.message || error.message;
-            res.status(500).json({ message: msg });
+            if (!res.headersSent) res.status(500).json({ message: msg });
+        }
+    },
+
+    // Synchronise les groupes assignés aux tickets via le sous-objet GLPI Group_Ticket.
+    // Alimente glpi.group_assignees, table lue par la transposition des groupes.
+    // Tourne en tâche de fond : rafraîchit le token GLPI périodiquement (sinon expiration
+    // sur gros volumes) et respecte l'annulation (groupsSyncCancelled).
+    syncTicketGroups: async ({ url, commonHeaders, authHeader, sessionToken }) => {
+        try {
+            console.log('[GLPI] Syncing ticket-group associations via /Ticket/:id/Group_Ticket ...');
+
+            let token = sessionToken;
+            const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id');
+            groupsSyncProgress.total = tickets.length;
+            groupsSyncProgress.processed = 0;
+            console.log('[GLPI] Scanning', tickets.length, 'tickets for group assignments');
+            if (tickets.length === 0) return;
+
+            const CONCURRENCY = 50;
+            const REFRESH_EVERY = 4000; // rafraîchit le token tous les ~4000 tickets
+            const toInsert = [];
+            let sinceRefresh = 0;
+
+            for (let i = 0; i < tickets.length; i += CONCURRENCY) {
+                if (groupsSyncCancelled) {
+                    console.log('[GLPI] ticket-group scan annulé à', i, '/', tickets.length);
+                    return; // ne réécrit pas la table sur annulation
+                }
+
+                // Renouvelle le token pour éviter l'expiration de session GLPI
+                if (sinceRefresh >= REFRESH_EVERY) {
+                    try {
+                        const r = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, Authorization: authHeader }, timeout: 10000 });
+                        if (r.data?.session_token) {
+                            token = r.data.session_token;
+                            console.log('[GLPI] session token rafraîchi à', i, 'tickets');
+                        }
+                    } catch (e) { /* on garde l'ancien token */ }
+                    sinceRefresh = 0;
+                }
+
+                const batch = tickets.slice(i, i + CONCURRENCY);
+                const results = await Promise.all(batch.map(t =>
+                    axios.get(`${url}/Ticket/${t.glpi_id}/Group_Ticket?session_token=${token}`, { headers: commonHeaders, timeout: 8000 })
+                        .catch(() => ({ data: [] }))
+                ));
+
+                results.forEach((r, idx) => {
+                    const ticketId = batch[idx].glpi_id;
+                    const rows = Array.isArray(r.data) ? r.data : [];
+                    // type GLPI : 1=demandeur, 2=assigné, 3=observateur. On garde les assignés (2).
+                    rows.filter(g => g.groups_id && (g.type === 2 || g.type === undefined)).forEach(g => {
+                        toInsert.push({ ticket_id: ticketId, group_id: g.groups_id, type: g.type || 2 });
+                    });
+                });
+
+                groupsSyncProgress.processed = Math.min(i + CONCURRENCY, tickets.length);
+                groupsSyncProgress.lastUpdate = new Date().toISOString();
+                sinceRefresh += CONCURRENCY;
+            }
+
+            console.log('[GLPI] Found', toInsert.length, 'ticket-group assignments');
+
+            if (toInsert.length === 0) {
+                console.log('[GLPI] No group assignments found on tickets');
+                return;
+            }
+
+            // Remplacement complet de la table (scan terminé sans annulation)
+            await pool.query('TRUNCATE glpi.group_assignees RESTART IDENTITY');
+            await glpiController.saveGroupAssigneesToPg(toInsert);
+
+            console.log('[GLPI] Successfully synced', toInsert.length, 'ticket-group assignments into glpi.group_assignees');
+        } catch (error) {
+            console.error('[GLPI] syncTicketGroups error:', error.message, error.stack);
+        } finally {
+            // Ferme la session de fond
+            try { await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders }); } catch (e) {}
         }
     }
 

@@ -57,28 +57,59 @@ INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html)
  '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket est maintenant fermé.</p>'),
 ('ticket_reopened', 'Ticket réouvert',
  '{{app_name}} - Ticket #{{ticket_id}} réouvert',
- '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket a été réouvert par <strong>{{reopened_by}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#f59e0b;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>')
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket a été réouvert par <strong>{{reopened_by}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#f59e0b;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+('ticket_comment_reply', 'Réponse au commentaire',
+ '{{app_name}} - Ticket #{{ticket_id}} : Réponse reçue',
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Il y a une réponse à votre demande :</p><blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:8px 0;">{{comment_content}}</blockquote><p>Voir <strong>{{author_name}}</strong> a répondu à votre ticket.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>')
 ON CONFLICT (slug) DO NOTHING;
 
 -- Seed déclencheurs de notifications par défaut
 INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type) VALUES
+-- Création de ticket
 ('ticket.created', 'ticket_created', 'requester'),
 ('ticket.created', 'ticket_created', 'technician'),
+('ticket.created', 'ticket_created', 'group'),
+('ticket.created', 'ticket_created', 'supervisor'),
 ('ticket.created', 'ticket_created', 'watchers'),
+-- Assignation de ticket
 ('ticket.assigned', 'ticket_assigned', 'technician'),
 ('ticket.assigned', 'ticket_assigned', 'requester'),
+('ticket.assigned', 'ticket_assigned', 'group'),
+('ticket.assigned', 'ticket_assigned', 'supervisor'),
+-- Changement de statut
 ('ticket.status_changed', 'ticket_status_changed', 'requester'),
+('ticket.status_changed', 'ticket_status_changed', 'technician'),
+('ticket.status_changed', 'ticket_status_changed', 'group'),
 ('ticket.status_changed', 'ticket_status_changed', 'watchers'),
+-- Nouveau commentaire
+('ticket.comment_added', 'ticket_new_comment', 'requester'),
 ('ticket.comment_added', 'ticket_new_comment', 'watchers'),
 ('ticket.comment_added', 'ticket_new_comment', 'technician'),
+('ticket.comment_added', 'ticket_new_comment', 'group'),
+-- Alerte SLA (limite proche)
 ('ticket.sla_warning', 'sla_warning', 'technician'),
+('ticket.sla_warning', 'sla_warning', 'group'),
 ('ticket.sla_warning', 'sla_warning', 'supervisor'),
+('ticket.sla_warning', 'sla_warning', 'admin'),
+-- Dépassement SLA
 ('ticket.sla_breached', 'sla_breached', 'technician'),
+('ticket.sla_breached', 'sla_breached', 'group'),
 ('ticket.sla_breached', 'sla_breached', 'supervisor'),
 ('ticket.sla_breached', 'sla_breached', 'admin'),
+-- Ticket résolu
 ('ticket.resolved', 'ticket_resolved', 'requester'),
+('ticket.resolved', 'ticket_resolved', 'watchers'),
+('ticket.resolved', 'ticket_resolved', 'admin'),
+-- Ticket fermé
 ('ticket.closed', 'ticket_closed', 'requester'),
+('ticket.closed', 'ticket_closed', 'technician'),
+('ticket.closed', 'ticket_closed', 'group'),
+('ticket.closed', 'ticket_closed', 'admin'),
+('ticket.closed', 'ticket_closed', 'watchers'),
+-- Ticket réouvert
 ('ticket.reopened', 'ticket_reopened', 'technician'),
+('ticket.reopened', 'ticket_reopened', 'group'),
+('ticket.reopened', 'ticket_reopened', 'supervisor'),
 ('ticket.reopened', 'ticket_reopened', 'watchers')
 ON CONFLICT (event, recipient_type) DO NOTHING;
 

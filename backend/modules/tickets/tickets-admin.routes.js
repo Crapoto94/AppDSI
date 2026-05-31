@@ -363,11 +363,12 @@ router.post('/groups/:id/set-default', authenticateAdmin, async (req, res) => {
 
 router.post('/groups/:id/members', authenticateAdmin, async (req, res) => {
     try {
-        await pgDb.run(
+        const result = await pgDb.run(
             'INSERT INTO hub_tickets.technician_group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
             [req.params.id, req.body.user_id]);
+        console.log('[DEBUG] addMember group_id=%s user_id=%s changes=%s lastID=%s', req.params.id, req.body.user_id, result.changes, result.lastID);
         res.status(201).json({ message: 'Membre ajouté' });
-    } catch (e) { res.status(400).json({ message: e.message }); }
+    } catch (e) { console.log('[DEBUG] addMember ERROR:', e.message); res.status(400).json({ message: e.message }); }
 });
 
 router.delete('/groups/:id/members/:mid', authenticateAdmin, async (req, res) => {
@@ -562,8 +563,10 @@ router.post('/notification-templates', authenticateAdmin, async (req, res) => {
 
 router.put('/notification-templates/:id', authenticateAdmin, async (req, res) => {
     try {
+        // Support both id and slug as parameter
+        const whereClause = isNaN(req.params.id) ? 'slug = $4' : 'id = $4';
         await pgDb.run(`
-            UPDATE hub_tickets.notification_templates SET subject = $1, body_html = $2, label = $3 WHERE id = $4
+            UPDATE hub_tickets.notification_templates SET subject = $1, body_html = $2, label = $3 WHERE ${whereClause}
         `, [req.body.subject, req.body.body_html, req.body.label, req.params.id]);
         res.json({ message: 'Template mis à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
@@ -642,6 +645,46 @@ router.get('/technicians', authenticateAdmin, async (req, res) => {
         }
         res.json(list);
     } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// Rejoue la transposition des assignés GLPI → hub_tickets.ticket_assignments
+// (login GLPI → hub.users.id). N'écrase pas les assignations existantes.
+router.post('/technicians/reapply-assignments', authenticateAdmin, async (req, res) => {
+    try {
+        // Diagnostic : combien d'assignés, combien résolvables par login
+        const diag = await pgDb.get(`
+            SELECT
+                (SELECT COUNT(DISTINCT ticket_id) FROM glpi.assignees) AS glpi_assigned_tickets,
+                (SELECT COUNT(DISTINCT a.ticket_id)
+                   FROM glpi.assignees a
+                   JOIN hub.users u ON LOWER(u.username) = LOWER(a.login)
+                   JOIN hub_tickets.tickets t ON t.glpi_id = a.ticket_id) AS resolvable_tickets
+        `);
+
+        const result = await pgDb.run(`
+            INSERT INTO hub_tickets.ticket_assignments (ticket_id, technician_id, is_primary)
+            SELECT DISTINCT ON (a.ticket_id) a.ticket_id, u.id, true
+            FROM glpi.assignees a
+            JOIN hub.users u ON LOWER(u.username) = LOWER(a.login)
+            JOIN hub_tickets.tickets t ON t.glpi_id = a.ticket_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM hub_tickets.ticket_assignments ta
+                WHERE ta.ticket_id = a.ticket_id AND ta.technician_id = u.id
+            )
+            ORDER BY a.ticket_id, a.user_id
+        `);
+
+        const inserted = result.changes ?? result.rowCount ?? 0;
+        res.json({
+            message: `✅ ${inserted} assignation(s) technicien créée(s)`,
+            inserted,
+            glpi_assigned_tickets: Number(diag?.glpi_assigned_tickets || 0),
+            resolvable_tickets: Number(diag?.resolvable_tickets || 0),
+        });
+    } catch (e) {
+        console.error('[REAPPLY-ASSIGNMENTS] Error:', e.message);
+        res.status(500).json({ message: e.message });
+    }
 });
 
 router.get('/technicians/available', authenticateJWT, async (req, res) => {
@@ -750,11 +793,11 @@ router.get('/technicians/:id/tickets', authenticateAdmin, async (req, res) => {
 router.post('/technicians/:id/reassign', authenticateAdmin, async (req, res) => {
     try {
         const { mode, target_id } = req.body;
-        if (!['single', 'dispatch', 'unassign'].includes(mode)) {
-            return res.status(400).json({ message: 'Mode invalide (single, dispatch, unassign)' });
+        if (!['single', 'group', 'dispatch', 'unassign'].includes(mode)) {
+            return res.status(400).json({ message: 'Mode invalide (single, group, dispatch, unassign)' });
         }
-        if (mode === 'single' && !target_id) {
-            return res.status(400).json({ message: 'target_id requis pour le mode single' });
+        if ((mode === 'single' || mode === 'group') && !target_id) {
+            return res.status(400).json({ message: 'target_id requis pour ce mode' });
         }
         await technicianRepo.reassignTickets(parseInt(req.params.id), mode, target_id ? parseInt(target_id) : null);
         res.json({ message: 'Tickets réassignés' });
@@ -1274,6 +1317,108 @@ router.delete('/notification-queue', authenticateAdmin, async (req, res) => {
     } catch (err) {
         console.error('[NOTIFICATION-QUEUE] CLEAR error:', err.message);
         res.status(500).json({ message: err.message });
+    }
+});
+
+// ─── Reinitialize notification templates and triggers ─────────────
+router.post('/reinit-notifications', authenticateAdmin, async (req, res) => {
+    let client;
+    try {
+        const { pool: pgPool } = require('../../shared/database');
+        client = await pgPool.connect();
+
+        // Répare les colonnes id (SERIAL manquant sur d'anciennes tables → id NULL/insert KO)
+        for (const tbl of ['notification_templates', 'notification_triggers']) {
+            try { await client.query(`CREATE SEQUENCE IF NOT EXISTS hub_tickets.${tbl}_id_seq`); } catch (e) {}
+            try { await client.query(`ALTER TABLE hub_tickets.${tbl} ALTER COLUMN id SET DEFAULT nextval('hub_tickets.${tbl}_id_seq')`); } catch (e) {}
+            try { await client.query(`ALTER SEQUENCE hub_tickets.${tbl}_id_seq OWNED BY hub_tickets.${tbl}.id`); } catch (e) {}
+        }
+
+        // Delete existing triggers
+        await client.query(`DELETE FROM hub_tickets.notification_triggers`);
+
+        // Delete existing templates
+        await client.query(`DELETE FROM hub_tickets.notification_templates`);
+
+        // Re-insert all templates (one by one with parameters to avoid quote issues)
+        const templates = [
+            ['ticket_created', 'Création de ticket', '{{app_name}} - Ticket #{{ticket_id}} créé : {{ticket_title}}', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Un nouveau ticket a été créé :</p><table cellpadding="4"><tr><td><strong>Priorité :</strong></td><td>{{priority_label}}</td></tr><tr><td><strong>Type :</strong></td><td>{{type_label}}</td></tr><tr><td><strong>Statut :</strong></td><td>{{status_label}}</td></tr></table><p>{{ticket_content}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'],
+            ['ticket_assigned', 'Assignation de ticket', '{{app_name}} - Ticket #{{ticket_id}} vous a été assigné', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{assignee_name}},</p><p>Le ticket <strong>#{{ticket_id}}</strong> vous a été assigné.</p><table cellpadding="4"><tr><td><strong>Priorité :</strong></td><td>{{priority_label}}</td></tr><tr><td><strong>Demandeur :</strong></td><td>{{requester_name}}</td></tr></table><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'],
+            ['ticket_status_changed', 'Changement de statut', '{{app_name}} - Ticket #{{ticket_id}} : {{old_status}} → {{new_status}}', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le statut du ticket est passé de <strong>{{old_status}}</strong> à <strong>{{new_status}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'],
+            ['ticket_new_comment', 'Nouveau commentaire', '{{app_name}} - Nouveau commentaire sur le ticket #{{ticket_id}}', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p><strong>{{author_name}}</strong> a ajouté un commentaire :</p><blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:8px 0;">{{comment_content}}</blockquote><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'],
+            ['ticket_comment_reply', 'Réponse au commentaire', '[Ticket #{{ticket_id}}] Réponse à votre demande', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Il y a une réponse à votre demande :</p><blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:8px 0;">{{comment_content}}</blockquote><p>{{author_name}} a répondu à votre ticket.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'],
+            ['sla_warning', 'Alerte SLA', '{{app_name}} - ALERTE SLA : Ticket #{{ticket_id}}', '<h2>⚠️ Alerte SLA</h2><p>Le ticket <strong>#{{ticket_id}} - {{ticket_title}}</strong> approche de sa deadline.</p><p><strong>{{sla_type}}</strong> : {{sla_deadline}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#ef4444;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Agir maintenant</a></p>'],
+            ['sla_breached', 'Dépassement SLA', '{{app_name}} - DÉPASSEMENT SLA : Ticket #{{ticket_id}}', '<h2>🚨 Dépassement SLA</h2><p>Le ticket <strong>#{{ticket_id}} - {{ticket_title}}</strong> a dépassé sa deadline.</p><p><strong>{{sla_type}}</strong> : {{sla_deadline}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#dc2626;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'],
+            ['ticket_resolved', 'Ticket résolu', '{{app_name}} - Ticket #{{ticket_id}} résolu', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Votre ticket a été résolu par <strong>{{technician_name}}</strong>.</p><blockquote style="border-left:4px solid #22c55e;padding:8px 16px;margin:8px 0;">{{solution_text}}</blockquote><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#22c55e;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir la solution</a></p>'],
+            ['ticket_closed', 'Ticket fermé', '{{app_name}} - Ticket #{{ticket_id}} fermé', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket est maintenant fermé.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'],
+            ['ticket_reopened', 'Ticket réouvert', '{{app_name}} - Ticket #{{ticket_id}} réouvert', '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket a été réouvert par <strong>{{reopened_by}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#f59e0b;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'],
+            ['live_summary', 'Résumé échange live', '[DSI] Résumé de votre échange', '<p>Bonjour {{recipient_name}},</p><p>Voici le résumé de votre échange #{{ticket_id}}.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}">Voir le ticket</a></p>']
+        ];
+
+        for (const [slug, label, subject, body] of templates) {
+            await client.query(
+                'INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html) VALUES ($1, $2, $3, $4)',
+                [slug, label, subject, body]
+            );
+        }
+
+        // Re-insert all triggers (row by row, robuste)
+        const triggers = [
+            ['ticket.created', 'ticket_created', 'requester'],
+            ['ticket.created', 'ticket_created', 'technician'],
+            ['ticket.created', 'ticket_created', 'group'],
+            ['ticket.created', 'ticket_created', 'supervisor'],
+            ['ticket.created', 'ticket_created', 'watchers'],
+            ['ticket.assigned', 'ticket_assigned', 'technician'],
+            ['ticket.assigned', 'ticket_assigned', 'requester'],
+            ['ticket.assigned', 'ticket_assigned', 'group'],
+            ['ticket.assigned', 'ticket_assigned', 'supervisor'],
+            ['ticket.status_changed', 'ticket_status_changed', 'requester'],
+            ['ticket.status_changed', 'ticket_status_changed', 'technician'],
+            ['ticket.status_changed', 'ticket_status_changed', 'group'],
+            ['ticket.status_changed', 'ticket_status_changed', 'watchers'],
+            ['ticket.comment_added', 'ticket_new_comment', 'requester'],
+            ['ticket.comment_added', 'ticket_new_comment', 'watchers'],
+            ['ticket.comment_added', 'ticket_new_comment', 'technician'],
+            ['ticket.comment_added', 'ticket_new_comment', 'group'],
+            ['ticket.sla_warning', 'sla_warning', 'technician'],
+            ['ticket.sla_warning', 'sla_warning', 'group'],
+            ['ticket.sla_warning', 'sla_warning', 'supervisor'],
+            ['ticket.sla_warning', 'sla_warning', 'admin'],
+            ['ticket.sla_breached', 'sla_breached', 'technician'],
+            ['ticket.sla_breached', 'sla_breached', 'group'],
+            ['ticket.sla_breached', 'sla_breached', 'supervisor'],
+            ['ticket.sla_breached', 'sla_breached', 'admin'],
+            ['ticket.resolved', 'ticket_resolved', 'requester'],
+            ['ticket.resolved', 'ticket_resolved', 'watchers'],
+            ['ticket.resolved', 'ticket_resolved', 'admin'],
+            ['ticket.closed', 'ticket_closed', 'requester'],
+            ['ticket.closed', 'ticket_closed', 'technician'],
+            ['ticket.closed', 'ticket_closed', 'group'],
+            ['ticket.closed', 'ticket_closed', 'admin'],
+            ['ticket.closed', 'ticket_closed', 'watchers'],
+            ['ticket.reopened', 'ticket_reopened', 'technician'],
+            ['ticket.reopened', 'ticket_reopened', 'group'],
+            ['ticket.reopened', 'ticket_reopened', 'supervisor'],
+            ['ticket.reopened', 'ticket_reopened', 'watchers']
+        ];
+
+        let triggersInserted = 0;
+        for (const [event, slug, recipient] of triggers) {
+            const r = await client.query(
+                `INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type)
+                 VALUES ($1, $2, $3)`,
+                [event, slug, recipient]
+            );
+            triggersInserted += r.rowCount || 0;
+        }
+
+        res.json({ message: `✅ ${templates.length} templates et ${triggersInserted} déclencheurs réinitialisés` });
+    } catch (err) {
+        console.error('[NOTIFICATION-REINIT] Error:', err.message);
+        res.status(500).json({ message: err.message });
+    } finally {
+        if (client) client.release();
     }
 });
 

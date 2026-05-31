@@ -5,7 +5,14 @@ module.exports = {
         const rows = await pgDb.all(`
             SELECT tp.*, u.displayName, u.email, u.username, u.role,
                    u.service_code, u.service_complement,
-                   (SELECT COUNT(*) FROM hub_tickets.ticket_assignments ta WHERE ta.technician_id = tp.user_id) as active_tickets
+                   (SELECT COUNT(*)
+                      FROM hub_tickets.ticket_assignments ta
+                      JOIN hub_tickets.tickets t ON t.glpi_id = ta.ticket_id
+                      WHERE ta.technician_id = tp.user_id
+                        AND t.status NOT IN (6, 7, 8)) as active_tickets,
+                   (SELECT COUNT(*)
+                      FROM hub_tickets.ticket_assignments ta
+                      WHERE ta.technician_id = tp.user_id) as total_tickets
             FROM hub_tickets.technician_profiles tp
             JOIN hub.users u ON tp.user_id = u.id
             WHERE ($1 IS NULL OR tp.status = $1)
@@ -92,11 +99,18 @@ module.exports = {
         `, [userId]);
     },
 
-    async reassignTickets(fromUserId, mode, targetUserId) {
-        if (mode === 'single' && targetUserId) {
+    async reassignTickets(fromUserId, mode, targetId) {
+        if (mode === 'single' && targetId) {
             await pgDb.run(
                 `UPDATE hub_tickets.ticket_assignments SET technician_id = $1 WHERE technician_id = $2`,
-                [targetUserId, fromUserId]
+                [targetId, fromUserId]
+            );
+        } else if (mode === 'group' && targetId) {
+            // Réassigne les tickets du technicien à un groupe : on retire le technicien
+            // et on rattache au groupe cible (technician_id → NULL, group_id → cible).
+            await pgDb.run(
+                `UPDATE hub_tickets.ticket_assignments SET technician_id = NULL, group_id = $1 WHERE technician_id = $2`,
+                [targetId, fromUserId]
             );
         } else if (mode === 'unassign') {
             await pgDb.run(
