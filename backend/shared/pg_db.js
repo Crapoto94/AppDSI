@@ -1089,6 +1089,40 @@ async function setupPgDb() {
       );
     `);
 
+    // Groupes GLPI (cache des noms)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.glpi_groups (
+        id INTEGER PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Assignations de groupe GLPI — Group_Ticket (type 2 = technicien)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.group_assignees (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL,
+        group_id INTEGER NOT NULL,
+        name VARCHAR(255),
+        type INTEGER DEFAULT 2,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_id, group_id)
+      );
+    `);
+
+    // Mapping des groupes GLPI → groupes techniciens de l'APP
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.glpi_group_mapping (
+        id SERIAL PRIMARY KEY,
+        glpi_group_id INTEGER NOT NULL UNIQUE,
+        glpi_group_name VARCHAR(255),
+        app_group_id INTEGER REFERENCES hub_tickets.technician_groups(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS glpi.ticket_status (
         id INTEGER PRIMARY KEY,

@@ -4,7 +4,7 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import AutoResolution from '../Admin/AutoResolution';
-type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction' | 'auto_resolution';
+type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'group_mapping' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction' | 'auto_resolution';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -144,6 +144,7 @@ export default function TicketAdmin() {
     { key: 'triggers',    label: 'Déclencheurs' },
     { key: 'technicians', label: 'Équipe' },
     { key: 'groups',      label: '👥 Groupes' },
+    { key: 'group_mapping', label: '🔄 Transposition groupes' },
     { key: 'escalade',    label: '⬆️ Escalade' },
     { key: 'roles',       label: '🔐 Rôles' },
     { key: 'params',      label: '⚙️ Paramètres' },
@@ -174,6 +175,7 @@ export default function TicketAdmin() {
         {tab === 'triggers'    && <TriggerManager data={triggers} onUpdate={() => loadData('/api/tickets/admin/notification-triggers', setTriggers)} />}
         {tab === 'technicians' && <TeamManager data={technicians} onUpdate={() => loadData('/api/tickets/admin/technicians', setTechnicians)} />}
         {tab === 'groups'      && <GroupManager />}
+        {tab === 'group_mapping' && <GroupMappingManager />}
         {tab === 'escalade'    && <EscaladeManager />}
         {tab === 'roles'       && <RolePermissionsManager />}
         {tab === 'params'       && <TicketParamsManager />}
@@ -3447,6 +3449,114 @@ function SatisfactionTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── TRANSPOSITION DES GROUPES GLPI → GROUPES APP ────────────────────────
+interface GroupMapRow { glpi_group_id: number; group_name: string; ticket_count: number; app_group_id: number | null; }
+interface AppGroupRef { id: number; name: string; description?: string; is_default?: boolean; }
+
+function GroupMappingManager() {
+  const [rows, setRows] = useState<GroupMapRow[]>([]);
+  const [appGroups, setAppGroups] = useState<AppGroupRef[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [applying, setApplying] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [onlyUnmapped, setOnlyUnmapped] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/tickets/admin/group-mapping/used', { headers: { Authorization: `Bearer ${token}` } });
+      setRows(res.data.rows || []);
+      setAppGroups(res.data.appGroups || []);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  async function saveOne(glpiGroupId: number, appGroupId: number | null) {
+    setRows(prev => prev.map(r => r.glpi_group_id === glpiGroupId ? { ...r, app_group_id: appGroupId } : r));
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put('/api/tickets/admin/group-mapping',
+        { glpi_group_id: glpiGroupId, app_group_id: appGroupId },
+        { headers: { Authorization: `Bearer ${token}` } });
+    } catch { setMsg('Erreur lors de l\'enregistrement'); }
+  }
+
+  async function applyMapping() {
+    if (!confirm('Appliquer les correspondances aux tickets existants ?')) return;
+    setApplying(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/tickets/admin/group-mapping/apply', {}, { headers: { Authorization: `Bearer ${token}` } });
+      setMsg(`Mappage appliqué : ${res.data.updated} assignation(s) de groupe créée(s).`);
+    } catch { setMsg('Erreur lors de l\'application'); }
+    finally { setApplying(false); }
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement…</div>;
+
+  const mappedCount = rows.filter(r => r.app_group_id != null).length;
+  const displayedRows = onlyUnmapped ? rows.filter(r => r.app_group_id == null) : rows;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Transposition des groupes GLPI → Groupes techniciens</h3>
+          <p style={{ margin: 0, fontSize: 12, color: '#71717a' }}>
+            Associez chaque groupe GLPI à un groupe de techniciens de l'application. {mappedCount}/{rows.length} mappés.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setOnlyUnmapped(v => !v)}
+            title="N'afficher que les groupes non mappés"
+            style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${onlyUnmapped ? '#fbbf24' : '#e2e8f0'}`, background: onlyUnmapped ? '#fffbeb' : '#fff', color: onlyUnmapped ? '#92400e' : '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            {onlyUnmapped ? '☑' : '☐'} Non mappés
+          </button>
+          <button onClick={applyMapping} disabled={applying} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg,#2563eb,#4f46e5)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            {applying ? '…' : '✅ Appliquer aux tickets'}
+          </button>
+        </div>
+      </div>
+      {msg && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, color: '#166534', fontSize: 13 }}>{msg}</div>}
+
+      <div style={{ maxHeight: '60vh', overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: 10 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+              <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 700, color: '#475569' }}>Groupe GLPI</th>
+              <th style={{ textAlign: 'center', padding: '10px 12px', fontWeight: 700, color: '#475569', width: 90 }}>Tickets</th>
+              <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 700, color: '#475569', width: 320 }}>Groupe APP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayedRows.map(r => (
+              <tr key={r.glpi_group_id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '8px 12px', color: '#1e293b' }}>{r.group_name}</td>
+                <td style={{ padding: '8px 12px', textAlign: 'center', color: '#64748b' }}>{r.ticket_count}</td>
+                <td style={{ padding: '8px 12px' }}>
+                  <select
+                    value={r.app_group_id ?? ''}
+                    onChange={e => saveOne(r.glpi_group_id, e.target.value ? parseInt(e.target.value) : null)}
+                    style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: `1.5px solid ${r.app_group_id ? '#e2e8f0' : '#fde68a'}`, background: r.app_group_id ? '#fff' : '#fffbeb', fontSize: 13 }}
+                  >
+                    <option value="">— Non mappé —</option>
+                    {appGroups.map(g => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                </td>
+              </tr>
+            ))}
+            {displayedRows.length === 0 && <tr><td colSpan={3} style={{ padding: 30, textAlign: 'center', color: '#cbd5e1' }}>{onlyUnmapped ? 'Tous les groupes sont mappés 🎉' : 'Aucun groupe GLPI utilisé.'}</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

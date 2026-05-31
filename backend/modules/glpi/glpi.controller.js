@@ -59,6 +59,16 @@ let namesSyncProgress = {
 
 let namesSyncCancelled = false;
 
+let groupsSyncProgress = {
+    active: false,
+    processed: 0,
+    total: 0,
+    startTime: null,
+    lastUpdate: null
+};
+
+let groupsSyncCancelled = false;
+
 // Scheduled sync state
 let currentRunningSync = null;
 let syncQueue = [];
@@ -69,7 +79,8 @@ function isAnySyncActive() {
            observersSyncProgress.active ||
            followupsSyncProgress.active ||
            descriptionsSyncProgress.active ||
-           namesSyncProgress.active;
+           namesSyncProgress.active ||
+           groupsSyncProgress.active;
 }
 
 const SYNC_BUSY_MSG = 'Une synchronisation est déjà en cours. Attendez qu\'elle se termine avant d\'en lancer une autre.';
@@ -1522,6 +1533,99 @@ const glpiController = {
             console.error('[SYNC NAMES] Erreur:', error.message);
             namesSyncProgress.active = false;
             res.status(500).json({ message: error.message });
+        }
+    },
+
+    // ─── Group Assignments Sync ──────────────────────────────────────────
+    getGroupsStatus: (req, res) => res.json(groupsSyncProgress),
+
+    cancelGroupsSync: (req, res) => {
+        groupsSyncCancelled = true;
+        res.json({ success: true, message: 'Annulation demandée' });
+    },
+
+    saveGroupAssigneesToPg: async (asg) => {
+        const uniq = new Map();
+        for (const a of asg) uniq.set(`${a.ticket_id}|${a.group_id}`, a);
+        asg = [...uniq.values()];
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < asg.length; i += BATCH_SIZE) {
+            const batch = asg.slice(i, i + BATCH_SIZE);
+            const values = batch.map((_, idx) => {
+                const base = idx * 5;
+                return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, CURRENT_TIMESTAMP)`;
+            }).join(', ');
+            const params = batch.flatMap(a => [a.ticket_id, a.group_id, a.name || '', a.type || 2]);
+            await pool.query(
+                `INSERT INTO glpi.group_assignees (ticket_id, group_id, name, type, last_sync) VALUES ${values}
+                 ON CONFLICT (ticket_id, group_id) DO UPDATE SET name = EXCLUDED.name, type = EXCLUDED.type, last_sync = EXCLUDED.last_sync`,
+                params
+            );
+        }
+    },
+
+    saveGlpiGroupsToPg: async (groups) => {
+        const BATCH_SIZE = 100;
+        for (let i = 0; i < groups.length; i += BATCH_SIZE) {
+            const batch = groups.slice(i, i + BATCH_SIZE);
+            const values = batch.map((_, idx) => {
+                const base = idx * 2;
+                return `($${base + 1}::integer, $${base + 2}::text, CURRENT_TIMESTAMP)`;
+            }).join(', ');
+            const params = batch.flatMap(g => [g.id, g.name]);
+            await pool.query(
+                `INSERT INTO glpi.glpi_groups (id, name, last_sync) VALUES ${values}
+                 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, last_sync = EXCLUDED.last_sync`,
+                params
+            );
+        }
+    },
+
+    fetchGlpiGroups: async (req, res) => {
+        if (isAnySyncActive()) return res.status(409).json({ message: SYNC_BUSY_MSG });
+        groupsSyncCancelled = false;
+        groupsSyncProgress = { active: true, processed: 0, total: 1, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString() };
+
+        try {
+            const db = getSqlite();
+            const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+            const url = glpiController.getApiUrl(settings.url);
+            const commonHeaders = { 'App-Token': settings.app_token?.trim() || '', 'Content-Type': 'application/json', 'Accept': 'application/json' };
+            const authHeader = glpiController.getAuthHeader(settings);
+
+            const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader } });
+            const sessionToken = sessionRes.data?.session_token;
+            if (!sessionToken) throw new Error('Session GLPI échouée');
+
+            // Établir le contexte de session (nécessaire pour GLPI 9.4)
+            await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders }).catch(() => {});
+            await axios.get(`${url}/getFullSession?session_token=${sessionToken}`, { headers: commonHeaders }).catch(() => {});
+
+            const resp = await axios.get(`${url}/Group?session_token=${sessionToken}`, {
+                headers: commonHeaders,
+                timeout: 30000
+            });
+
+            console.log('[GLPI DEBUG] /Group status:', resp.status, 'content-type:', resp.headers?.['content-type'], 'data type:', typeof resp.data, 'isArray:', Array.isArray(resp.data));
+            if (typeof resp.data === 'string') console.log('[GLPI DEBUG] /Group response (first 200):', resp.data.substring(0, 200));
+
+            const groups = Array.isArray(resp.data) ? resp.data : (resp.data?.data ? (Array.isArray(resp.data.data) ? resp.data.data : []) : []);
+            if (groups.length > 0) {
+                await glpiController.saveGlpiGroupsToPg(groups);
+            }
+
+            await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders }).catch(() => {});
+
+            groupsSyncProgress.active = false;
+            groupsSyncProgress.processed = 1;
+            groupsSyncProgress.lastUpdate = new Date().toISOString();
+
+            res.json({ success: true, count: 0, groups: groups.length });
+        } catch (error) {
+            console.error('[GLPI] Group fetch error:', error.response?.status, error.response?.data, error.message);
+            groupsSyncProgress.active = false;
+            const msg = error.response?.data?.[1] || error.response?.data?.message || error.message;
+            res.status(500).json({ message: msg });
         }
     }
 

@@ -36,6 +36,9 @@ router.post('/sync-observers-recent', authenticateInternalOrAdmin, glpiControlle
 router.post('/sync-followups', authenticateInternalOrAdmin, glpiController.syncFollowups);
 router.post('/sync-followups-recent', authenticateInternalOrAdmin, glpiController.syncFollowups); // Reuse syncFollowups
 router.post('/sync-descriptions', authenticateInternalOrAdmin, glpiController.syncDescriptions);
+router.post('/sync-groups', authenticateInternalOrAdmin, glpiController.fetchGlpiGroups);
+router.get('/sync-groups-status', authenticateGLPIControl, glpiController.getGroupsStatus);
+router.post('/sync-groups-cancel', authenticateGLPIControl, glpiController.cancelGroupsSync);
 
 // Profiles & Logs
 router.get('/my-profile', authenticateGLPIControl, glpiController.getMyProfile);

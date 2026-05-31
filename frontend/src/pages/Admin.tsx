@@ -172,6 +172,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [followupsSyncStatus, setFollowupsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [descriptionsSyncStatus, setDescriptionsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [namesSyncStatus, setNamesSyncStatus] = useState<{ active: boolean; processed: number; total: number; resolved: number; source: string | null }>({ active: false, processed: 0, total: 0, resolved: 0, source: null });
+  const [isSyncingGroups, setIsSyncingGroups] = useState(false);
+  const [groupsSyncStatus, setGroupsSyncStatus] = useState<{ active: boolean; processed: number; total: number }>({ active: false, processed: 0, total: 0 });
   const [syncLogs, setSyncLogs] = useState<any[]>([]);
   const [syncLogsPage, setSyncLogsPage] = useState(1);
   const syncLogsPerPage = 10;
@@ -1219,6 +1221,48 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       await axios.post('/api/glpi/sync-names-cancel', {}, { headers: { Authorization: `Bearer ${token}` } });
     } catch (e) {
       console.error('Erreur annulation names:', e);
+    }
+  };
+
+  const handleSyncGroups = async () => {
+    if (!window.confirm('Synchroniser les groupes GLPI ? Les noms des groupes seront mis à jour depuis GLPI.')) return;
+
+    setIsSyncingGroups(true);
+    setGroupsSyncStatus({ active: true, processed: 0, total: 0 });
+
+    let pollInterval = setInterval(async () => {
+      try {
+        const res = await axios.get('/api/glpi/sync-groups-status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setGroupsSyncStatus(res.data);
+        if (!res.data.active) clearInterval(pollInterval);
+      } catch (e) {
+        console.error('Erreur polling groups:', e);
+      }
+    }, 1500);
+
+    try {
+      const response = await axios.post('/api/glpi/sync-groups', {}, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 600000
+      });
+      alert(`Synchronisation des groupes réussie : ${response.data.count} assignation(s), ${response.data.groups} groupe(s) trouvé(s).`);
+      fetchSyncLogs();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Erreur lors de la synchronisation des groupes');
+    } finally {
+      setIsSyncingGroups(false);
+      setGroupsSyncStatus(prev => ({ ...prev, active: false }));
+      clearInterval(pollInterval);
+    }
+  };
+
+  const handleCancelGroupsSync = async () => {
+    try {
+      await axios.post('/api/glpi/sync-groups-cancel', {}, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) {
+      console.error('Erreur annulation groups:', e);
     }
   };
 
@@ -3673,6 +3717,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <span>{isSyncingNames ? `${namesSyncStatus.resolved}/${namesSyncStatus.total}` : 'Noms/Prénoms'}</span>
                             </button>
 
+                            <button onClick={handleSyncGroups} className="action-tile" disabled={isSyncingGroups || !glpiConfig.is_enabled} style={{ background: '#ffedd5', color: '#9a3412', border: '1px solid #fdba74' }}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                <span>{isSyncingGroups ? `${groupsSyncStatus.processed}/${groupsSyncStatus.total}` : 'Groupes'}</span>
+                            </button>
+
                         </div>
 
                         {namesSyncStatus.active && (
@@ -3694,6 +3743,29 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <div className="progress-stats">
                                     <span>{namesSyncStatus.resolved.toLocaleString()} résolus · {namesSyncStatus.processed.toLocaleString()} / {namesSyncStatus.total.toLocaleString()}</span>
                                     <button className="btn-cancel-sync" onClick={handleCancelNamesSync}>Annuler</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {groupsSyncStatus.active && (
+                            <div className="sync-progress-box" style={{ marginTop: '10px', borderColor: '#fdba74' }}>
+                                <div className="progress-header">
+                                    <div className="progress-label">
+                                        <span className="progress-spinner">⟳</span>
+                                        Synchronisation groupes...
+                                    </div>
+                                    <div className="progress-percent">
+                                        {groupsSyncStatus.total > 0 ? Math.round((groupsSyncStatus.processed / groupsSyncStatus.total) * 100) : 0}%
+                                    </div>
+                                </div>
+                                <div className="progress-bar-container">
+                                    <div className="progress-bar-fill" style={{ width: `${groupsSyncStatus.total > 0 ? (groupsSyncStatus.processed / groupsSyncStatus.total) * 100 : 0}%`, transition: 'width 0.3s ease', backgroundColor: '#fdba74' }}>
+                                        <div className="progress-bar-shimmer"></div>
+                                    </div>
+                                </div>
+                                <div className="progress-stats">
+                                    <span>{groupsSyncStatus.processed.toLocaleString()} / {groupsSyncStatus.total.toLocaleString()}</span>
+                                    <button className="btn-cancel-sync" onClick={handleCancelGroupsSync}>Annuler</button>
                                 </div>
                             </div>
                         )}

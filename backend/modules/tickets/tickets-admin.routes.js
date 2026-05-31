@@ -212,6 +212,65 @@ router.post('/category-mapping/apply', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
+// ─── Transposition des groupes GLPI → groupes APP ──────────────────────────
+router.get('/group-mapping/used', authenticateAdmin, async (req, res) => {
+    try {
+        const used = await pgDb.all(`
+            SELECT gg.id AS group_id, COALESCE(gg.name, ('Groupe #' || gg.id)) as group_name, COUNT(ga.ticket_id)::int AS ticket_count
+            FROM glpi.glpi_groups gg
+            LEFT JOIN glpi.group_assignees ga ON ga.group_id = gg.id
+            GROUP BY gg.id, gg.name
+            ORDER BY ticket_count DESC
+        `);
+        const appGroups = await pgDb.all(
+            'SELECT id, name, description, is_default FROM hub_tickets.technician_groups WHERE is_active = true ORDER BY name'
+        );
+        const mappings = await pgDb.all('SELECT glpi_group_id, app_group_id FROM hub_tickets.glpi_group_mapping');
+        const mapByGroupId = {};
+        mappings.forEach(m => { mapByGroupId[m.glpi_group_id] = m; });
+
+        const rows = used.map(u => ({
+            glpi_group_id: u.group_id,
+            group_name: u.group_name,
+            ticket_count: u.ticket_count,
+            app_group_id: mapByGroupId[u.group_id]?.app_group_id ?? null,
+        }));
+        res.json({ rows, appGroups });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.put('/group-mapping', authenticateAdmin, async (req, res) => {
+    try {
+        const { glpi_group_id, app_group_id } = req.body;
+        if (!glpi_group_id) return res.status(400).json({ message: 'glpi_group_id requis' });
+        await pgDb.run(`
+            INSERT INTO hub_tickets.glpi_group_mapping (glpi_group_id, app_group_id, updated_at)
+            VALUES ($1, $2, CURRENT_TIMESTAMP)
+            ON CONFLICT (glpi_group_id) DO UPDATE SET app_group_id = EXCLUDED.app_group_id, updated_at = CURRENT_TIMESTAMP
+        `, [glpi_group_id, app_group_id || null]);
+        res.json({ message: 'Correspondance enregistrée' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.post('/group-mapping/apply', authenticateAdmin, async (req, res) => {
+    try {
+        const result = await pgDb.run(`
+            INSERT INTO hub_tickets.ticket_assignments (ticket_id, group_id, is_primary)
+            SELECT ga.ticket_id, gm.app_group_id, false
+            FROM glpi.group_assignees ga
+            JOIN hub_tickets.glpi_group_mapping gm ON ga.group_id = gm.glpi_group_id
+            JOIN hub_tickets.tickets t ON t.glpi_id = ga.ticket_id
+            WHERE gm.app_group_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM hub_tickets.ticket_assignments ta
+                  WHERE ta.ticket_id = ga.ticket_id AND ta.group_id = gm.app_group_id
+              )
+            ON CONFLICT DO NOTHING
+        `);
+        res.json({ message: 'Mappage appliqué aux tickets', updated: result.changes ?? result.rowCount ?? 0 });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // ─── Tags ────────────────────────────────────────────────────────
 router.get('/tags', authenticateJWT, async (req, res) => {
     try {
@@ -1056,6 +1115,24 @@ async function runGlpiReset({ backup, triggeredBy }) {
                 ORDER BY a.ticket_id, a.user_id
             `);
             glpiResetProgress.percent = 90;
+
+            // Assignations de groupe : copie glpi.group_assignees → ticket_assignments,
+            // en utilisant le mapping glpi_group_mapping pour transformer l'id GLPI → groupe APP.
+            glpiResetProgress.message = 'Import des assignations de groupe depuis GLPI…';
+            await client.query(`
+                INSERT INTO hub_tickets.ticket_assignments (ticket_id, group_id, is_primary)
+                SELECT DISTINCT ON (ga.ticket_id) ga.ticket_id, gm.app_group_id, false
+                FROM glpi.group_assignees ga
+                JOIN hub_tickets.glpi_group_mapping gm ON ga.group_id = gm.glpi_group_id
+                JOIN hub_tickets.tickets t ON t.glpi_id = ga.ticket_id
+                WHERE gm.app_group_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM hub_tickets.ticket_assignments ta
+                      WHERE ta.ticket_id = ga.ticket_id
+                  )
+                ORDER BY ga.ticket_id, ga.group_id
+            `);
+            glpiResetProgress.percent = 92;
 
             // ─── Phase 3 : séquence d'ID des tickets hub ─────────────
             glpiResetProgress.phase = 'sequences';
