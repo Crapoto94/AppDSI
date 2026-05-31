@@ -655,15 +655,20 @@ export default function TicketList({
                       {isChild ? (
                         <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>
                       ) : (
-                        data.assignee_group_name ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#6366f1', fontWeight: 500 }}>
-                            <span style={{ fontSize: 12 }}>👥</span>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{data.assignee_group_name}</span>
-                          </span>
-                        ) : data.technician_name ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#0284c7', fontWeight: 500 }}>
-                            <span style={{ fontSize: 12 }}>🔧</span>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{data.technician_name}</span>
+                        (data.assignee_group_name || data.technician_name) ? (
+                          <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
+                            {data.assignee_group_name && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#6366f1', fontWeight: 500 }}>
+                                <span style={{ fontSize: 12 }}>👥</span>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{data.assignee_group_name}</span>
+                              </span>
+                            )}
+                            {data.technician_name && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#0284c7', fontWeight: 500 }}>
+                                <span style={{ fontSize: 12 }}>🔧</span>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{data.technician_name}</span>
+                              </span>
+                            )}
                           </span>
                         ) : (
                           <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>

@@ -83,7 +83,7 @@ export default function TicketsDashboard() {
   const [kpiDays, setKpiDays] = useState(30);
   const [kpiActionLoading, setKpiActionLoading] = useState<string | null>(null);
   const [categories, setCategories] = useState<any[]>([]);
-  const [activeCategory, setActiveCategory] = useState<number | null>(null);
+  const [activeCategory, setActiveCategory] = useState<number | 'none' | null>(null);
   const [activeSubcategory, setActiveSubcategory] = useState<number | null>(null);
   const [softwares, setSoftwares] = useState<{ id: number; name: string }[]>([]);
   const [activeSoftware, setActiveSoftware] = useState<number | null>(null);
@@ -136,7 +136,7 @@ export default function TicketsDashboard() {
     userFilter?: string | null,
     pageNum?: number,
     searchValue: string = search,
-    categoryId?: number | null,
+    categoryId?: number | 'none' | null,
     subcategoryId?: number | null,
     softwareId?: number | null,
     requesterEmail?: string | null,
@@ -283,7 +283,7 @@ export default function TicketsDashboard() {
     loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }, [showResolved]);
 
-  function handleCategoryFilter(categoryId: number | null, subcategoryId: number | null) {
+  function handleCategoryFilter(categoryId: number | 'none' | null, subcategoryId: number | null) {
     setActiveCategory(categoryId);
     setActiveSubcategory(subcategoryId);
     setPage(1);
@@ -301,7 +301,8 @@ export default function TicketsDashboard() {
     setRequesterSearching(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get(`/api/tickets/users/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
+      // Recherche AD générique (évite le 403 de /tickets/users/search)
+      const res = await axios.get(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
       setRequesterResults(res.data || []);
     } catch { setRequesterResults([]); }
     finally { setRequesterSearching(false); }
@@ -526,6 +527,12 @@ export default function TicketsDashboard() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Nouveau ticket
           </a>
+          {['superadmin','admin','supervisor','superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+            <a href="/tickets/stats" title="Statistiques du helpdesk"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '10px 18px', border: '1px solid #c7d2fe', borderRadius: 8, background: '#eef2ff', color: '#4338ca', fontWeight: 700, fontSize: 14, textDecoration: 'none', cursor: 'pointer' }}>
+              📊 Statistiques
+            </a>
+          )}
           {['superadmin', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
             <button onClick={() => setShowResetModal(true)} disabled={resetRunning}
               style={{
@@ -651,11 +658,11 @@ export default function TicketsDashboard() {
             {requesterSearching && <div style={{ position: 'absolute', right: 8, top: 8, fontSize: 12, color: '#94a3b8' }}>⏳</div>}
             {requesterResults.length > 0 && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: 200, overflowY: 'auto' }}>
-                {requesterResults.map(u => (
-                  <div key={u.username} onClick={() => { setRequesterSearch(u.displayname || u.name); setRequesterResults([]); setActiveRequesterEmail(u.email); setPage(1); loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, u.email); }}
+                {requesterResults.map((u, i) => (
+                  <div key={u.username || u.email || i} onClick={() => { setRequesterSearch(u.displayName || u.username); setRequesterResults([]); setActiveRequesterEmail(u.email); setPage(1); loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, u.email); }}
                     style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9' }}>
-                    <div style={{ fontWeight: 500 }}>{u.displayname || u.name}</div>
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{u.email}</div>
+                    <div style={{ fontWeight: 500 }}>{u.displayName || u.username}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</div>
                   </div>
                 ))}
               </div>
@@ -666,17 +673,24 @@ export default function TicketsDashboard() {
           </div>
 
           {categories.length > 0 && (
-            <select value={activeCategory || ''} onChange={e => handleCategoryFilter(e.target.value ? parseInt(e.target.value) : null, null)}
-              style={{ padding: '7px 12px', border: `1px solid ${activeCategory ? '#6366f1' : '#e2e8f0'}`, borderRadius: 6, background: activeCategory ? '#eef2ff' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: activeCategory ? '#4f46e5' : '#64748b', outline: 'none' }}>
+            <select
+              value={activeCategory === 'none' ? 'none' : activeSubcategory ? `s${activeCategory}.${activeSubcategory}` : activeCategory ? `c${activeCategory}` : ''}
+              onChange={e => {
+                const v = e.target.value;
+                if (!v) handleCategoryFilter(null, null);
+                else if (v === 'none') handleCategoryFilter('none', null);
+                else if (v[0] === 'c') handleCategoryFilter(parseInt(v.slice(1)), null);
+                else { const [p, c] = v.slice(1).split('.'); handleCategoryFilter(parseInt(p), parseInt(c)); }
+              }}
+              style={{ padding: '7px 12px', border: `1px solid ${activeCategory ? '#6366f1' : '#e2e8f0'}`, borderRadius: 6, background: activeCategory ? '#eef2ff' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: activeCategory ? '#4f46e5' : '#64748b', outline: 'none', maxWidth: 240 }}>
               <option value="">📁 Catégorie</option>
-              {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-            </select>
-          )}
-          {activeCategory && (
-            <select value={activeSubcategory || ''} onChange={e => handleCategoryFilter(activeCategory, e.target.value ? parseInt(e.target.value) : null)}
-              style={{ padding: '7px 12px', border: `1px solid ${activeSubcategory ? '#7c3aed' : '#e2e8f0'}`, borderRadius: 6, background: activeSubcategory ? '#faf5ff' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: activeSubcategory ? '#7c3aed' : '#64748b', outline: 'none' }}>
-              <option value="">Sous-catégorie</option>
-              {categories.find(c => c.id === activeCategory)?.children?.map((subcat: any) => <option key={subcat.id} value={subcat.id}>{subcat.name}</option>)}
+              <option value="none">— Sans catégorie —</option>
+              {categories.flatMap((cat: any) => [
+                <option key={`c${cat.id}`} value={`c${cat.id}`}>{cat.name}</option>,
+                ...((cat.children || []).map((sub: any) => (
+                  <option key={`s${cat.id}.${sub.id}`} value={`s${cat.id}.${sub.id}`}>{'   └ '}{sub.name}</option>
+                ))),
+              ])}
             </select>
           )}
           {(activeCategory || activeSubcategory) && (
@@ -726,12 +740,6 @@ export default function TicketsDashboard() {
               </button>
             )}
           </div>
-          {['superadmin','admin','supervisor','superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
-            <a href="/tickets/stats" title="Statistiques du helpdesk"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', border: '1px solid #c7d2fe', borderRadius: 8, background: '#eef2ff', color: '#4338ca', fontWeight: 700, fontSize: 13, textDecoration: 'none', cursor: 'pointer' }}>
-              📊 Statistiques
-            </a>
-          )}
           {canViewKpi && ['superadmin','admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase()) && (
             <>
               <button disabled={!!kpiActionLoading} onClick={async () => {
@@ -1053,7 +1061,7 @@ export default function TicketsDashboard() {
           sortDir={sortDir}
           onSort={handleSort}
           categories={categories}
-          activeCategory={activeCategory}
+          activeCategory={typeof activeCategory === 'number' ? activeCategory : null}
           activeSubcategory={activeSubcategory}
           onCategoryFilter={handleCategoryFilter}
           activeFilter={activeFilter}

@@ -1171,32 +1171,37 @@ export default function TicketDetail() {
             {/* ASSIGNÉ */}
             <div style={SF}>
               <span style={SL}>Assigné</span>
-              {assignees.length > 0 && assignees[0].group_name ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6, background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff' }}>👥</div>
-                  <div>
-                    <span style={{ ...SV, fontWeight: 600 }}>{assignees[0].group_name}</span>
-                    <span style={{ fontSize: 10, color: '#71717a', marginLeft: 6 }}>{assignees.length} membre{assignees.length > 1 ? 's' : ''}</span>
+              {(() => {
+                // Affectation : peut être un groupe ET/OU un technicien (les deux à la fois pour 43997)
+                const hasAssigneeGroup = assignees.length > 0 && assignees[0].group_name;
+                const groupName = hasAssigneeGroup ? assignees[0].group_name : ticket.assignee_group_name;
+                const groupMembers = hasAssigneeGroup ? assignees.length : null;
+                const techName = (!hasAssigneeGroup && assignees.length > 0 && assignees[0].technician_name)
+                  ? assignees[0].technician_name
+                  : ticket.technician_name;
+                if (!groupName && !techName) {
+                  return <span style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Non assigné</span>;
+                }
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {groupName && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6, background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff' }}>👥</div>
+                        <div>
+                          <span style={{ ...SV, fontWeight: 600 }}>{groupName}</span>
+                          {groupMembers ? <span style={{ fontSize: 10, color: '#71717a', marginLeft: 6 }}>{groupMembers} membre{groupMembers > 1 ? 's' : ''}</span> : null}
+                        </div>
+                      </div>
+                    )}
+                    {techName && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(techName), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(techName)}</div>
+                        <span style={SV}>{techName}</span>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ) : assignees.length > 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(assignees[0].technician_name || '?'), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(assignees[0].technician_name || '?')}</div>
-                  <span style={SV}>{assignees[0].technician_name || '?'}</span>
-                </div>
-              ) : ticket.technician_name ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(ticket.technician_name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(ticket.technician_name)}</div>
-                  <span style={SV}>{ticket.technician_name}</span>
-                </div>
-              ) : ticket.assignee_group_name ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6, background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff' }}>👥</div>
-                  <span style={{ ...SV, fontWeight: 600 }}>{ticket.assignee_group_name}</span>
-                </div>
-              ) : (
-                <span style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Non assigné</span>
-              )}
+                );
+              })()}
             </div>
 
             {/* CATÉGORIE */}

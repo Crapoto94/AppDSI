@@ -61,6 +61,17 @@ export default function TicketsStats() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Filtre groupe ───────────────────────────────────────────
+  const [groups, setGroups] = useState<any[]>([]);
+  const [fGroup, setFGroup] = useState<string>('');
+
+  useEffect(() => {
+    if (!tok) return;
+    axios.get('/api/tickets/admin/groups', { headers })
+      .then(r => setGroups(r.data || []))
+      .catch(() => {});
+  }, [tok]);
+
   // ── Filtres période (année / mois / glissante) ──────────────
   const _now = new Date();
   const [filterMode, setFilterMode] = useState<'all' | 'year' | 'month' | 'rolling'>('all');
@@ -91,7 +102,8 @@ export default function TicketsStats() {
     setError(null);
     try {
       const { from, to } = computeRange();
-      const params = (from && to) ? { from, to } : {};
+      const params: any = (from && to) ? { from, to } : {};
+      if (fGroup) params.group_id = fGroup;
       const { data } = await axios.get('/api/tickets/stats', { headers, params });
       setStats(data);
     } catch (e: any) {
@@ -99,7 +111,7 @@ export default function TicketsStats() {
     } finally {
       setLoading(false);
     }
-  }, [tok, computeRange]);
+  }, [tok, computeRange, fGroup]);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
@@ -126,7 +138,7 @@ export default function TicketsStats() {
   );
 
   const { overview, statusDistribution, typeDistribution, priorityDistribution,
-    monthlyTrend, weeklyCreated, categoryDistribution, topRequesters,
+    monthlyTrend, weeklyCreated, categoryDistribution, groupDistribution, topRequesters,
     technicianAssignments, resolutionTimeTrend, backlogAging,
     slaOverview, hourlyDistribution, reopened30d,
     avgResolutionHours, avgClosureHours, weeklyComparison,
@@ -185,6 +197,12 @@ export default function TicketsStats() {
                 <option value="90d">90 derniers jours</option>
               </select>
             )}
+            <select value={fGroup} onChange={e => setFGroup(e.target.value)}
+              title="Filtrer par groupe assigné"
+              style={{ padding: '7px 10px', border: `1px solid ${fGroup ? COLORS.indigo : '#e2e8f0'}`, borderRadius: 8, fontSize: 13, background: fGroup ? COLORS.indigoBg : '#fff', color: fGroup ? COLORS.indigo : COLORS.slate, fontWeight: fGroup ? 600 : 400 }}>
+              <option value="">👥 Tous les groupes</option>
+              {groups.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
             <button onClick={fetchStats} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, color: COLORS.slate }}>{loading ? '⏳' : '🔄'} Actualiser</button>
           </div>
         </div>
@@ -363,6 +381,33 @@ export default function TicketsStats() {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* Répartition par groupe assigné */}
+        <div className="stats-card" style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>Répartition par groupe assigné</div>
+            <div style={{ fontSize: 12, color: COLORS.slate }}>{(groupDistribution || []).length} groupe(s)</div>
+          </div>
+          {(groupDistribution || []).length === 0 ? (
+            <div style={{ fontSize: 13, color: COLORS.slate, fontStyle: 'italic', padding: '20px 0', textAlign: 'center' }}>Aucune affectation de groupe</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(220, (groupDistribution || []).length * 34)}>
+              <BarChart data={groupDistribution || []} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.slate }} />
+                <YAxis type="category" dataKey="name" width={220} tick={{ fontSize: 11, fill: COLORS.slate }} />
+                <Tooltip />
+                <Bar dataKey="count" name="Tickets" radius={[0, 6, 6, 0]} cursor="pointer"
+                  onClick={(d: any) => { if (d?.group_id) setFGroup(String(d.group_id)); }}>
+                  {(groupDistribution || []).map((e: any, i: number) => (
+                    <Cell key={e.group_id} fill={String(e.group_id) === fGroup ? COLORS.amber : PIE_COLORS[i % PIE_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+          <div style={{ fontSize: 11, color: COLORS.slate, marginTop: 6 }}>Cliquez sur une barre pour filtrer toutes les stats sur ce groupe.</div>
         </div>
 
         {/* Row 5: backlog aging + hourly + resolution time */}

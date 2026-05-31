@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Header from '../../components/Header';
 import { Barcode, ArrowLeft, Check, ScanLine } from 'lucide-react';
 import BarcodeScanner from './BarcodeScanner';
 import { stocksApi, type Store, type SerialItem } from './api';
@@ -54,7 +53,6 @@ export default function SerialEntry() {
         .se-btn { padding:11px 14px; border:none; border-radius:10px; background:${C.indigo}; color:#fff; font-weight:600; cursor:pointer; font-size:14px; display:inline-flex; align-items:center; gap:6px; }
         .se-btn-ghost { background:#fff; color:${C.slate}; border:1px solid ${C.border}; }
       `}</style>
-      <Header />
       <div className="se-wrap">
         <button onClick={() => navigate('/stocks')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, fontSize: 13, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 10 }}>
           <ArrowLeft size={16} /> Stocks

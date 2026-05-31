@@ -655,7 +655,7 @@ async assign(req, res) {
     // ─── Dashboard ─────────────────────────────────────────────
     async getTicketsStats(req, res) {
         try {
-            const stats = await ticketService.getTicketsStats({ from: req.query.from, to: req.query.to });
+            const stats = await ticketService.getTicketsStats({ from: req.query.from, to: req.query.to, group_id: req.query.group_id });
             res.json(stats);
         } catch (error) {
             res.status(500).json({ message: error.message });

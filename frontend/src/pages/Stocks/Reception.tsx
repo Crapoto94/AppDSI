@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Header from '../../components/Header';
 import { Package, ScanLine, Plus, Trash2, CheckCircle, ArrowLeft, Search, Loader } from 'lucide-react';
 import BarcodeScanner from './BarcodeScanner';
 import { stocksApi, type Store, type StorageLocation, type Order, type Reception as Rec, type ReceptionLine } from './api';
@@ -78,7 +77,6 @@ export default function Reception() {
         .rc-orderitem { padding:10px 12px; border-bottom:1px solid #f1f5f9; cursor:pointer; font-size:13px; }
         .rc-orderitem:active { background:#eef2ff; }
       `}</style>
-      <Header />
 
       <div className="rc-wrap">
         <button onClick={() => navigate('/stocks')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, fontSize: 13, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 10 }}>

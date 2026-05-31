@@ -285,15 +285,20 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
 
           {/* Technician/Group */}
           <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
-            <div>
-              {t.assignee_group_name ? (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, background: '#eff6ff', color: '#6366f1', padding: '2px 8px', borderRadius: 4 }}>
-                  👥 {t.assignee_group_name}
-                </span>
-              ) : t.technician_name ? (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, background: '#e0f2fe', color: '#0284c7', padding: '2px 8px', borderRadius: 4 }}>
-                  🔧 {t.technician_name}
-                </span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {(t.assignee_group_name || t.technician_name) ? (
+                <>
+                  {t.assignee_group_name && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, background: '#eff6ff', color: '#6366f1', padding: '2px 8px', borderRadius: 4 }}>
+                      👥 {t.assignee_group_name}
+                    </span>
+                  )}
+                  {t.technician_name && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, background: '#e0f2fe', color: '#0284c7', padding: '2px 8px', borderRadius: 4 }}>
+                      🔧 {t.technician_name}
+                    </span>
+                  )}
+                </>
               ) : (
                 <span style={{ fontSize: 11, color: '#94a3b8' }}>Non assigné</span>
               )}

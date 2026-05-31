@@ -135,7 +135,10 @@ module.exports = {
         if (filters.vip) {
             conditions.push('t.is_vip = true');
         }
-        if (filters.category_id) {
+        if (filters.category_id === 'none' || filters.no_category === '1' || filters.no_category === 'true') {
+            // "Sans catégorie" : aucun rattachement de catégorie
+            conditions.push(`t.category_id IS NULL`);
+        } else if (filters.category_id) {
             conditions.push(`t.category_id = $${idx++}`);
             params.push(parseInt(filters.category_id));
         }
@@ -601,14 +604,23 @@ module.exports = {
         const from = isoDate(filters.from);
         const to = isoDate(filters.to);
         const range = !!(from && to);
-        // Conditions composables (dates validées en YYYY-MM-DD → pas d'injection)
-        const dcAnd = range ? ` AND t.date_creation >= '${from} 00:00:00' AND t.date_creation <= '${to} 23:59:59'` : '';
-        const dcWhere = range ? ` WHERE t.date_creation >= '${from} 00:00:00' AND t.date_creation <= '${to} 23:59:59'` : '';
+        // Filtre groupe optionnel (id numérique validé → pas d'injection)
+        const groupId = /^\d+$/.test(String(filters.group_id ?? '')) ? parseInt(filters.group_id, 10) : null;
+        // Conditions composables (dates validées en YYYY-MM-DD, group_id entier → pas d'injection)
+        const dateAnd = range ? ` AND t.date_creation >= '${from} 00:00:00' AND t.date_creation <= '${to} 23:59:59'` : '';
+        const grpAnd = groupId ? ` AND t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE group_id = ${groupId})` : '';
+        const grpBare = groupId ? ` AND glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE group_id = ${groupId})` : '';
+        const filtAnd = dateAnd + grpAnd; // date + groupe (SANS exclusion des rejetés)
+        // Tous les KPI excluent les tickets rejetés (statut 8), sauf la répartition/tendance par statut.
+        const dcAnd = ` AND t.status::int <> 8` + filtAnd;
+        const dcWhere = ` WHERE t.status::int <> 8` + filtAnd;
+        // Variante date+groupe sans exclusion des rejetés (répartition par statut → compte les rejetés)
+        const dcWhereDateOnly = filtAnd ? ` WHERE 1=1${filtAnd}` : '';
 
         const statusDist = await pgDb.all(`
             SELECT COALESCE(s.label, 'Inconnu') as name, COUNT(*)::int as value
             FROM hub_tickets.tickets t
-            LEFT JOIN hub_tickets.ticket_status s ON t.status::integer = s.id${dcWhere}
+            LEFT JOIN hub_tickets.ticket_status s ON t.status::integer = s.id${dcWhereDateOnly}
             GROUP BY s.label, t.status ORDER BY value DESC
         `);
 
@@ -655,7 +667,7 @@ module.exports = {
                     COUNT(*) FILTER (WHERE status::int = 6)::int      AS clos,
                     COUNT(*) FILTER (WHERE status::int = 8)::int      AS rejete
                 FROM hub_tickets.tickets
-                WHERE date_creation >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months'
+                WHERE date_creation >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months'${grpBare}
                 GROUP BY 1
             ),
             solved AS (
@@ -663,7 +675,7 @@ module.exports = {
                     COUNT(*)::int AS resolved
                 FROM hub_tickets.tickets
                 WHERE date_solved IS NOT NULL AND status::int IN (5,6)
-                  AND date_solved >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months'
+                  AND date_solved >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months'${grpBare}
                 GROUP BY 1
             )
             SELECT m.month, m.label,
@@ -686,7 +698,7 @@ module.exports = {
                 DATE_TRUNC('week', t.date_creation)::date as week_start,
                 COUNT(*)::int as count
             FROM hub_tickets.tickets t
-            WHERE t.date_creation >= CURRENT_DATE - INTERVAL '90 days'
+            WHERE t.date_creation >= CURRENT_DATE - INTERVAL '90 days' AND t.status::int <> 8
             GROUP BY DATE_TRUNC('week', t.date_creation)
             ORDER BY week_start ASC
         `);
@@ -698,6 +710,17 @@ module.exports = {
             FROM hub_tickets.tickets t
             LEFT JOIN hub_tickets.ticket_categories c ON t.category_id = c.id${dcWhere}
             GROUP BY c.full_path, c.name ORDER BY count DESC LIMIT 15
+        `);
+
+        // Répartition par groupe assigné (toute ligne d'assignation avec un groupe)
+        const groupDist = await pgDb.all(`
+            SELECT g.id as group_id, g.name, COUNT(DISTINCT t.glpi_id)::int as count
+            FROM hub_tickets.ticket_assignments ta
+            JOIN hub_tickets.technician_groups g ON ta.group_id = g.id
+            JOIN hub_tickets.tickets t ON ta.ticket_id = t.glpi_id
+            WHERE 1=1${dcAnd}
+            GROUP BY g.id, g.name
+            ORDER BY count DESC
         `);
 
         const topRequesters = await pgDb.all(`
@@ -770,7 +793,7 @@ module.exports = {
                 EXTRACT(HOUR FROM t.date_creation)::int as hour,
                 COUNT(*)::int as count
             FROM hub_tickets.tickets t
-            WHERE t.date_creation >= ${range ? `'${from} 00:00:00'` : `CURRENT_DATE - INTERVAL '12 months'`}${range ? ` AND t.date_creation <= '${to} 23:59:59'` : ''}
+            WHERE t.date_creation >= ${range ? `'${from} 00:00:00'` : `CURRENT_DATE - INTERVAL '12 months'`}${range ? ` AND t.date_creation <= '${to} 23:59:59'` : ''} AND t.status::int <> 8
             GROUP BY EXTRACT(HOUR FROM t.date_creation)
             ORDER BY hour ASC
         `);
@@ -834,7 +857,7 @@ module.exports = {
                     COUNT(*) FILTER (WHERE DATE_TRUNC('week', date_creation) = DATE_TRUNC('week', CURRENT_DATE))::int as this_week,
                     COUNT(*) FILTER (WHERE DATE_TRUNC('week', date_creation) = DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days'))::int as last_week
                 FROM hub_tickets.tickets t
-                WHERE t.date_creation >= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days')
+                WHERE t.date_creation >= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days') AND t.status::int <> 8
             )
             SELECT this_week, last_week,
                 CASE WHEN last_week > 0 THEN ROUND((this_week::numeric - last_week) / last_week * 100, 1)::float ELSE NULL END as change_pct
@@ -918,7 +941,7 @@ module.exports = {
                 COUNT(*) FILTER (WHERE t.type::text = '1')::int as incidents,
                 COUNT(*) FILTER (WHERE t.type::text = '2')::int as requests
             FROM hub_tickets.tickets t
-            WHERE t.date_creation >= CURRENT_DATE - INTERVAL '90 days'
+            WHERE t.date_creation >= CURRENT_DATE - INTERVAL '90 days' AND t.status::int <> 8
             GROUP BY DATE_TRUNC('week', t.date_creation)
             ORDER BY week_start ASC
         `);
@@ -956,6 +979,7 @@ module.exports = {
             monthlyTrend,
             weeklyCreated,
             categoryDistribution: categoryDist,
+            groupDistribution: groupDist,
             topRequesters,
             topRequestersExtended,
             technicianAssignments: techAssignments,

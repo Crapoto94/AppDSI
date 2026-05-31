@@ -184,6 +184,9 @@ export default function TicketInbox({ baseParams, onTicketClick, selectedId }: I
                   {t.assignee_group_name && (
                     <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 500 }}>👥 {t.assignee_group_name}</span>
                   )}
+                  {t.technician_name && (
+                    <span style={{ fontSize: 11, color: '#0284c7', fontWeight: 500 }}>🔧 {t.technician_name}</span>
+                  )}
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
                   {t.title}
