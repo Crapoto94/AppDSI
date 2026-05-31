@@ -22,6 +22,8 @@ SELECT t.*,
            ma.name as software_name,
            tc.name as category_name,
            tsc.name as subcategory_name,
+             (SELECT vu.is_elu FROM hub_tickets.vip_users vu
+              WHERE LOWER(vu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22)) LIMIT 1) as requester_is_elu,
              (SELECT COUNT(*) FROM hub_tickets.observers o WHERE o.ticket_id = t.glpi_id AND o.is_active = 1) as observer_count,
             (SELECT COUNT(*) FROM hub_tickets.ticket_history h WHERE h.ticket_id = t.glpi_id) as history_count,
             (SELECT COUNT(*) FROM hub_tickets.ticket_followups tf WHERE tf.ticket_id = t.glpi_id) as followups_count,
@@ -31,7 +33,14 @@ SELECT t.*,
               ORDER BY h2.created_at DESC LIMIT 1) as waiting_reason,
              tsla.sla_status
      FROM hub_tickets.tickets t
-LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.is_primary = true OR ta.is_primary IS NULL)
+-- Technicien principal : une seule ligne par ticket (évite les doublons quand
+     -- plusieurs techniciens/membres de groupe sont affectés au même ticket).
+     LEFT JOIN LATERAL (
+         SELECT technician_id FROM hub_tickets.ticket_assignments
+         WHERE ticket_id = t.glpi_id AND technician_id IS NOT NULL
+         ORDER BY (is_primary = true) DESC, technician_id ASC
+         LIMIT 1
+     ) ta ON true
      LEFT JOIN hub_tickets.technician_profiles tp ON ta.technician_id = tp.user_id
      LEFT JOIN hub.users tu ON ta.technician_id = tu.id
      -- Groupe assigné : récupéré depuis n'importe quelle ligne d'assignation du ticket
@@ -120,11 +129,11 @@ module.exports = {
             idx++;
         }
         if (filters.my) {
-            conditions.push(`ta.technician_id = $${idx++}`);
+            conditions.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE technician_id = $${idx++})`);
             params.push(parseInt(filters.my));
         }
         if (filters.my_username) {
-            conditions.push(`ta.technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($${idx++}))`);
+            conditions.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($${idx++})))`);
             params.push(filters.my_username);
         }
         if (filters.requester_email) {
@@ -136,7 +145,7 @@ module.exports = {
             params.push(parseInt(filters.exclude_id));
         }
         if (filters.unassigned) {
-            conditions.push('ta.technician_id IS NULL');
+            conditions.push(`t.glpi_id NOT IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE technician_id IS NOT NULL)`);
         }
         if (filters.vip) {
             conditions.push('t.is_vip = true');
@@ -183,10 +192,11 @@ module.exports = {
             ? pagination.sort : 'date_creation';
         const sortDir = pagination.order === 'asc' ? 'ASC' : 'DESC';
 
+        // Les filtres tech/groupe/non-assigné utilisent des sous-requêtes sur t.glpi_id :
+        // plus besoin de joindre ticket_assignments ici (qui dupliquait les lignes).
         const countSql = `
             SELECT COUNT(DISTINCT t.glpi_id) as total
             FROM hub_tickets.tickets t
-            LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.is_primary = true OR ta.is_primary IS NULL)
             LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
             ${where}
         `;
@@ -292,7 +302,25 @@ module.exports = {
         );
     },
 
-    async getDashboardStats() {
+    async getDashboardStats(filters = {}) {
+        // Construit un WHERE optionnel à partir des mêmes filtres que la liste.
+        const esc = (v) => String(v).replace(/'/g, "''");
+        const conds = [];
+        if (filters.category_id === 'none') {
+            conds.push(`t.category_id IS NULL`);
+        } else if (filters.category_id) {
+            conds.push(`t.category_id = ${parseInt(filters.category_id, 10)}`);
+        }
+        if (filters.subcategory_id) conds.push(`t.subcategory_id = ${parseInt(filters.subcategory_id, 10)}`);
+        if (filters.software_id) conds.push(`t.software_id = ${parseInt(filters.software_id, 10)}`);
+        if (filters.group_id) conds.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE group_id = ${parseInt(filters.group_id, 10)})`);
+        if (filters.technician_id) conds.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE technician_id = ${parseInt(filters.technician_id, 10)})`);
+        if (filters.requester_email) conds.push(`LOWER(COALESCE(NULLIF(t.email_alt,''), t.requester_email_22)) = LOWER('${esc(filters.requester_email)}')`);
+        if (filters.search) {
+            const s = esc(filters.search);
+            conds.push(`(t.name ILIKE '%${s}%' OR CAST(t.glpi_id AS TEXT) ILIKE '%${s}%')`);
+        }
+        const whereClause = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
         const stats = await pgDb.get(`
             SELECT
                 COUNT(*) as total,
@@ -320,6 +348,7 @@ module.exports = {
                 COUNT(*) FILTER (WHERE tsla.sla_status = 'warning') as sla_warning
             FROM hub_tickets.tickets t
             LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
+            ${whereClause}
         `);
         return stats;
     },
@@ -1099,8 +1128,25 @@ module.exports = {
             trend = { granularity: 'month', compare: false, data };
         }
 
+        // Moyenne de tickets résolus par jour :
+        //  - période : résolus dans la plage / nb de jours de la plage
+        //  - global (pas de plage) : total résolus / nb de jours depuis le 1er résolu
+        let resolvedAvgPerDay = 0;
+        if (range) {
+            const r = await pgDb.get(`SELECT COUNT(*)::int AS c FROM hub_tickets.tickets t
+                WHERE t.status::int IN (5,6) AND t.date_solved >= '${from} 00:00:00' AND t.date_solved <= '${to} 23:59:59'${grpAnd}`);
+            const days = Math.max(1, Math.round((new Date(to) - new Date(from)) / 86400000) + 1);
+            resolvedAvgPerDay = Math.round(((r?.c || 0) / days) * 10) / 10;
+        } else {
+            const r = await pgDb.get(`SELECT COUNT(*)::int AS c, MIN(t.date_solved)::date AS mind FROM hub_tickets.tickets t
+                WHERE t.status::int IN (5,6) AND t.date_solved IS NOT NULL${grpAnd}`);
+            const span = r?.mind ? Math.max(1, Math.round((Date.now() - new Date(r.mind)) / 86400000) + 1) : 1;
+            resolvedAvgPerDay = Math.round(((r?.c || 0) / span) * 10) / 10;
+        }
+
         return {
             overview,
+            resolvedAvgPerDay,
             trend,
             dailyTrend,
             statusDistribution: statusDist,

@@ -23,6 +23,15 @@ const { SECRET_KEY } = require('../../shared/config');
 const axios = require('axios');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
 
+// Émet un événement temps réel vers les clients abonnés à la salle "tickets:watch".
+function emitTicketEvent(event, payload) {
+    try {
+        const { getIO } = require('../live/live.socket');
+        const io = getIO && getIO();
+        if (io) io.to('tickets:watch').emit(event, payload || {});
+    } catch (_) { /* socket optionnel */ }
+}
+
 let _sendMail = null;
 
 async function getAppBaseUrl() {
@@ -115,6 +124,10 @@ module.exports = {
         try {
             const ticketId = await ticketService.create(req.body, req.user);
             res.status(201).json({ id: ticketId, message: 'Ticket créé' });
+            try {
+                const t = await ticketRepo.findById(ticketId);
+                emitTicketEvent('ticket_created', { id: ticketId, glpi_id: t?.glpi_id, title: t?.title || t?.name });
+            } catch (_) { /* emit best-effort */ }
         } catch (error) {
             res.status(400).json({ message: error.message });
         }
@@ -124,6 +137,7 @@ module.exports = {
         try {
             await ticketService.update(parseInt(req.params.id), req.body, req.user);
             res.json({ message: 'Ticket mis à jour' });
+            emitTicketEvent('ticket_updated', { id: parseInt(req.params.id) });
         } catch (error) {
             res.status(400).json({ message: error.message });
         }
@@ -664,7 +678,16 @@ async assign(req, res) {
 
     async getDashboardStats(req, res) {
         try {
-            const stats = await ticketService.getDashboardStats(req.user);
+            const filters = {
+                category_id: req.query.category_id,
+                subcategory_id: req.query.subcategory_id,
+                software_id: req.query.software_id,
+                group_id: req.query.group_id,
+                technician_id: req.query.technician_id,
+                requester_email: req.query.requester_email,
+                search: req.query.search,
+            };
+            const stats = await ticketService.getDashboardStats(req.user, filters);
             res.json(stats);
         } catch (error) {
             res.status(500).json({ message: error.message });

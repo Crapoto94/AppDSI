@@ -16,6 +16,22 @@ function decodeHtml(str: string) {
   return txt.value;
 }
 
+// Réécrit les liens d'images GLPI (document.send.php) vers notre proxy authentifié.
+// Gère les formes relatives (/glpi/front/...) et absolues (http(s)://.../glpi/front/...).
+function rewriteGlpiImages(html: string): string {
+  if (!html) return html;
+  const token = localStorage.getItem('token') || '';
+  return html.replace(
+    /(?:https?:\/\/[^"'\s)]*?)?\/glpi\/front\/document\.send\.php\?([^"'\s)]*)/gi,
+    (_m, qs) => {
+      const params = new URLSearchParams(String(qs).replace(/&amp;/g, '&'));
+      const docid = params.get('docid');
+      if (!docid) return _m;
+      return `/api/glpi/document/${docid}?token=${encodeURIComponent(token)}`;
+    }
+  );
+}
+
 const STATUS_COLORS: Record<number, string> = {
   1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b',
   4: '#f97316', 5: '#22c55e', 6: '#64748b'
@@ -842,7 +858,7 @@ export default function TicketDetail() {
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Description</span>
               {ticket.content
-                ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: decodeHtml(ticket.content) }} />
+                ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content)) }} />
                 : <p style={{ fontSize: 13, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
               }
             </div>
@@ -872,7 +888,7 @@ export default function TicketDetail() {
               <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Solution</span>
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: decodeHtml(ticket.solution) }} />
+                  <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.solution)) }} />
                 </div>
               </div>
             )}
@@ -975,7 +991,7 @@ export default function TicketDetail() {
                           background: bgColor,
                           border: `1px solid ${borderColor}`,
                           borderRadius: 8, padding: '8px 12px'
-                        }} dangerouslySetInnerHTML={{ __html: decodeHtml(c.content) }} />
+                        }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(c.content)) }} />
                       </div>
                     </div>
                   );

@@ -40,6 +40,9 @@ router.post('/sync-groups', authenticateInternalOrAdmin, glpiController.fetchGlp
 router.get('/sync-groups-status', authenticateGLPIControl, glpiController.getGroupsStatus);
 router.post('/sync-groups-cancel', authenticateGLPIControl, glpiController.cancelGroupsSync);
 
+// Document proxy (images dans les descriptions de tickets)
+router.get('/document/:docid', authenticateJWT, glpiController.getDocument);
+
 // Profiles & Logs
 router.get('/my-profile', authenticateGLPIControl, glpiController.getMyProfile);
 router.get('/sync-logs', authenticateGLPIControl, glpiController.getSyncLogs);

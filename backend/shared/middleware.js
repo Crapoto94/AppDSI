@@ -16,6 +16,16 @@ const isAdminLike = (user) =>
  */
 const authenticateJWT = (req, res, next) => {
     const authHeader = req.headers.authorization;
+    // Repli sur ?token= pour les ressources chargées sans header (ex: <img src>)
+    const queryToken = req.query && req.query.token;
+    if (!authHeader && queryToken) {
+        return jwt.verify(queryToken, SECRET_KEY, (err, user) => {
+            if (err) return res.status(403).json({ message: 'Session expirée ou invalide' });
+            if (isAdminLike(user)) user.is_approved = 1;
+            req.user = user;
+            next();
+        });
+    }
     if (authHeader) {
         const token = authHeader.split(' ')[1];
         if (!token) {

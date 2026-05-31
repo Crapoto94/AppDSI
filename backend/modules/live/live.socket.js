@@ -38,6 +38,11 @@ function setupSocket(server) {
             socket.join('live:techs');
         });
 
+        // ── Watch ticket create/update events (temps réel liste/KPI) ──
+        socket.on('tickets_watch', () => {
+            socket.join('tickets:watch');
+        });
+
         // ── Join a specific session room ──────────────────────────────
         socket.on('join_session', async ({ sessionId }) => {
             if (!sessionId) return;

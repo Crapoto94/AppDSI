@@ -194,14 +194,18 @@ module.exports = {
         return ticketRepo.getTicketsStats(filters);
     },
 
-    async getDashboardStats(user) {
+    async getDashboardStats(user, filters = {}) {
         const stats = await ticketRepo.getDashboardStats();
         const myStats = await ticketRepo.getMyStats(user.username);
         const userCounts = await ticketRepo.getDashboardUserCounts(user);
         const timeStats = await ticketRepo.getTimeStats();
         const weekStats = await ticketRepo.getResolvedWeekTimeStats();
+        // Stats filtrées (selon les filtres actifs de la liste) — affichées à côté du global.
+        const hasFilters = filters && Object.values(filters).some(v => v !== undefined && v !== null && v !== '');
+        const filtered = hasFilters ? await ticketRepo.getDashboardStats(filters) : null;
         return {
             ...stats,
+            filtered: filtered || null,
             my_tickets: myStats?.total || 0,
             user_counts: userCounts || {},
             avg_waiting_seconds_active: timeStats?.avg_waiting_seconds_active || 0,

@@ -64,6 +64,7 @@ module.exports = {
             source: ticket.source,
             impact: { id: ticket.impact, label: IMPACT_NAMES[ticket.impact] || null },
             is_vip: !!ticket.is_vip,
+            is_elu: !!ticket.requester_is_elu,
             bundle: ticket.bundle_id ? {
                 id: ticket.bundle_id,
                 name: ticket.bundle_name,
@@ -108,6 +109,7 @@ module.exports = {
             source: ticket.source || null,
             impact: { id: ticket.impact, label: IMPACT_NAMES[ticket.impact] || null },
             is_vip: !!ticket.is_vip,
+            is_elu: !!ticket.requester_is_elu,
             bundle: ticket.bundle_id ? {
                 id: ticket.bundle_id,
                 name: ticket.bundle_name,

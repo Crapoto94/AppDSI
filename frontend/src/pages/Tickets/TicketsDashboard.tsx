@@ -211,9 +211,15 @@ export default function TicketsDashboard() {
       params.sort = sortKey;
       params.order = sortDir;
       const qs = new URLSearchParams(params).toString();
+      // Filtres passés aux stats (pour afficher KPI filtrés + globaux)
+      const statsParams: Record<string, string> = {};
+      ['category_id', 'subcategory_id', 'software_id', 'group_id', 'technician_id', 'requester_email', 'search'].forEach(k => {
+        if (params[k]) statsParams[k] = params[k];
+      });
+      const statsQs = new URLSearchParams(statsParams).toString();
       const [ticketsRes, statsRes] = await Promise.all([
         axios.get(`/api/tickets?${qs}`, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('/api/tickets/dashboard/stats', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`/api/tickets/dashboard/stats${statsQs ? '?' + statsQs : ''}`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       setTickets(ticketsRes.data.data || []);
       setTotal(ticketsRes.data.pagination?.total || 0);
@@ -557,6 +563,18 @@ export default function TicketsDashboard() {
   return (
     <>
       <Header />
+      {liveTickerMsg && (
+        <div style={{
+          position: 'fixed', top: 70, right: 20, zIndex: 9999,
+          background: '#1e293b', color: '#fff', padding: '10px 16px', borderRadius: 10,
+          fontSize: 13, fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+          display: 'flex', alignItems: 'center', gap: 8, maxWidth: 360,
+          animation: 'slideInRight 0.25s ease',
+        }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 0 3px rgba(34,197,94,0.3)' }} />
+          {liveTickerMsg}
+        </div>
+      )}
       <div className="tickets-dash">
       <div className="header">
         <div>
@@ -882,32 +900,35 @@ export default function TicketsDashboard() {
           saveKpiConfig(next);
         };
 
+        // Un filtre de liste est-il actif ? (pour afficher KPI filtrés + globaux)
+        const hasActiveListFilters = !!(activeCategory || activeSubcategory || activeSoftware || activeGroup || activeTechnician || activeRequesterEmail || (search && search.trim()));
+
         // Config unifiée : statuts + temps dans le même tableau
         const allCards = [
           { key: 'open',         label: 'Ouverts',          color: '#6366f1', filterKey: 'open' as string|null,
-            value: stats?.open || 0, histKey: 'open',
+            value: stats?.open || 0, histKey: 'open', fKey: 'open',
             sub: `${getTypeCounts('open').incident} inc · ${getTypeCounts('open').request} dem`,
             goodDown: true },
           { key: 'in_progress',  label: 'En cours',         color: '#f59e0b', filterKey: 'in_progress',
-            value: stats?.in_progress || 0, histKey: 'in_progress',
+            value: stats?.in_progress || 0, histKey: 'in_progress', fKey: 'in_progress',
             sub: `${getTypeCounts('in_progress').incident} inc · ${getTypeCounts('in_progress').request} dem`,
             goodDown: true },
           { key: 'waiting',      label: 'En attente',       color: '#f97316', filterKey: 'waiting',
-            value: stats?.waiting || 0, histKey: 'waiting',
+            value: stats?.waiting || 0, histKey: 'waiting', fKey: 'waiting',
             sub: `${getTypeCounts('waiting').incident} inc · ${getTypeCounts('waiting').request} dem`,
             goodDown: true },
           { key: 'critical',     label: 'Critiques',        color: '#ef4444', filterKey: 'critical',
-            value: stats?.critical_open || 0, histKey: 'critical_open',
+            value: stats?.critical_open || 0, histKey: 'critical_open', fKey: 'critical_open',
             sub: `${getTypeCounts('critical').incident} inc · ${getTypeCounts('critical').request} dem`,
             goodDown: true },
           { key: 'resolved',     label: 'Résolus',          color: '#22c55e', filterKey: 'resolved',
-            value: stats?.resolved || 0, histKey: 'resolved',
+            value: stats?.resolved || 0, histKey: 'resolved', fKey: 'resolved',
             sub: `${getTypeCounts('resolved').incident} inc · ${getTypeCounts('resolved').request} dem`,
             goodDown: false },
           { key: 'problems',     label: 'Problèmes',        color: '#7c3aed', filterKey: 'problems', onClick: () => handleFilterClick('problems'),
-            value: stats?.problems || 0, histKey: 'problems', sub: '', goodDown: true },
+            value: stats?.problems || 0, histKey: 'problems', fKey: 'problems', sub: '', goodDown: true },
           { key: 'sla_breached', label: 'SLA dépassés',     color: '#ef4444', filterKey: 'sla_breached',
-            value: stats?.sla_breached || 0, histKey: null,
+            value: stats?.sla_breached || 0, histKey: null, fKey: 'sla_breached',
             sub: `${stats?.sla_warning || 0} en alerte`, goodDown: true },
           { key: 'age',          label: 'Âge moy. ouverts', color: '#f97316', filterKey: null,
             value: (stats?.avg_age_open_seconds > 0) ? formatDuration(stats.avg_age_open_seconds) : '-',
@@ -1020,8 +1041,20 @@ export default function TicketsDashboard() {
                           </span>
                         )}
                       </div>
-                      {/* Valeur principale */}
-                      <span style={{ fontSize: 24, fontWeight: 800, color: '#18181b', lineHeight: 1.1 }}>{card.value}</span>
+                      {/* Valeur principale (filtrée en gros + global en repère si filtre actif) */}
+                      {(() => {
+                        const hasFiltered = hasActiveListFilters && stats?.filtered && (card as any).fKey;
+                        const fVal = hasFiltered ? (stats.filtered[(card as any).fKey] ?? 0) : null;
+                        if (hasFiltered) {
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                              <span style={{ fontSize: 24, fontWeight: 800, color: card.color, lineHeight: 1.1 }}>{fVal}</span>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8' }} title="Total global (tous filtres ignorés)">/ {card.value}</span>
+                            </div>
+                          );
+                        }
+                        return <span style={{ fontSize: 24, fontWeight: 800, color: '#18181b', lineHeight: 1.1 }}>{card.value}</span>;
+                      })()}
                       {card.sub && <div style={{ fontSize: 10, color: '#a1a1aa', marginTop: 2 }}>{card.sub}</div>}
                     </div>
                   </div>

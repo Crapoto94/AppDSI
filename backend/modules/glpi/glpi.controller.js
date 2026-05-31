@@ -1756,8 +1756,72 @@ const glpiController = {
             // Ferme la session de fond
             try { await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: commonHeaders }); } catch (e) {}
         }
-    }
+    },
+
+    // ─── Proxy de téléchargement de documents GLPI (images dans descriptions) ──
+    getDocument: async (req, res) => {
+        try {
+            const docid = parseInt(req.params.docid || req.query.docid, 10);
+            if (!docid || Number.isNaN(docid)) return res.status(400).json({ message: 'docid invalide' });
+
+            const session = await getGlpiApiSession();
+            if (!session) return res.status(502).json({ message: 'Session GLPI indisponible' });
+            const { url, sessionToken, appToken } = session;
+
+            const docRes = await axios.get(`${url}/Document/${docid}`, {
+                headers: {
+                    'App-Token': appToken,
+                    'Session-Token': sessionToken,
+                    'Accept': 'application/octet-stream',
+                },
+                responseType: 'arraybuffer',
+                timeout: 20000,
+            });
+
+            const ct = docRes.headers['content-type'] || 'application/octet-stream';
+            res.set('Content-Type', ct);
+            res.set('Cache-Control', 'private, max-age=86400');
+            res.set('Content-Disposition', 'inline');
+            return res.send(Buffer.from(docRes.data));
+        } catch (error) {
+            const status = error.response?.status || 500;
+            console.error('[GLPI] getDocument error:', status, error.message);
+            return res.status(status === 404 ? 404 : 502).json({ message: `Document GLPI indisponible (${status})` });
+        }
+    },
 
 };
+
+// Cache léger de session API GLPI (TTL 10 min) pour éviter un initSession par image.
+let _glpiSessionCache = null; // { url, sessionToken, appToken, expiresAt }
+async function getGlpiApiSession() {
+    const now = Date.now();
+    if (_glpiSessionCache && _glpiSessionCache.expiresAt > now) return _glpiSessionCache;
+    const db = getSqlite();
+    const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+    if (!settings || !settings.url) return null;
+    let url = settings.url.trim();
+    if (!url.includes('apirest.php')) {
+        url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
+    }
+    const appToken = settings.app_token?.trim() || '';
+    const commonHeaders = { 'App-Token': appToken, 'Content-Type': 'application/json', 'Accept': 'application/json' };
+    const authHeader = (settings.login && settings.password)
+        ? `Basic ${Buffer.from(`${settings.login.trim()}:${settings.password.trim()}`).toString('base64')}`
+        : `user_token ${settings.user_token?.trim()}`;
+    const sessionRes = await axios.get(`${url}/initSession`, {
+        headers: { ...commonHeaders, 'Authorization': authHeader },
+        timeout: 10000,
+    });
+    const sessionToken = sessionRes.data?.session_token;
+    if (!sessionToken) return null;
+    // Active la session (contexte profils/entités) avant tout téléchargement de document.
+    try {
+        await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 10000 });
+        await axios.get(`${url}/getFullSession?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 10000 });
+    } catch (e) { /* non bloquant */ }
+    _glpiSessionCache = { url, sessionToken, appToken, expiresAt: now + 10 * 60 * 1000 };
+    return _glpiSessionCache;
+}
 
 module.exports = glpiController;

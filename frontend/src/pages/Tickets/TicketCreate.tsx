@@ -43,7 +43,7 @@ export default function TicketCreate() {
   async function loadVips() {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.get('/api/tickets/vip-users', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.get('/api/tickets/admin/vip-users', { headers: { Authorization: `Bearer ${token}` } });
       const map: Record<string, boolean> = {};
       (res.data || []).forEach((v: any) => { if (v.email) map[String(v.email).toLowerCase()] = !!v.is_elu; });
       setVipMap(map);

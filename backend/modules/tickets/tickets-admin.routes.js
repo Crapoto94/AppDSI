@@ -566,6 +566,34 @@ router.post('/vip-users', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
+// Applique le caractère VIP à tous les tickets dont le demandeur est VIP/élu.
+// Utile après une "récupération GLPI" qui réimporte les tickets sans le flag is_vip.
+router.post('/vip-users/apply-all', authenticateAdmin, async (req, res) => {
+    try {
+        await syncElusToVip(); // rafraîchit la liste des élus d'abord
+        const normName = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/[^a-z0-9 ]/g, ' ').trim().split(/\s+/).filter(Boolean).sort().join(' ');
+        const vips = await pgDb.all(`SELECT email, username, display_name FROM hub_tickets.vip_users`);
+        const emails = new Set(vips.map(v => (v.email || '').toLowerCase()).filter(Boolean));
+        const names = new Set(vips.map(v => normName(v.display_name)).filter(Boolean));
+        const tickets = await pgDb.all(`SELECT glpi_id, requester_email_22, email_alt, requester_name FROM hub_tickets.tickets WHERE (is_vip IS NULL OR is_vip = false)`);
+        const toFlag = [];
+        for (const t of tickets) {
+            const em = (t.email_alt || t.requester_email_22 || '').toLowerCase().trim();
+            const nm = normName(t.requester_name);
+            if ((em && emails.has(em)) || (nm && names.has(nm))) toFlag.push(t.glpi_id);
+        }
+        for (let i = 0; i < toFlag.length; i += 500) {
+            const batch = toFlag.slice(i, i + 500);
+            if (batch.length) await pgDb.run(`UPDATE hub_tickets.tickets SET is_vip = true WHERE glpi_id IN (${batch.join(',')})`);
+        }
+        res.json({ message: `${toFlag.length} ticket(s) marqué(s) VIP`, flagged: toFlag.length, scanned: tickets.length });
+    } catch (e) {
+        console.error('[VIP] apply-all error:', e.message);
+        res.status(500).json({ message: e.message });
+    }
+});
+
 router.delete('/vip-users/:id', authenticateAdmin, async (req, res) => {
     try {
         const vip = await pgDb.get('SELECT is_elu FROM hub_tickets.vip_users WHERE id = $1', [req.params.id]);

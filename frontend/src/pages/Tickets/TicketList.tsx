@@ -423,7 +423,7 @@ export default function TicketList({
                 borderLeft: isGroup ? `2px solid ${BORDER_COLOR}` : undefined,
                 borderRight: isGroup ? `2px solid ${BORDER_COLOR}` : undefined,
                 cursor: 'pointer',
-                background: isSelected ? '#eef2ff' : isChild ? '#f8faff' : hasProblem ? '#ede9fe' : data.is_live ? '#f0fdf4' : data.is_vip ? '#fffbeb' : undefined,
+                background: isSelected ? '#eef2ff' : isChild ? '#f8faff' : hasProblem ? '#ede9fe' : data.is_live ? '#f0fdf4' : (data.is_vip && data.is_elu) ? '#dcfce7' : data.is_vip ? '#fef9c3' : undefined,
                 transition: 'background 0.1s',
               };
 
@@ -465,7 +465,7 @@ export default function TicketList({
                     <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 600, color: isChild ? '#818cf8' : '#6366f1', fontSize: isChild ? 12 : undefined }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                         {isChild && <span style={{ fontSize: 11, color: '#a5b4fc' }}>└─</span>}
-                        {!isChild && data.is_vip && <span title="Ticket VIP" style={{ fontSize: 11 }}>⭐</span>}
+                        {!isChild && data.is_vip && <span title={data.is_elu ? 'Demandeur ÉLU' : 'Demandeur VIP'} style={{ fontSize: 11 }}>{data.is_elu ? '🏛️' : '⭐'}</span>}
                         {!isChild && data.bundle && (
                           <span
                             title={`Groupe : ${data.bundle.name}`}

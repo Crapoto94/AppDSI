@@ -7,6 +7,7 @@ const observerRepo = require('../tickets/repositories/observer.repository');
 const commentRepo = require('../tickets/repositories/comment.repository');
 const attachmentRepo = require('../tickets/repositories/attachment.repository');
 const ticketRepo = require('../tickets/repositories/ticket.repository');
+const historyRepo = require('../tickets/repositories/history.repository');
 const { toParisSql } = require('../../shared/utils');
 const fs = require('fs');
 const path = require('path');
@@ -203,6 +204,13 @@ class MailCollectorService {
       urgency: 3,
       impact: 2
     });
+
+    // Entrée de journal pour la création via collecteur (sinon absente, car on n'passe pas
+    // par ticketService.create qui logge l'historique).
+    try {
+      await historyRepo.log(ticketId, null, 'created', 'status', null, '1',
+        `Ticket créé via collecteur mail (${from.email || ''})`, 'Collecteur mail');
+    } catch (e) { console.error('[MAIL] history log failed:', e.message); }
 
     return ticketId;
   }

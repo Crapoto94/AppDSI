@@ -58,6 +58,7 @@ export default function TicketsStats() {
   const headers = { Authorization: `Bearer ${tok}` };
 
   const [stats, setStats] = useState<any>(null);
+  const [globalStats, setGlobalStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -104,8 +105,14 @@ export default function TicketsStats() {
       const { from, to } = computeRange();
       const params: any = (from && to) ? { from, to } : {};
       if (fGroup) params.group_id = fGroup;
-      const { data } = await axios.get('/api/tickets/stats', { headers, params });
-      setStats(data);
+      const hasScope = !!(from && to) || !!fGroup;
+      // Période courante + (si un filtre est actif) référentiel global tous tickets, pour comparaison
+      const [periodRes, globalRes] = await Promise.all([
+        axios.get('/api/tickets/stats', { headers, params }),
+        hasScope ? axios.get('/api/tickets/stats', { headers, params: {} }) : Promise.resolve(null),
+      ]);
+      setStats(periodRes.data);
+      setGlobalStats(globalRes ? globalRes.data : null);
     } catch (e: any) {
       setError(e.response?.data?.message || e.message);
     } finally {
@@ -144,6 +151,9 @@ export default function TicketsStats() {
     avgResolutionHours, avgClosureHours, weeklyComparison,
     topRequestersExtended, technicianPerformance, topSoftwares, vipByPriority,
     statusTrend, incidentVsRequestTrend, topObservers, categoryPerformance } = stats;
+
+  // Référentiel global (tous tickets) pour comparaison quand un filtre/période est actif
+  const globalOverview = globalStats?.overview || null;
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
@@ -209,12 +219,12 @@ export default function TicketsStats() {
 
         {/* KPI Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 24 }}>
-          <KpiCard label="Ouverts" value={overview?.open} sub={`${overview?.in_progress || 0} en cours`} color={COLORS.indigo} bg={COLORS.indigoBg} icon={<Ticket size={20} />} />
-          <KpiCard label="Critiques" value={overview?.critical_open} sub="Priorité 5" color={COLORS.red} bg={COLORS.redBg} icon={<AlertCircle size={20} />} />
-          <KpiCard label="Résolus / mois" value={monthlyTrend?.[monthlyTrend.length - 1]?.resolved || 0} sub="Ce mois-ci" color={COLORS.green} bg={COLORS.greenBg} icon={<CheckCircle size={20} />} />
-          <KpiCard label="VIP ouverts" value={overview?.vip_open} sub="Élus / directions" color={COLORS.amber} bg={COLORS.amberBg} icon={<Users size={20} />} />
-          <KpiCard label="SLA violés" value={overview?.sla_breached} sub="Engagements" color={COLORS.red} bg={COLORS.redBg} icon={<AlertTriangle size={20} />} />
-          <KpiCard label="Résolution moy." value={fmtHours(avgResolutionHours)} sub="Ce mois" color={COLORS.teal} bg="#f0fdfa" icon={<Clock size={20} />} />
+          <KpiCard label="Ouverts" value={overview?.open} compare={globalOverview?.open} sub={`${overview?.in_progress || 0} en cours`} color={COLORS.indigo} bg={COLORS.indigoBg} icon={<Ticket size={20} />} />
+          <KpiCard label="Critiques" value={overview?.critical_open} compare={globalOverview?.critical_open} sub="Priorité 5" color={COLORS.red} bg={COLORS.redBg} icon={<AlertCircle size={20} />} />
+          <KpiCard label="Résolus / jour (moy.)" value={stats?.resolvedAvgPerDay ?? 0} compare={globalStats?.resolvedAvgPerDay} sub="Moyenne quotidienne" color={COLORS.green} bg={COLORS.greenBg} icon={<CheckCircle size={20} />} />
+          <KpiCard label="VIP ouverts" value={overview?.vip_open} compare={globalOverview?.vip_open} sub="Élus / directions" color={COLORS.amber} bg={COLORS.amberBg} icon={<Users size={20} />} />
+          <KpiCard label="SLA violés" value={overview?.sla_breached} compare={globalOverview?.sla_breached} sub="Engagements" color={COLORS.red} bg={COLORS.redBg} icon={<AlertTriangle size={20} />} />
+          <KpiCard label="Résolution moy." value={fmtHours(avgResolutionHours)} compare={globalStats ? fmtHours(globalStats.avgResolutionHours) : undefined} sub="" color={COLORS.teal} bg="#f0fdfa" icon={<Clock size={20} />} />
         </div>
 
         {/* Row 2 : cards */}
@@ -733,15 +743,21 @@ export default function TicketsStats() {
   );
 }
 
-function KpiCard({ label, value, sub, color, bg, icon }: { label: string; value: any; sub: string; color: string; bg: string; icon: React.ReactNode }) {
+function KpiCard({ label, value, sub, color, bg, icon, compare }: { label: string; value: any; sub: string; color: string; bg: string; icon: React.ReactNode; compare?: any }) {
+  const showCompare = compare !== undefined && compare !== null && compare !== '';
   return (
     <div style={{ background: bg, borderRadius: 12, padding: '16px 18px', border: `1px solid ${color}20` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</span>
         <span style={{ color }}>{icon}</span>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{value ?? '-'}</div>
-      <div style={{ fontSize: 12, color: COLORS.slate }}>{sub}</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
+        <span style={{ fontSize: 28, fontWeight: 700, color: '#1e293b' }}>{value ?? '-'}</span>
+        {showCompare && (
+          <span style={{ fontSize: 14, fontWeight: 600, color: COLORS.slate }} title="Tous tickets (hors filtre période/groupe)">/ {compare}</span>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: COLORS.slate }}>{showCompare ? (sub ? `${sub} · vs global` : 'vs global') : sub}</div>
     </div>
   );
 }

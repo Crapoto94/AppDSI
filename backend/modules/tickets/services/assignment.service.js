@@ -189,14 +189,31 @@ module.exports = {
     },
 
     async checkVipRequester(ticket) {
-        const email = ticket.requester_email_22 || '';
-        const requesterName = ticket.requester_name || '';
+        // L'email peut arriver sous différents noms selon le flux (création form, GLPI, etc.)
+        const email = (ticket.requester_email_22 || ticket.requester_email || ticket.email_alt || ticket.email || '').trim();
+        const requesterName = (ticket.requester_name || '').trim();
         if (!email && !requesterName) return;
+        // Nom normalisé (sans accents, trié par mots) pour matcher "BOUYSSOU Philippe" ↔ "Philippe BOUYSSOU"
+        const normName = (s) => (s || '')
+            .toLowerCase()
+            .normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/[^a-z0-9 ]/g, ' ')
+            .trim().split(/\s+/).filter(Boolean).sort().join(' ');
+        const target = normName(requesterName);
         const vip = await pgDb.get(
-            `SELECT id FROM hub_tickets.vip_users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($2) LIMIT 1`,
+            `SELECT id, display_name FROM hub_tickets.vip_users
+             WHERE ($1 <> '' AND LOWER(email) = LOWER($1))
+                OR ($2 <> '' AND LOWER(username) = LOWER($2))
+             LIMIT 1`,
             [email, requesterName]
         );
-        if (vip) {
+        let matched = vip;
+        if (!matched && target) {
+            // Repli : comparaison sur le nom normalisé (ordre des mots indifférent)
+            const candidates = await pgDb.all(`SELECT id, display_name FROM hub_tickets.vip_users`);
+            matched = candidates.find(c => normName(c.display_name) === target) || null;
+        }
+        if (matched) {
             await ticketRepo.update(ticket.glpi_id, { is_vip: true });
         }
     },

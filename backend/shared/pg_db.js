@@ -471,6 +471,12 @@ async function setupPgDb() {
     // Auteur de l'action stocké par USERNAME (l'id du JWT vient de SQLite et ne correspond
     // PAS à hub.users.id en PostgreSQL → un id-join affiche le mauvais utilisateur).
     try { await client.query(`ALTER TABLE hub_tickets.ticket_history ADD COLUMN IF NOT EXISTS username VARCHAR(255)`); } catch (e) {}
+    // Répare les colonnes id (SERIAL absent → id NULL) et created_at (DEFAULT absent → horodatage NULL)
+    try { await client.query(`CREATE SEQUENCE IF NOT EXISTS hub_tickets.ticket_history_id_seq`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.ticket_history ALTER COLUMN id SET DEFAULT nextval('hub_tickets.ticket_history_id_seq')`); } catch (e) {}
+    try { await client.query(`ALTER SEQUENCE hub_tickets.ticket_history_id_seq OWNED BY hub_tickets.ticket_history.id`); } catch (e) {}
+    try { await client.query(`SELECT setval('hub_tickets.ticket_history_id_seq', GREATEST((SELECT COALESCE(MAX(id),0) FROM hub_tickets.ticket_history), 1))`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.ticket_history ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.sla_calendars (
