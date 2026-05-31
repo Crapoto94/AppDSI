@@ -1557,7 +1557,7 @@ const glpiController = {
         for (let i = 0; i < asg.length; i += BATCH_SIZE) {
             const batch = asg.slice(i, i + BATCH_SIZE);
             const values = batch.map((_, idx) => {
-                const base = idx * 5;
+                const base = idx * 4;
                 return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, CURRENT_TIMESTAMP)`;
             }).join(', ');
             const params = batch.flatMap(a => [a.ticket_id, a.group_id, a.name || '', a.type || 2]);
@@ -1638,72 +1638,114 @@ const glpiController = {
         }
     },
 
-    // Synchronise les groupes assignés aux tickets via le sous-objet GLPI Group_Ticket.
-    // Alimente glpi.group_assignees, table lue par la transposition des groupes.
-    // Tourne en tâche de fond : rafraîchit le token GLPI périodiquement (sinon expiration
-    // sur gros volumes) et respecte l'annulation (groupsSyncCancelled).
+    // Synchronise les groupes assignés aux tickets.
+    // Stratégie principale : récupère TOUTE la collection GLPI Group_Ticket en masse,
+    // page par page (~quelques dizaines de requêtes au lieu d'une par ticket).
+    // Repli : scan par ticket via /Ticket/:id/Group_Ticket si l'endpoint global échoue.
+    // Alimente glpi.group_assignees (table lue par la transposition des groupes).
     syncTicketGroups: async ({ url, commonHeaders, authHeader, sessionToken }) => {
         try {
-            console.log('[GLPI] Syncing ticket-group associations via /Ticket/:id/Group_Ticket ...');
-
             let token = sessionToken;
-            const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id');
-            groupsSyncProgress.total = tickets.length;
-            groupsSyncProgress.processed = 0;
-            console.log('[GLPI] Scanning', tickets.length, 'tickets for group assignments');
-            if (tickets.length === 0) return;
-
-            const CONCURRENCY = 50;
-            const REFRESH_EVERY = 4000; // rafraîchit le token tous les ~4000 tickets
             const toInsert = [];
-            let sinceRefresh = 0;
+            const keep = (g) => g && g.groups_id && (g.type === 2 || g.type === undefined);
 
-            for (let i = 0; i < tickets.length; i += CONCURRENCY) {
-                if (groupsSyncCancelled) {
-                    console.log('[GLPI] ticket-group scan annulé à', i, '/', tickets.length);
-                    return; // ne réécrit pas la table sur annulation
-                }
+            // ── Stratégie 1 : collection globale paginée /Group_Ticket ──────────
+            console.log('[GLPI] Fetching Group_Ticket collection (bulk, paginated) ...');
+            const PAGE = 1000;
+            let offset = 0;
+            let bulkOk = false;
+            let bulkFailedFirst = false;
 
-                // Renouvelle le token pour éviter l'expiration de session GLPI
-                if (sinceRefresh >= REFRESH_EVERY) {
-                    try {
-                        const r = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, Authorization: authHeader }, timeout: 10000 });
-                        if (r.data?.session_token) {
-                            token = r.data.session_token;
-                            console.log('[GLPI] session token rafraîchi à', i, 'tickets');
-                        }
-                    } catch (e) { /* on garde l'ancien token */ }
-                    sinceRefresh = 0;
-                }
+            while (true) {
+                if (groupsSyncCancelled) { console.log('[GLPI] ticket-group sync annulé'); return; }
 
-                const batch = tickets.slice(i, i + CONCURRENCY);
-                const results = await Promise.all(batch.map(t =>
-                    axios.get(`${url}/Ticket/${t.glpi_id}/Group_Ticket?session_token=${token}`, { headers: commonHeaders, timeout: 8000 })
-                        .catch(() => ({ data: [] }))
-                ));
-
-                results.forEach((r, idx) => {
-                    const ticketId = batch[idx].glpi_id;
-                    const rows = Array.isArray(r.data) ? r.data : [];
-                    // type GLPI : 1=demandeur, 2=assigné, 3=observateur. On garde les assignés (2).
-                    rows.filter(g => g.groups_id && (g.type === 2 || g.type === undefined)).forEach(g => {
-                        toInsert.push({ ticket_id: ticketId, group_id: g.groups_id, type: g.type || 2 });
+                let resp;
+                try {
+                    resp = await axios.get(`${url}/Group_Ticket`, {
+                        headers: commonHeaders,
+                        // GLPI pagine via le paramètre de requête `range=start-end` (PAS l'en-tête HTTP Range)
+                        params: { session_token: token, range: `${offset}-${offset + PAGE - 1}` },
+                        timeout: 30000,
+                        validateStatus: s => s === 200 || s === 206,
                     });
-                });
+                } catch (e) {
+                    const code = e.response?.status;
+                    // 401 : session expirée → on renouvelle une fois et on retente la page
+                    if (code === 401) {
+                        try {
+                            const r = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, Authorization: authHeader }, timeout: 10000 });
+                            if (r.data?.session_token) { token = r.data.session_token; continue; }
+                        } catch (_) {}
+                    }
+                    if (offset === 0) {
+                        // L'endpoint global n'existe pas → repli par ticket
+                        bulkFailedFirst = true;
+                        console.log('[GLPI] /Group_Ticket bulk indisponible:', code, '→ repli par ticket');
+                    } else {
+                        // range dépassé (400/416) → fin des données, on garde ce qui a été collecté
+                        bulkOk = true;
+                        console.log('[GLPI] fin de pagination Group_Ticket (', code, ') à offset', offset);
+                    }
+                    break;
+                }
 
-                groupsSyncProgress.processed = Math.min(i + CONCURRENCY, tickets.length);
+                const rows = Array.isArray(resp.data) ? resp.data : (resp.data?.data || []);
+                if (rows.length === 0) { bulkOk = true; break; }
+
+                rows.forEach(g => { if (keep(g)) toInsert.push({ ticket_id: g.tickets_id, group_id: g.groups_id, type: g.type || 2 }); });
+
+                // Progression depuis l'en-tête Content-Range: "items 0-999/12345"
+                const cr = resp.headers?.['content-range'];
+                const totalFromHeader = cr && cr.includes('/') ? parseInt(cr.split('/')[1], 10) : null;
+                if (totalFromHeader) groupsSyncProgress.total = totalFromHeader;
+                groupsSyncProgress.processed = offset + rows.length;
                 groupsSyncProgress.lastUpdate = new Date().toISOString();
-                sinceRefresh += CONCURRENCY;
+
+                offset += rows.length;
+                if (rows.length < PAGE) { bulkOk = true; break; }
             }
+
+            // ── Stratégie 2 (repli) : scan par ticket ───────────────────────────
+            if (bulkFailedFirst) {
+                console.log('[GLPI] Repli : scan par ticket via /Ticket/:id/Group_Ticket');
+                const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id');
+                groupsSyncProgress.total = tickets.length;
+                groupsSyncProgress.processed = 0;
+                const CONCURRENCY = 50;
+                const REFRESH_EVERY = 4000;
+                let sinceRefresh = 0;
+
+                for (let i = 0; i < tickets.length; i += CONCURRENCY) {
+                    if (groupsSyncCancelled) { console.log('[GLPI] repli annulé à', i); return; }
+                    if (sinceRefresh >= REFRESH_EVERY) {
+                        try {
+                            const r = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, Authorization: authHeader }, timeout: 10000 });
+                            if (r.data?.session_token) token = r.data.session_token;
+                        } catch (_) {}
+                        sinceRefresh = 0;
+                    }
+                    const batch = tickets.slice(i, i + CONCURRENCY);
+                    const results = await Promise.all(batch.map(t =>
+                        axios.get(`${url}/Ticket/${t.glpi_id}/Group_Ticket?session_token=${token}`, { headers: commonHeaders, timeout: 8000 })
+                            .catch(() => ({ data: [] }))
+                    ));
+                    results.forEach((r, idx) => {
+                        const rows = Array.isArray(r.data) ? r.data : [];
+                        rows.filter(keep).forEach(g => toInsert.push({ ticket_id: batch[idx].glpi_id, group_id: g.groups_id, type: g.type || 2 }));
+                    });
+                    groupsSyncProgress.processed = Math.min(i + CONCURRENCY, tickets.length);
+                    groupsSyncProgress.lastUpdate = new Date().toISOString();
+                    sinceRefresh += CONCURRENCY;
+                }
+                bulkOk = true;
+            }
+
+            if (!bulkOk) { console.log('[GLPI] sync interrompue avant complétion → table inchangée'); return; }
 
             console.log('[GLPI] Found', toInsert.length, 'ticket-group assignments');
+            if (toInsert.length === 0) { console.log('[GLPI] No group assignments found'); return; }
 
-            if (toInsert.length === 0) {
-                console.log('[GLPI] No group assignments found on tickets');
-                return;
-            }
-
-            // Remplacement complet de la table (scan terminé sans annulation)
+            // Remplacement complet de la table (sync terminée sans annulation)
             await pool.query('TRUNCATE glpi.group_assignees RESTART IDENTITY');
             await glpiController.saveGroupAssigneesToPg(toInsert);
 

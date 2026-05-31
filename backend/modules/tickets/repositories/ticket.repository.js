@@ -2,7 +2,7 @@ const { pgDb, pool } = require('../../../shared/database');
 
 const BASE_SELECT = `
 SELECT t.*,
-           ta.technician_id, ta.group_id,
+           ta.technician_id, tga.group_id,
            tca.category_id as assigned_category_id,
            ts.label as status_label,
            tu.displayName as technician_name,
@@ -30,7 +30,15 @@ SELECT t.*,
 LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.is_primary = true OR ta.is_primary IS NULL)
      LEFT JOIN hub_tickets.technician_profiles tp ON ta.technician_id = tp.user_id
      LEFT JOIN hub.users tu ON ta.technician_id = tu.id
-     LEFT JOIN hub_tickets.technician_groups tg2 ON ta.group_id = tg2.id
+     -- Groupe assigné : récupéré depuis n'importe quelle ligne d'assignation du ticket
+     -- (la transposition des groupes insère avec is_primary = false, donc hors du JOIN ta ci-dessus)
+     LEFT JOIN LATERAL (
+         SELECT group_id FROM hub_tickets.ticket_assignments
+         WHERE ticket_id = t.glpi_id AND group_id IS NOT NULL
+         ORDER BY (is_primary = true) DESC
+         LIMIT 1
+     ) tga ON true
+     LEFT JOIN hub_tickets.technician_groups tg2 ON tga.group_id = tg2.id
      LEFT JOIN (SELECT DISTINCT ON (LOWER(email)) email, service_code, service_complement FROM magapp.users ORDER BY LOWER(email)) mu ON LOWER(t.requester_email_22) = LOWER(mu.email)
      LEFT JOIN (SELECT DISTINCT ON (ticket_id) ticket_id, category_id FROM hub_tickets.ticket_category_assignments ORDER BY ticket_id) tca ON tca.ticket_id = t.glpi_id
      LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id

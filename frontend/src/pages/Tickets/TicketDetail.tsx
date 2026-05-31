@@ -1189,6 +1189,11 @@ export default function TicketDetail() {
                   <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(ticket.technician_name), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(ticket.technician_name)}</div>
                   <span style={SV}>{ticket.technician_name}</span>
                 </div>
+              ) : ticket.assignee_group_name ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 6, background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff' }}>👥</div>
+                  <span style={{ ...SV, fontWeight: 600 }}>{ticket.assignee_group_name}</span>
+                </div>
               ) : (
                 <span style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Non assigné</span>
               )}
