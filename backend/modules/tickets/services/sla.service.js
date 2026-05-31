@@ -4,19 +4,41 @@ const historyRepo = require('../repositories/history.repository');
 const notificationService = require('./notification.service');
 
 module.exports = {
-    async applySLA(ticketId, ticketData) {
+    async applySLA(ticketId, ticketData, startDate) {
         const slaDef = await slaRepo.findMatchingDefinition(ticketData);
         if (!slaDef) return;
 
-        const now = new Date();
+        const start = startDate || new Date();
         const firstResponseTarget = slaDef.first_response_min
-            ? this.addBusinessMinutes(now, slaDef.first_response_min, slaDef.calendar_id)
+            ? this.addBusinessMinutes(start, slaDef.first_response_min, slaDef.calendar_id)
             : null;
         const resolutionTarget = slaDef.resolution_min
-            ? this.addBusinessMinutes(now, slaDef.resolution_min, slaDef.calendar_id)
+            ? this.addBusinessMinutes(start, slaDef.resolution_min, slaDef.calendar_id)
             : null;
 
-        await slaRepo.createForTicket(ticketId, slaDef.id, firstResponseTarget, resolutionTarget);
+        await slaRepo.createForTicket(ticketId, slaDef.id, firstResponseTarget, resolutionTarget, startDate);
+    },
+
+    async applyMissingSLAs() {
+        const tickets = await pgDb.all(`
+            SELECT t.glpi_id, t.priority, t.type, t.category_id, t.impact, t.date_creation
+            FROM hub_tickets.tickets t
+            WHERE NOT EXISTS (
+                SELECT 1 FROM hub_tickets.ticket_sla ts WHERE ts.ticket_id = t.glpi_id
+            )
+            AND t.status NOT IN (5, 6, 7)
+        `);
+
+        let applied = 0;
+        for (const ticket of tickets) {
+            const slaDef = await slaRepo.findMatchingDefinition(ticket);
+            if (slaDef) {
+                const startDate = ticket.date_creation ? new Date(ticket.date_creation) : new Date();
+                await this.applySLA(ticket.glpi_id, ticket, startDate);
+                applied++;
+            }
+        }
+        if (applied > 0) console.log(`[SLA] ${applied} ticket(s) rattaché(s) à une définition SLA`);
     },
 
     addBusinessMinutes(fromDate, minutes, calendarId = 1) {
@@ -77,6 +99,9 @@ module.exports = {
     },
 
     async checkSLAs() {
+        // Appliquer les SLA aux tickets existants qui n'en ont pas encore
+        await this.applyMissingSLAs();
+
         const tickets = await pgDb.all(`
             SELECT ts.*, t.glpi_id, t.status, t.priority, t.title
             FROM hub_tickets.ticket_sla ts

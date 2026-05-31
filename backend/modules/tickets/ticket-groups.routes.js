@@ -32,7 +32,7 @@ router.post('/', authenticateJWT, async (req, res) => {
         for (const id of ticket_ids) {
             try {
                 await historyRepo.log(id, req.user.id, 'grouped', null, null, String(groupId),
-                    `Groupé dans "${groupName}" par ${actor}`);
+                    `Groupé dans "${groupName}" par ${actor}`, req.user.username);
             } catch (e) {}
         }
         res.status(201).json({ id: groupId, message: 'Groupe créé' });
@@ -87,7 +87,7 @@ router.post('/:id/members', authenticateJWT, async (req, res) => {
         const group = await groupRepo.findById(groupId);
         try {
             await historyRepo.log(parseInt(ticket_id), req.user.id, 'grouped', null, null, String(groupId),
-                `Ajouté au groupe "${group?.name}" par ${req.user.displayName || req.user.username}`);
+                `Ajouté au groupe "${group?.name}" par ${req.user.displayName || req.user.username}`, req.user.username);
         } catch (e) {}
         res.json({ message: 'Ticket ajouté au groupe' });
     } catch (e) { res.status(400).json({ message: e.message }); }
@@ -102,7 +102,7 @@ router.delete('/:id/members/:ticketId', authenticateJWT, async (req, res) => {
         await groupRepo.removeMember(groupId, ticketId);
         try {
             await historyRepo.log(ticketId, req.user.id, 'ungrouped', null, String(groupId), null,
-                `Retiré du groupe par ${req.user.displayName || req.user.username}`);
+                `Retiré du groupe par ${req.user.displayName || req.user.username}`, req.user.username);
         } catch (e) {}
         // Si moins de 2 membres restants → dissolution automatique
         const count = await groupRepo.getMemberCount(groupId);
@@ -112,7 +112,7 @@ router.delete('/:id/members/:ticketId', authenticateJWT, async (req, res) => {
                 for (const m of remaining.members) {
                     try {
                         await historyRepo.log(m.ticket_id, req.user.id, 'ungrouped', null, String(groupId), null,
-                            `Groupe "${group?.name}" dissous automatiquement (moins de 2 membres)`);
+                            `Groupe "${group?.name}" dissous automatiquement (moins de 2 membres)`, req.user.username);
                     } catch (e) {}
                 }
             }
@@ -133,7 +133,7 @@ router.delete('/:id', authenticateJWT, async (req, res) => {
             for (const m of group.members) {
                 try {
                     await historyRepo.log(m.ticket_id, req.user.id, 'ungrouped', null, String(groupId), null,
-                        `Groupe "${group.name}" dissous par ${actor}`);
+                        `Groupe "${group.name}" dissous par ${actor}`, req.user.username);
                 } catch (e) {}
             }
         }
@@ -176,7 +176,7 @@ router.post('/:id/transform-to-problem', authenticateJWT, async (req, res) => {
         for (const m of group.members) {
             try {
                 await historyRepo.log(m.ticket_id, req.user.id, 'problem_created', null, null, String(problemTicketId),
-                    `Problème #${problemTicketId} créé par ${actor}`);
+                    `Problème #${problemTicketId} créé par ${actor}`, req.user.username);
             } catch (e) {}
         }
         res.status(201).json({ problem_ticket_id: problemTicketId, message: 'Problème créé avec succès' });

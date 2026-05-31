@@ -1,4 +1,5 @@
 const { pgDb, pool } = require('../../../shared/database');
+const { toParisSql } = require('../../../shared/utils');
 
 const BASE_SELECT = `
 SELECT t.*,
@@ -237,7 +238,7 @@ module.exports = {
             id, data.title, data.content || '', data.status || 1,
             data.priority || 3, data.urgency || 3, data.impact || 2,
             String(data.type || 1), data.category || '',
-            data.date_creation || new Date().toISOString(), data.source || 'hub',
+            data.date_creation ? toParisSql(data.date_creation) : toParisSql(), data.source || 'hub',
             data.requester_name || '', data.requester_email || '',
             data.location || '', data.solution || '', !!data.is_vip,
             data.resolution_method || null, data.knowledge_article || null,
@@ -264,15 +265,15 @@ module.exports = {
         }
 
         fields.push(`date_mod = $${idx++}`);
-        params.push(new Date().toISOString());
+        params.push(toParisSql());
 
         if (data.status === 5) {
             fields.push(`date_solved = $${idx++}`);
-            params.push(new Date().toISOString());
+            params.push(toParisSql());
         }
         if (data.status === 6) {
             fields.push(`date_closed = $${idx++}`);
-            params.push(new Date().toISOString());
+            params.push(toParisSql());
         }
 
         if (fields.length === 0) return;
@@ -287,7 +288,7 @@ module.exports = {
     async softDelete(id) {
         await pgDb.run(
             `UPDATE hub_tickets.tickets SET status = 8, date_mod = $1 WHERE glpi_id = $2`,
-            [new Date().toISOString(), id]
+            [toParisSql(), id]
         );
     },
 
@@ -1016,8 +1017,71 @@ module.exports = {
             ORDER BY days.day ASC
         `);
 
+        // ── Tendance adaptative ───────────────────────────────────────────────
+        //  • Fenêtre ≤ 92 j  → granularité QUOTIDIENNE : histogramme des créés,
+        //    ligne verte des résolus DU JOUR, fond aplati = créés 28 j auparavant
+        //    (même jour de semaine, comparaison à 4 semaines).
+        //  • Fenêtre > 92 j  → granularité MENSUELLE : idem, fond = mois précédent.
+        //  • Vue "Tout"      → mensuelle : aire des créés + ligne verte des résolus (sans comparaison).
+        let trend;
+        if (range) {
+            const spanDays = Math.round((new Date(to + 'T00:00:00Z') - new Date(from + 'T00:00:00Z')) / 86400000) + 1;
+            if (spanDays <= 92) {
+                const data = await pgDb.all(`
+                    WITH days AS (
+                        SELECT gs::date AS d FROM generate_series('${from}'::date, '${to}'::date, INTERVAL '1 day') gs
+                    )
+                    SELECT TO_CHAR(days.d,'DD/MM') AS label, TO_CHAR(days.d,'YYYY-MM-DD') AS bucket,
+                           COALESCE(cr.n,0)::int AS created,
+                           COALESCE(rs.n,0)::int AS resolved,
+                           COALESCE(cmp.n,0)::int AS compare
+                    FROM days
+                    LEFT JOIN (SELECT t.date_creation::date d, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cr ON cr.d = days.d
+                    LEFT JOIN (SELECT t.date_solved::date d, COUNT(*) n FROM hub_tickets.tickets t WHERE t.date_solved IS NOT NULL${grpAnd} GROUP BY 1) rs ON rs.d = days.d
+                    LEFT JOIN (SELECT t.date_creation::date d, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cmp ON cmp.d = days.d - 28
+                    ORDER BY days.d
+                `);
+                trend = { granularity: 'day', compare: true, compareLabel: 'Créés (il y a 28 j)', data };
+            } else {
+                const data = await pgDb.all(`
+                    WITH months AS (
+                        SELECT gs::date AS m FROM generate_series(DATE_TRUNC('month','${from}'::date), DATE_TRUNC('month','${to}'::date), INTERVAL '1 month') gs
+                    )
+                    SELECT TO_CHAR(months.m,'Mon YYYY') AS label, TO_CHAR(months.m,'YYYY-MM') AS bucket,
+                           COALESCE(cr.n,0)::int AS created,
+                           COALESCE(rs.n,0)::int AS resolved,
+                           COALESCE(cmp.n,0)::int AS compare
+                    FROM months
+                    LEFT JOIN (SELECT DATE_TRUNC('month',t.date_creation)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cr ON cr.m = months.m
+                    LEFT JOIN (SELECT DATE_TRUNC('month',t.date_solved)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.date_solved IS NOT NULL${grpAnd} GROUP BY 1) rs ON rs.m = months.m
+                    LEFT JOIN (SELECT DATE_TRUNC('month',t.date_creation)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cmp ON cmp.m = months.m - INTERVAL '1 month'
+                    ORDER BY months.m
+                `);
+                trend = { granularity: 'month', compare: true, compareLabel: 'Créés (mois précédent)', data };
+            }
+        } else {
+            const data = await pgDb.all(`
+                WITH bounds AS (
+                    SELECT DATE_TRUNC('month', MIN(date_creation)) mn, DATE_TRUNC('month', NOW()) mx
+                    FROM hub_tickets.tickets WHERE date_creation IS NOT NULL
+                ),
+                months AS (
+                    SELECT gs::date AS m FROM bounds, generate_series(bounds.mn, bounds.mx, INTERVAL '1 month') gs
+                )
+                SELECT TO_CHAR(months.m,'Mon YYYY') AS label, TO_CHAR(months.m,'YYYY-MM') AS bucket,
+                       COALESCE(cr.n,0)::int AS created,
+                       COALESCE(rs.n,0)::int AS resolved
+                FROM months
+                LEFT JOIN (SELECT DATE_TRUNC('month',t.date_creation)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cr ON cr.m = months.m
+                LEFT JOIN (SELECT DATE_TRUNC('month',t.date_solved)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.date_solved IS NOT NULL${grpAnd} GROUP BY 1) rs ON rs.m = months.m
+                ORDER BY months.m
+            `);
+            trend = { granularity: 'month', compare: false, data };
+        }
+
         return {
             overview,
+            trend,
             dailyTrend,
             statusDistribution: statusDist,
             typeDistribution: typeDist,

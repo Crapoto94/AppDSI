@@ -16,23 +16,35 @@ module.exports = {
         return pgDb.get(`
             SELECT * FROM hub_tickets.sla_definitions
             WHERE is_active = true
-            AND (priority IS NULL OR priority = $1)
-            AND (type IS NULL OR type = $2)
-            AND (category_id IS NULL OR category_id = $3)
+            AND (type IS NULL OR type = $1)
+            AND (category_id IS NULL OR category_id = $2)
+            AND (
+                (COALESCE(match_operator, 'AND') = 'OR'
+                    AND ((priority IS NULL AND impact IS NULL) OR (priority IS NULL OR $3 IS NULL OR priority = $3) OR (impact IS NULL OR $4 IS NULL OR impact = $4)))
+                OR
+                (COALESCE(match_operator, 'AND') = 'AND'
+                    AND (priority IS NULL OR $3 IS NULL OR priority = $3)
+                    AND (impact IS NULL OR $4 IS NULL OR impact = $4))
+            )
             ORDER BY priority ASC NULLS LAST
             LIMIT 1
-        `, [ticket.priority, ticket.type != null ? String(ticket.type) : null, ticket.category_id]);
+        `, [
+            ticket.type != null ? String(ticket.type) : null,
+            ticket.category_id,
+            ticket.priority,
+            ticket.impact
+        ]);
     },
 
-    async createForTicket(ticketId, slaDefinitionId, firstResponseTarget, resolutionTarget) {
+    async createForTicket(ticketId, slaDefinitionId, firstResponseTarget, resolutionTarget, createdAt) {
         const existing = await pgDb.get('SELECT id FROM hub_tickets.ticket_sla WHERE ticket_id = $1', [ticketId]);
         if (existing) return existing.id;
 
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.ticket_sla
-                (ticket_id, sla_definition_id, first_response_target, resolution_target)
-            VALUES ($1, $2, $3, $4)
-        `, [ticketId, slaDefinitionId, firstResponseTarget, resolutionTarget]);
+                (ticket_id, sla_definition_id, first_response_target, resolution_target, created_at, sla_status)
+            VALUES ($1, $2, $3, $4, COALESCE($5, CURRENT_TIMESTAMP), 'ok')
+        `, [ticketId, slaDefinitionId, firstResponseTarget, resolutionTarget, createdAt || null]);
 
         return result.lastID;
     },

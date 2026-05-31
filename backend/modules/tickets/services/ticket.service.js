@@ -41,7 +41,7 @@ module.exports = {
 
         const ticketId = await ticketRepo.create(ticketData);
 
-        try { await historyRepo.log(ticketId, user.id, 'created', 'status', null, '1', 'Ticket créé'); }
+        try { await historyRepo.log(ticketId, user.id, 'created', 'status', null, '1', 'Ticket créé', user.username); }
         catch (e) { console.error('[TICKET] history log failed:', e.message); }
 
         try { await slaService.applySLA(ticketId, ticketData); }
@@ -100,7 +100,7 @@ module.exports = {
 
         for (const key of Object.keys(data)) {
             if (oldValues[key] !== data[key]) {
-                await historyRepo.log(id, user.id, 'updated', key, String(oldValues[key] || ''), String(data[key] || ''));
+                await historyRepo.log(id, user.id, 'updated', key, String(oldValues[key] || ''), String(data[key] || ''), null, user.username);
             }
         }
 
@@ -144,7 +144,7 @@ module.exports = {
     async setSolution(id, solution, user) {
         // Résolu = statut 5 (sémantique GLPI). La clôture (6) se fait séparément.
         await ticketRepo.update(id, { solution, status: 5, date_solved: new Date().toISOString() });
-        await historyRepo.log(id, user.id, 'solved', 'solution', null, solution, 'Solution fournie');
+        await historyRepo.log(id, user.id, 'solved', 'solution', null, solution, 'Solution fournie', user.username);
 
         const sla = await slaRepo.findByTicket(id);
         if (sla) {
@@ -187,7 +187,7 @@ module.exports = {
         );
 
         await ticketRepo.softDelete(id);
-        await historyRepo.log(id, user.id, 'deleted', 'status', null, '8', 'Ticket supprimé');
+        await historyRepo.log(id, user.id, 'deleted', 'status', null, '8', 'Ticket supprimé', user.username);
     },
 
     async getTicketsStats(filters) {

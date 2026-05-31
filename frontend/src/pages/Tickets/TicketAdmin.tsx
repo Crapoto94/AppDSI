@@ -167,7 +167,7 @@ export default function TicketAdmin() {
       <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 24 }}>
         {tab === 'categories'  && <CategoryManager data={categories} onUpdate={() => loadData('/api/tickets/admin/categories', setCategories)} />}
         {tab === 'category_mapping' && <CategoryMappingManager />}
-        {tab === 'sla'         && <SLAManager data={slas} onUpdate={() => loadData('/api/tickets/admin/sla', setSlas)} />}
+        {tab === 'sla'         && <SLAManager data={slas} categories={categories} onUpdate={() => loadData('/api/tickets/admin/sla', setSlas)} />}
         {tab === 'rules'       && <RuleManager data={rules} onUpdate={() => loadData('/api/tickets/admin/assignment-rules', setRules)} />}
         {tab === 'vip'         && <VipManager />}
         {tab === 'journal'     && <JournalTab />}
@@ -1003,7 +1003,7 @@ function CategoryMappingManager() {
 // ─────────────────────────────────────────────────────────────────────────────
 type SlaTab = 'definitions' | 'calendars' | 'breaches';
 
-function SLAManager({ data: initialData, onUpdate: parentOnUpdate }: { data: any[], onUpdate: () => void }) {
+function SLAManager({ data: initialData, categories, onUpdate: parentOnUpdate }: { data: any[], categories: any[], onUpdate: () => void }) {
   const [subTab, setSubTab] = useState<SlaTab>('definitions');
   const [definitions, setDefinitions] = useState<any[]>(initialData);
   const [calendars, setCalendars] = useState<any[]>([]);
@@ -1071,24 +1071,43 @@ function SLAManager({ data: initialData, onUpdate: parentOnUpdate }: { data: any
           ⚠️ {error}
         </div>
       )}
-      {subTab === 'definitions' && <SLADefinitions data={definitions} onUpdate={refreshDefinitions} />}
+      {subTab === 'definitions' && <SLADefinitions data={definitions} categories={categories} onUpdate={refreshDefinitions} />}
       {subTab === 'calendars' && <SLACalendars data={calendars} onUpdate={loadCalendars} loading={loading} />}
-      {subTab === 'breaches' && <SLABreaches data={breaches} loading={loading} />}
+      {subTab === 'breaches' && <SLABreaches data={breaches} loading={loading} onRefresh={loadBreaches} />}
     </div>
   );
 }
 
 // ── SLA Definitions CRUD ──────────────────────────────────────────
-function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void }) {
+const PRIORITY_OPTIONS = [
+  { value: '1', label: '1 - Très basse' },
+  { value: '2', label: '2 - Basse' },
+  { value: '3', label: '3 - Normale' },
+  { value: '4', label: '4 - Haute' },
+  { value: '5', label: '5 - Critique' },
+];
+
+const IMPACT_OPTIONS = [
+  { value: '1', label: '1 - Très faible' },
+  { value: '2', label: '2 - Faible' },
+  { value: '3', label: '3 - Moyen' },
+  { value: '4', label: '4 - Fort' },
+  { value: '5', label: '5 - Très fort' },
+];
+
+const getPriorityLabel = (v: any) => PRIORITY_OPTIONS.find(o => o.value === String(v))?.label || v || '—';
+const getImpactLabel = (v: any) => IMPACT_OPTIONS.find(o => o.value === String(v))?.label || v || '—';
+
+function SLADefinitions({ data, categories, onUpdate }: { data: any[], categories: any[], onUpdate: () => void }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', priority: '', first_response_min: '', resolution_min: '', type: '', is_active: true });
+  const [form, setForm] = useState({ name: '', description: '', priority: '', impact: '', match_operator: 'AND', first_response_min: '', resolution_min: '', type: '', category_id: '', is_active: true });
 
   const token = localStorage.getItem('token');
   const h = { Authorization: `Bearer ${token}` };
 
-  function resetForm() { setForm({ name: '', description: '', priority: '', first_response_min: '', resolution_min: '', type: '', is_active: true }); }
+  function resetForm() { setForm({ name: '', description: '', priority: '', impact: '', match_operator: 'AND', first_response_min: '', resolution_min: '', type: '', category_id: '', is_active: true }); }
 
   async function create() {
     if (!form.name.trim()) return;
@@ -1097,9 +1116,12 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
       await axios.post('/api/tickets/admin/sla', {
         name: form.name, description: form.description,
         priority: form.priority ? parseInt(form.priority) : null,
+        impact: form.impact ? parseInt(form.impact) : null,
+        match_operator: form.match_operator,
         first_response_min: form.first_response_min ? parseInt(form.first_response_min) : null,
         resolution_min: form.resolution_min ? parseInt(form.resolution_min) : null,
         type: form.type || null,
+        category_id: form.category_id ? parseInt(form.category_id) : null,
       }, { headers: h });
       setShowCreate(false);
       resetForm();
@@ -1113,9 +1135,12 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
     setForm({
       name: s.name || '', description: s.description || '',
       priority: s.priority?.toString() || '',
+      impact: s.impact?.toString() || '',
+      match_operator: s.match_operator || 'AND',
       first_response_min: s.first_response_min?.toString() || '',
       resolution_min: s.resolution_min?.toString() || '',
       type: s.type || '',
+      category_id: s.category_id?.toString() || '',
       is_active: s.is_active !== false,
     });
   }
@@ -1127,9 +1152,12 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
       await axios.put(`/api/tickets/admin/sla/${editingId}`, {
         name: form.name, description: form.description,
         priority: form.priority ? parseInt(form.priority) : null,
+        impact: form.impact ? parseInt(form.impact) : null,
+        match_operator: form.match_operator,
         first_response_min: form.first_response_min ? parseInt(form.first_response_min) : null,
         resolution_min: form.resolution_min ? parseInt(form.resolution_min) : null,
         type: form.type || null,
+        category_id: form.category_id ? parseInt(form.category_id) : null,
         is_active: form.is_active,
       }, { headers: h });
       setEditingId(null);
@@ -1154,12 +1182,27 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
     } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
   }
 
+  const select = (val: string, set: (v: string) => void, options: { value: string; label: string }[], placeholder = '—') => (
+    <select value={val} onChange={e => set(e.target.value)}
+      style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, background: '#fff' }}>
+      <option value="">{placeholder}</option>
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+
   const inputStyle: React.CSSProperties = { padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, width: '100%', boxSizing: 'border-box' };
 
   const input = (val: string, set: (v: string) => void, extra?: any) => {
     const { style, ...rest } = extra || {};
     return <input value={val} onChange={e => set(e.target.value)} style={{ ...inputStyle, ...(style || {}) }} {...rest} />;
   };
+
+  const catOptions = categories
+    .filter((c: any) => !c.parent_id)
+    .sort((a: any, b: any) => a.name.localeCompare(b.name))
+    .map((c: any) => ({ value: String(c.id), label: c.name }));
+
+  const getCatName = (id: any) => categories.find((c: any) => c.id === id)?.name || '—';
 
   return (
     <div>
@@ -1182,9 +1225,12 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
           <tr style={{ borderBottom: '2px solid #e2e8f0', background: '#f8fafc' }}>
             <th style={{ padding: 10, textAlign: 'left', minWidth: 160 }}>Nom</th>
             <th style={{ padding: 10, textAlign: 'center', width: 60 }}>Priorité</th>
+            <th style={{ padding: 10, textAlign: 'center', width: 48 }}>ET/OU</th>
+            <th style={{ padding: 10, textAlign: 'center', width: 60 }}>Impact</th>
             <th style={{ padding: 10, textAlign: 'center', width: 110 }}>1ère réponse</th>
             <th style={{ padding: 10, textAlign: 'center', width: 110 }}>Résolution</th>
             <th style={{ padding: 10, textAlign: 'center', width: 80 }}>Type</th>
+            <th style={{ padding: 10, textAlign: 'center', width: 80 }}>Catégorie</th>
             <th style={{ padding: 10, textAlign: 'center', width: 60 }}>Actif</th>
             <th style={{ padding: 10, textAlign: 'center', width: 90 }}></th>
           </tr>
@@ -1193,9 +1239,17 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
           {showCreate && (
             <tr style={{ borderBottom: '1px solid #dbeafe', background: '#eff6ff' }}>
               <td style={{ padding: 8 }}>{input(form.name, v => setForm(f => ({ ...f, name: v })), { placeholder: 'Nom du SLA' })}</td>
-              <td style={{ padding: 8 }}>{input(form.priority, v => setForm(f => ({ ...f, priority: v })), { placeholder: '1-5', style: { textAlign:'center' } })}</td>
-              <td style={{ padding: 8 }}>{input(form.first_response_min, v => setForm(f => ({ ...f, first_response_min: v })), { placeholder: 'min', style: { textAlign:'center' } })}</td>
-              <td style={{ padding: 8 }}>{input(form.resolution_min, v => setForm(f => ({ ...f, resolution_min: v })), { placeholder: 'min', style: { textAlign:'center' } })}</td>
+              <td style={{ padding: 8 }}>{select(form.priority, v => setForm(f => ({ ...f, priority: v })), PRIORITY_OPTIONS)}</td>
+              <td style={{ padding: 8, textAlign: 'center' }}>
+                <select value={form.match_operator} onChange={e => setForm(f => ({ ...f, match_operator: e.target.value }))}
+                  style={{ padding: '4px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 11, width: '100%', background: '#fff', textAlign: 'center', fontWeight: 700, color: '#6366f1' }}>
+                  <option value="AND">ET</option>
+                  <option value="OR">OU</option>
+                </select>
+              </td>
+              <td style={{ padding: 8 }}>{select(form.impact, v => setForm(f => ({ ...f, impact: v })), IMPACT_OPTIONS)}</td>
+              <td style={{ padding: 8 }}>{input(form.first_response_min, v => setForm(f => ({ ...f, first_response_min: v })), { placeholder: 'min', style: { textAlign:'center', width: '100%' } })}</td>
+              <td style={{ padding: 8 }}>{input(form.resolution_min, v => setForm(f => ({ ...f, resolution_min: v })), { placeholder: 'min', style: { textAlign:'center', width: '100%' } })}</td>
               <td style={{ padding: 8 }}>
                 <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
                   style={{ padding: '6px 6px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, width: '100%', background: '#fff' }}>
@@ -1204,6 +1258,7 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
                   <option value="2">Demande</option>
                 </select>
               </td>
+              <td style={{ padding: 8 }}>{select(form.category_id, v => setForm(f => ({ ...f, category_id: v })), catOptions)}</td>
               <td style={{ padding: 8, textAlign: 'center' }}>
                 <input type="checkbox" checked={form.is_active} onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))} />
               </td>
@@ -1224,9 +1279,17 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
                 {isEditing ? (
                   <>
                     <td style={{ padding: 8 }}>{input(form.name, v => setForm(f => ({ ...f, name: v })))}</td>
-                    <td style={{ padding: 8, textAlign: 'center' }}>{input(form.priority, v => setForm(f => ({ ...f, priority: v })), { style: { textAlign:'center', width:50 } })}</td>
-                    <td style={{ padding: 8, textAlign: 'center' }}>{input(form.first_response_min, v => setForm(f => ({ ...f, first_response_min: v })), { style: { textAlign:'center', width:70 } })}</td>
-                    <td style={{ padding: 8, textAlign: 'center' }}>{input(form.resolution_min, v => setForm(f => ({ ...f, resolution_min: v })), { style: { textAlign:'center', width:70 } })}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{select(form.priority, v => setForm(f => ({ ...f, priority: v })), PRIORITY_OPTIONS)}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>
+                      <select value={form.match_operator} onChange={e => setForm(f => ({ ...f, match_operator: e.target.value }))}
+                        style={{ padding: '4px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 11, width: '100%', background: '#fff', textAlign: 'center', fontWeight: 700, color: '#6366f1' }}>
+                        <option value="AND">ET</option>
+                        <option value="OR">OU</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{select(form.impact, v => setForm(f => ({ ...f, impact: v })), IMPACT_OPTIONS)}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{input(form.first_response_min, v => setForm(f => ({ ...f, first_response_min: v })), { style: { textAlign:'center', width: '100%' } })}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{input(form.resolution_min, v => setForm(f => ({ ...f, resolution_min: v })), { style: { textAlign:'center', width: '100%' } })}</td>
                     <td style={{ padding: 8, textAlign: 'center' }}>
                       <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
                         style={{ padding: '4px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 11, background: '#fff' }}>
@@ -1235,6 +1298,7 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
                         <option value="2">Demande</option>
                       </select>
                     </td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{select(form.category_id, v => setForm(f => ({ ...f, category_id: v })), catOptions)}</td>
                     <td style={{ padding: 8, textAlign: 'center' }}>
                       <input type="checkbox" checked={form.is_active} onChange={e => setForm(f => ({ ...f, is_active: e.target.checked }))} />
                     </td>
@@ -1250,10 +1314,23 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
                 ) : (
                   <>
                     <td style={{ padding: 10, fontWeight: 500 }}>{s.name}</td>
-                    <td style={{ padding: 10, textAlign: 'center' }}>{s.priority || '—'}</td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>
+                      {s.priority ? <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>{getPriorityLabel(s.priority)}</span> : '—'}
+                    </td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>
+                      {s.priority || s.impact ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: s.match_operator === 'OR' ? '#f59e0b' : '#6366f1' }}>
+                          {s.match_operator === 'OR' ? 'OU' : 'ET'}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>
+                      {s.impact ? <span style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>{getImpactLabel(s.impact)}</span> : '—'}
+                    </td>
                     <td style={{ padding: 10, textAlign: 'center' }}>{s.first_response_min ? `${s.first_response_min} min` : '—'}</td>
                     <td style={{ padding: 10, textAlign: 'center' }}>{s.resolution_min ? `${(s.resolution_min / 60).toFixed(1)}h` : '—'}</td>
                     <td style={{ padding: 10, textAlign: 'center' }}>{s.type === '1' ? 'Incident' : s.type === '2' ? 'Demande' : '—'}</td>
+                    <td style={{ padding: 10, textAlign: 'center' }}>{s.category_id ? <span style={{ background: '#e0f2fe', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>{getCatName(s.category_id)}</span> : '—'}</td>
                     <td style={{ padding: 10, textAlign: 'center' }}>
                       <span onClick={() => toggleActive(s)} style={{ cursor: 'pointer', color: s.is_active ? '#22c55e' : '#ef4444', fontWeight: 600, userSelect: 'none' }}>
                         {s.is_active ? '✓ Oui' : '✕ Non'}
@@ -1273,7 +1350,7 @@ function SLADefinitions({ data, onUpdate }: { data: any[], onUpdate: () => void 
             );
           })}
           {data.length === 0 && !showCreate && (
-            <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: '#94a3b8' }}>Aucune définition SLA</td></tr>
+            <tr><td colSpan={10} style={{ padding: 30, textAlign: 'center', color: '#94a3b8' }}>Aucune définition SLA</td></tr>
           )}
         </tbody>
       </table>
@@ -1455,7 +1532,9 @@ function SLACalendars({ data, onUpdate, loading }: { data: any[], onUpdate: () =
 }
 
 // ── SLA Breaches ────────────────────────────────────────────────────
-function SLABreaches({ data, loading }: { data: any[], loading: boolean }) {
+function SLABreaches({ data, loading, onRefresh }: { data: any[], loading: boolean, onRefresh: () => void }) {
+  const [slaChecking, setSlaChecking] = useState(false);
+  const [checkMsg, setCheckMsg] = useState<string | null>(null);
   const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
     warning: { label: 'Alerte', color: '#f59e0b', bg: '#fffbeb' },
     breached: { label: 'Dépassé', color: '#ef4444', bg: '#fef2f2' },
@@ -1465,9 +1544,44 @@ function SLABreaches({ data, loading }: { data: any[], loading: boolean }) {
     resolution: 'Résolution',
   };
 
+  async function handleCheckSla() {
+    setSlaChecking(true);
+    setCheckMsg(null);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/tickets/admin/sla/check', {}, { headers: { Authorization: `Bearer ${token}` } });
+      setCheckMsg(`✅ ${res.data.message} (${res.data.breaches} dépassement(s))`);
+      onRefresh();
+    } catch (e: any) {
+      setCheckMsg(`❌ Erreur : ${e.response?.data?.message || e.message}`);
+    }
+    setSlaChecking(false);
+  }
+
   return (
     <div>
-      <h3 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Dépassements SLA actifs</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>Dépassements SLA actifs</h3>
+        <button
+          onClick={handleCheckSla}
+          disabled={slaChecking}
+          style={{
+            padding: '8px 16px',
+            background: slaChecking ? '#a5b4fc' : '#6366f1',
+            color: '#fff', border: 'none', borderRadius: 6,
+            cursor: 'pointer', fontWeight: 600, fontSize: 13,
+            display: 'flex', alignItems: 'center', gap: 6,
+            opacity: slaChecking ? 0.7 : 1,
+          }}
+        >
+          {slaChecking ? '⏳ Vérification…' : '🔍 Vérifier les SLA maintenant'}
+        </button>
+      </div>
+      {checkMsg && (
+        <div style={{ marginBottom: 12, padding: '8px 12px', background: checkMsg.startsWith('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${checkMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, fontSize: 13, color: checkMsg.startsWith('✅') ? '#166534' : '#dc2626' }}>
+          {checkMsg}
+        </div>
+      )}
       {loading ? (
         <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>
       ) : (

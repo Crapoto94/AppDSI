@@ -164,6 +164,29 @@ function calculateMatchScore(rhNom, rhPrenom, adDisplay) {
     return maxLen === 0 ? 100 : Math.round((1 - dist / maxLen) * 100);
 }
 
+/**
+ * Renvoie un timestamp "YYYY-MM-DD HH:mm:ss" en HEURE DE PARIS (sans fuseau).
+ *
+ * Contexte : les tickets historiques importés de GLPI (~40 000) sont stockés en heure
+ * locale de Paris dans des colonnes `timestamp` SANS fuseau, et le serveur (Europe/Paris)
+ * relit ces colonnes en heure locale → ils s'affichent correctement. Les écritures
+ * « hub » (app + collecteur mail) doivent donc utiliser la MÊME convention (heure de Paris)
+ * et non `toISOString()` (UTC), sinon elles apparaissent 2h trop tôt.
+ *
+ * @param {Date|string|number} [d] - date source (défaut : maintenant)
+ * @returns {string|null} ex. "2026-05-31 21:53:09"
+ */
+function toParisSql(d = new Date()) {
+    const dt = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(dt.getTime())) return null;
+    // 'sv-SE' produit déjà le format "YYYY-MM-DD HH:mm:ss"
+    return new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Europe/Paris',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(dt);
+}
+
 module.exports = {
     logMouchard,
     decodeLDAPString,
@@ -174,7 +197,8 @@ module.exports = {
     getLevenshteinDistance,
     calculateMatchScore,
     parseLDAPDate,
-    formatDateToFrench
+    formatDateToFrench,
+    toParisSql
 };
 
 /**

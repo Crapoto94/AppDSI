@@ -56,7 +56,7 @@ module.exports = {
 
         try {
             await historyRepo.log(ticketId, resolvedUserId, 'status_changed', 'status',
-                String(currentStatus), String(newStatus), comment || null);
+                String(currentStatus), String(newStatus), comment || null, user?.username || null);
         } catch (e) { console.error('[HISTORY] status_changed log failed:', e.message); }
 
         // Gestion SLA : pause/resume selon statuts "en attente"

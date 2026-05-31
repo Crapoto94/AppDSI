@@ -306,7 +306,24 @@
       "Bash(psql -h 10.103.130.106 -U postgres -d ivry_admin -c \"\\\\d glpi.tickets\")",
       "Bash(node -c backend/modules/glpi/glpi.controller.js)",
       "Bash(node -c backend/modules/tickets/repositories/ticket.repository.js)",
-      "Bash(node -c backend/modules/tickets/tickets.controller.js)"
+      "Bash(node -c backend/modules/tickets/tickets.controller.js)",
+      "Bash(cd backend *)",
+      "Bash(grep -rn \"process.env.TZ\\\\|TZ=\" server.js ../run_all.bat .env)",
+      "Bash(node -e \"const d=new Date\\(\\); console.log\\('TZ offset min:', d.getTimezoneOffset\\(\\)\\); console.log\\('local:', d.toString\\(\\)\\); console.log\\('iso/utc:', d.toISOString\\(\\)\\);\")",
+      "Bash(grep -rน \"\")",
+      "Bash(cd C:/dev/AppDSI/backend)",
+      "Bash(node -c shared/pg_db.js)",
+      "Bash(node _tzcheck.js)",
+      "Bash(rm -f _tzcheck.js)",
+      "Bash(node -c shared/utils.js)",
+      "Bash(node -c modules/tickets/repositories/ticket.repository.js)",
+      "Bash(node -c modules/mail_collector/mail_collector.service.js)",
+      "Bash(node -e \"const {toParisSql}=require\\('./shared/utils'\\); console.log\\('now      ->', toParisSql\\(\\)\\); console.log\\('email UTC ->', toParisSql\\('2026-05-31T19:53:09.000Z'\\)\\);\")",
+      "Bash(node -c modules/tickets/repositories/history.repository.js)",
+      "Bash(cd C:/dev/AppDSI)",
+      "Bash(cat run_all.bat)",
+      "Bash(grep -rEn \"mail_scheduler|mailScheduler|startScheduler|mail_collector\" backend/server.js)",
+      "Bash(node -e \"const {toParisSql}=require\\('./shared/utils'\\); console.log\\('UTC ISO   ->', toParisSql\\('2026-05-31T20:19:06Z'\\)\\); console.log\\('Paris str ->', toParisSql\\('2026-05-31 22:19:06'\\)\\); console.log\\('Date obj  ->', toParisSql\\(new Date\\('2026-05-31T20:19:06Z'\\)\\)\\);\")"
     ]
   }
 }

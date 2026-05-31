@@ -46,13 +46,13 @@ module.exports = {
         if (resolvedTechId) {
             try {
                 await historyRepo.log(ticketId, resolvedUserId, 'assigned', 'technician_id',
-                    '', String(resolvedTechId));
+                    '', String(resolvedTechId), null, user?.username || null);
             } catch (e) { console.error('[HISTORY] assign log failed:', e.message); }
 
             if (ticket.status === 1) {
                 await ticketRepo.update(ticketId, { status: 2 });
                 try {
-                    await historyRepo.log(ticketId, resolvedUserId, 'status_changed', 'status', '1', '2', 'Assignation automatique');
+                    await historyRepo.log(ticketId, resolvedUserId, 'status_changed', 'status', '1', '2', 'Assignation automatique', user?.username || null);
                 } catch (e) { console.error('[HISTORY] auto-status log failed:', e.message); }
             }
 
@@ -62,7 +62,7 @@ module.exports = {
         if (group_id) {
             try {
                 await historyRepo.log(ticketId, resolvedUserId, 'assigned_group', 'group_id',
-                    '', String(group_id));
+                    '', String(group_id), null, user?.username || null);
             } catch (e) { console.error('[HISTORY] group assign log failed:', e.message); }
         }
     },
@@ -112,7 +112,7 @@ module.exports = {
         if (resolvedUserId && !skipHistory) {
             try {
                 await historyRepo.log(ticketId, resolvedAssignedBy, 'assigned', 'technician_id',
-                    '', String(resolvedUserId));
+                    '', String(resolvedUserId), null, user?.username || null);
             } catch (e) { console.error('[HISTORY] assign log failed:', e.message); }
         }
 
@@ -120,7 +120,7 @@ module.exports = {
             await ticketRepo.update(ticketId, { status: 2 });
             if (!skipHistory) {
                 try {
-                    await historyRepo.log(ticketId, resolvedAssignedBy, 'status_changed', 'status', '1', '2', 'Assignation automatique');
+                    await historyRepo.log(ticketId, resolvedAssignedBy, 'status_changed', 'status', '1', '2', 'Assignation automatique', user?.username || null);
                 } catch (e) { console.error('[HISTORY] auto-status log failed:', e.message); }
             }
         }

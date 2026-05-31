@@ -392,29 +392,32 @@ router.post('/sla', authenticateAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.sla_definitions
-                (name, description, calendar_id, first_response_min, resolution_min, escalation_min, priority, type, category_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                (name, description, calendar_id, first_response_min, resolution_min, escalation_min, priority, impact, type, category_id, match_operator)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         `, [req.body.name, req.body.description, req.body.calendar_id || 1,
             req.body.first_response_min, req.body.resolution_min, req.body.escalation_min,
-            req.body.priority, req.body.type, req.body.category_id || null]);
+            req.body.priority, req.body.impact, req.body.type, req.body.category_id || null,
+            req.body.match_operator || 'AND']);
         res.status(201).json({ id: result.lastID, message: 'Définition SLA créée' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
 router.put('/sla/:id', authenticateAdmin, async (req, res) => {
     try {
-        const { name, description, calendar_id, first_response_min, resolution_min, escalation_min, priority, type, is_active } = req.body;
+        const { name, description, calendar_id, first_response_min, resolution_min, escalation_min, priority, impact, type, category_id, is_active, match_operator } = req.body;
         await pgDb.run(`
             UPDATE hub_tickets.sla_definitions SET
                 name = COALESCE($1, name), description = COALESCE($2, description),
                 calendar_id = COALESCE($3, calendar_id),
                 first_response_min = $4, resolution_min = $5,
-                escalation_min = $6, priority = $7, type = $8,
-                is_active = COALESCE($9, is_active)
-            WHERE id = $10
+                escalation_min = $6, priority = $7, impact = $8, type = $9,
+                category_id = $10, is_active = COALESCE($11, is_active),
+                match_operator = COALESCE($13, match_operator)
+            WHERE id = $12
         `, [name, description, calendar_id, first_response_min ?? null,
             resolution_min ?? null, escalation_min ?? null, priority ?? null,
-            type ?? null, is_active ?? null, req.params.id]);
+            impact ?? null, type ?? null, category_id ?? null,
+            is_active ?? null, req.params.id, match_operator || null]);
         res.json({ message: 'SLA mis à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
@@ -424,6 +427,16 @@ router.delete('/sla/:id', authenticateAdmin, async (req, res) => {
         await pgDb.run('UPDATE hub_tickets.sla_definitions SET is_active = false WHERE id = $1', [req.params.id]);
         res.json({ message: 'SLA désactivé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// ─── SLA Check (déclenchement manuel) ──────────────────────────
+router.post('/sla/check', authenticateAdmin, async (req, res) => {
+    try {
+        const slaService = require('./services/sla.service');
+        await slaService.checkSLAs();
+        const breaches = await slaService.getActiveBreaches();
+        res.json({ message: 'Vérification SLA terminée', breaches: breaches.length });
+    } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
 // ─── SLA Calendars ─────────────────────────────────────────────

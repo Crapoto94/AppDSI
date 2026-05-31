@@ -138,7 +138,7 @@ export default function TicketsStats() {
   );
 
   const { overview, statusDistribution, typeDistribution, priorityDistribution,
-    monthlyTrend, dailyTrend, weeklyCreated, categoryDistribution, groupDistribution, topRequesters,
+    monthlyTrend, trend, weeklyCreated, categoryDistribution, groupDistribution, topRequesters,
     technicianAssignments, resolutionTimeTrend, backlogAging,
     slaOverview, hourlyDistribution, reopened30d,
     avgResolutionHours, avgClosureHours, weeklyComparison,
@@ -219,22 +219,38 @@ export default function TicketsStats() {
 
         {/* Row 2 : cards */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-          {/* Tendance quotidienne (jours ouvrés) : créés/jour + comparaison période précédente (pointillés) */}
+          {/* Tendance adaptative : créés (histo/aire) + résolus du jour (vert) + comparaison (fond aplati) */}
           <div className="stats-card">
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>Tendance quotidienne (jours ouvrés)</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>
+              Tendance {trend?.granularity === 'day' ? 'quotidienne' : 'mensuelle'}
+            </div>
             <ResponsiveContainer width="100%" height={280}>
-              <ComposedChart data={dailyTrend || []}>
+              <ComposedChart data={trend?.data || []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: COLORS.slate }} interval="preserveStartEnd" minTickGap={16} />
                 <YAxis tick={{ fontSize: 11, fill: COLORS.slate }} allowDecimals={false} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="created" name="Créés" fill={COLORS.indigo} radius={[3, 3, 0, 0]} />
-                <Line dataKey="created_prev" name="Période précédente" stroke={COLORS.slate} strokeWidth={2} strokeDasharray="5 4" dot={false} />
+                {/* Fond aplati : comparaison (créés 28j avant / mois précédent) */}
+                {trend?.compare && (
+                  <Area type="monotone" dataKey="compare" name={trend?.compareLabel || 'Comparaison'}
+                    fill="#e2e8f0" stroke="#cbd5e1" fillOpacity={0.7} strokeWidth={1} />
+                )}
+                {/* Créés : histogramme si comparaison, sinon aire pleine (vue "Tout") */}
+                {trend?.compare ? (
+                  <Bar dataKey="created" name="Créés" fill={COLORS.indigo} radius={[3, 3, 0, 0]} />
+                ) : (
+                  <Area type="monotone" dataKey="created" name="Créés" fill={COLORS.indigoBg} stroke={COLORS.indigo} fillOpacity={0.85} strokeWidth={2} />
+                )}
+                {/* Résolus du jour/mois : ligne verte */}
+                <Line type="monotone" dataKey="resolved" name={`Résolus (${trend?.granularity === 'day' ? 'jour' : 'mois'})`}
+                  stroke={COLORS.green} strokeWidth={2.5} dot={{ r: 2 }} />
               </ComposedChart>
             </ResponsiveContainer>
             <div style={{ fontSize: 11, color: COLORS.slate, marginTop: 6 }}>
-              Barres : tickets créés par jour ouvré sur la période. Pointillés : même nombre de jours sur la période précédente (comparaison).
+              {trend?.compare
+                ? `Histogramme : tickets créés. Ligne verte : résolus ${trend?.granularity === 'day' ? 'le jour' : 'le mois'}. Fond gris : ${trend?.compareLabel?.toLowerCase()}.`
+                : 'Aire : tickets créés depuis le début. Ligne verte : tickets résolus.'}
             </div>
           </div>
 

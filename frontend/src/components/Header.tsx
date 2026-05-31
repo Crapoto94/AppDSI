@@ -71,8 +71,10 @@ const Header: React.FC<HeaderProps> = () => {
   const [newTodo, setNewTodo] = useState({ task: '', priority: 0 });
   const [isReleasing, setIsReleasing] = useState(false);
   const [showNavDropdown, setShowNavDropdown] = useState(false);
+  const [showAdminDropdown, setShowAdminDropdown] = useState(false);
   const [navTiles, setNavTiles] = useState<TileData[]>([]);
   const navDropdownRef = useRef<HTMLDivElement>(null);
+  const adminDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchChangelog();
@@ -88,12 +90,15 @@ const Header: React.FC<HeaderProps> = () => {
       if (navDropdownRef.current && !navDropdownRef.current.contains(e.target as Node)) {
         setShowNavDropdown(false);
       }
+      if (adminDropdownRef.current && !adminDropdownRef.current.contains(e.target as Node)) {
+        setShowAdminDropdown(false);
+      }
     };
-    if (showNavDropdown) {
+    if (showNavDropdown || showAdminDropdown) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showNavDropdown]);
+  }, [showNavDropdown, showAdminDropdown]);
 
   const getTileIcon = (iconName: string, size = 18) => {
     const name = iconName ? iconName.charAt(0).toUpperCase() + iconName.slice(1) : 'Box';
@@ -322,9 +327,62 @@ const Header: React.FC<HeaderProps> = () => {
               </div>
 
               {isAdminLike(user) && (
-                <Link to="/admin" className={`admin-link ${location.pathname.startsWith('/admin') ? 'active' : ''}`} title="Administration">
-                  <Settings size={20} />
-                </Link>
+                <div ref={adminDropdownRef} style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setShowAdminDropdown(v => !v)}
+                    className={`admin-link ${location.pathname.startsWith('/admin') ? 'active' : ''}`}
+                    title="Administration"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '8px', borderRadius: 8, color: location.pathname.startsWith('/admin') ? 'var(--secondary-color)' : '#64748b' }}
+                  >
+                    <Settings size={20} />
+                  </button>
+                  {showAdminDropdown && (
+                    <div className="nav-dropdown" style={{ right: 0, left: 'auto', minWidth: 200 }}>
+                      <div className="nav-dropdown-header">Administration</div>
+                      <div className="nav-dropdown-list">
+                        <Link to="/admin" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🏠 Accueil
+                        </Link>
+                        <Link to="/admin/hub" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          ⚙️ Hub
+                        </Link>
+                        <Link to="/admin/users" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          👥 Utilisateurs
+                        </Link>
+                        <Link to="/admin/tickets" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🎫 Tickets
+                        </Link>
+                        <Link to="/admin/glpi" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🔄 GLPI
+                        </Link>
+                        <Link to="/admin/param-ville" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🏛️ Param Ville
+                        </Link>
+                        <Link to="/admin/organisation" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🏢 Organisation
+                        </Link>
+                        <Link to="/admin/mail" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          📧 Mail
+                        </Link>
+                        <Link to="/admin/sql" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🗄️ SQL
+                        </Link>
+                        <Link to="/admin/settings" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🔧 Paramètres
+                        </Link>
+                        <Link to="/admin/ged" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          📄 GED
+                        </Link>
+                        <Link to="/admin/inventaire" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          📦 Inventaire
+                        </Link>
+                        <Link to="/admin/security" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🔒 Sécurité
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               <button onClick={handleLogout} className="btn-logout" title="Déconnexion">
                 <LogOut size={20} />

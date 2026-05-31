@@ -218,7 +218,7 @@ async assign(req, res) {
 
             // Log group escalade event
             try {
-                await historyRepo.log(ticketId, resolvedUserId, 'assigned_group', 'group_id', '', String(group_id), `Escaladé au groupe ${group.name}`);
+                await historyRepo.log(ticketId, resolvedUserId, 'assigned_group', 'group_id', '', String(group_id), `Escaladé au groupe ${group.name}`, req.user.username);
             } catch (e) { console.error('[HISTORY] group escalade log failed:', e.message); }
 
             // Assign to all members of the group (skip individual history)
@@ -237,7 +237,7 @@ async assign(req, res) {
             if (ticket && ticket.status === 1) {
                 await ticketRepo.update(ticketId, { status: 2 });
                 try {
-                    await historyRepo.log(ticketId, resolvedUserId, 'status_changed', 'status', '1', '2', 'Escalade automatique');
+                    await historyRepo.log(ticketId, resolvedUserId, 'status_changed', 'status', '1', '2', 'Escalade automatique', req.user.username);
                 } catch (e) { console.error('[HISTORY] auto-status log failed:', e.message); }
             }
 
@@ -313,7 +313,7 @@ async assign(req, res) {
             await ticketRepo.update(ticketId, { is_vip: newVip });
             try {
                 await historyRepo.log(ticketId, req.user.id, newVip ? 'vip_set' : 'vip_unset', null, null, null,
-                    `Ticket ${newVip ? 'marqué VIP' : 'retiré VIP'} par ${req.user.displayName || req.user.username}`);
+                    `Ticket ${newVip ? 'marqué VIP' : 'retiré VIP'} par ${req.user.displayName || req.user.username}`, req.user.username);
             } catch (e) { console.error('[HISTORY] toggleVip log failed:', e.message); }
             res.json({ is_vip: newVip });
         } catch (error) {
@@ -392,7 +392,7 @@ async assign(req, res) {
             const comment = await commentRepo.create(ticketId, { content, is_private }, req.user);
             try {
                 await historyRepo.log(ticketId, req.user.id, 'comment_added', null, null, null,
-                    `Commentaire ${is_private ? 'interne ' : ''}ajouté par ${req.user.displayName || req.user.username}`);
+                    `Commentaire ${is_private ? 'interne ' : ''}ajouté par ${req.user.displayName || req.user.username}`, req.user.username);
             } catch (e) { console.error('[HISTORY] addComment log failed:', e.message); }
             // Première réponse SLA si commentaire public
             if (!is_private) {
@@ -407,7 +407,7 @@ async assign(req, res) {
                 try {
                     await commentRepo.create(sibId, { content, is_private }, req.user);
                     await historyRepo.log(sibId, req.user.id, 'comment_added', null, null, null,
-                        `Commentaire propagé depuis #${ticketId} (groupe)`);
+                        `Commentaire propagé depuis #${ticketId} (groupe)`, req.user.username);
                 } catch (e) { console.error(`[GROUP] comment propagation to #${sibId} failed:`, e.message); }
             }
 
@@ -434,7 +434,7 @@ async assign(req, res) {
 
             try {
                 await historyRepo.log(ticketId, req.user.id, 'comment_sent_to_requester', null, null, null,
-                    `Commentaire envoyé par email au demandeur par ${req.user.displayName || req.user.username}`);
+                    `Commentaire envoyé par email au demandeur par ${req.user.displayName || req.user.username}`, req.user.username);
             } catch (e) { console.error('[HISTORY] sendComment log failed:', e.message); }
 
             if (_sendMail) {
@@ -527,7 +527,7 @@ async assign(req, res) {
             const { action, comment } = req.body;
             const ticketId = parseInt(req.params.id);
             try {
-                await historyRepo.log(ticketId, req.user.id, action || 'activity', null, null, null, comment || null);
+                await historyRepo.log(ticketId, req.user.id, action || 'activity', null, null, null, comment || null, req.user.username);
             } catch (e) { console.error('[HISTORY] logActivity failed:', e.message); }
             res.json({ message: 'Activité enregistrée' });
         } catch (error) {
@@ -837,7 +837,7 @@ async assign(req, res) {
             if (!finalUserId) return res.status(400).json({ message: 'Impossible de déterminer l\'utilisateur' });
             await observerRepo.add(ticketId, finalUserId, { displayName: name, username, email });
             console.log('[ADD_OBSERVER] success: added user %s to ticket %s', finalUserId, ticketId);
-            await historyRepo.log(ticketId, req.user.id, 'observer_added', 'observer', null, String(finalUserId), 'Observateur ajouté');
+            await historyRepo.log(ticketId, req.user.id, 'observer_added', 'observer', null, String(finalUserId), 'Observateur ajouté', req.user.username);
             res.json({ message: 'Observateur ajouté' });
         } catch (error) {
             res.status(400).json({ message: error.message });
@@ -849,7 +849,7 @@ async assign(req, res) {
             const ticketId = parseInt(req.params.id);
             const userId = parseInt(req.params.userId);
             await observerRepo.remove(ticketId, userId);
-            await historyRepo.log(ticketId, req.user.id, 'observer_removed', 'observer', null, String(userId), 'Observateur retiré');
+            await historyRepo.log(ticketId, req.user.id, 'observer_removed', 'observer', null, String(userId), 'Observateur retiré', req.user.username);
             res.json({ message: 'Observateur retiré' });
         } catch (error) {
             res.status(400).json({ message: error.message });

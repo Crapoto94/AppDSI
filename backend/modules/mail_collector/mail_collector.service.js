@@ -7,6 +7,7 @@ const observerRepo = require('../tickets/repositories/observer.repository');
 const commentRepo = require('../tickets/repositories/comment.repository');
 const attachmentRepo = require('../tickets/repositories/attachment.repository');
 const ticketRepo = require('../tickets/repositories/ticket.repository');
+const { toParisSql } = require('../../shared/utils');
 const fs = require('fs');
 const path = require('path');
 
@@ -182,7 +183,12 @@ class MailCollectorService {
     const subject = (email.subject || 'Sans titre').substring(0, 255);
     const bodyContent = email.body?.content || email.bodyPreview || '';
 
-    const emailDate = email.receivedDateTime ? new Date(email.receivedDateTime).toISOString() : new Date().toISOString();
+    // Heure de Paris (sans fuseau) pour rester cohérent avec les tickets GLPI et l'affichage.
+    // receivedDateTime (Microsoft Graph) est en UTC : on force le 'Z' s'il manque, sinon
+    // new Date() l'interpréterait en heure locale → décalage.
+    let rdt = email.receivedDateTime;
+    if (typeof rdt === 'string' && rdt && !/(Z|[+-]\d{2}:?\d{2})$/.test(rdt)) rdt += 'Z';
+    const emailDate = toParisSql(rdt ? new Date(rdt) : new Date());
 
     const ticketId = await ticketRepo.create({
       title: subject,

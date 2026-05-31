@@ -468,6 +468,9 @@ async function setupPgDb() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_ticket ON hub_tickets.ticket_history(ticket_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_created ON hub_tickets.ticket_history(created_at DESC)`);
+    // Auteur de l'action stocké par USERNAME (l'id du JWT vient de SQLite et ne correspond
+    // PAS à hub.users.id en PostgreSQL → un id-join affiche le mauvais utilisateur).
+    try { await client.query(`ALTER TABLE hub_tickets.ticket_history ADD COLUMN IF NOT EXISTS username VARCHAR(255)`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.sla_calendars (
@@ -516,6 +519,8 @@ async function setupPgDb() {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_sla_definitions_name ON hub_tickets.sla_definitions(name);
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_sla_def_prio ON hub_tickets.sla_definitions(priority)`);
+    await client.query(`ALTER TABLE hub_tickets.sla_definitions ADD COLUMN IF NOT EXISTS impact INTEGER`);
+    await client.query(`ALTER TABLE hub_tickets.sla_definitions ADD COLUMN IF NOT EXISTS match_operator VARCHAR(10) DEFAULT 'AND'`);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_sla (
@@ -620,6 +625,40 @@ async function setupPgDb() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_nl_ticket ON hub_tickets.notification_logs(ticket_id)`);
+
+    // ── Migration fuseau horaire — LOT 1 : colonnes UTC pures (affichage seul) ──────────
+    // Contexte : la session DB est en UTC ; ces colonnes sont écrites via DEFAULT
+    // CURRENT_TIMESTAMP (donc heure murale UTC) mais stockées en `timestamp` SANS fuseau.
+    // node-postgres les relit alors en heure locale du serveur (Europe/Paris) → l'affichage
+    // apparaît 2h trop tôt. On les passe en `timestamptz` en déclarant l'existant comme UTC,
+    // ce qui restitue un instant correct (le front les affiche ensuite à la bonne heure locale,
+    // sans modification front).
+    // ⚠️ Volontairement EXCLU de ce lot : les colonnes SLA (échéances en heure de Paris +
+    //    comparaison SQL `NOW() AT TIME ZONE 'Europe/Paris'`) et toute colonne écrite via
+    //    `new Date()` brut (heure de Paris) — elles seront traitées dans un lot dédié avec
+    //    les changements de code coordonnés.
+    for (const [tbl, col] of [
+      ['ticket_history', 'created_at'],
+      ['notification_queue', 'created_at'],
+      ['notification_logs', 'sent_at'],
+    ]) {
+      try {
+        await client.query(`
+          DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'hub_tickets' AND table_name = '${tbl}'
+                AND column_name = '${col}' AND data_type = 'timestamp without time zone'
+            ) THEN
+              EXECUTE 'ALTER TABLE hub_tickets.${tbl} ALTER COLUMN ${col} TYPE timestamptz USING ${col} AT TIME ZONE ''UTC''';
+              RAISE NOTICE '[tz] hub_tickets.${tbl}.${col} -> timestamptz';
+            END IF;
+          END $$;
+        `);
+      } catch (e) { console.log('[DB][tz] skip', tbl, col, ':', e.message); }
+    }
+    console.log('[DB][tz] LOT 1 (history / notifications) vérifié');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.assignment_rules (
