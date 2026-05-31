@@ -86,3 +86,7 @@ backend/magapp_img/*
 # Test data
 printer_attributes.csv
 .aider*
+
+# Sauvegardes / donnees volumineuses ou sensibles (ajout)
+backend/file_certif_old/
+backend/file_reunions/*.vtt
