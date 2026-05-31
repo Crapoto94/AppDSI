@@ -228,29 +228,33 @@ export default function TicketsStats() {
               <ComposedChart data={trend?.data || []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: COLORS.slate }} interval="preserveStartEnd" minTickGap={16} />
-                <YAxis tick={{ fontSize: 11, fill: COLORS.slate }} allowDecimals={false} />
+                <YAxis yAxisId="left" tick={{ fontSize: 11, fill: COLORS.slate }} allowDecimals={false} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: COLORS.amber }} allowDecimals={false} />
                 <Tooltip />
                 <Legend />
                 {/* Fond aplati : comparaison (créés 28j avant / mois précédent) */}
                 {trend?.compare && (
-                  <Area type="monotone" dataKey="compare" name={trend?.compareLabel || 'Comparaison'}
+                  <Area yAxisId="left" type="monotone" dataKey="compare" name={trend?.compareLabel || 'Comparaison'}
                     fill="#e2e8f0" stroke="#cbd5e1" fillOpacity={0.7} strokeWidth={1} />
                 )}
                 {/* Créés : histogramme si comparaison, sinon aire pleine (vue "Tout") */}
                 {trend?.compare ? (
-                  <Bar dataKey="created" name="Créés" fill={COLORS.indigo} radius={[3, 3, 0, 0]} />
+                  <Bar yAxisId="left" dataKey="created" name="Créés" fill={COLORS.indigo} radius={[3, 3, 0, 0]} />
                 ) : (
-                  <Area type="monotone" dataKey="created" name="Créés" fill={COLORS.indigoBg} stroke={COLORS.indigo} fillOpacity={0.85} strokeWidth={2} />
+                  <Area yAxisId="left" type="monotone" dataKey="created" name="Créés" fill={COLORS.indigoBg} stroke={COLORS.indigo} fillOpacity={0.85} strokeWidth={2} />
                 )}
                 {/* Résolus du jour/mois : ligne verte */}
-                <Line type="monotone" dataKey="resolved" name={`Résolus (${trend?.granularity === 'day' ? 'jour' : 'mois'})`}
+                <Line yAxisId="left" type="monotone" dataKey="resolved" name={`Résolus (${trend?.granularity === 'day' ? 'jour' : 'mois'})`}
                   stroke={COLORS.green} strokeWidth={2.5} dot={{ r: 2 }} />
+                {/* Backlog : tickets ouverts à chaque date (axe de droite) */}
+                <Line yAxisId="right" type="monotone" dataKey="open" name="Ouverts (backlog)"
+                  stroke={COLORS.amber} strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
             <div style={{ fontSize: 11, color: COLORS.slate, marginTop: 6 }}>
               {trend?.compare
-                ? `Histogramme : tickets créés. Ligne verte : résolus ${trend?.granularity === 'day' ? 'le jour' : 'le mois'}. Fond gris : ${trend?.compareLabel?.toLowerCase()}.`
-                : 'Aire : tickets créés depuis le début. Ligne verte : tickets résolus.'}
+                ? `Histogramme : créés. Ligne verte : résolus ${trend?.granularity === 'day' ? 'le jour' : 'le mois'}. Ligne orange (axe droit) : tickets ouverts (backlog). Fond gris : ${trend?.compareLabel?.toLowerCase()}.`
+                : 'Aire : créés. Ligne verte : résolus. Ligne orange (axe droit) : tickets ouverts (backlog).'}
             </div>
           </div>
 

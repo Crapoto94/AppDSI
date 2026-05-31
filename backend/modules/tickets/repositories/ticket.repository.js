@@ -1030,15 +1030,23 @@ module.exports = {
                 const data = await pgDb.all(`
                     WITH days AS (
                         SELECT gs::date AS d FROM generate_series('${from}'::date, '${to}'::date, INTERVAL '1 day') gs
+                    ),
+                    cr AS (SELECT t.date_creation::date d, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1),
+                    rs AS (SELECT t.date_solved::date d, COUNT(*) n FROM hub_tickets.tickets t WHERE t.date_solved IS NOT NULL${grpAnd} GROUP BY 1),
+                    base AS (
+                        SELECT COUNT(*) n FROM hub_tickets.tickets t
+                        WHERE t.status::int <> 8 AND t.date_creation::date < '${from}'::date
+                          AND (t.date_solved IS NULL OR t.date_solved::date >= '${from}'::date)${grpAnd}
                     )
                     SELECT TO_CHAR(days.d,'DD/MM') AS label, TO_CHAR(days.d,'YYYY-MM-DD') AS bucket,
                            COALESCE(cr.n,0)::int AS created,
                            COALESCE(rs.n,0)::int AS resolved,
-                           COALESCE(cmp.n,0)::int AS compare
+                           COALESCE(cmp.n,0)::int AS compare,
+                           ((SELECT n FROM base) + SUM(COALESCE(cr.n,0) - COALESCE(rs.n,0)) OVER (ORDER BY days.d))::int AS open
                     FROM days
-                    LEFT JOIN (SELECT t.date_creation::date d, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cr ON cr.d = days.d
-                    LEFT JOIN (SELECT t.date_solved::date d, COUNT(*) n FROM hub_tickets.tickets t WHERE t.date_solved IS NOT NULL${grpAnd} GROUP BY 1) rs ON rs.d = days.d
-                    LEFT JOIN (SELECT t.date_creation::date d, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cmp ON cmp.d = days.d - 28
+                    LEFT JOIN cr ON cr.d = days.d
+                    LEFT JOIN rs ON rs.d = days.d
+                    LEFT JOIN cr cmp ON cmp.d = days.d - 28
                     ORDER BY days.d
                 `);
                 trend = { granularity: 'day', compare: true, compareLabel: 'Créés (il y a 28 j)', data };
@@ -1046,15 +1054,23 @@ module.exports = {
                 const data = await pgDb.all(`
                     WITH months AS (
                         SELECT gs::date AS m FROM generate_series(DATE_TRUNC('month','${from}'::date), DATE_TRUNC('month','${to}'::date), INTERVAL '1 month') gs
+                    ),
+                    cr AS (SELECT DATE_TRUNC('month',t.date_creation)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1),
+                    rs AS (SELECT DATE_TRUNC('month',t.date_solved)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.date_solved IS NOT NULL${grpAnd} GROUP BY 1),
+                    base AS (
+                        SELECT COUNT(*) n FROM hub_tickets.tickets t
+                        WHERE t.status::int <> 8 AND t.date_creation < DATE_TRUNC('month','${from}'::date)
+                          AND (t.date_solved IS NULL OR t.date_solved >= DATE_TRUNC('month','${from}'::date))${grpAnd}
                     )
                     SELECT TO_CHAR(months.m,'Mon YYYY') AS label, TO_CHAR(months.m,'YYYY-MM') AS bucket,
                            COALESCE(cr.n,0)::int AS created,
                            COALESCE(rs.n,0)::int AS resolved,
-                           COALESCE(cmp.n,0)::int AS compare
+                           COALESCE(cmp.n,0)::int AS compare,
+                           ((SELECT n FROM base) + SUM(COALESCE(cr.n,0) - COALESCE(rs.n,0)) OVER (ORDER BY months.m))::int AS open
                     FROM months
-                    LEFT JOIN (SELECT DATE_TRUNC('month',t.date_creation)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cr ON cr.m = months.m
-                    LEFT JOIN (SELECT DATE_TRUNC('month',t.date_solved)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.date_solved IS NOT NULL${grpAnd} GROUP BY 1) rs ON rs.m = months.m
-                    LEFT JOIN (SELECT DATE_TRUNC('month',t.date_creation)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cmp ON cmp.m = months.m - INTERVAL '1 month'
+                    LEFT JOIN cr ON cr.m = months.m
+                    LEFT JOIN rs ON rs.m = months.m
+                    LEFT JOIN cr cmp ON cmp.m = months.m - INTERVAL '1 month'
                     ORDER BY months.m
                 `);
                 trend = { granularity: 'month', compare: true, compareLabel: 'Créés (mois précédent)', data };
@@ -1068,12 +1084,16 @@ module.exports = {
                 months AS (
                     SELECT gs::date AS m FROM bounds, generate_series(bounds.mn, bounds.mx, INTERVAL '1 month') gs
                 )
+                ,
+                cr AS (SELECT DATE_TRUNC('month',t.date_creation)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1),
+                rs AS (SELECT DATE_TRUNC('month',t.date_solved)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.date_solved IS NOT NULL${grpAnd} GROUP BY 1)
                 SELECT TO_CHAR(months.m,'Mon YYYY') AS label, TO_CHAR(months.m,'YYYY-MM') AS bucket,
                        COALESCE(cr.n,0)::int AS created,
-                       COALESCE(rs.n,0)::int AS resolved
+                       COALESCE(rs.n,0)::int AS resolved,
+                       (SUM(COALESCE(cr.n,0) - COALESCE(rs.n,0)) OVER (ORDER BY months.m))::int AS open
                 FROM months
-                LEFT JOIN (SELECT DATE_TRUNC('month',t.date_creation)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.status::int <> 8${grpAnd} GROUP BY 1) cr ON cr.m = months.m
-                LEFT JOIN (SELECT DATE_TRUNC('month',t.date_solved)::date m, COUNT(*) n FROM hub_tickets.tickets t WHERE t.date_solved IS NOT NULL${grpAnd} GROUP BY 1) rs ON rs.m = months.m
+                LEFT JOIN cr ON cr.m = months.m
+                LEFT JOIN rs ON rs.m = months.m
                 ORDER BY months.m
             `);
             trend = { granularity: 'month', compare: false, data };
