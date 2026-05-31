@@ -40,8 +40,13 @@ router.post('/sync-groups', authenticateInternalOrAdmin, glpiController.fetchGlp
 router.get('/sync-groups-status', authenticateGLPIControl, glpiController.getGroupsStatus);
 router.post('/sync-groups-cancel', authenticateGLPIControl, glpiController.cancelGroupsSync);
 
-// Document proxy (images dans les descriptions de tickets)
+// Document proxy / cache local (images dans les descriptions de tickets)
 router.get('/document/:docid', authenticateJWT, glpiController.getDocument);
+
+// Import en masse des images GLPI (mise en cache locale pérenne)
+router.post('/import-images', authenticateAdmin, glpiController.importImages);
+router.get('/import-images-status', authenticateGLPIControl, glpiController.getImportImagesStatus);
+router.post('/import-images-cancel', authenticateGLPIControl, glpiController.cancelImportImages);
 
 // Profiles & Logs
 router.get('/my-profile', authenticateGLPIControl, glpiController.getMyProfile);

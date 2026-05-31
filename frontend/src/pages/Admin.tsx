@@ -171,6 +171,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [observersSyncStatus, setObserversSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [followupsSyncStatus, setFollowupsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [descriptionsSyncStatus, setDescriptionsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
+  const [isImportingImages, setIsImportingImages] = useState(false);
+  const [imagesImportStatus, setImagesImportStatus] = useState<any>({ active: false, processed: 0, total: 0, ok: 0, missing: 0, errors: 0, skipped: 0, message: '' });
   const [namesSyncStatus, setNamesSyncStatus] = useState<{ active: boolean; processed: number; total: number; resolved: number; source: string | null }>({ active: false, processed: 0, total: 0, resolved: 0, source: null });
   const [isSyncingGroups, setIsSyncingGroups] = useState(false);
   const [groupsSyncStatus, setGroupsSyncStatus] = useState<{ active: boolean; processed: number; total: number }>({ active: false, processed: 0, total: 0 });
@@ -1180,6 +1182,30 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       setIsSyncingDescriptions(false);
       setDescriptionsSyncStatus(prev => ({ ...prev, active: false }));
       clearInterval(pollInterval);
+    }
+  };
+
+  const handleImportImages = async () => {
+    if (!window.confirm('Importer en local toutes les images/documents GLPI référencés dans les tickets ?\nÀ lancer avant le décommissionnement de GLPI. L\'opération est reprenable (les documents déjà en cache sont ignorés).')) return;
+
+    setIsImportingImages(true);
+    setImagesImportStatus({ active: true, processed: 0, total: 0, ok: 0, missing: 0, errors: 0, skipped: 0, message: 'Analyse…' });
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await axios.get('/api/glpi/import-images-status', { headers: { Authorization: `Bearer ${token}` } });
+        setImagesImportStatus(res.data);
+        if (!res.data.active) { clearInterval(pollInterval); setIsImportingImages(false); }
+      } catch (e) { console.error('Erreur polling images:', e); }
+    }, 1500);
+
+    try {
+      await axios.post('/api/glpi/import-images', {}, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Erreur lors du démarrage de l\'import des images');
+      clearInterval(pollInterval);
+      setIsImportingImages(false);
+      setImagesImportStatus((prev: any) => ({ ...prev, active: false }));
     }
   };
 
@@ -3722,6 +3748,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <span>{isSyncingGroups ? `${groupsSyncStatus.processed}/${groupsSyncStatus.total}` : 'Groupes'}</span>
                             </button>
 
+                            <button onClick={handleImportImages} className="action-tile" disabled={isImportingImages || !glpiConfig.is_enabled} title="Rapatrie en local toutes les images des tickets (avant arrêt de GLPI)" style={{ background: '#e0f2fe', color: '#075985', border: '1px solid #7dd3fc' }}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                <span>{isImportingImages ? `${imagesImportStatus.processed}/${imagesImportStatus.total}` : 'Images GLPI'}</span>
+                            </button>
+
                         </div>
 
                         {namesSyncStatus.active && (
@@ -3827,6 +3858,30 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                     <span>{descriptionsSyncStatus.processed.toLocaleString()} / {descriptionsSyncStatus.total.toLocaleString()}</span>
                                     <button className="btn-cancel-sync" onClick={() => axios.post('/api/glpi/sync-descriptions-cancel', {}, { headers: { Authorization: `Bearer ${token}` } })}>Annuler</button>
                                 </div>
+                            </div>
+                        )}
+
+                        {(imagesImportStatus.active || (imagesImportStatus.message && imagesImportStatus.processed > 0)) && (
+                            <div className="sync-progress-box" style={{ marginTop: '10px', borderColor: '#0284c7' }}>
+                                <div className="progress-header">
+                                    <div className="progress-label">
+                                        {imagesImportStatus.active && <span className="progress-spinner">⟳</span>}
+                                        Import des images GLPI {imagesImportStatus.phase === 'scan' ? '(analyse…)' : ''}
+                                    </div>
+                                    <div className="progress-percent">
+                                        {imagesImportStatus.total > 0 ? Math.round((imagesImportStatus.processed / imagesImportStatus.total) * 100) : 0}%
+                                    </div>
+                                </div>
+                                <div className="progress-bar-container">
+                                    <div className="progress-bar-fill" style={{ width: `${imagesImportStatus.total > 0 ? (imagesImportStatus.processed / imagesImportStatus.total) * 100 : 0}%`, transition: 'width 0.3s ease', backgroundColor: '#0284c7' }}>
+                                        <div className="progress-bar-shimmer"></div>
+                                    </div>
+                                </div>
+                                <div className="progress-stats">
+                                    <span>{(imagesImportStatus.processed || 0).toLocaleString()} / {(imagesImportStatus.total || 0).toLocaleString()} — ✅ {imagesImportStatus.ok || 0} · ⏭️ {imagesImportStatus.skipped || 0} · ∅ {imagesImportStatus.missing || 0} · ⚠️ {imagesImportStatus.errors || 0}</span>
+                                    {imagesImportStatus.active && <button className="btn-cancel-sync" onClick={() => axios.post('/api/glpi/import-images-cancel', {}, { headers: { Authorization: `Bearer ${token}` } })}>Annuler</button>}
+                                </div>
+                                {imagesImportStatus.message && <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>{imagesImportStatus.message}</div>}
                             </div>
                         )}
 

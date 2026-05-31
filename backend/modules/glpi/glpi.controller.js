@@ -1758,36 +1758,55 @@ const glpiController = {
         }
     },
 
-    // ─── Proxy de téléchargement de documents GLPI (images dans descriptions) ──
+    // ─── Service de document GLPI : cache local d'abord, repli API GLPI (+ mise en cache) ──
     getDocument: async (req, res) => {
         try {
             const docid = parseInt(req.params.docid || req.query.docid, 10);
             if (!docid || Number.isNaN(docid)) return res.status(400).json({ message: 'docid invalide' });
+            const ticketId = parseInt(req.query.tickets_id || req.query.ticket_id, 10) || null;
 
-            const session = await getGlpiApiSession();
-            if (!session) return res.status(502).json({ message: 'Session GLPI indisponible' });
-            const { url, sessionToken, appToken } = session;
+            // 1) Cache local
+            const cached = await pgDb.get('SELECT * FROM hub_tickets.glpi_documents WHERE docid = $1', [docid]);
+            if (cached && cached.status === 'ok' && cached.local_path && fs.existsSync(cached.local_path)) {
+                res.set('Content-Type', cached.mime || 'application/octet-stream');
+                res.set('Cache-Control', 'private, max-age=604800');
+                res.set('Content-Disposition', 'inline');
+                return res.sendFile(path.resolve(cached.local_path));
+            }
+            if (cached && cached.status === 'missing') return res.status(404).json({ message: 'Document introuvable' });
 
-            const docRes = await axios.get(`${url}/Document/${docid}`, {
-                headers: {
-                    'App-Token': appToken,
-                    'Session-Token': sessionToken,
-                    'Accept': 'application/octet-stream',
-                },
-                responseType: 'arraybuffer',
-                timeout: 20000,
-            });
-
-            const ct = docRes.headers['content-type'] || 'application/octet-stream';
-            res.set('Content-Type', ct);
-            res.set('Cache-Control', 'private, max-age=86400');
+            // 2) Repli : téléchargement depuis GLPI + mise en cache locale
+            const doc = await fetchAndCacheDocument(docid, ticketId);
+            if (!doc || doc.status !== 'ok') {
+                return res.status(doc?.httpStatus === 404 ? 404 : 502).json({ message: `Document GLPI indisponible` });
+            }
+            res.set('Content-Type', doc.mime || 'application/octet-stream');
+            res.set('Cache-Control', 'private, max-age=604800');
             res.set('Content-Disposition', 'inline');
-            return res.send(Buffer.from(docRes.data));
+            return res.sendFile(path.resolve(doc.local_path));
         } catch (error) {
-            const status = error.response?.status || 500;
-            console.error('[GLPI] getDocument error:', status, error.message);
-            return res.status(status === 404 ? 404 : 502).json({ message: `Document GLPI indisponible (${status})` });
+            console.error('[GLPI] getDocument error:', error.message);
+            return res.status(502).json({ message: `Document GLPI indisponible` });
         }
+    },
+
+    // ─── Import en masse des images/documents GLPI référencés dans les tickets ──
+    importImages: async (req, res) => {
+        if (glpiImagesProgress.active) {
+            return res.status(409).json({ message: 'Import déjà en cours', progress: glpiImagesProgress });
+        }
+        // Démarre en arrière-plan ; le client suit via /import-images-status
+        runImportImages().catch(e => console.error('[GLPI IMG] import fatal:', e.message));
+        res.json({ message: 'Import des images GLPI démarré' });
+    },
+
+    getImportImagesStatus: async (req, res) => {
+        res.json(glpiImagesProgress);
+    },
+
+    cancelImportImages: async (req, res) => {
+        glpiImagesCancelled = true;
+        res.json({ message: 'Annulation demandée' });
     },
 
 };
@@ -1822,6 +1841,130 @@ async function getGlpiApiSession() {
     } catch (e) { /* non bloquant */ }
     _glpiSessionCache = { url, sessionToken, appToken, expiresAt: now + 10 * 60 * 1000 };
     return _glpiSessionCache;
+}
+
+// ─── Cache local des documents GLPI ───────────────────────────────────
+function getDocsDir() {
+    const dir = path.join(__dirname, '..', '..', 'uploads', 'glpi_docs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    return dir;
+}
+
+function extFromMime(mime) {
+    const map = {
+        'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/gif': '.gif',
+        'image/webp': '.webp', 'image/bmp': '.bmp', 'image/svg+xml': '.svg',
+        'application/pdf': '.pdf', 'text/plain': '.txt',
+    };
+    return map[(mime || '').split(';')[0].trim().toLowerCase()] || '';
+}
+
+async function upsertDoc(docid, { status, ticketId = null, error = null, filename = null, mime = null, localPath = null, size = null }) {
+    await pool.query(
+        `INSERT INTO hub_tickets.glpi_documents (docid, filename, mime, local_path, byte_size, ticket_id, status, error, fetched_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+         ON CONFLICT (docid) DO UPDATE SET
+            filename = EXCLUDED.filename, mime = EXCLUDED.mime, local_path = EXCLUDED.local_path,
+            byte_size = EXCLUDED.byte_size, ticket_id = COALESCE(EXCLUDED.ticket_id, hub_tickets.glpi_documents.ticket_id),
+            status = EXCLUDED.status, error = EXCLUDED.error, fetched_at = NOW()`,
+        [docid, filename, mime, localPath, size, ticketId, status, error]
+    );
+}
+
+// Télécharge un document GLPI via l'API REST et le met en cache sur disque.
+async function fetchAndCacheDocument(docid, ticketId) {
+    try {
+        const session = await getGlpiApiSession();
+        if (!session) return { status: 'error', error: 'no_session' };
+        const { url, sessionToken, appToken } = session;
+        let docRes;
+        try {
+            docRes = await axios.get(`${url}/Document/${docid}`, {
+                headers: { 'App-Token': appToken, 'Session-Token': sessionToken, 'Accept': 'application/octet-stream' },
+                responseType: 'arraybuffer', timeout: 30000,
+            });
+        } catch (e) {
+            const st = e.response?.status;
+            if (st === 404) { await upsertDoc(docid, { status: 'missing', ticketId, error: 'not_found' }); return { status: 'missing', httpStatus: 404 }; }
+            await upsertDoc(docid, { status: 'error', ticketId, error: e.message });
+            return { status: 'error', error: e.message, httpStatus: st };
+        }
+        const buf = Buffer.from(docRes.data);
+        const mime = (docRes.headers['content-type'] || 'application/octet-stream').split(';')[0].trim();
+        // GLPI renvoie une page HTML de login si la session n'est pas valide → ne pas mettre en cache
+        if (mime.includes('text/html')) { await upsertDoc(docid, { status: 'error', ticketId, error: 'html_login' }); return { status: 'error', error: 'html_login' }; }
+        let filename = `glpi_${docid}`;
+        const cd = docRes.headers['content-disposition'];
+        if (cd) { const fm = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd); if (fm) filename = decodeURIComponent(fm[1]); }
+        if (!path.extname(filename)) filename += extFromMime(mime);
+        const safe = `${docid}_` + filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const localPath = path.join(getDocsDir(), safe);
+        fs.writeFileSync(localPath, buf);
+        await upsertDoc(docid, { status: 'ok', ticketId, filename, mime, localPath, size: buf.length });
+        return { status: 'ok', mime, local_path: localPath };
+    } catch (e) {
+        try { await upsertDoc(docid, { status: 'error', ticketId, error: e.message }); } catch (_) {}
+        return { status: 'error', error: e.message };
+    }
+}
+
+// Scanne les champs HTML des tickets à la recherche des références document.send.php
+async function scanGlpiDocRefs() {
+    const map = new Map(); // docid -> ticket_id d'exemple
+    const addFrom = (text, ticketId) => {
+        if (!text) return;
+        const re = /document\.send\.php\?([^"'\s<>]*)/gi;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            const qs = m[1].replace(/&amp;/g, '&');
+            const dm = /docid=(\d+)/.exec(qs);
+            if (dm) { const id = parseInt(dm[1], 10); if (id && !map.has(id)) map.set(id, ticketId); }
+        }
+    };
+    const tickets = await pgDb.all(`SELECT glpi_id, content, solution FROM hub_tickets.tickets WHERE content LIKE '%document.send.php%' OR solution LIKE '%document.send.php%'`);
+    for (const t of tickets) { addFrom(t.content, t.glpi_id); addFrom(t.solution, t.glpi_id); }
+    const fups = await pgDb.all(`SELECT ticket_id, content FROM hub_tickets.ticket_followups WHERE content LIKE '%document.send.php%'`);
+    for (const f of fups) addFrom(f.content, f.ticket_id);
+    return map;
+}
+
+// État de progression de l'import (suivi par le front)
+let glpiImagesProgress = { active: false, phase: null, processed: 0, total: 0, ok: 0, missing: 0, errors: 0, skipped: 0, startTime: null, lastUpdate: null, endTime: null, message: null };
+let glpiImagesCancelled = false;
+
+async function runImportImages() {
+    glpiImagesCancelled = false;
+    glpiImagesProgress = { active: true, phase: 'scan', processed: 0, total: 0, ok: 0, missing: 0, errors: 0, skipped: 0, startTime: Date.now(), lastUpdate: Date.now(), endTime: null, message: 'Analyse des tickets…' };
+    try {
+        const refs = await scanGlpiDocRefs();
+        const docids = [...refs.keys()];
+        glpiImagesProgress.total = docids.length;
+        glpiImagesProgress.phase = 'download';
+        glpiImagesProgress.message = `${docids.length} document(s) référencé(s)`;
+        console.log(`[GLPI IMG] ${docids.length} documents à récupérer`);
+        for (const docid of docids) {
+            if (glpiImagesCancelled) { glpiImagesProgress.message = 'Annulé'; break; }
+            const existing = await pgDb.get('SELECT status, local_path FROM hub_tickets.glpi_documents WHERE docid = $1', [docid]);
+            if (existing && existing.status === 'ok' && existing.local_path && fs.existsSync(existing.local_path)) {
+                glpiImagesProgress.skipped++; glpiImagesProgress.processed++; glpiImagesProgress.lastUpdate = Date.now(); continue;
+            }
+            const r = await fetchAndCacheDocument(docid, refs.get(docid));
+            if (r.status === 'ok') glpiImagesProgress.ok++;
+            else if (r.status === 'missing') glpiImagesProgress.missing++;
+            else glpiImagesProgress.errors++;
+            glpiImagesProgress.processed++;
+            glpiImagesProgress.lastUpdate = Date.now();
+            await new Promise(res => setTimeout(res, 120)); // throttle ~8 req/s
+        }
+        if (!glpiImagesCancelled) glpiImagesProgress.message = `Terminé : ${glpiImagesProgress.ok} OK, ${glpiImagesProgress.skipped} déjà en cache, ${glpiImagesProgress.missing} introuvables, ${glpiImagesProgress.errors} erreurs`;
+        console.log(`[GLPI IMG] ${glpiImagesProgress.message}`);
+    } catch (e) {
+        glpiImagesProgress.message = 'Erreur: ' + e.message;
+        console.error('[GLPI IMG] runImportImages error:', e.message);
+    } finally {
+        glpiImagesProgress.active = false;
+        glpiImagesProgress.endTime = Date.now();
+    }
 }
 
 module.exports = glpiController;

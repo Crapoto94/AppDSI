@@ -694,6 +694,20 @@ async function setupPgDb() {
     `);
     // Migration : ajout de la colonne is_elu pour les VIP hérités des élus
     await client.query(`ALTER TABLE hub_tickets.vip_users ADD COLUMN IF NOT EXISTS is_elu BOOLEAN DEFAULT FALSE`);
+    // Cache local des documents/images GLPI (pour survivre au décommissionnement de GLPI)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.glpi_documents (
+        docid INTEGER PRIMARY KEY,
+        filename VARCHAR(512),
+        mime VARCHAR(128),
+        local_path VARCHAR(1024),
+        byte_size BIGINT,
+        ticket_id INTEGER,
+        status VARCHAR(16) DEFAULT 'ok',
+        error TEXT,
+        fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.saved_filters (
         id SERIAL PRIMARY KEY,
