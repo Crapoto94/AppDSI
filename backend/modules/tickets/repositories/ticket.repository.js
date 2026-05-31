@@ -2,6 +2,9 @@ const { pgDb, pool } = require('../../../shared/database');
 
 const BASE_SELECT = `
 SELECT t.*,
+           -- Email demandeur fiable : GLPI champ 22 (requester_email_22) contient parfois
+           -- l'email du technicien ; le champ 34 (email_alt) porte alors le vrai demandeur.
+           COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22) AS requester_email_resolved,
            ta.technician_id, tga.group_id,
            tca.category_id as assigned_category_id,
            ts.label as status_label,
@@ -39,7 +42,7 @@ LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.
          LIMIT 1
      ) tga ON true
      LEFT JOIN hub_tickets.technician_groups tg2 ON tga.group_id = tg2.id
-     LEFT JOIN (SELECT DISTINCT ON (LOWER(email)) email, service_code, service_complement FROM magapp.users ORDER BY LOWER(email)) mu ON LOWER(t.requester_email_22) = LOWER(mu.email)
+     LEFT JOIN (SELECT DISTINCT ON (LOWER(email)) email, service_code, service_complement FROM magapp.users ORDER BY LOWER(email)) mu ON LOWER(mu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22))
      LEFT JOIN (SELECT DISTINCT ON (ticket_id) ticket_id, category_id FROM hub_tickets.ticket_category_assignments ORDER BY ticket_id) tca ON tca.ticket_id = t.glpi_id
      LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
       LEFT JOIN (
@@ -97,11 +100,13 @@ module.exports = {
             params.push(parseInt(filters.priority));
         }
         if (filters.technician_id) {
-            conditions.push(`ta.technician_id = $${idx++}`);
+            // Sous-requête : indépendante du JOIN ta (is_primary), matche toute affectation tech.
+            conditions.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE technician_id = $${idx++})`);
             params.push(parseInt(filters.technician_id));
         }
         if (filters.group_id) {
-            conditions.push(`ta.group_id = $${idx++}`);
+            // Les groupes sont insérés avec is_primary = false (hors du JOIN ta) → sous-requête obligatoire.
+            conditions.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE group_id = $${idx++})`);
             params.push(parseInt(filters.group_id));
         }
         if (filters.type) {
@@ -122,7 +127,7 @@ module.exports = {
             params.push(filters.my_username);
         }
         if (filters.requester_email) {
-            conditions.push(`LOWER(t.requester_email_22) = LOWER($${idx++})`);
+            conditions.push(`LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22)) = LOWER($${idx++})`);
             params.push(filters.requester_email);
         }
         if (filters.exclude_id) {
@@ -178,9 +183,9 @@ module.exports = {
         const sortDir = pagination.order === 'asc' ? 'ASC' : 'DESC';
 
         const countSql = `
-            SELECT COUNT(*) as total
+            SELECT COUNT(DISTINCT t.glpi_id) as total
             FROM hub_tickets.tickets t
-            LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id
+            LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.is_primary = true OR ta.is_primary IS NULL)
             LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
             ${where}
         `;
@@ -747,18 +752,20 @@ module.exports = {
             ORDER BY count DESC LIMIT 15
         `);
 
+        // Temps de résolution : courbe QUOTIDIENNE sur les 30 derniers jours (par date de résolution).
+        // Temps ouvré = délai création→résolution MOINS le temps passé "en attente".
         const resolutionTimeTrend = await pgDb.all(`
             SELECT
-                TO_CHAR(DATE_TRUNC('month', t.date_solved), 'YYYY-MM') as month,
+                TO_CHAR(t.date_solved::date, 'DD/MM') as month,
                 ROUND(AVG(
-                    EXTRACT(EPOCH FROM (t.date_solved - t.date_creation)) / 3600.0
+                    GREATEST(EXTRACT(EPOCH FROM (t.date_solved - t.date_creation)) - COALESCE(t.total_waiting_seconds, 0), 0) / 3600.0
                 )::numeric, 1)::float as avg_hours,
                 COUNT(*)::int as solved_count
             FROM hub_tickets.tickets t
-            WHERE t.status = '5' AND t.date_solved IS NOT NULL
-              AND t.date_solved >= CURRENT_DATE - INTERVAL '12 months'
-            GROUP BY DATE_TRUNC('month', t.date_solved)
-            ORDER BY month ASC
+            WHERE t.status IN ('5','6') AND t.date_solved IS NOT NULL
+              AND t.date_solved >= CURRENT_DATE - INTERVAL '30 days'
+            GROUP BY t.date_solved::date
+            ORDER BY t.date_solved::date ASC
         `);
 
         const backlogAging = await pgDb.all(`
@@ -783,7 +790,8 @@ module.exports = {
                 END as sort_order,
                 COUNT(*)::int as count
             FROM hub_tickets.tickets t
-            WHERE t.status IN ('1','2','3','4','5')${dcAnd}
+            -- Indicateur GLOBAL : tous les tickets ouverts (1-4), sans filtre de période ni groupe.
+            WHERE t.status IN ('1','2','3','4')
             GROUP BY range, sort_order
             ORDER BY sort_order ASC
         `);
@@ -958,12 +966,13 @@ module.exports = {
             ORDER BY observed_count DESC LIMIT 10
         `);
 
-        // Temps moyen par catégorie
+        // Temps de résolution OUVRÉ moyen par catégorie, en JOURS.
+        // Temps ouvré = (date_solved - date_creation) MOINS le temps passé "en attente".
         const categoryPerformance = await pgDb.all(`
             SELECT
                 COALESCE(c.full_path, c.name, 'Sans catégorie') as category,
                 COUNT(*)::int as count,
-                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, CURRENT_TIMESTAMP) - t.date_creation)) / 3600.0)::numeric, 1)::float as avg_resolution_hours
+                ROUND(AVG(GREATEST(EXTRACT(EPOCH FROM (t.date_solved - t.date_creation)) - COALESCE(t.total_waiting_seconds, 0), 0) / 86400.0)::numeric, 1)::float as avg_resolution_days
             FROM hub_tickets.tickets t
             LEFT JOIN hub_tickets.ticket_categories c ON t.category_id = c.id
             WHERE t.status IN ('5','6') AND t.date_solved IS NOT NULL${dcAnd}
@@ -971,8 +980,45 @@ module.exports = {
             ORDER BY count DESC LIMIT 12
         `);
 
+        // Tendance QUOTIDIENNE (jours ouvrés) sur la fenêtre sélectionnée (défaut 30 derniers jours),
+        // + comparaison sur la période précédente de même durée (ligne pointillée côté front).
+        const dFrom = range ? `'${from}'::date` : `(CURRENT_DATE - INTERVAL '29 days')::date`;
+        const dTo = range ? `'${to}'::date` : `CURRENT_DATE`;
+        const dailyTrend = await pgDb.all(`
+            WITH bounds AS (SELECT ${dFrom} AS dfrom, ${dTo} AS dto),
+            n AS (SELECT (dto - dfrom + 1) AS span FROM bounds),
+            days AS (
+                SELECT gs::date AS day
+                FROM bounds, generate_series(bounds.dfrom, bounds.dto, INTERVAL '1 day') gs
+                WHERE EXTRACT(DOW FROM gs) NOT IN (0, 6)
+            ),
+            cur AS (
+                SELECT t.date_creation::date AS d, COUNT(*)::int AS c
+                FROM hub_tickets.tickets t, bounds
+                WHERE t.status::int <> 8
+                  AND t.date_creation::date BETWEEN bounds.dfrom AND bounds.dto${grpAnd}
+                GROUP BY 1
+            ),
+            prev AS (
+                SELECT (t.date_creation::date + (SELECT span FROM n)) AS d, COUNT(*)::int AS c
+                FROM hub_tickets.tickets t, bounds, n
+                WHERE t.status::int <> 8
+                  AND t.date_creation::date BETWEEN (bounds.dfrom - n.span) AND (bounds.dto - n.span)${grpAnd}
+                GROUP BY 1
+            )
+            SELECT TO_CHAR(days.day, 'YYYY-MM-DD') AS date,
+                   TO_CHAR(days.day, 'DD/MM') AS label,
+                   COALESCE(cur.c, 0) AS created,
+                   COALESCE(prev.c, 0) AS created_prev
+            FROM days
+            LEFT JOIN cur ON cur.d = days.day
+            LEFT JOIN prev ON prev.d = days.day
+            ORDER BY days.day ASC
+        `);
+
         return {
             overview,
+            dailyTrend,
             statusDistribution: statusDist,
             typeDistribution: typeDist,
             priorityDistribution: priorityDist,

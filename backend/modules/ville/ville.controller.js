@@ -92,6 +92,58 @@ module.exports = {
     }
   },
 
+  importElus: async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: 'Aucun fichier envoyé' });
+
+      const XLSX = require('xlsx');
+      const fs = require('fs');
+      const workbook = XLSX.readFile(req.file.path, { cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+      // Nettoyer le fichier temporaire
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+
+      // Ligne 0 = en-tête, données à partir de ligne 1
+      const dataRows = rows.slice(1).filter(r => r[0] && r[1] && r[2] && r[3]);
+
+      // Supprimer tous les élus existants
+      await pgDb.run('DELETE FROM hub.elus');
+
+      let imported = 0;
+      for (const row of dataRows) {
+        const liste = String(row[0] || '').trim();
+        const nomPrenom = String(row[1] || '').trim();
+        const email = String(row[2] || '').trim();
+        const fonction = String(row[3] || '').trim();
+        const telephone = String(row[4] || '').trim();
+
+        // Split "NOM Prénom" en nom et prenom
+        const parts = nomPrenom.split(/\s+/);
+        const idx = parts.findIndex(p => /^[A-Z][a-zà-öø-ÿéèêëîïôöùûüç]/.test(p));
+        const nom = idx > 0 ? parts.slice(0, idx).join(' ') : parts[0] || '';
+        const prenom = idx > 0 ? parts.slice(idx).join(' ') : parts.slice(1).join(' ') || '';
+
+        // Normaliser le rôle
+        let role = 'Conseiller municipal';
+        if (fonction.toLowerCase().includes('maire')) role = 'Maire';
+        else if (fonction.toLowerCase().includes('adjoint')) role = 'Adjoint';
+
+        await pgDb.run(
+          'INSERT INTO hub.elus (nom, prenom, email, telephone, role, delegation) VALUES (?, ?, ?, ?, ?, ?)',
+          [nom.toUpperCase(), prenom, email || null, telephone || null, role, liste || null]
+        );
+        imported++;
+      }
+
+      logMouchard(`Import élus Excel: ${imported} importés`);
+      res.json({ message: `${imported} élu(s) importés`, imported });
+    } catch (error) {
+      res.status(500).json({ message: 'Erreur import élus', error: error.message });
+    }
+  },
+
   // Onglet Sites
   getSitesList: async (req, res) => {
     try {

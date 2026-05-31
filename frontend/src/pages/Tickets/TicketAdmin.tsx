@@ -1722,7 +1722,7 @@ function VipManager() {
     <div>
       <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>⭐ Utilisateurs VIP</h3>
       <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b' }}>
-        Les utilisateurs VIP sont automatiquement détectés lors de la création de tickets. Vous pouvez créer des règles d'assignation avec la condition « Demandeur VIP » pour les traiter en priorité.
+        Les utilisateurs VIP sont automatiquement détectés lors de la création de tickets. Les élus de Param Ville sont hérités automatiquement et ne peuvent pas être retirés ici.
       </p>
 
       {/* Search AD */}
@@ -1771,6 +1771,9 @@ function VipManager() {
       {/* VIP users list */}
       <div style={{ fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 8 }}>
         Utilisateurs VIP ({vipUsers.length})
+        <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 8, fontSize: 12 }}>
+          — les élus de Param Ville sont automatiquement hérités ⭐
+        </span>
       </div>
       {vipUsers.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>
@@ -1778,19 +1781,29 @@ function VipManager() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {vipUsers.map(v => (
-            <div key={v.id} style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>⭐ {v.display_name || v.username}</span>
-                <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>@{v.username}</span>
-                {v.email && <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>{v.email}</span>}
+          {vipUsers.map(v => {
+            const isElu = v.is_elu;
+            return (
+              <div key={v.id} style={{ padding: '10px 14px', background: isElu ? '#f0fdf4' : '#fffbeb', border: `1px solid ${isElu ? '#86efac' : '#fde68a'}`, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>⭐ {v.display_name || v.username}</span>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>@{v.username}</span>
+                  {v.email && <span style={{ fontSize: 12, color: '#94a3b8' }}>{v.email}</span>}
+                  {isElu && (
+                    <span style={{ fontSize: 11, background: '#dcfce7', color: '#16a34a', padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>
+                      🏛️ Élu (hérité)
+                    </span>
+                  )}
+                </div>
+                {!isElu && (
+                  <button onClick={() => removeVip(v.id)}
+                    style={{ padding: '4px 10px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                    Retirer
+                  </button>
+                )}
               </div>
-              <button onClick={() => removeVip(v.id)}
-                style={{ padding: '4px 10px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                Retirer
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

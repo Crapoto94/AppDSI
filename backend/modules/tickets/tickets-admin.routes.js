@@ -435,7 +435,8 @@ router.get('/sla/calendars', authenticateJWT, async (req, res) => {
                        FILTER (WHERE h.id IS NOT NULL), '[]') as hours
             FROM hub_tickets.sla_calendars c
             LEFT JOIN hub_tickets.sla_calendar_hours h ON c.id = h.calendar_id
-            GROUP BY c.id ORDER BY c.name
+            GROUP BY c.id, c.name, c.description, c.timezone, c.is_default, c.created_at
+            ORDER BY c.name
         `);
         res.json(calendars);
     } catch (e) { res.status(500).json({ message: e.message }); }
@@ -517,8 +518,24 @@ router.delete('/assignment-rules/:id', authenticateAdmin, async (req, res) => {
 });
 
 // ─── VIP Users ────────────────────────────────────────────────────
+const syncElusToVip = async () => {
+    // Synchronise les élus de hub.elus vers hub_tickets.vip_users
+    const elus = await pgDb.all("SELECT prenom, nom, email FROM hub.elus WHERE email IS NOT NULL AND email != ''");
+    for (const elu of elus) {
+        const displayName = `${elu.prenom} ${elu.nom}`;
+        const email = elu.email.toLowerCase().trim();
+        await pgDb.run(
+            `INSERT INTO hub_tickets.vip_users (username, display_name, email, is_elu)
+             VALUES ($1, $2, $3, true)
+             ON CONFLICT (username) DO UPDATE SET display_name = $2, email = $3, is_elu = true`,
+            [email, displayName, email]
+        );
+    }
+};
+
 router.get('/vip-users', authenticateJWT, async (req, res) => {
     try {
+        await syncElusToVip();
         const vips = await pgDb.all('SELECT * FROM hub_tickets.vip_users ORDER BY display_name, username');
         res.json(vips);
     } catch (e) { res.status(500).json({ message: e.message }); }
@@ -529,7 +546,7 @@ router.post('/vip-users', authenticateAdmin, async (req, res) => {
         const { user_id, username, display_name, email } = req.body;
         if (!username?.trim()) return res.status(400).json({ message: 'Username requis' });
         const result = await pgDb.run(
-            `INSERT INTO hub_tickets.vip_users (user_id, username, display_name, email) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO NOTHING`,
+            `INSERT INTO hub_tickets.vip_users (user_id, username, display_name, email, is_elu) VALUES ($1, $2, $3, $4, false) ON CONFLICT (username) DO NOTHING`,
             [user_id || null, username.trim().toLowerCase(), display_name || username, email || null]
         );
         res.status(201).json({ id: result.lastID, message: 'Utilisateur VIP ajouté' });
@@ -538,6 +555,9 @@ router.post('/vip-users', authenticateAdmin, async (req, res) => {
 
 router.delete('/vip-users/:id', authenticateAdmin, async (req, res) => {
     try {
+        const vip = await pgDb.get('SELECT is_elu FROM hub_tickets.vip_users WHERE id = $1', [req.params.id]);
+        if (!vip) return res.status(404).json({ message: 'VIP non trouvé' });
+        if (vip.is_elu) return res.status(403).json({ message: 'Impossible de retirer un élu hérité. Supprimez-le depuis l\'onglet Élus de Param Ville.' });
         await pgDb.run('DELETE FROM hub_tickets.vip_users WHERE id = $1', [req.params.id]);
         res.json({ message: 'Utilisateur VIP retiré' });
     } catch (e) { res.status(400).json({ message: e.message }); }
@@ -1169,11 +1189,14 @@ async function runGlpiReset({ backup, triggeredBy }) {
                 JOIN hub_tickets.glpi_group_mapping gm ON ga.group_id = gm.glpi_group_id
                 JOIN hub_tickets.tickets t ON t.glpi_id = ga.ticket_id
                 WHERE gm.app_group_id IS NOT NULL
+                  -- Ne sauter que si un GROUPE est déjà affecté (un tech seul ne doit pas bloquer
+                  -- l'ajout du groupe → double affectation tech + groupe possible).
                   AND NOT EXISTS (
                       SELECT 1 FROM hub_tickets.ticket_assignments ta
-                      WHERE ta.ticket_id = ga.ticket_id
+                      WHERE ta.ticket_id = ga.ticket_id AND ta.group_id IS NOT NULL
                   )
                 ORDER BY ga.ticket_id, ga.group_id
+                ON CONFLICT DO NOTHING
             `);
             glpiResetProgress.percent = 92;
 

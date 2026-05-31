@@ -87,7 +87,14 @@ export default function TicketsDashboard() {
   const [activeSubcategory, setActiveSubcategory] = useState<number | null>(null);
   const [softwares, setSoftwares] = useState<{ id: number; name: string }[]>([]);
   const [activeSoftware, setActiveSoftware] = useState<number | null>(null);
+  const [groups, setGroups] = useState<{ id: number; name: string }[]>([]);
+  const [activeGroup, setActiveGroup] = useState<number | null>(null);
+  const activeGroupRef = useRef<number | null>(null);
+  const [technicians, setTechnicians] = useState<any[]>([]);
+  const [activeTechnician, setActiveTechnician] = useState<number | null>(null);
+  const activeTechnicianRef = useRef<number | null>(null);
   const [liveNotif, setLiveNotif] = useState<{ count: number; lastSession: any } | null>(null);
+  const [liveTickerMsg, setLiveTickerMsg] = useState<string | null>(null);
   const [activeLiveFilter, setActiveLiveFilter] = useState(false);
   const [liveStats, setLiveStats] = useState<any>(null);
   const ALL_KPI_KEYS = ['open','in_progress','waiting','critical','resolved','problems','sla_breached','age','wait_time','resolve_time','live_chat'];
@@ -122,6 +129,12 @@ export default function TicketsDashboard() {
     if (activeSoftware) {
       params.software_id = String(activeSoftware);
     }
+    if (activeGroup) {
+      params.group_id = String(activeGroup);
+    }
+    if (activeTechnician) {
+      params.technician_id = String(activeTechnician);
+    }
     if (activeLiveFilter) {
       params.is_live = 'true';
       params.status_in = '1,2,3,4,5,6';
@@ -129,8 +142,9 @@ export default function TicketsDashboard() {
     params.sort = sortKey;
     params.order = sortDir;
     return params;
-  }, [activeFilter, activeUserFilter, search, activeRequesterEmail, activeCategory, activeSubcategory, activeSoftware, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
+  }, [activeFilter, activeUserFilter, search, activeRequesterEmail, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
 
+  const lastLoadArgsRef = useRef<any[]>([]);
   const loadData = useCallback(async (
     filter?: string | null,
     userFilter?: string | null,
@@ -140,9 +154,11 @@ export default function TicketsDashboard() {
     subcategoryId?: number | null,
     softwareId?: number | null,
     requesterEmail?: string | null,
-    isLiveOverride?: boolean
+    isLiveOverride?: boolean,
+    silent?: boolean
   ) => {
-    setLoading(true);
+    lastLoadArgsRef.current = [filter, userFilter, pageNum, searchValue, categoryId, subcategoryId, softwareId, requesterEmail, isLiveOverride];
+    if (!silent) setLoading(true);
     try {
       const token = localStorage.getItem('token');
       const params: Record<string, string> = { limit: String(limit), page: String(pageNum || page) };
@@ -181,6 +197,12 @@ export default function TicketsDashboard() {
       if (softwareId) {
         params.software_id = String(softwareId);
       }
+      if (activeGroupRef.current) {
+        params.group_id = String(activeGroupRef.current);
+      }
+      if (activeTechnicianRef.current) {
+        params.technician_id = String(activeTechnicianRef.current);
+      }
       const isLiveActive = isLiveOverride !== undefined ? isLiveOverride : activeLiveFilter;
       if (isLiveActive) {
         params.is_live = 'true';
@@ -201,7 +223,7 @@ export default function TicketsDashboard() {
       console.error('Failed to load tickets:', e);
       if (e.response?.data?.message) alert('Erreur serveur: ' + e.response.data.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [page, search, sortKey, sortDir, activeLiveFilter]);
 
@@ -247,6 +269,12 @@ export default function TicketsDashboard() {
     axios.get('/api/tickets/admin/categories', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setCategories(r.data || []))
       .catch(() => {});
+    axios.get('/api/tickets/admin/groups', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setGroups(r.data || []))
+      .catch(() => {});
+    axios.get('/api/tickets/admin/technicians/available', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setTechnicians(r.data || []))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -288,6 +316,20 @@ export default function TicketsDashboard() {
     setActiveSubcategory(subcategoryId);
     setPage(1);
     loadData(activeFilter, activeUserFilter, 1, search, categoryId, subcategoryId, activeSoftware);
+  }
+
+  function handleGroupFilter(groupId: number | null) {
+    setActiveGroup(groupId);
+    activeGroupRef.current = groupId;
+    setPage(1);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, activeRequesterEmail);
+  }
+
+  function handleTechnicianFilter(techId: number | null) {
+    setActiveTechnician(techId);
+    activeTechnicianRef.current = techId;
+    setPage(1);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, activeRequesterEmail);
   }
 
   function handleSoftwareFilter(softwareId: number | null) {
@@ -366,7 +408,7 @@ export default function TicketsDashboard() {
     const token = localStorage.getItem('token');
     if (!token) return;
     const socket = io({ auth: { token } });
-    socket.on('connect', () => socket.emit('tech_watch'));
+    socket.on('connect', () => { socket.emit('tech_watch'); socket.emit('tickets_watch'); });
     socket.on('new_live_session', (session: any) => {
       if (session.chat_type && session.chat_type !== 'ville') return;
       setLiveNotif(prev => ({ count: (prev?.count || 0) + 1, lastSession: session }));
@@ -378,8 +420,26 @@ export default function TicketsDashboard() {
         return c <= 0 ? null : { ...prev, count: c };
       });
     });
+    // Mise à jour temps réel de la liste/KPI sans rafraîchissement global
+    const silentReload = () => {
+      const args = lastLoadArgsRef.current;
+      if (args && args.length) loadDataRef.current(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7], args[8], true);
+      else loadDataRef.current(undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, true);
+    };
+    socket.on('ticket_created', (payload: any) => {
+      setLiveTickerMsg(`🎫 Nouveau ticket #${payload?.glpi_id ?? ''} : ${payload?.title || ''}`.trim());
+      silentReload();
+    });
+    socket.on('ticket_updated', () => { silentReload(); });
     return () => { socket.disconnect(); };
   }, []);
+
+  // Bandeau éphémère "mise à jour live"
+  useEffect(() => {
+    if (!liveTickerMsg) return;
+    const t = setTimeout(() => setLiveTickerMsg(null), 6000);
+    return () => clearTimeout(t);
+  }, [liveTickerMsg]);
 
   function handleFilterClick(key: string) {
     setActiveLiveFilter(false);
@@ -705,6 +765,32 @@ export default function TicketsDashboard() {
           )}
           {activeSoftware && (
             <button onClick={() => handleSoftwareFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
+          )}
+          {groups.length > 0 && (
+            <select value={activeGroup || ''} onChange={e => handleGroupFilter(e.target.value ? parseInt(e.target.value) : null)}
+              style={{ padding: '7px 12px', border: `1px solid ${activeGroup ? '#0d9488' : '#e2e8f0'}`, borderRadius: 6, background: activeGroup ? '#f0fdfa' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: activeGroup ? '#0f766e' : '#64748b', outline: 'none', maxWidth: 200 }}>
+              <option value="">👥 Groupe</option>
+              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          )}
+          {activeGroup && (
+            <button onClick={() => handleGroupFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
+          )}
+          {technicians.length > 0 && (
+            <select value={activeTechnician || ''} onChange={e => handleTechnicianFilter(e.target.value ? parseInt(e.target.value) : null)}
+              style={{ padding: '7px 12px', border: `1px solid ${activeTechnician ? '#d97706' : '#e2e8f0'}`, borderRadius: 6, background: activeTechnician ? '#fffbeb' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: activeTechnician ? '#b45309' : '#64748b', outline: 'none', maxWidth: 200 }}>
+              <option value="">🧑‍🔧 Technicien</option>
+              {[...technicians]
+                .sort((a: any, b: any) => (a.displayName || a.displayname || a.email || '').localeCompare(b.displayName || b.displayname || b.email || ''))
+                .map((t: any) => {
+                  const tid = t.user_id ?? t.id;
+                  const tname = t.displayName || t.displayname || t.name || t.email || t.username || `#${tid}`;
+                  return <option key={tid} value={tid}>{tname}</option>;
+                })}
+            </select>
+          )}
+          {activeTechnician && (
+            <button onClick={() => handleTechnicianFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
           )}
           <button type="submit" style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#475569' }}>🔍</button>
         </form>

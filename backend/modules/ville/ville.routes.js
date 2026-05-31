@@ -15,6 +15,7 @@ router.get('/elus', authenticateAdmin, villeController.getElus);
 router.post('/elus', authenticateAdmin, villeController.createElu);
 router.put('/elus/:id', authenticateAdmin, villeController.updateElu);
 router.delete('/elus/:id', authenticateAdmin, villeController.deleteElu);
+router.post('/elus/import', authenticateAdmin, upload.single('file'), villeController.importElus);
 
 // Onglet Sites
 router.get('/sites/list', authenticateJWT, villeController.getSitesList);

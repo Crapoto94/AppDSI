@@ -300,7 +300,13 @@
       "Bash(node --check modules/backup/pg_jsdump.js)",
       "Bash(node --check modules/backup/backup.routes.js)",
       "Bash(cd /c/dev/AppDSI/backend && grep -n \"req.query\" server.js | grep -i \"ad/search\\\\|\\\\.q\\\\b\\\\|query\" | head; sed -n '615,660p' server.js)",
-      "Bash(cd /c/dev/AppDSI/frontend && grep -rn \"live\\\\|LiveChat\\\\|LiveSession\\\\|/chat\" src/App.tsx | head -20)"
+      "Bash(cd /c/dev/AppDSI/frontend && grep -rn \"live\\\\|LiveChat\\\\|LiveSession\\\\|/chat\" src/App.tsx | head -20)",
+      "Bash(Get-ChildItem -Path \"backend/modules/tickets\" -Recurse -Include \"*.js\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(psql -h 10.103.130.106 -U postgres -d ivry_admin -c \"\\\\d glpi.tickets\")",
+      "Bash(node -c backend/modules/glpi/glpi.controller.js)",
+      "Bash(node -c backend/modules/tickets/repositories/ticket.repository.js)",
+      "Bash(node -c backend/modules/tickets/tickets.controller.js)"
     ]
   }
 }

@@ -332,8 +332,10 @@ async function setupPgDb() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_tech ON hub_tickets.ticket_assignments(technician_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_group ON hub_tickets.ticket_assignments(group_id)`);
-    // Allow multiple assignments per ticket (group escalation)
+    // Allow multiple assignments per ticket (group escalation : tech + groupe).
+    // DROP CONSTRAINT ne suffit pas si l'objet est resté un INDEX unique → on drope les deux.
     try { await client.query('ALTER TABLE hub_tickets.ticket_assignments DROP CONSTRAINT IF EXISTS ticket_assignments_ticket_id_key'); } catch (e) {}
+    try { await client.query('DROP INDEX IF EXISTS hub_tickets.ticket_assignments_ticket_id_key'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.ticket_assignments ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT true'); } catch (e) {}
 
     await client.query(`
@@ -640,10 +642,13 @@ async function setupPgDb() {
         username VARCHAR(255) NOT NULL,
         display_name VARCHAR(255),
         email VARCHAR(255),
+        is_elu BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(username)
       );
     `);
+    // Migration : ajout de la colonne is_elu pour les VIP hérités des élus
+    await client.query(`ALTER TABLE hub_tickets.vip_users ADD COLUMN IF NOT EXISTS is_elu BOOLEAN DEFAULT FALSE`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.saved_filters (
         id SERIAL PRIMARY KEY,
@@ -899,6 +904,7 @@ async function setupPgDb() {
 
     try { await repairSerialTable('hub_tickets', 'ticket_assignments', ['ticket_id']); } catch (e) { console.error('[REPAIR] ticket_assignments:', e.message); }
     try { await repairSerialTable('hub_tickets', 'ticket_tag_links', ['ticket_id, tag_id']); } catch (e) { console.error('[REPAIR] ticket_tag_links:', e.message); }
+    try { await repairSerialTable('hub_tickets', 'sla_calendars', []); } catch (e) { console.error('[REPAIR] sla_calendars:', e.message); }
     try { await repairSerialTable('hub_tickets', 'sla_calendar_hours', ['calendar_id, day_of_week, start_time']); } catch (e) { console.error('[REPAIR] sla_calendar_hours:', e.message); }
     try { await repairSerialTable('hub_tickets', 'notification_triggers', ['event, recipient_type']); } catch (e) { console.error('[REPAIR] notification_triggers:', e.message); }
     try { await repairSerialTable('hub_tickets', 'vip_users', ['username']); } catch (e) { console.error('[REPAIR] vip_users:', e.message); }

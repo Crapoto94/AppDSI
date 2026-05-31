@@ -74,7 +74,7 @@ export default function TicketsStats() {
 
   // ── Filtres période (année / mois / glissante) ──────────────
   const _now = new Date();
-  const [filterMode, setFilterMode] = useState<'all' | 'year' | 'month' | 'rolling'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'year' | 'month' | 'rolling'>('rolling');
   const [fYear, setFYear] = useState(_now.getFullYear());
   const [fMonth, setFMonth] = useState(_now.getMonth() + 1);
   const [fRolling, setFRolling] = useState<'today' | '7d' | '30d' | '90d'>('30d');
@@ -138,7 +138,7 @@ export default function TicketsStats() {
   );
 
   const { overview, statusDistribution, typeDistribution, priorityDistribution,
-    monthlyTrend, weeklyCreated, categoryDistribution, groupDistribution, topRequesters,
+    monthlyTrend, dailyTrend, weeklyCreated, categoryDistribution, groupDistribution, topRequesters,
     technicianAssignments, resolutionTimeTrend, backlogAging,
     slaOverview, hourlyDistribution, reopened30d,
     avgResolutionHours, avgClosureHours, weeklyComparison,
@@ -219,27 +219,22 @@ export default function TicketsStats() {
 
         {/* Row 2 : cards */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-          {/* Trend chart : barres = créés ventilés par état (empilé) ; ligne = résolus dans le mois */}
+          {/* Tendance quotidienne (jours ouvrés) : créés/jour + comparaison période précédente (pointillés) */}
           <div className="stats-card">
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>Tendance mensuelle</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>Tendance quotidienne (jours ouvrés)</div>
             <ResponsiveContainer width="100%" height={280}>
-              <ComposedChart data={monthlyTrend || []}>
+              <ComposedChart data={dailyTrend || []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: COLORS.slate }} />
-                <YAxis tick={{ fontSize: 11, fill: COLORS.slate }} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: COLORS.slate }} interval="preserveStartEnd" minTickGap={16} />
+                <YAxis tick={{ fontSize: 11, fill: COLORS.slate }} allowDecimals={false} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="nouveau" stackId="c" name="Nouveau" fill={STATUS_COLORS['Nouveau']} />
-                <Bar dataKey="en_cours" stackId="c" name="En cours" fill={STATUS_COLORS['En cours']} />
-                <Bar dataKey="en_attente" stackId="c" name="En attente" fill={COLORS.amber} />
-                <Bar dataKey="resolu" stackId="c" name="Résolu" fill={STATUS_COLORS['Résolu']} />
-                <Bar dataKey="clos" stackId="c" name="Clos" fill={STATUS_COLORS['Fermé']} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="rejete" stackId="c" name="Rejeté" fill={STATUS_COLORS['Rejeté']} />
-                <Line dataKey="resolved" name="Résolus (mois)" stroke={COLORS.teal} strokeWidth={2.5} dot={{ r: 3 }} />
+                <Bar dataKey="created" name="Créés" fill={COLORS.indigo} radius={[3, 3, 0, 0]} />
+                <Line dataKey="created_prev" name="Période précédente" stroke={COLORS.slate} strokeWidth={2} strokeDasharray="5 4" dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
             <div style={{ fontSize: 11, color: COLORS.slate, marginTop: 6 }}>
-              Barres : tickets créés dans le mois (par état actuel). Ligne : tickets résolus durant le mois (peut dépasser les créations).
+              Barres : tickets créés par jour ouvré sur la période. Pointillés : même nombre de jours sur la période précédente (comparaison).
             </div>
           </div>
 
@@ -414,7 +409,8 @@ export default function TicketsStats() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginBottom: 20 }}>
           {/* Backlog aging */}
           <div className="stats-card">
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>Âge du backlog</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 4 }}>Âge du backlog</div>
+            <div style={{ fontSize: 11, color: COLORS.slate, marginBottom: 10 }}>Indicateur global — tous les tickets ouverts, indépendant du filtre de période.</div>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={backlogAging || []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -446,14 +442,14 @@ export default function TicketsStats() {
 
           {/* Resolution time trend */}
           <div className="stats-card">
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>Temps de résolution</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>Temps de résolution (30 derniers jours)</div>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={resolutionTimeTrend || []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: COLORS.slate }} />
+                <XAxis dataKey="month" tick={{ fontSize: 10, fill: COLORS.slate }} interval="preserveStartEnd" minTickGap={16} />
                 <YAxis tick={{ fontSize: 11, fill: COLORS.slate }} tickFormatter={(v: number) => `${v}h`} />
-                <Tooltip formatter={(v: any) => [`${v} h`, 'Moyenne']} />
-                <Line type="monotone" dataKey="avg_hours" name="Heures" stroke={COLORS.teal} strokeWidth={2} dot={{ r: 3 }} />
+                <Tooltip formatter={(v: any) => [`${v} h ouvré`, 'Moyenne (hors attente)']} labelFormatter={(l: any) => `Jour : ${l}`} />
+                <Line type="monotone" dataKey="avg_hours" name="Temps ouvré moyen" stroke={COLORS.teal} strokeWidth={2} dot={{ r: 2 }} />
               </LineChart>
             </ResponsiveContainer>
             <div style={{ fontSize: 12, color: COLORS.slate, marginTop: 8, textAlign: 'center' }}>
@@ -691,17 +687,26 @@ export default function TicketsStats() {
 
         {/* Row 10: Category performance */}
         <div className="stats-card" style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>Temps de résolution par catégorie</div>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={(categoryPerformance || []).slice(0, 12)}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>Temps de résolution ouvré par catégorie (jours)</div>
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={(categoryPerformance || []).slice(0, 12)}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="category" tick={{ fontSize: 10, fill: COLORS.slate }} angle={-45} textAnchor="end" height={80} />
-              <YAxis tick={{ fontSize: 11, fill: COLORS.slate }} tickFormatter={(v: number) => `${v}h`} />
-              <Tooltip formatter={(v: any, name: any) => name === 'avg_resolution_hours' ? [`${v}h`, 'Temps moy.'] : [v, 'Tickets']} />
-              <Bar dataKey="count" name="Tickets" fill={COLORS.slate} radius={[4, 4, 0, 0]} />
-              <Bar dataKey="avg_resolution_hours" name="Temps (h)" fill={COLORS.teal} radius={[4, 4, 0, 0]} />
-            </BarChart>
+              <XAxis dataKey="category" tick={{ fontSize: 10, fill: COLORS.slate }} angle={-45} textAnchor="end" height={90} interval={0} />
+              <YAxis yAxisId="left" tick={{ fontSize: 11, fill: COLORS.slate }} tickFormatter={(v: number) => `${v} j`} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: COLORS.slate }} allowDecimals={false} />
+              <Tooltip
+                formatter={(v: any, name: any) => name === 'avg_resolution_days'
+                  ? [`${v} j ouvré`, 'Temps de résolution moyen (hors attente)']
+                  : [`${v} ticket(s)`, 'Volume résolu']}
+                labelFormatter={(l: any) => `Catégorie : ${l}`} />
+              <Legend />
+              <Bar yAxisId="right" dataKey="count" name="Volume résolu" fill={COLORS.slate} radius={[4, 4, 0, 0]} maxBarSize={28} />
+              <Line yAxisId="left" type="monotone" dataKey="avg_resolution_days" name="Temps ouvré moyen (j)" stroke={COLORS.teal} strokeWidth={2.5} dot={{ r: 3 }} />
+            </ComposedChart>
           </ResponsiveContainer>
+          <div style={{ fontSize: 11, color: COLORS.slate, marginTop: 6 }}>
+            Temps ouvré = délai création → résolution <strong>hors périodes « en attente »</strong>, en jours. Barres grises = nombre de tickets résolus (axe droit) pour relativiser la moyenne.
+          </div>
         </div>
       </div>
     </div>

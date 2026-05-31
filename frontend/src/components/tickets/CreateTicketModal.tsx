@@ -34,11 +34,33 @@ export default function CreateTicketModal({ onClose }: Props) {
   const [locationSearch, setLocationSearch] = useState('');
   const [locationOpen, setLocationOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState<any>(null);
+  const [vipMap, setVipMap] = useState<Record<string, boolean>>({});
+  const [requesterVip, setRequesterVip] = useState<{ vip: boolean; elu: boolean }>({ vip: false, elu: false });
 
   useEffect(() => {
     loadCategoriesAndApps();
     loadSites();
+    loadVips();
   }, []);
+
+  async function loadVips() {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/tickets/vip-users', { headers: { Authorization: `Bearer ${token}` } });
+      const map: Record<string, boolean> = {};
+      (res.data || []).forEach((v: any) => { if (v.email) map[String(v.email).toLowerCase()] = !!v.is_elu; });
+      setVipMap(map);
+    } catch (e) { /* silencieux */ }
+  }
+
+  // Détecte un demandeur VIP/élu et adapte le visuel + coche VIP automatiquement.
+  function handleRequesterChange(email: string, name: string) {
+    const key = (email || '').toLowerCase();
+    const isVip = key in vipMap;
+    const isElu = !!vipMap[key];
+    setRequesterVip({ vip: isVip, elu: isElu });
+    setForm(f => ({ ...f, requester_email: email, requester_name: name, is_vip: isVip ? true : f.is_vip }));
+  }
 
   async function loadSites() {
     try {
@@ -186,8 +208,11 @@ export default function CreateTicketModal({ onClose }: Props) {
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000
     }} onClick={onClose}>
       <div style={{
-        background: '#f8fafc', borderRadius: 16, width: 700, maxHeight: '95vh', overflow: 'hidden',
-        display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+        background: requesterVip.vip ? (requesterVip.elu ? '#f0fdf4' : '#fefce8') : '#f8fafc',
+        borderRadius: 16, width: 700, maxHeight: '95vh', overflow: 'hidden',
+        display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+        border: requesterVip.vip ? `2px solid ${requesterVip.elu ? '#86efac' : '#fde68a'}` : 'none',
+        transition: 'background 0.2s, border-color 0.2s'
       }} onClick={e => e.stopPropagation()}>
         
         {/* Header */}
@@ -343,8 +368,19 @@ export default function CreateTicketModal({ onClose }: Props) {
               <label style={labelStyle}>Demandeur</label>
               <RequesterSearch
                 value={form.requester_email}
-                onChange={(email, name) => setForm(f => ({ ...f, requester_email: email, requester_name: name }))}
+                onChange={handleRequesterChange}
               />
+              {requesterVip.vip && (
+                <div style={{
+                  marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: requesterVip.elu ? '#dcfce7' : '#fef9c3',
+                  border: `1.5px solid ${requesterVip.elu ? '#86efac' : '#fde68a'}`,
+                  color: requesterVip.elu ? '#15803d' : '#92400e',
+                }}>
+                  {requesterVip.elu ? '🏛️ Demandeur ÉLU — traitement prioritaire' : '⭐ Demandeur VIP — traitement prioritaire'}
+                </div>
+              )}
             </div>
 
             {/* Observers */}

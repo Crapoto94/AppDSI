@@ -458,6 +458,9 @@ export default function ParamVille() {
   const [elus, setElus] = useState<Elu[]>([]);
   const [editingElu, setEditingElu] = useState<Elu | null>(null);
   const [eluForm, setEluForm] = useState<Elu>({ nom: '', prenom: '', role: 'Conseiller municipal' });
+  const [eluUploadFile, setEluUploadFile] = useState<File | null>(null);
+  const [eluImporting, setEluImporting] = useState(false);
+  const [eluImportResult, setEluImportResult] = useState<any>(null);
 
   const [sites, setSites] = useState<Site[]>([]);
   const [sitesLoaded, setSitesLoaded] = useState(false);
@@ -553,6 +556,25 @@ export default function ParamVille() {
     if (!confirm('Confirmer la suppression?')) return;
     try { await axios.delete(`/api/ville/elus/${id}`, { headers: getHeaders() }); loadElus(); }
     catch (error: any) { alert('Erreur: ' + (error.response?.data?.message || error.message)); }
+  };
+
+  const importElus = async () => {
+    if (!eluUploadFile) { alert('Sélectionner un fichier'); return; }
+    setEluImporting(true); setEluImportResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', eluUploadFile);
+      const res = await axios.post('/api/ville/elus/import', fd, {
+        headers: { ...getHeaders(), 'Content-Type': 'multipart/form-data' },
+      });
+      setEluImportResult(res.data);
+      setEluUploadFile(null);
+      loadElus();
+    } catch (error: any) {
+      alert('Erreur import: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setEluImporting(false);
+    }
   };
 
   // ─── SITES ───────────────────────────────────────────────────────
@@ -834,6 +856,21 @@ export default function ParamVille() {
       {/* ─── ÉLUS ────────────────────────────────────────────────── */}
       {selectedTab === 'elus' && (
         <>
+          {/* Import Excel */}
+          <div style={{ marginBottom: '16px', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="file" accept=".xlsx,.xls" onChange={e => setEluUploadFile(e.target.files?.[0] || null)} disabled={eluImporting}
+              style={{ padding: '7px', borderRadius: '6px', border: '1px solid #d1d5db', opacity: eluImporting ? 0.5 : 1 }} />
+            <button style={{ ...s.btn('primary'), opacity: eluImporting ? 0.6 : 1 }} onClick={importElus} disabled={eluImporting}>
+              <Upload size={15} /> {eluImporting ? 'Import en cours...' : 'Importer Excel'}
+            </button>
+            <span style={{ fontSize: '12px', color: '#9ca3af' }}>Écrase toutes les données existantes</span>
+            {eluImportResult && (
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#16a34a' }}>
+                ✓ {eluImportResult.imported} élu(s) importé(s)
+              </span>
+            )}
+          </div>
+
           <button style={s.btn(editingElu ? 'success' : 'primary')} onClick={() => {
             if (editingElu) { setEditingElu(null); setEluForm({ nom: '', prenom: '', role: 'Conseiller municipal' }); }
             else setEditingElu({} as Elu);
