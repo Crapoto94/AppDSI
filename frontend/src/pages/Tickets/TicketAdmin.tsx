@@ -3,7 +3,8 @@ import axios from 'axios';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-type Tab = 'categories' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction';
+import AutoResolution from '../Admin/AutoResolution';
+type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction' | 'auto_resolution';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -134,6 +135,7 @@ export default function TicketAdmin() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'categories',  label: 'Catégories' },
+    { key: 'category_mapping', label: '🗂️ Transposition' },
     { key: 'sla',         label: 'SLA' },
     { key: 'rules',       label: 'Règles' },
     { key: 'vip',         label: '⭐ VIP' },
@@ -146,6 +148,7 @@ export default function TicketAdmin() {
     { key: 'roles',       label: '🔐 Rôles' },
     { key: 'params',      label: '⚙️ Paramètres' },
     { key: 'live_config',  label: '🟢 Live' },
+    { key: 'auto_resolution', label: '🤖 Résolution auto' },
     { key: 'satisfaction', label: '⭐ Satisfaction' },
   ];
 
@@ -162,6 +165,7 @@ export default function TicketAdmin() {
 
       <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 24 }}>
         {tab === 'categories'  && <CategoryManager data={categories} onUpdate={() => loadData('/api/tickets/admin/categories', setCategories)} />}
+        {tab === 'category_mapping' && <CategoryMappingManager />}
         {tab === 'sla'         && <SLAManager data={slas} onUpdate={() => loadData('/api/tickets/admin/sla', setSlas)} />}
         {tab === 'rules'       && <RuleManager data={rules} onUpdate={() => loadData('/api/tickets/admin/assignment-rules', setRules)} />}
         {tab === 'vip'         && <VipManager />}
@@ -174,6 +178,7 @@ export default function TicketAdmin() {
         {tab === 'roles'       && <RolePermissionsManager />}
         {tab === 'params'       && <TicketParamsManager />}
         {tab === 'satisfaction' && <SatisfactionTab />}
+        {tab === 'auto_resolution' && <div style={{ margin: -24 }}><AutoResolution /></div>}
         {tab === 'live_config' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -742,6 +747,248 @@ function CategoryManager({ data, onUpdate }: { data: any[], onUpdate: () => void
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowSuggest(false)} style={{ padding: '8px 16px', background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Fermer</button>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRANSPOSITION DES CATÉGORIES (ancienne texte GLPI → nouvelle catégorie)
+// ─────────────────────────────────────────────────────────────────────────────
+interface CatMapRow { old_category: string; ticket_count: number; category_id: number | null; suggested_category_id?: number | null; _suggested?: boolean; software_id?: number | null; software_name?: string | null; suggested_software_id?: number | null; suggested_software_name?: string | null; }
+interface BizApp { id: number; name: string; category_name?: string; icon?: string; }
+interface CatRef { id: number; name: string; full_path?: string; parent_id?: number | null; sort_order?: number | null; }
+
+// Aplatit les catégories en ordre arborescent (DFS) avec une profondeur,
+// pour afficher la liste déroulante indentée en utilisant le NOM donné par l'utilisateur.
+function flattenCatsTree(cats: CatRef[]): Array<CatRef & { depth: number }> {
+  const byParent = new Map<number | null, CatRef[]>();
+  for (const c of cats) {
+    const key = (c.parent_id ?? null) as number | null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key)!.push(c);
+  }
+  const sortFn = (a: CatRef, b: CatRef) =>
+    (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.name || '').localeCompare(b.name || '');
+  const ids = new Set(cats.map(c => c.id));
+  const out: Array<CatRef & { depth: number }> = [];
+  const walk = (parentId: number | null, depth: number) => {
+    const children = (byParent.get(parentId) || []).slice().sort(sortFn);
+    for (const c of children) { out.push({ ...c, depth }); walk(c.id, depth + 1); }
+  };
+  walk(null, 0);
+  // Catégories dont le parent est absent/inactif → rattachées à la racine
+  for (const c of cats) {
+    if (!out.find(o => o.id === c.id)) {
+      const pid = (c.parent_id ?? null) as number | null;
+      if (pid == null || !ids.has(pid)) out.push({ ...c, depth: 0 });
+    }
+  }
+  return out;
+}
+function CategoryMappingManager() {
+  const [rows, setRows] = useState<CatMapRow[]>([]);
+  const [cats, setCats] = useState<CatRef[]>([]);
+  const [apps, setApps] = useState<BizApp[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [pickerFor, setPickerFor] = useState<string | null>(null); // old_category dont on choisit le logiciel
+  const [appSearch, setAppSearch] = useState('');
+  const [onlyUnmapped, setOnlyUnmapped] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/tickets/admin/category-mapping/used', { headers: { Authorization: `Bearer ${token}` } });
+      // Pré-remplir avec la suggestion auto quand aucun mapping existant
+      const r = (res.data.rows || []).map((row: CatMapRow) => ({
+        ...row,
+        category_id: row.category_id ?? row.suggested_category_id ?? null,
+        software_id: row.software_id ?? row.suggested_software_id ?? null,
+        software_name: row.software_name ?? row.suggested_software_name ?? null,
+        _suggested: row.category_id == null && (row.suggested_category_id != null || row.suggested_software_id != null),
+      }));
+      setRows(r);
+      setCats(res.data.categories || []);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setApps((r.data || []).map((a: any) => ({ id: a.id, name: a.name, category_name: a.category_name, icon: a.icon }))))
+      .catch(() => {});
+  }, []);
+
+  // Affecte un logiciel métier (app magapp) + catégorie Logiciels/Métier
+  async function assignSoftware(oldCategory: string, app: BizApp) {
+    setPickerFor(null);
+    setAppSearch('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/tickets/admin/category-mapping/assign-metier',
+        { old_category: oldCategory, software_id: app.id },
+        { headers: { Authorization: `Bearer ${token}` } });
+      setRows(prev => prev.map(r => r.old_category === oldCategory
+        ? { ...r, category_id: res.data.category_id, software_id: app.id, software_name: app.name, _suggested: false }
+        : r));
+      setMsg(`« ${oldCategory} » → logiciel « ${app.name} » (Logiciels / Métier).`);
+    } catch { setMsg('Erreur lors de l\'association au logiciel métier'); }
+  }
+
+  async function saveOne(oldCategory: string, categoryId: number | null) {
+    setRows(prev => prev.map(r => r.old_category === oldCategory ? { ...r, category_id: categoryId, _suggested: false } : r));
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put('/api/tickets/admin/category-mapping',
+        { old_category: oldCategory, category_id: categoryId },
+        { headers: { Authorization: `Bearer ${token}` } });
+    } catch { setMsg('Erreur lors de l\'enregistrement'); }
+  }
+
+  async function saveAllSuggestions() {
+    setSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      for (const r of rows.filter(r => r._suggested)) {
+        if (r.software_id != null) {
+          // suggestion logiciel métier → assign-metier (logiciel + catégorie Logiciels/Métier)
+          await axios.post('/api/tickets/admin/category-mapping/assign-metier',
+            { old_category: r.old_category, software_id: r.software_id },
+            { headers: { Authorization: `Bearer ${token}` } });
+        } else if (r.category_id != null) {
+          await saveOne(r.old_category, r.category_id);
+        }
+      }
+      setRows(prev => prev.map(r => ({ ...r, _suggested: false })));
+      setMsg('Suggestions enregistrées.');
+    } catch { setMsg('Erreur lors de l\'enregistrement des suggestions'); }
+    finally { setSaving(false); }
+  }
+
+  async function applyMapping() {
+    if (!confirm('Appliquer les correspondances à tous les tickets (renseigne la nouvelle catégorie pour les stats) ?')) return;
+    setApplying(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/tickets/admin/category-mapping/apply', {}, { headers: { Authorization: `Bearer ${token}` } });
+      setMsg(`Transposition appliquée : ${res.data.updated} ticket(s) mis à jour.`);
+    } catch { setMsg('Erreur lors de l\'application'); }
+    finally { setApplying(false); }
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement…</div>;
+
+  const isMapped = (r: CatMapRow) => !r._suggested && r.category_id != null;
+  const mappedCount = rows.filter(isMapped).length;
+  const displayedRows = onlyUnmapped ? rows.filter(r => !isMapped(r)) : rows;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Transposition des catégories</h3>
+          <p style={{ margin: 0, fontSize: 12, color: '#71717a' }}>
+            Associez chaque ancienne catégorie GLPI (texte) à une nouvelle catégorie pour les statistiques. {mappedCount}/{rows.length} mappées.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setOnlyUnmapped(v => !v)}
+            title="N'afficher que les catégories non mappées"
+            style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${onlyUnmapped ? '#fbbf24' : '#e2e8f0'}`, background: onlyUnmapped ? '#fffbeb' : '#fff', color: onlyUnmapped ? '#92400e' : '#475569', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            {onlyUnmapped ? '☑' : '☐'} Non mappées
+          </button>
+          <button onClick={saveAllSuggestions} disabled={saving} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #c7d2fe', background: '#eef2ff', color: '#4338ca', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            {saving ? '…' : '✨ Enregistrer les suggestions'}
+          </button>
+          <button onClick={applyMapping} disabled={applying} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg,#2563eb,#4f46e5)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            {applying ? '…' : '✅ Appliquer aux tickets'}
+          </button>
+        </div>
+      </div>
+      {msg && <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, color: '#166534', fontSize: 13 }}>{msg}</div>}
+
+      <div style={{ maxHeight: '60vh', overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: 10 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+              <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 700, color: '#475569' }}>Ancienne catégorie (GLPI)</th>
+              <th style={{ textAlign: 'center', padding: '10px 12px', fontWeight: 700, color: '#475569', width: 90 }}>Tickets</th>
+              <th style={{ textAlign: 'left', padding: '10px 12px', fontWeight: 700, color: '#475569', width: 320 }}>Nouvelle catégorie</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayedRows.map(r => (
+              <tr key={r.old_category} style={{ borderTop: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '8px 12px', color: '#1e293b' }}>{r.old_category}</td>
+                <td style={{ padding: '8px 12px', textAlign: 'center', color: '#64748b' }}>{r.ticket_count}</td>
+                <td style={{ padding: '8px 12px' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select
+                    value={r.category_id ?? ''}
+                    onChange={e => saveOne(r.old_category, e.target.value ? parseInt(e.target.value) : null)}
+                    style={{ flex: 1, minWidth: 0, padding: '6px 8px', borderRadius: 6, border: `1.5px solid ${r._suggested ? '#c7d2fe' : '#e2e8f0'}`, background: r._suggested ? '#eef2ff' : '#fff', fontSize: 13 }}
+                  >
+                    <option value="">— Non mappée —</option>
+                    {flattenCatsTree(cats).map(c => (
+                      <option key={c.id} value={c.id}>
+                        {`${'   '.repeat(c.depth)}${c.depth > 0 ? '└ ' : ''}${c.name}`}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => { setPickerFor(r.old_category); setAppSearch(''); }}
+                    title="Choisir un logiciel metier (affecte le logiciel au ticket + categorie Logiciels / Metier)"
+                    style={{ flexShrink: 0, padding: '6px 10px', borderRadius: 6, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#15803d', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    🧩 Logiciel métier
+                  </button>
+                  </div>
+                  {(r.software_name || r._suggested) && (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                      {r.software_name && (
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '1px 8px' }}>🧩 {r.software_name}</span>
+                      )}
+                      {r._suggested && <span style={{ fontSize: 10, color: '#6366f1', fontWeight: 600 }}>suggestion auto</span>}
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {displayedRows.length === 0 && <tr><td colSpan={3} style={{ padding: 30, textAlign: 'center', color: '#cbd5e1' }}>{onlyUnmapped ? 'Toutes les catégories sont mappées 🎉' : 'Aucune ancienne catégorie utilisée.'}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Picker logiciel métier */}
+      {pickerFor && (
+        <div onClick={() => setPickerFor(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, width: 500, maxWidth: '92%', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Choisir un logiciel métier</h3>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+              « {pickerFor} » → affecte le logiciel aux tickets + catégorie <strong>Logiciels / Métier</strong>
+            </div>
+            <input autoFocus value={appSearch} onChange={e => setAppSearch(e.target.value)} placeholder="Rechercher un logiciel…"
+              style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, marginBottom: 10 }} />
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 360 }}>
+              {apps.filter(a => !appSearch || a.name.toLowerCase().includes(appSearch.toLowerCase()) || (a.category_name || '').toLowerCase().includes(appSearch.toLowerCase())).map(a => (
+                <div key={a.id} onClick={() => assignSoftware(pickerFor, a)}
+                  style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', background: '#f8fafc', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 8 }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#eef2ff')}
+                  onMouseLeave={e => (e.currentTarget.style.background = '#f8fafc')}>
+                  {a.icon && <img src={a.icon} alt="" style={{ width: 18, height: 18, objectFit: 'contain', borderRadius: 4 }} />}
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{a.name}</span>
+                  {a.category_name && <span style={{ fontSize: 11, color: '#94a3b8' }}>{a.category_name}</span>}
+                </div>
+              ))}
+              {apps.length === 0 && <div style={{ color: '#94a3b8', fontSize: 13, padding: 12, textAlign: 'center' }}>Aucun logiciel trouvé dans MagApp</div>}
+            </div>
+            <button onClick={() => setPickerFor(null)} style={{ marginTop: 12, padding: 8, background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Fermer</button>
           </div>
         </div>
       )}
@@ -1327,7 +1574,7 @@ function JournalTab() {
   }
 
   const STATUS_MAP: Record<string, string> = {
-    '1': 'Nouveau', '2': 'En cours', '3': 'En attente', '4': 'Résolu', '5': 'Fermé', '6': 'Clos', '8': 'Rejeté',
+    '1': 'Nouveau', '2': 'En cours (attribué)', '3': 'En cours (planifié)', '4': 'En attente', '5': 'Résolu', '6': 'Clos', '8': 'Rejeté',
   };
 
   const PRIORITY_MAP: Record<string, string> = {

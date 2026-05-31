@@ -6,6 +6,9 @@ import 'react-quill-new/dist/quill.snow.css';
 import Header from '../../components/Header';
 import CreateTaskModal from '../../components/CreateTaskModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { useADSearch } from '../../utils/useADSearch';
+import AssociateProblemModal from './AssociateProblemModal';
+import ProblemModal from './ProblemModal';
 
 function decodeHtml(str: string) {
   const txt = document.createElement('textarea');
@@ -47,7 +50,7 @@ const VALID_TRANSITIONS: Record<number, { to: number; label: string; color: stri
 
 export default function TicketDetail() {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const isEmbedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === '1';
   const [ticket, setTicket] = useState<any>(null);
   const [comments, setComments] = useState<any[]>([]);
@@ -72,6 +75,7 @@ export default function TicketDetail() {
   const [addTicketId, setAddTicketId] = useState('');
   const [groupActionLoading, setGroupActionLoading] = useState(false);
   const [showProblemModal, setShowProblemModal] = useState(false);
+  const [showAssociateProblemModal, setShowAssociateProblemModal] = useState(false);
   const [showWaitingModal, setShowWaitingModal] = useState(false);
   const [waitingComment, setWaitingComment] = useState('');
   const [showSolutionModal, setShowSolutionModal] = useState(false);
@@ -93,6 +97,9 @@ export default function TicketDetail() {
   const [categories, setCategories] = useState<any[]>([]);
   const [apps, setApps] = useState<any[]>([]);
   const [editForm, setEditForm] = useState<any>({});
+  const [sites, setSites] = useState<any[]>([]);
+  const [locationSearch, setLocationSearch] = useState('');
+  const [locationOpen, setLocationOpen] = useState(false);
 
   // Resize panneau gauche/droite
   const [paneRatio, setPaneRatio] = useState<number>(() => {
@@ -120,17 +127,18 @@ export default function TicketDetail() {
   const [listenComment, setListenComment] = useState(false);
   const commentRecognitionRef = useRef<any>(null);
 
+  // Tickets liés (Problème/Groupe)
+  const [linkedTickets, setLinkedTickets] = useState<any[]>([]);
+
   // Arbitrage
   const [showArbitrageModal, setShowArbitrageModal] = useState(false);
-  const [arbitreSearch, setArbitreSearch] = useState('');
-  const [arbitreResults, setArbitreResults] = useState<any[]>([]);
-  const [arbitreSearching, setArbitreSearching] = useState(false);
+  const arbitreAd = useADSearch(token);
   const [selectedArbitre, setSelectedArbitre] = useState<any>(null);
   const [arbitreMotif, setArbitreMotif] = useState('');
   const [arbitreSubmitting, setArbitreSubmitting] = useState(false);
 
   useEffect(() => {
-    loadTicket(); loadGroup(); loadCategoriesAndApps();
+    loadTicket(); loadGroup(); loadCategoriesAndApps(); loadSites();
     const token = localStorage.getItem('token');
     axios.get('/api/tickets/config/public', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setAiReformulationEnabled(r.data.ai_reformulation_enabled !== false))
@@ -183,6 +191,14 @@ export default function TicketDetail() {
     } catch (e) { console.error('Failed to load categories/apps:', e); }
   }
 
+  async function loadSites() {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/ville/sites/list', { headers: { Authorization: `Bearer ${token}` } });
+      setSites(res.data || []);
+    } catch (e) { console.error('Failed to load sites:', e); }
+  }
+
   async function loadRequesterTickets(email: string) {
     try {
       const token = localStorage.getItem('token');
@@ -212,10 +228,12 @@ export default function TicketDetail() {
       setEditForm({
         priority: t.priority?.id || t.priority,
         impact: t.impact?.id || t.impact,
-        category_id: t.category_id || null,
-        subcategory_id: t.subcategory_id || null,
-        software_id: t.software_id || null
+        category_id: t.category_id?.toString() || '',
+        subcategory_id: t.subcategory_id?.toString() || '',
+        software_id: t.software_id?.toString() || '',
+        location: t.location || ''
       });
+      setLocationSearch(t.location || '');
       setComments(commentsRes.data);
       setHistory(historyRes.data);
       setTicketTasks(tasksRes.data || []);
@@ -224,11 +242,24 @@ export default function TicketDetail() {
       if (t.requester?.email) {
         loadRequesterTickets(t.requester.email);
       }
+      if (String(t.type) === '3') {
+        await fetchLinkedTickets();
+      }
     } catch (e) {
       console.error('Failed to load ticket:', e);
     } finally {
       setLoading(false);
     }
+  }
+
+  async function fetchLinkedTickets() {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`/api/tickets/problem/${id}/tickets`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setLinkedTickets(res.data || []);
+    } catch (e) { setLinkedTickets([]); }
   }
 
   async function loadGroup() {
@@ -247,9 +278,10 @@ export default function TicketDetail() {
       const updateData: any = {};
       if (editForm.priority !== undefined) updateData.priority = editForm.priority;
       if (editForm.impact !== undefined) updateData.impact = editForm.impact;
-      if (editForm.category_id !== undefined) updateData.category_id = editForm.category_id;
-      if (editForm.subcategory_id !== undefined) updateData.subcategory_id = editForm.subcategory_id;
-      if (editForm.software_id !== undefined) updateData.software_id = editForm.software_id;
+      updateData.category_id = editForm.category_id ? parseInt(editForm.category_id.toString()) : null;
+      updateData.subcategory_id = editForm.subcategory_id ? parseInt(editForm.subcategory_id.toString()) : null;
+      updateData.software_id = editForm.software_id ? parseInt(editForm.software_id.toString()) : null;
+      updateData.location = editForm.location || '';
 
       await axios.patch(`/api/tickets/${id}`, updateData, { headers: { Authorization: `Bearer ${token}` } });
       setEditingInfo(false);
@@ -327,6 +359,13 @@ export default function TicketDetail() {
   }
 
   async function handleStatusChange(newStatus: number) {
+    if (newStatus === 6 && String(ticket.type) === '3') {
+        const isAdminOrSupervisor = ['superadmin','admin','supervisor','superviseur'].includes((user?.role ?? '').toLowerCase().trim());
+        if (!isAdminOrSupervisor) {
+            alert('Seuls les superviseurs peuvent clore un ticket Problème.');
+            return;
+        }
+    }
     if (newStatus === 3) {
       try {
         const token = localStorage.getItem('token');
@@ -377,10 +416,11 @@ export default function TicketDetail() {
     try {
       const token = localStorage.getItem('token');
       await axios.post(`/api/tickets/${id}/solution`, { solution: solutionText }, { headers: { Authorization: `Bearer ${token}` } });
-      loadTicket();
-      // Proposer résolution en cascade si groupe avec d'autres tickets
-      const others = ticketGroup?.members?.filter((m: any) => m.ticket_id !== parseInt(id || '0')) || [];
-      if (others.length > 0) {
+      await loadTicket();
+      // Proposer résolution en cascade si groupe avec d'autres tickets ou problème lié
+      const groupOthers = ticketGroup?.members?.filter((m: any) => m.ticket_id !== parseInt(id || '0')) || [];
+      const linked = linkedTickets.filter((t: any) => t.id !== parseInt(id || '0'));
+      if (groupOthers.length > 0 || linked.length > 0) {
         setCascadeSolution(solutionText);
         setShowCascadeModal(true);
       }
@@ -431,8 +471,8 @@ export default function TicketDetail() {
             headers: { Authorization: `Bearer ${token}` }
           }).catch(() => ({ data: [] })),
         ]);
-        const hubUsers: any[] = (hubRes.data || []).map((u: any) => ({ id: u.id, name: u.name, email: u.email, username: u.username }));
-        const adUsers: any[] = (adRes.data || []).map((u: any) => ({ id: u.id || null, name: u.displayName, email: u.email, username: u.username }));
+        const hubUsers: any[] = (hubRes.data || []).map((u: any) => ({ id: u.id, name: u.name, email: u.email, username: u.username, service: u.service }));
+        const adUsers: any[] = (adRes.data || []).map((u: any) => ({ id: u.id || null, name: u.displayName, email: u.email, username: u.username, service: u.service }));
         const seen = new Set(hubUsers.map(u => u.username?.toLowerCase()));
         const merged = [...hubUsers, ...adUsers.filter(u => !seen.has(u.username?.toLowerCase()))];
         setObserverResults(merged);
@@ -441,22 +481,6 @@ export default function TicketDetail() {
     }, 300);
     return () => clearTimeout(timer);
   }, [observerSearch]);
-
-  useEffect(() => {
-    if (!arbitreSearch || arbitreSearch.length < 2) { setArbitreResults([]); return; }
-    const timer = setTimeout(async () => {
-      setArbitreSearching(true);
-      try {
-        const token = localStorage.getItem('token');
-        const res = await axios.get(`/api/tickets/users/ad-search?q=${encodeURIComponent(arbitreSearch)}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setArbitreResults(res.data);
-      } catch { setArbitreResults([]); }
-      finally { setArbitreSearching(false); }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [arbitreSearch]);
 
   function isCommentEmpty(html: string) {
     return !html || html === '<p><br></p>' || html.replace(/<[^>]*>/g, '').trim() === '';
@@ -651,8 +675,8 @@ export default function TicketDetail() {
         statut: 'a_faire'
       }, { headers: { Authorization: `Bearer ${token}` } });
       setShowArbitrageModal(false);
-      setArbitreSearch('');
-      setArbitreResults([]);
+      arbitreAd.setQuery('');
+      arbitreAd.clearResults();
       setSelectedArbitre(null);
       setArbitreMotif('');
       loadTicket();
@@ -664,18 +688,18 @@ export default function TicketDetail() {
   }
 
   async function handleCascadeResolve() {
-    if (!ticketGroup) return;
-    const token = localStorage.getItem('token');
-    const others = ticketGroup.members?.filter((m: any) => m.ticket_id !== parseInt(id || '0')) || [];
-    for (const m of others) {
-      try {
-        await axios.post(`/api/tickets/${m.ticket_id}/solution`,
-          { solution: cascadeSolution },
-          { headers: { Authorization: `Bearer ${token}` } });
-      } catch { /* skip failures */ }
+    if (!id) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`/api/tickets/${id}/resolve`,
+        { solution: cascadeSolution, auto_resolve_linked: true },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setShowCascadeModal(false);
+      loadTicket();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la résolution');
     }
-    setShowCascadeModal(false);
-    loadTicket();
   }
 
   if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#64748b', fontFamily: 'system-ui, sans-serif' }}>Chargement...</div>;
@@ -1075,12 +1099,23 @@ export default function TicketDetail() {
                 )}
               </button>
               <div style={{ flex: 1 }} />
-              <button onClick={() => { setShowArbitrageModal(true); setSelectedArbitre(null); setArbitreSearch(''); setArbitreMotif(''); }}
+              <button onClick={() => { setShowArbitrageModal(true); setSelectedArbitre(null); arbitreAd.setQuery(''); setArbitreMotif(''); }}
                 style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #fbbf24', borderRadius: 6, color: '#b45309', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
                 ⚖️ Arbitrage
               </button>
               {!editingInfo ? (
-                <button onClick={() => { setEditingInfo(true); setEditForm({ priority: ticket.priority?.id || ticket.priority, impact: ticket.impact?.id || ticket.impact, category_id: ticket.category_id, subcategory_id: ticket.subcategory_id, software_id: ticket.software_id }); }}
+                <button onClick={() => { 
+                  setEditingInfo(true); 
+                  setEditForm({ 
+                    priority: ticket.priority?.id || ticket.priority, 
+                    impact: ticket.impact?.id || ticket.impact, 
+                    category_id: ticket.category_id?.toString() || '', 
+                    subcategory_id: ticket.subcategory_id?.toString() || '', 
+                    software_id: ticket.software_id?.toString() || '',
+                    location: ticket.location || ''
+                  }); 
+                  setLocationSearch(ticket.location || '');
+                }}
                   style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #e4e4e7', borderRadius: 6, color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
                   ✏️ Éditer
                 </button>
@@ -1163,10 +1198,10 @@ export default function TicketDetail() {
             <div style={SF}>
               <span style={SL}>Catégorie</span>
               {editingInfo ? (
-                <select value={editForm.category_id || ''} onChange={e => setEditForm({...editForm, category_id: e.target.value ? parseInt(e.target.value) : null, subcategory_id: null})}
-                  style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
+                <select value={editForm.category_id || ''} onChange={e => setEditForm({...editForm, category_id: e.target.value, subcategory_id: ''})}
+                  style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', width: '100%', maxWidth: 180 }}>
                   <option value="">— Non défini —</option>
-                  {categories.filter(c => !c.parent_id).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {categories.filter(c => !c.parent_id).map(c => <option key={c.id} value={c.id.toString()}>{c.name}</option>)}
                 </select>
               ) : (
                 <span style={SV}>{ticket.category_name || '—'}</span>
@@ -1178,11 +1213,11 @@ export default function TicketDetail() {
               <div style={SF}>
                 <span style={SL}>Sous-catégorie</span>
                 {editingInfo ? (
-                  <select value={editForm.subcategory_id || ''} onChange={e => setEditForm({...editForm, subcategory_id: e.target.value ? parseInt(e.target.value) : null})}
+                  <select value={editForm.subcategory_id || ''} onChange={e => setEditForm({...editForm, subcategory_id: e.target.value})}
                     disabled={!editForm.category_id}
-                    style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', opacity: !editForm.category_id ? 0.5 : 1 }}>
+                    style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', opacity: !editForm.category_id ? 0.5 : 1, width: '100%', maxWidth: 180 }}>
                     <option value="">— Non défini —</option>
-                    {categories.filter(c => c.parent_id === parseInt(editForm.category_id || '0')).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {categories.filter(c => c.parent_id === parseInt(editForm.category_id || '0')).map(c => <option key={c.id} value={c.id.toString()}>{c.name}</option>)}
                   </select>
                 ) : (
                   <span style={SV}>{ticket.subcategory_name || '—'}</span>
@@ -1195,10 +1230,10 @@ export default function TicketDetail() {
               <div style={SF}>
                 <span style={SL}>Logiciel</span>
                 {editingInfo ? (
-                  <select value={editForm.software_id || ''} onChange={e => setEditForm({...editForm, software_id: e.target.value ? parseInt(e.target.value) : null})}
-                    style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff' }}>
+                  <select value={editForm.software_id || ''} onChange={e => setEditForm({...editForm, software_id: e.target.value})}
+                    style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', width: '100%', maxWidth: 180 }}>
                     <option value="">— Non défini —</option>
-                    {apps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    {apps.map(a => <option key={a.id} value={a.id.toString()}>{a.name}</option>)}
                   </select>
                 ) : (
                   <span style={SV}>{ticket.software_name || '—'}</span>
@@ -1261,15 +1296,34 @@ export default function TicketDetail() {
             </div>
 
             {/* LIEU */}
-            {ticket.location && (
-              <div style={SF}>
-                <span style={SL}>Lieu</span>
+            <div style={SF}>
+              <span style={SL}>Lieu</span>
+              {editingInfo ? (
+                <div style={{ position: 'relative', width: '100%', maxWidth: 180 }}>
+                  <input value={locationSearch} 
+                    onChange={e => { setLocationSearch(e.target.value); setEditForm({...editForm, location: e.target.value}); setLocationOpen(true); }}
+                    onFocus={() => setLocationOpen(true)}
+                    onBlur={() => setTimeout(() => setLocationOpen(false), 200)}
+                    placeholder="Chercher..."
+                    style={{ width: '100%', padding: '5px 8px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                  {locationOpen && sites.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '1px solid #e4e4e7', borderRadius: 6, boxShadow: '0 4px 6px rgba(0,0,0,0.1)', maxHeight: 200, overflowY: 'auto' }}>
+                      {sites.filter(s => (s.nom||'').toLowerCase().includes(locationSearch.toLowerCase()) || (s.code_bien||'').toLowerCase().includes(locationSearch.toLowerCase())).slice(0, 20).map(s => (
+                        <div key={s.id} onMouseDown={() => { const l = s.code_bien ? `${s.code_bien} — ${s.nom}` : s.nom; setEditForm({...editForm, location: l}); setLocationSearch(l); setLocationOpen(false); }}
+                          style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f4f4f5', fontSize: 11 }}>
+                          {s.code_bien} — {s.nom}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <span style={{ ...SV, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span>📍</span>
-                  <span>{ticket.location}</span>
+                  <span>{ticket.location || 'Non renseigné'}</span>
                 </span>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* PIÈCES JOINTES */}
             {attachments.length > 0 && (
@@ -1335,7 +1389,10 @@ export default function TicketDetail() {
                       {observerResults.filter(u => !observers.some(o => (o.login || '').toLowerCase() === (u.username || '').toLowerCase())).map(u => (
                         <div key={u.username || u.email || u.id} onClick={() => handleAddObserver(u)}
                           style={{ padding: '5px 8px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f9f9fb', display: 'flex', justifyContent: 'space-between' }}>
-                          <span>{u.name}</span><span style={{ color: '#6366f1', fontSize: 10 }}>{u.email}</span>
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{u.name}</div>
+                            <div style={{ fontSize: 10, color: '#71717a' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1346,27 +1403,60 @@ export default function TicketDetail() {
                 </div>
               )}
             </div>
-            {/* GROUPE / PROBLEME */}
-            {ticketGroup && (
-              <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-                  🔗 {ticketGroup.name}
-                  <span style={{ background: '#e4e4e7', borderRadius: 10, fontSize: 10, padding: '0 5px', marginLeft: 5, lineHeight: '16px', color: '#52525b' }}>
-                    {ticketGroup.members?.length || ''}
-                  </span>
-                </div>
-                {ticketGroup.problem_ticket_id ? (
-                  <div style={{ fontSize: 12, color: '#7c3aed', marginTop: 2 }}>
-                    ⚠️ Problème lié : <a href={`/tickets/${ticketGroup.problem_ticket_id}`} style={{ fontWeight: 700, color: '#7c3aed', textDecoration: 'none' }}>#{ticketGroup.problem_ticket_id}</a>
+            {/* GROUPES & ASSOCIATIONS */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Associations</div>
+              
+              {/* Groupe */}
+              {ticketGroup && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                    🔗 Groupe : {ticketGroup.name}
+                    <span style={{ background: '#e4e4e7', borderRadius: 10, fontSize: 10, padding: '0 5px', marginLeft: 5, color: '#52525b' }}>{ticketGroup.members?.length || ''}</span>
                   </div>
-                ) : (
-                  <button onClick={() => setShowProblemModal(true)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 12, fontWeight: 500, padding: '2px 0' }}>
-                    ⚠️ Transformer en Problème
-                  </button>
-                )}
-              </div>
-            )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {(ticketGroup.members || []).map((m: any) => (
+                        <div key={m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                           <a href={`/tickets/${m.ticket_id}`} style={{ color: '#6366f1', textDecoration: 'none' }}>#{m.ticket_id}</a>
+                           <span style={{ color: '#374151' }}>{m.title || 'Sans titre'}</span>
+                           <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>({m.requester_name || 'Anonyme'})</span>
+                        </div>
+                      ))}
+                  </div>
+                  
+                  {/* Transformer en problème (Si groupe mais pas problème lié) */}
+                  {!ticketGroup.problem_ticket_id && String(ticket.type) !== '3' && (
+                    <button onClick={() => setShowProblemModal(true)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 11, fontWeight: 600, padding: '4px 0', textDecoration: 'underline' }}>
+                        ⚠️ Transformer en problème
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Problème */}
+              {String(ticket.type) === '3' ? (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', marginBottom: 4 }}>⚠️ Tickets liés à ce problème</div>
+                  {linkedTickets.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {linkedTickets.map(t => (
+                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                           <a href={`/tickets/${t.id}`} style={{ color: '#6366f1', textDecoration: 'none' }}>#{t.id}</a>
+                           <span style={{ color: '#374151' }}>{t.title}</span>
+                           <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>({t.requester_name || 'Anonyme'})</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <div style={{ fontSize: 11, color: '#a1a1aa', fontStyle: 'italic' }}>Aucun ticket lié</div>}
+                </div>
+              ) : !ticketGroup ? (
+                /* Associer à un problème */
+                <button onClick={() => setShowAssociateProblemModal(true)} style={{ background: 'none', border: '1px dashed #c4b5fd', borderRadius: 6, padding: '4px 8px', color: '#7c3aed', fontSize: 11, cursor: 'pointer', width: '100%' }}>
+                  + Associer à un problème
+                </button>
+              ) : null}
+            </div>
 
           </div>
           {/* end right sidebar */}
@@ -1446,7 +1536,7 @@ export default function TicketDetail() {
       )}
 
       {/* ── Modal : Transformer en Problème ──────────────────────── */}
-      {showProblemModal && ticketGroup && (
+{showProblemModal && ticketGroup && (
         <ProblemModal
           groupId={ticketGroup.id}
           groupName={ticketGroup.name}
@@ -1455,6 +1545,19 @@ export default function TicketDetail() {
           onCreated={(problemId: number) => {
             setShowProblemModal(false);
             setTicketGroup((g: any) => g ? { ...g, problem_ticket_id: problemId } : g);
+            loadGroup();
+          }}
+        />
+      )}
+
+      {/* ── Modal : Associer à un problème ─────────────────────────── */}
+      {showAssociateProblemModal && (
+        <AssociateProblemModal
+          ticketId={parseInt(id || '0')}
+          onClose={() => setShowAssociateProblemModal(false)}
+          onAssociated={() => {
+            setShowAssociateProblemModal(false);
+            loadTicket();
             loadGroup();
           }}
         />
@@ -1717,23 +1820,25 @@ export default function TicketDetail() {
               <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Arbitre</label>
               {selectedArbitre ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid #c7d2fe', borderRadius: 8, background: '#eef2ff' }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#4f46e5', flex: 1 }}>{selectedArbitre.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#4f46e5', flex: 1 }}>{selectedArbitre.displayName}</span>
                   <button onClick={() => setSelectedArbitre(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 16, padding: 0 }}>×</button>
                 </div>
               ) : (
                 <>
-                  <input value={arbitreSearch} onChange={e => setArbitreSearch(e.target.value)} placeholder="Rechercher un utilisateur..."
+                  <input value={arbitreAd.query} onChange={e => arbitreAd.setQuery(e.target.value)} placeholder="Rechercher un utilisateur..."
                     style={{ width: '100%', padding: '8px 10px', border: '1px solid #e4e4e7', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', outline: 'none' }} autoFocus />
-                  {arbitreSearching && <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 3 }}>Recherche...</div>}
-                  {arbitreResults.length > 0 && (
+                  {arbitreAd.searching && <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 3 }}>Recherche...</div>}
+                  {arbitreAd.results.length > 0 && (
                     <div style={{ border: '1px solid #f4f4f5', borderRadius: 8, overflow: 'hidden', marginTop: 3 }}>
-                      {arbitreResults.map((u: any) => (
-                        <div key={u.id} onClick={() => { setSelectedArbitre(u); setArbitreSearch(''); setArbitreResults([]); }}
+                      {arbitreAd.results.map((u: any) => (
+                        <div key={u.username || u.email} onClick={() => { setSelectedArbitre(u); arbitreAd.setQuery(''); arbitreAd.clearResults(); }}
                           style={{ padding: '7px 10px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f9f9fb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#f9f9fb')}
                           onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
-                          <span style={{ fontWeight: 500 }}>{u.name}</span>
-                          <span style={{ fontSize: 11, color: '#71717a' }}>{u.email}</span>
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{u.displayName}</div>
+                            <div style={{ fontSize: 11, color: '#71717a' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1771,18 +1876,20 @@ export default function TicketDetail() {
       )}
 
       {/* ── Cascade Resolution Modal ────────────────────────────────────── */}
-      {showCascadeModal && ticketGroup && (
+      {showCascadeModal && (ticketGroup || linkedTickets.length > 0) && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1500 }}
           onClick={() => setShowCascadeModal(false)}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 500 }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: 17, fontWeight: 700 }}>✅ Résolution en cascade</h3>
             <p style={{ margin: '0 0 16px 0', fontSize: 14, color: '#64748b' }}>
-              Ce ticket fait partie d'un groupe. Voulez-vous résoudre les tickets liés avec la même solution ?
+              {String(ticket?.type) === '3'
+                ? 'Ce problème a des tickets associés. Voulez-vous les résoudre automatiquement avec la même solution ?'
+                : 'Ce ticket fait partie d\'un groupe. Voulez-vous résoudre les tickets liés avec la même solution ?'}
             </p>
             <div style={{ background: '#f9f9fb', borderRadius: 8, padding: '8px 12px', marginBottom: 14 }}>
-              {ticketGroup.members?.filter((m: any) => m.ticket_id !== parseInt(id || '0')).map((m: any) => (
-                <div key={m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 13 }}>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#6366f1' }}>#{m.ticket_id}</span>
+              {(linkedTickets.length > 0 ? linkedTickets : ticketGroup?.members?.filter((m: any) => m.ticket_id !== parseInt(id || '0')) || []).map((m: any) => (
+                <div key={m.id || m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 13 }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#6366f1' }}>#{m.id || m.ticket_id}</span>
                   <span style={{ color: '#3f3f46', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title}</span>
                 </div>
               ))}
@@ -1811,170 +1918,4 @@ export default function TicketDetail() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MODAL : Transformer un groupe en Problème
-// ─────────────────────────────────────────────────────────────────────────────
-function ProblemModal({ groupId, groupName, members, onClose, onCreated }: {
-  groupId: number;
-  groupName: string;
-  members: any[];
-  onClose: () => void;
-  onCreated: (problemId: number) => void;
-}) {
-  const [title, setTitle] = useState(`Problème : ${groupName}`);
-  const [content, setContent] = useState('');
-  const [resolutionMethod, setResolutionMethod] = useState('');
-  const [knowledgeArticle, setKnowledgeArticle] = useState('');
-  const [priority, setPriority] = useState(4);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
-  async function create() {
-    if (!resolutionMethod.trim()) {
-      setError('La méthode de résolution est requise pour un ticket Problème.');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(`/api/tickets/groups/${groupId}/transform-to-problem`, {
-        title: title.trim(),
-        content,
-        resolution_method: resolutionMethod,
-        knowledge_article: knowledgeArticle,
-        priority,
-      }, { headers: { Authorization: `Bearer ${token}` } });
-      onCreated(res.data.problem_ticket_id);
-    } catch (e: any) {
-      setError(e.response?.data?.message || 'Erreur lors de la création du problème');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000
-    }} onClick={onClose}>
-      <div style={{
-        background: '#fff', borderRadius: 16, padding: 28, width: 580, maxHeight: '90vh',
-        overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)'
-      }} onClick={e => e.stopPropagation()}>
-
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 16, borderBottom: '1px solid #e2e8f0' }}>
-          <span style={{ fontSize: 24 }}>⚠️</span>
-          <div>
-            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#7c3aed' }}>Transformer en Problème</h3>
-            <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
-              Crée un ticket maître de type Problème lié aux {members.length} tickets du groupe
-            </p>
-          </div>
-        </div>
-
-        {/* Tickets associés */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>TICKETS DU GROUPE</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {members.map((m: any) => (
-              <span key={m.ticket_id} style={{
-                padding: '3px 10px', borderRadius: 20, background: '#ede9fe',
-                color: '#7c3aed', fontSize: 12, fontWeight: 600
-              }}>#{m.ticket_id}</span>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gap: 16 }}>
-          {/* Titre */}
-          <div>
-            <label style={labelStyle}>Titre du problème *</label>
-            <input value={title} onChange={e => setTitle(e.target.value)}
-              style={inputStyle} />
-          </div>
-
-          {/* Priorité */}
-          <div>
-            <label style={labelStyle}>Priorité</label>
-            <select value={priority} onChange={e => setPriority(Number(e.target.value))} style={inputStyle}>
-              <option value={2}>Basse</option>
-              <option value={3}>Normale</option>
-              <option value={4}>Haute</option>
-              <option value={5}>Très haute</option>
-            </select>
-          </div>
-
-          {/* Méthode de résolution — OBLIGATOIRE */}
-          <div>
-            <label style={{ ...labelStyle, color: '#7c3aed' }}>
-              Méthode de résolution <span style={{ color: '#ef4444' }}>*</span>
-            </label>
-            <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 6px' }}>
-              Décrivez la stratégie d'arbitrage pour résoudre ce problème.
-            </p>
-            <textarea
-              value={resolutionMethod}
-              onChange={e => setResolutionMethod(e.target.value)}
-              rows={4}
-              placeholder="Ex: Identifier la cause racine → Tester le correctif en environnement de validation → Déploiement en production..."
-              style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
-            />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label style={labelStyle}>Description complémentaire</label>
-            <textarea value={content} onChange={e => setContent(e.target.value)}
-              rows={3}
-              placeholder="Contexte, observations, impact..."
-              style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
-            />
-          </div>
-
-          {/* Article de connaissance */}
-          <div>
-            <label style={labelStyle}>Article de connaissance <span style={{ fontWeight: 400, color: '#94a3b8' }}>(optionnel)</span></label>
-            <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 6px' }}>
-              Documentation interne, procédures ou liens utiles à la résolution.
-            </p>
-            <textarea
-              value={knowledgeArticle}
-              onChange={e => setKnowledgeArticle(e.target.value)}
-              rows={3}
-              placeholder="Documentation, liens Wiki, procédures..."
-              style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
-            />
-          </div>
-        </div>
-
-        {error && (
-          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', marginTop: 16, color: '#dc2626', fontSize: 13 }}>
-            {error}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
-          <button onClick={onClose}
-            style={{ padding: '10px 22px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 14 }}>
-            Annuler
-          </button>
-          <button onClick={create} disabled={loading}
-            style={{
-              padding: '10px 24px', border: 'none', borderRadius: 8, cursor: loading ? 'default' : 'pointer',
-              background: '#7c3aed', color: '#fff', fontWeight: 600, fontSize: 14, opacity: loading ? 0.7 : 1
-            }}>
-            {loading ? 'Création...' : '⚠️ Créer le Problème'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const labelStyle: React.CSSProperties = {
-  display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6
-};
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0',
-  borderRadius: 8, fontSize: 14, boxSizing: 'border-box', outline: 'none', background: '#fff'
-};

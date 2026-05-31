@@ -1,5 +1,6 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState } from 'react';
 import { X, Plus } from 'lucide-react';
+import { useADSearch } from '../utils/useADSearch';
 
 interface Participant {
   id: number;
@@ -12,14 +13,6 @@ interface Participant {
   type_presence: 'metier' | 'dsi' | 'externe';
   statut_presence: 'present' | 'excuse' | 'info';
   ad_username?: string;
-}
-
-interface ADUser {
-  username: string;
-  displayName: string;
-  email: string;
-  service?: string;
-  direction?: string;
 }
 
 interface CreateReunionModalProps {
@@ -39,12 +32,9 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
   const [comiteId, setComiteId] = useState('');
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [newParticipant, setNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'externe' as 'metier' | 'dsi' | 'externe', statut_presence: 'present' as 'present' | 'excuse' | 'info' });
-  const [adQuery, setAdQuery] = useState('');
-  const [adResults, setAdResults] = useState<ADUser[]>([]);
-  const [adSearching, setAdSearching] = useState(false);
+  const ad = useADSearch(token);
   const [isCreating, setIsCreating] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
-  const adSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleComiteChange = async (id: string) => {
     setComiteId(id);
@@ -72,22 +62,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
     setLoadingMembers(false);
   };
 
-  const searchAD = useCallback((q: string) => {
-    setAdQuery(q);
-    if (adSearchTimerRef.current !== null) clearTimeout(adSearchTimerRef.current);
-    if (q.length < 2) { setAdResults([]); return; }
-    setAdSearching(true);
-    adSearchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-        const data = await res.json();
-        setAdResults(Array.isArray(data) ? data : []);
-      } catch (e) { setAdResults([]); }
-      finally { setAdSearching(false); }
-    }, 400);
-  }, [token]);
-
-  const addParticipantFromAD = (user: ADUser) => {
+  const addParticipantFromAD = (user: { username: string; displayName: string; email: string; service?: string; direction?: string }) => {
     setParticipants(prev => [...prev, {
       id: Date.now(), reunion_id: 0,
       nom: user.displayName.split(' ').slice(1).join(' ') || user.displayName,
@@ -99,8 +74,8 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
       statut_presence: 'present',
       ad_username: user.username
     }]);
-    setAdQuery('');
-    setAdResults([]);
+    ad.setQuery('');
+    ad.clearResults();
   };
 
   const addParticipantManuel = () => {
@@ -177,12 +152,12 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
           <div style={{background: '#eff6ff', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
             <div style={{fontSize: '12px', fontWeight: '700', color: '#1d4ed8', marginBottom: '8px'}}>🔍 Ajouter un agent DSI (Active Directory)</div>
             <div style={{position: 'relative'}}>
-              <input type="text" placeholder="Rechercher par nom..." style={{width: '100%', padding: '9px 12px', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '14px'}} value={adQuery} onChange={e => searchAD(e.target.value)} />
-              {adSearching && <span style={{position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#64748b'}}>...</span>}
+              <input type="text" placeholder="Rechercher par nom..." style={{width: '100%', padding: '9px 12px', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '14px'}} value={ad.query} onChange={e => ad.setQuery(e.target.value)} />
+              {ad.searching && <span style={{position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#64748b'}}>...</span>}
             </div>
-            {adResults.length > 0 && (
+            {ad.results.length > 0 && (
               <div style={{marginTop: '8px', border: '1px solid #bfdbfe', borderRadius: '8px', background: 'white', maxHeight: '160px', overflowY: 'auto'}}>
-                {adResults.map(u => (
+                {ad.results.map(u => (
                   <div key={u.username} style={{padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9'}} onClick={() => addParticipantFromAD(u)}
                     onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'}
                     onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>

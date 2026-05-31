@@ -31,13 +31,13 @@ module.exports = {
             throw new Error('Permission refusée pour cette transition');
         }
 
-        // Suivi du temps d'attente : si on sort d'un statut attente, on ajoute le temps écoulé
-        if ([4, 5].includes(currentStatus) && ![4, 5].includes(newStatus)) {
+        // Suivi du temps d'attente : si on sort du statut "En attente" (4), on ajoute le temps écoulé
+        if (currentStatus === 4 && newStatus !== 4) {
             try {
                 const lastEntry = await pgDb.get(`
                     SELECT created_at FROM hub_tickets.ticket_history
                     WHERE ticket_id = $1 AND action = 'status_changed'
-                      AND new_value IN ('4','5')
+                      AND new_value = '4'
                     ORDER BY created_at DESC LIMIT 1
                 `, [ticketId]);
                 if (lastEntry) {
@@ -62,12 +62,12 @@ module.exports = {
         // Gestion SLA : pause/resume selon statuts "en attente"
         const sla = await slaRepo.findByTicket(ticketId);
         if (sla) {
-            if ([4, 5].includes(newStatus)) {
+            if (newStatus === 4) {
                 await slaRepo.pauseSla(sla.id, 'waiting');
-            } else if (currentStatus === 4 || currentStatus === 5) {
+            } else if (currentStatus === 4) {
                 await slaRepo.resumeSla(sla.id);
             }
-            if (newStatus === 6) {
+            if (newStatus === 5 || newStatus === 6) {
                 await slaRepo.updateSlaStatus(sla.id, 'ok');
             }
         }
@@ -83,8 +83,8 @@ module.exports = {
         const ticket = await ticketRepo.findById(ticketId);
         if (!ticket) throw new Error('Ticket non trouvé');
 
-        if (ticket.status !== 6 && ticket.status !== 7) {
-            throw new Error('Seuls les tickets Résolus ou Fermés peuvent être réouverts');
+        if (ticket.status !== 5 && ticket.status !== 6) {
+            throw new Error('Seuls les tickets Résolus ou Clos peuvent être réouverts');
         }
 
         const role = await resolveTicketRole(user);

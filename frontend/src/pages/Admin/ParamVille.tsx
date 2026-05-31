@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, MapPin, ChevronRight, List, Network } from 'lucide-react';
+import AdminOrganisation from '../AdminOrganisation';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -450,7 +451,7 @@ const TreeRow = ({
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function ParamVille() {
   const { user: _user } = useAuth();
-  const [selectedTab, setSelectedTab] = useState<'general' | 'elus' | 'sites' | 'ecoles' | 'carte'>('general');
+  const [selectedTab, setSelectedTab] = useState<'general' | 'elus' | 'sites' | 'ecoles' | 'carte' | 'organisation'>('general');
 
   const [config, setConfig] = useState<VilleConfig>({ nom: '', code_postal: '' });
 
@@ -801,12 +802,19 @@ export default function ParamVille() {
       <p style={s.subtitle}>Configuration générale, élus, sites et écoles</p>
 
       <div style={s.tabs}>
-        {(['general', 'elus', 'sites', 'ecoles', 'carte'] as const).map(tab => (
+        {(['general', 'elus', 'sites', 'ecoles', 'carte', 'organisation'] as const).map(tab => (
           <button key={tab} style={s.tab(selectedTab === tab)} onClick={() => setSelectedTab(tab)}>
-            {tab === 'general' ? '⚙️ Général' : tab === 'elus' ? '👤 Élus' : tab === 'sites' ? '🏢 Sites' : tab === 'ecoles' ? '🏫 Écoles' : '🗺️ Carte'}
+            {tab === 'general' ? '⚙️ Général' : tab === 'elus' ? '👤 Élus' : tab === 'sites' ? '🏢 Sites' : tab === 'ecoles' ? '🏫 Écoles' : tab === 'carte' ? '🗺️ Carte' : '🏛️ Organisation'}
           </button>
         ))}
       </div>
+
+      {/* ─── ORGANISATION ────────────────────────────────────────── */}
+      {selectedTab === 'organisation' && (
+        <div style={{ margin: '0 -24px' }}>
+          <AdminOrganisation />
+        </div>
+      )}
 
       {/* ─── GÉNÉRAL ─────────────────────────────────────────────── */}
       {selectedTab === 'general' && (

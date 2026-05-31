@@ -90,8 +90,8 @@ export default function TicketCreate() {
             headers: { Authorization: `Bearer ${token}` }
           }).catch(() => ({ data: [] })),
         ]);
-        const hubUsers: any[] = (hubRes.data || []).map((u: any) => ({ id: u.id, name: u.name, email: u.email, username: u.username }));
-        const adUsers: any[] = (adRes.data || []).map((u: any) => ({ id: u.id || null, name: u.displayName, email: u.email, username: u.username }));
+        const hubUsers: any[] = (hubRes.data || []).map((u: any) => ({ id: u.id, name: u.name, email: u.email, username: u.username, service: u.service }));
+        const adUsers: any[] = (adRes.data || []).map((u: any) => ({ id: u.id || null, name: u.displayName, email: u.email, username: u.username, service: u.service }));
         const seen = new Set(hubUsers.map(u => u.username?.toLowerCase()));
         const merged = [...hubUsers, ...adUsers.filter(u => !seen.has(u.username?.toLowerCase()))];
         setObserverResults(merged);
@@ -361,8 +361,11 @@ export default function TicketCreate() {
                     }}
                     onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                     onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                    <span style={{ fontWeight: 500, color: '#1e293b' }}>{u.name}</span>
-                    <span style={{ color: '#6366f1', fontSize: 12 }}>{u.email}</span>
+                    <div>
+                      <div style={{ fontWeight: 500, color: '#1e293b' }}>{u.name}</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</div>
+                    </div>
+                    <span style={{ color: '#6366f1', fontSize: 12 }}>+</span>
                   </div>
                 ))}
               </div>

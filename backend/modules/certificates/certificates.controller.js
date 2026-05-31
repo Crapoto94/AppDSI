@@ -23,7 +23,7 @@ async function deleteCertFile(filePath) {
 }
 
 /** Écrit le fichier d'un certificat via le service de stockage et met à jour file_path. */
-async function storeCertFile(certId, file, previousPath) {
+async function storeCertFile(certId, file, previousPath, uploadedBy) {
     // Corrige l'encodage du nom (multer décode en latin1) avant l'écriture
     if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
     const saved = await storage.saveFile(MODULE, certId, file);
@@ -31,6 +31,24 @@ async function storeCertFile(certId, file, previousPath) {
     if (previousPath && previousPath !== saved.dbPath) {
         await deleteCertFile(previousPath);
     }
+
+    // Dual-write : enregistre dans hub_docs pour le viewer central
+    try {
+        const docsService = require('../../shared/documents.service');
+        await docsService.registerExternalUpload({
+            module: 'certificats',
+            entityType: 'cert',
+            entityId: certId,
+            title: file.originalname,
+            filename: saved.filename,
+            originalName: file.originalname,
+            mimetype: file.mimetype,
+            size: file.size,
+            storageRef: saved.dbPath,
+            uploadedBy: uploadedBy || null,
+        });
+    } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+
     return saved.dbPath;
 }
 
@@ -345,7 +363,7 @@ module.exports = {
             const db = pgDb;
             const cert = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
             if (!cert) return res.status(404).json({ message: 'Certificat non trouvé' });
-            await storeCertFile(req.params.id, req.file, cert.file_path);
+            await storeCertFile(req.params.id, req.file, cert.file_path, req.user?.username);
             const updated = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
             const formatted = { ...updated, request_date: formatDateFrench(updated.request_date), expiry_date: formatDateFrench(updated.expiry_date) };
             res.json(formatted);
@@ -411,7 +429,7 @@ module.exports = {
         try {
             const data = await parseCertificateFile(req.file);
             const saved = await upsertCertificate(data);
-            await storeCertFile(saved.id, req.file, saved.file_path);
+            await storeCertFile(saved.id, req.file, saved.file_path, req.user?.username);
             const finalCert = await pgDb.get('SELECT * FROM hub.certificates WHERE id = ?', [saved.id]);
             const formatted = { ...finalCert, request_date: formatDateFrench(finalCert.request_date), expiry_date: formatDateFrench(finalCert.expiry_date) };
             res.json(formatted);
@@ -429,7 +447,7 @@ module.exports = {
             try {
                 const data = await parseCertificateFile(file);
                 const saved = await upsertCertificate(data);
-                await storeCertFile(saved.id, file, saved.file_path);
+                await storeCertFile(saved.id, file, saved.file_path, req.user?.username);
                 const finalCert = await pgDb.get('SELECT * FROM hub.certificates WHERE id = ?', [saved.id]);
                 const formatted = { ...finalCert, request_date: formatDateFrench(finalCert.request_date), expiry_date: formatDateFrench(finalCert.expiry_date) };
                 results.push({ file: file.originalname, status: 'ok', certificate: formatted });

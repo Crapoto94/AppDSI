@@ -82,8 +82,7 @@ module.exports = {
             FROM hub_tickets.ticket_sla ts
             JOIN hub_tickets.tickets t ON ts.ticket_id = t.glpi_id
             WHERE ts.sla_status IN ('ok', 'warning')
-              AND t.status NOT IN (4, 5, 7)
-              AND t.source = 'hub'
+              AND t.status NOT IN (4, 5, 6, 7)
         `);
 
         for (const sla of tickets) {

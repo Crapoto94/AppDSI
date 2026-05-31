@@ -345,6 +345,24 @@ module.exports = {
                 finalId = result.lastID;
             }
 
+            // Dual-write hub_docs (viewer central)
+            try {
+                const docsService = require('../../shared/documents.service');
+                await docsService.registerExternalUpload({
+                    module: 'telecom',
+                    entityType: 'invoice',
+                    entityId: finalId,
+                    title: invoice_number || req.file.originalname,
+                    filename: saved.filename,
+                    originalName: req.file.originalname,
+                    mimetype: req.file.mimetype,
+                    size: req.file.size,
+                    storageRef: saved.dbPath,
+                    metadata: { invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date },
+                    uploadedBy: req.user?.username || null,
+                });
+            } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+
             res.json({
                 id: finalId,
                 invoice_number,
@@ -383,8 +401,12 @@ module.exports = {
             const db = getSqlite();
             const inv = await db.get('SELECT file_path FROM telecom_invoices WHERE id = ?', [req.params.id]);
             if (inv && inv.file_path) {
-                const fullPath = path.join(__dirname, '..', '..', inv.file_path);
-                if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+                if (storage.isStoragePath(inv.file_path)) {
+                    await storage.deleteFile(inv.file_path);
+                } else {
+                    const fullPath = path.join(__dirname, '..', '..', inv.file_path);
+                    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+                }
             }
             await db.run('DELETE FROM telecom_invoices WHERE id = ?', [req.params.id]);
             res.json({ message: 'Facture supprimée' });

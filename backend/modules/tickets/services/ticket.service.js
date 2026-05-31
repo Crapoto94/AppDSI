@@ -142,7 +142,8 @@ module.exports = {
     },
 
     async setSolution(id, solution, user) {
-        await ticketRepo.update(id, { solution, status: 6, date_solved: new Date().toISOString() });
+        // Résolu = statut 5 (sémantique GLPI). La clôture (6) se fait séparément.
+        await ticketRepo.update(id, { solution, status: 5, date_solved: new Date().toISOString() });
         await historyRepo.log(id, user.id, 'solved', 'solution', null, solution, 'Solution fournie');
 
         const sla = await slaRepo.findByTicket(id);
@@ -151,6 +152,29 @@ module.exports = {
         }
 
         await notificationService.trigger('ticket.resolved', { ticket_id: id, user, solution });
+    },
+
+    async resolveProblem(problemId, autoResolveLinked, solution, user) {
+        // 1. Resolve the problem ticket itself
+        await this.setSolution(problemId, solution, user);
+
+        // 2. Resolve linked tickets if requested
+        if (autoResolveLinked) {
+            const linkedTickets = await pgDb.all(`
+                SELECT tgm.ticket_id
+                FROM hub_tickets.ticket_group_members tgm
+                JOIN hub_tickets.ticket_groups tg ON tgm.group_id = tg.id
+                WHERE tg.problem_ticket_id = $1
+            `, [problemId]);
+
+            for (const row of linkedTickets) {
+                try {
+                    await this.setSolution(row.ticket_id, `Résolu automatiquement via problème #${problemId}`, user);
+                } catch (e) {
+                    console.error(`[PROBLEM-RESOLVE] Failed to resolve linked ticket #${row.ticket_id}:`, e.message);
+                }
+            }
+        }
     },
 
     async softDelete(id, user) {
@@ -164,6 +188,10 @@ module.exports = {
 
         await ticketRepo.softDelete(id);
         await historyRepo.log(id, user.id, 'deleted', 'status', null, '8', 'Ticket supprimé');
+    },
+
+    async getTicketsStats(filters) {
+        return ticketRepo.getTicketsStats(filters);
     },
 
     async getDashboardStats(user) {

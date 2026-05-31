@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Users } from 'lucide-react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import AddTaskModal from '../components/AddTaskModal';
+import { useADSearch } from '../utils/useADSearch';
 
 interface Projet {
   id: number; code: string; titre: string; statut: string;
@@ -30,10 +31,6 @@ interface RevueTache {
   responsable?: string; echeance?: string;
 }
 
-interface ADUser {
-  username: string; displayName: string; email: string;
-}
-
 const METEO_EMOJI: Record<string, string> = {
   orage: '⛈️', nuageux: '☁️', soleil: '☀️', neutre: '➖'
 };
@@ -51,9 +48,8 @@ export default function RevueDeProjets() {
   const [creationStep, setCreationStep] = useState(1);
   const [dateRevue, setDateRevue] = useState('');
   const [lieu, setLieu] = useState('');
+  const ad = useADSearch(token);
   const [selectedProjets, setSelectedProjets] = useState<Set<number>>(new Set());
-  const [participantQuery, setParticipantQuery] = useState('');
-  const [participantResults, setParticipantResults] = useState<ADUser[]>([]);
   const [participants, setParticipants] = useState<{ username: string; displayName: string }[]>([]);
   const [commentaires, setCommentaires] = useState<Record<number, string>>({});
   const [tacheInput, setTacheInput] = useState<Record<number, { titre: string; responsable: string; echeance: string }>>({});
@@ -65,7 +61,6 @@ export default function RevueDeProjets() {
   const [step2PrevCommentaires, setStep2PrevCommentaires] = useState<Record<number, { commentaire: string; date_revue: string }>>({});
   const [loading, setLoading] = useState(true);
   const [error] = useState('');
-  const adSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Team task modal for revue
   const [teamTaskContext, setTeamTaskContext] = useState<{ revueId: number; revueTitre: string; projetTitre?: string } | null>(null);
   const [hubTasks, setHubTasks] = useState<any[]>([]);
@@ -111,24 +106,11 @@ export default function RevueDeProjets() {
     Promise.all([fetchRevues(), fetchProjets()]).finally(() => setLoading(false));
   }, [fetchRevues, fetchProjets]);
 
-  const searchAD = useCallback((q: string) => {
-    setParticipantQuery(q);
-    if (adSearchTimer.current !== null) clearTimeout(adSearchTimer.current);
-    if (q.length < 2) { setParticipantResults([]); return; }
-    adSearchTimer.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = await res.json();
-        setParticipantResults(Array.isArray(data) ? data : []);
-      } catch { setParticipantResults([]); }
-    }, 400);
-  }, [token]);
-
-  const addParticipant = (u: ADUser) => {
+  const addParticipant = (u: { username: string; displayName: string }) => {
     if (participants.some(p => p.username === u.username)) return;
     setParticipants(prev => [...prev, { username: u.username, displayName: u.displayName }]);
-    setParticipantQuery('');
-    setParticipantResults([]);
+    ad.setQuery('');
+    ad.clearResults();
   };
 
   const removeParticipant = (username: string) => {
@@ -363,16 +345,20 @@ export default function RevueDeProjets() {
                 <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>Participants ({participants.length})</h3>
                 <div style={{ background: '#eff6ff', borderRadius: '10px', padding: '14px', marginBottom: '10px' }}>
                   <div style={{ position: 'relative' }}>
-                    <input type="text" placeholder="Rechercher par nom (AD)..." value={participantQuery} onChange={e => searchAD(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '14px' }} />
+                    <input type="text" placeholder="Rechercher par nom (AD)..." value={ad.query} onChange={e => ad.setQuery(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '14px' }} />
+                    {ad.searching && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#64748b' }}>...</span>}
                   </div>
-                  {participantResults.length > 0 && (
+                  {ad.results.length > 0 && (
                     <div style={{ marginTop: '8px', border: '1px solid #bfdbfe', borderRadius: '8px', background: 'white', maxHeight: '160px', overflowY: 'auto' }}>
-                      {participantResults.map(u => (
+                      {ad.results.map(u => (
                         <div key={u.username} onClick={() => addParticipant(u)}
                           style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}
                           onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'}
                           onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
-                          <span style={{ fontSize: '13px', fontWeight: '600' }}>{u.displayName}</span>
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: '600' }}>{u.displayName}</div>
+                            <div style={{ fontSize: '11px', color: '#64748b' }}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
+                          </div>
                           <span style={{ fontSize: '11px', color: '#2563eb' }}>+ Ajouter</span>
                         </div>
                       ))}

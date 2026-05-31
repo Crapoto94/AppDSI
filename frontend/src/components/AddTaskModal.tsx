@@ -3,14 +3,10 @@
  * Supporte : tâche personnelle, tâche de contexte (projet/réunion/revue),
  * tâche d'équipe par personnes (recherche AD) ou par service.
  */
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Plus, Users, UserPlus, Trash2, ChevronDown } from 'lucide-react';
-
-interface ADUser {
-  username: string;
-  displayName: string;
-  email?: string;
-}
+import { useADSearch } from '../utils/useADSearch';
+import type { ADUser } from '../utils/useADSearch';
 
 interface Service {
   service_code: string;
@@ -50,18 +46,13 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
   // Responsable (single, for non-team non-personal)
   const [responsable, setResponsable]         = useState(defaultResponsable);
   const [responsableUsername, setResponsableUsername] = useState('');
-  const [adResults, setAdResults]             = useState<ADUser[]>([]);
-  const [adSearching, setAdSearching]         = useState(false);
-  const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ad = useADSearch(token);
 
   // Team task
   const [isTeam, setIsTeam]         = useState(false);
   const [teamMode, setTeamMode]     = useState<'people' | 'service'>('people');
   const [teamMembers, setTeamMembers] = useState<ADUser[]>([]);
-  const [teamAdQuery, setTeamAdQuery] = useState('');
-  const [teamAdResults, setTeamAdResults] = useState<ADUser[]>([]);
-  const [teamAdSearching, setTeamAdSearching] = useState(false);
-  const teamAdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const teamAd = useADSearch(token);
   const [services, setServices]       = useState<Service[]>([]);
   const [selectedService, setSelectedService] = useState('');
   const [servicesLoading, setServicesLoading] = useState(false);
@@ -80,42 +71,15 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
     }
   }, [isTeam, teamMode, token, services.length]);
 
-  // AD search for single responsable
-  const searchAD = useCallback((q: string) => {
-    if (adTimerRef.current) clearTimeout(adTimerRef.current);
-    if (q.length < 2) { setAdResults([]); return; }
-    setAdSearching(true);
-    adTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
-        setAdResults((await res.json()) || []);
-      } catch { setAdResults([]); }
-      finally { setAdSearching(false); }
-    }, 350);
-  }, [token]);
 
-  // AD search for team members
-  const searchTeamAD = useCallback((q: string) => {
-    if (teamAdTimerRef.current) clearTimeout(teamAdTimerRef.current);
-    if (q.length < 2) { setTeamAdResults([]); return; }
-    setTeamAdSearching(true);
-    teamAdTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = (await res.json()) || [];
-        // Filter already-added members
-        setTeamAdResults(data.filter((u: ADUser) => !teamMembers.some(m => m.username === u.username)));
-      } catch { setTeamAdResults([]); }
-      finally { setTeamAdSearching(false); }
-    }, 350);
-  }, [token, teamMembers]);
+
 
   const addTeamMember = (user: ADUser) => {
     if (!teamMembers.some(m => m.username === user.username)) {
       setTeamMembers(prev => [...prev, user]);
     }
-    setTeamAdQuery('');
-    setTeamAdResults([]);
+    teamAd.setQuery('');
+    teamAd.clearResults();
   };
 
   const removeTeamMember = (username: string) => {
@@ -229,19 +193,19 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
                 type="text"
                 placeholder="Rechercher dans l'AD..."
                 value={responsable}
-                onChange={e => { setResponsable(e.target.value); setResponsableUsername(''); searchAD(e.target.value); }}
+                onChange={e => { setResponsable(e.target.value); setResponsableUsername(''); ad.setQuery(e.target.value); }}
                 style={{ width: '100%', borderRadius: 8, border: `1px solid ${responsableUsername ? '#16a34a' : '#e2e8f0'}`, padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
               />
-              {adSearching && <span style={{ position: 'absolute', right: 12, top: '50%', fontSize: 11, color: '#64748b' }}>...</span>}
-              {adResults.length > 0 && (
+              {ad.searching && <span style={{ position: 'absolute', right: 12, top: '50%', fontSize: 11, color: '#64748b' }}>...</span>}
+              {ad.results.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'white', border: '1px solid #bfdbfe', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 160, overflowY: 'auto' }}>
-                  {adResults.map(u => (
+                  {ad.results.map(u => (
                     <div key={u.username} style={{ padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: 12 }}
-                      onClick={() => { setResponsable(u.displayName); setResponsableUsername(u.username); setAdResults([]); }}
+                      onClick={() => { setResponsable(u.displayName); setResponsableUsername(u.username); ad.clearResults(); }}
                       onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
                       <div style={{ fontWeight: 600 }}>{u.displayName}</div>
-                      {u.email && <div style={{ fontSize: 10, color: '#64748b' }}>{u.email}</div>}
+                      {u.email && <div style={{ fontSize: 10, color: '#64748b' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</div>}
                     </div>
                   ))}
                 </div>
@@ -300,15 +264,15 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
                         <input
                           type="text"
                           placeholder="Ajouter un membre (recherche AD)..."
-                          value={teamAdQuery}
-                          onChange={e => { setTeamAdQuery(e.target.value); searchTeamAD(e.target.value); }}
+                          value={teamAd.query}
+                          onChange={e => teamAd.setQuery(e.target.value)}
                           style={{ flex: 1, padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 12, outline: 'none' }}
                         />
-                        {teamAdSearching && <span style={{ alignSelf: 'center', fontSize: 11, color: '#64748b' }}>...</span>}
+                        {teamAd.searching && <span style={{ alignSelf: 'center', fontSize: 11, color: '#64748b' }}>...</span>}
                       </div>
-                      {teamAdResults.length > 0 && (
+                      {teamAd.results.filter(u => !teamMembers.some(m => m.username === u.username)).length > 0 && (
                         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'white', border: '1px solid #bfdbfe', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 140, overflowY: 'auto' }}>
-                          {teamAdResults.map(u => (
+                          {teamAd.results.filter(u => !teamMembers.some(m => m.username === u.username)).map(u => (
                             <div key={u.username} style={{ padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}
                               onClick={() => addTeamMember(u)}
                               onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')}
@@ -316,7 +280,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
                               <UserPlus size={12} style={{ color: '#2563eb', flexShrink: 0 }} />
                               <div>
                                 <div style={{ fontWeight: 600 }}>{u.displayName}</div>
-                                {u.email && <div style={{ fontSize: 10, color: '#64748b' }}>{u.email}</div>}
+                                {u.email && <div style={{ fontSize: 10, color: '#64748b' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</div>}
                               </div>
                             </div>
                           ))}

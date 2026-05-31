@@ -4,7 +4,21 @@ const multer = require('multer');
 const path = require('path');
 const rencontresCtrl = require('./rencontres.controller');
 const reunionsCtrl = require('./reunions.controller');
+const jwt = require('jsonwebtoken');
 const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateAdminOrFinances } = require('../../shared/middleware');
+const { SECRET_KEY } = require('../../shared/config');
+
+// Accepte token en query OU header (utile pour <a href="...?token=..."> côté front).
+const authJwtOrQuery = (req, res, next) => {
+    const headerToken = (req.headers.authorization || '').split(' ')[1];
+    const token = req.query.token || headerToken;
+    if (!token) return res.status(401).json({ message: 'Token manquant' });
+    jwt.verify(token, SECRET_KEY, (err, user) => {
+        if (err) return res.status(403).json({ message: 'Token invalide' });
+        req.user = user;
+        next();
+    });
+};
 
 // Multer: memory storage for CSV/Excel import
 const uploadMemory = multer({ storage: multer.memoryStorage() });
@@ -55,6 +69,7 @@ reunionRouter.delete('/participants/:id', authenticateJWT, reunionsCtrl.deletePa
 // Reunion attachments
 reunionRouter.post('/:id/attachments', authenticateJWT, uploadReunion.array('files', 10), reunionsCtrl.uploadAttachments);
 reunionRouter.get('/:id/attachments', authenticateJWT, reunionsCtrl.getAttachments);
+reunionRouter.get('/attachments/:id/file', authJwtOrQuery, reunionsCtrl.downloadAttachment);
 reunionRouter.delete('/attachments/:id', authenticateJWT, reunionsCtrl.deleteAttachment);
 
 // ===== DIRECTIONS & SERVICES =====

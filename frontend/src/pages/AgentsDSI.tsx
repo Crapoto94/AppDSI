@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
+import { useADSearch } from '../utils/useADSearch';
 import { ArrowLeft, Plus, X, Trash2, Users, Check, RefreshCw, Link2, Unlink, Database } from 'lucide-react';
 
 const JOURS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -59,14 +60,6 @@ interface AgentDSI {
   absences: AbsencePermanente[];
 }
 
-interface ADUser {
-  username: string;
-  displayName: string;
-  email: string;
-  service?: string;
-  direction?: string;
-}
-
 interface MatriculeResult {
   matricule: string;
   nom: string;
@@ -94,27 +87,8 @@ export default function AgentsDSI() {
 
   // Add agent modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [adQuery, setAdQuery] = useState('');
-  const [adResults, setAdResults] = useState<ADUser[]>([]);
-  const [searchingAD, setSearchingAD] = useState(false);
-  const [selectedADUser, setSelectedADUser] = useState<ADUser | null>(null);
-  const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const searchAD = useCallback((q: string) => {
-    setAdQuery(q);
-    if (adTimerRef.current !== null) clearTimeout(adTimerRef.current);
-    if (q.length < 2) { setAdResults([]); return; }
-    setSearchingAD(true);
-    adTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = await res.json();
-        setAdResults(Array.isArray(data) ? data : []);
-      } catch { setAdResults([]); }
-      setSearchingAD(false);
-    }, 400);
-  }, [token]);
-
+  const ad = useADSearch(token);
+  const [selectedADUser, setSelectedADUser] = useState<{ username: string; displayName: string; email: string } | null>(null);
 
   // Absence modal per agent
   const [absenceAgent, setAbsenceAgent] = useState<string | null>(null);
@@ -197,7 +171,7 @@ export default function AgentsDSI() {
           username: selectedADUser.username,
           nom: selectedADUser.displayName,
           email: selectedADUser.email,
-          service: selectedADUser.service || ''
+          service: ''
         })
       });
       if (!res.ok) {
@@ -205,9 +179,9 @@ export default function AgentsDSI() {
         throw new Error(errBody.message || `Erreur HTTP ${res.status}`);
       }
       setShowAddModal(false);
-      setAdQuery('');
+      ad.setQuery('');
       setSelectedADUser(null);
-      setAdResults([]);
+      ad.clearResults();
       await fetchAgents();
     } catch (e: any) {
       setError(e.message);
@@ -508,7 +482,7 @@ export default function AgentsDSI() {
             <button className="btn-outline" onClick={syncServices} disabled={syncing}>
               <RefreshCw size={14} /> {syncing ? 'Synchro...' : 'Sync AD'}
             </button>
-            <button className="btn-primary" onClick={() => { setSelectedADUser(null); setAdQuery(''); setAdResults([]); setShowAddModal(true); }}>
+            <button className="btn-primary" onClick={() => { setSelectedADUser(null); ad.setQuery(''); ad.clearResults(); setShowAddModal(true); }}>
               <Plus size={16} /> Ajouter
             </button>
           </div>
@@ -649,16 +623,16 @@ export default function AgentsDSI() {
               <div className="ad-search-wrapper">
                 <input
                   placeholder="Tapez au moins 2 caractères…"
-                  value={adQuery}
-                  onChange={e => { searchAD(e.target.value); setError(null); }}
+                  value={ad.query}
+                  onChange={e => { ad.setQuery(e.target.value); setError(null); }}
                 />
-                {searchingAD && <div style={{ fontSize: '0.8rem', color: '#888', marginTop: 4 }}>Recherche…</div>}
-                {adResults.length > 0 && (
+                {ad.searching && <div style={{ fontSize: '0.8rem', color: '#888', marginTop: 4 }}>Recherche…</div>}
+                {ad.results.length > 0 && (
                   <div className="ad-results">
-                    {adResults.map(u => (
-                      <div key={u.username} className="ad-result-item" onMouseDown={(e) => { e.preventDefault(); setSelectedADUser(u); setAdQuery(''); }} style={{ cursor: 'pointer' }}>
+                    {ad.results.map(u => (
+                      <div key={u.username} className="ad-result-item" onMouseDown={(e) => { e.preventDefault(); setSelectedADUser(u); ad.setQuery(''); ad.clearResults(); }} style={{ cursor: 'pointer' }}>
                         <div className="ad-name">{u.displayName}</div>
-                        <div className="ad-detail">{u.email || u.username}</div>
+                        <div className="ad-detail">{u.email || u.username}{u.service ? ` — ${u.service}` : ''}</div>
                       </div>
                     ))}
                   </div>

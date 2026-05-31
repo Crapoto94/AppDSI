@@ -11,10 +11,11 @@ import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 
 const KPI_FILTERS: Record<string, { label: string; params?: Record<string, string> }> = {
   open:      { label: 'Ouverts',    params: { status_in: '1,2,3' } },
-  in_progress: { label: 'En cours', params: { status_in: '3' } },
-  waiting:   { label: 'En attente', params: { status_in: '4,5' } },
+  in_progress: { label: 'En cours', params: { status_in: '2,3' } },
+  waiting:   { label: 'En attente', params: { status_in: '4' } },
   critical:  { label: 'Critiques',  params: { status_in: '1,2,3', priority: '5' } },
-  resolved:  { label: 'Résolus',    params: { status_in: '6' } },
+  resolved:  { label: 'Résolus',    params: { status_in: '5' } },
+  problems:  { label: 'Problèmes',  params: { type: '3', status_in: '1,2,3,4,5,6' } },
   sla_breached: { label: 'SLA dépassées', params: { sla_breached: '1' } },
 };
 
@@ -42,7 +43,10 @@ export default function TicketsDashboard() {
   const { user } = useAuth();
   const [resolvedRole, setResolvedRole] = useState<string | null>(null);
   const [canViewKpi, setCanViewKpi] = useState(true);
-  const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'inbox' | 'live'>('table');
+  // Vue initiale : « live » si on arrive via la bulle de chat (/tickets?view=live).
+  const initialView = (typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('view') === 'live') ? 'live' : 'table';
+  const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'inbox' | 'live'>(initialView);
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
@@ -53,13 +57,21 @@ export default function TicketsDashboard() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
-  const [syncLoading, setSyncLoading] = useState(false);
+  // ── Réinitialisation GLPI (modale + barre de progression) ──
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [backupBeforeReset, setBackupBeforeReset] = useState(true);
+  const [resetRunning, setResetRunning] = useState(false);
+  const [resetProgress, setResetProgress] = useState<{
+    active: boolean; phase: string | null; percent: number; message: string;
+    error: string | null; result: any;
+  } | null>(null);
+  const resetPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showRejected, setShowRejected] = useState(false);
   const showRejectedRef = useRef(false);
   const [showResolved, setShowResolved] = useState(false);
   const showResolvedRef = useRef(false);
   const [selectedInboxId, setSelectedInboxId] = useState<number | null>(null);
-  const viewModeRef = useRef<'table' | 'kanban' | 'inbox' | 'live'>('table');
+  const viewModeRef = useRef<'table' | 'kanban' | 'inbox' | 'live'>(initialView);
   useEffect(() => { viewModeRef.current = viewMode; }, [viewMode]);
   const [sortKey, setSortKey] = useState('date_creation');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -295,19 +307,55 @@ export default function TicketsDashboard() {
     finally { setRequesterSearching(false); }
   }
 
-  async function syncGlpi() {
-    setSyncLoading(true);
+  function stopResetPolling() {
+    if (resetPollRef.current) { clearInterval(resetPollRef.current); resetPollRef.current = null; }
+  }
+
+  async function pollResetProgress() {
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post('/api/tickets/admin/sync-glpi', {}, { headers: { Authorization: `Bearer ${token}` } });
-      alert(res.data?.message || 'Synchronisation terminée');
-      loadData(activeFilter, activeUserFilter, page);
-    } catch (e: any) {
-      alert(e.response?.data?.message || 'Erreur de synchronisation');
-    } finally {
-      setSyncLoading(false);
+      const res = await axios.get('/api/tickets/admin/sync-glpi/progress', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const p = res.data;
+      setResetProgress(p);
+      if (!p.active) {
+        stopResetPolling();
+        setResetRunning(false);
+        loadData(activeFilter, activeUserFilter, page);
+      }
+    } catch {
+      // On ignore les erreurs ponctuelles de polling ; le prochain tick réessaiera.
     }
   }
+
+  async function startGlpiReset() {
+    setResetRunning(true);
+    setResetProgress({ active: true, phase: 'starting', percent: 0, message: 'Démarrage…', error: null, result: null });
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(
+        '/api/tickets/admin/sync-glpi',
+        { backup: backupBeforeReset },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      // Démarrer le polling de progression
+      stopResetPolling();
+      resetPollRef.current = setInterval(pollResetProgress, 1500);
+      pollResetProgress();
+    } catch (e) {
+      const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message
+        || 'Erreur au démarrage de la réinitialisation';
+      setResetRunning(false);
+      setResetProgress({
+        active: false, phase: 'error', percent: 0,
+        message: msg, error: msg, result: null,
+      });
+    }
+  }
+
+  // Nettoyage du polling au démontage
+  useEffect(() => () => stopResetPolling(), []);
 
   useEffect(() => { loadKpiHistory(kpiDays); }, [kpiDays]);
   useEffect(() => { loadDailyMetrics(); }, []);
@@ -479,14 +527,14 @@ export default function TicketsDashboard() {
             Nouveau ticket
           </a>
           {['superadmin', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
-            <button onClick={syncGlpi} disabled={syncLoading}
+            <button onClick={() => setShowResetModal(true)} disabled={resetRunning}
               style={{
                 padding: '10px 20px', border: '1px solid #7c3aed', borderRadius: 8,
-                background: syncLoading ? '#f5f3ff' : '#fff', color: '#7c3aed',
-                cursor: syncLoading ? 'default' : 'pointer', fontWeight: 600, fontSize: 14,
-                display: 'inline-flex', alignItems: 'center', gap: 6, opacity: syncLoading ? 0.7 : 1
+                background: resetRunning ? '#f5f3ff' : '#fff', color: '#7c3aed',
+                cursor: resetRunning ? 'default' : 'pointer', fontWeight: 600, fontSize: 14,
+                display: 'inline-flex', alignItems: 'center', gap: 6, opacity: resetRunning ? 0.7 : 1
               }}>
-              {syncLoading ? '⏳' : '🔄'} Récupérer GLPI
+              {resetRunning ? '⏳' : '🔄'} Récupérer GLPI
             </button>
           )}
         </div>
@@ -678,6 +726,12 @@ export default function TicketsDashboard() {
               </button>
             )}
           </div>
+          {['superadmin','admin','supervisor','superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+            <a href="/tickets/stats" title="Statistiques du helpdesk"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', border: '1px solid #c7d2fe', borderRadius: 8, background: '#eef2ff', color: '#4338ca', fontWeight: 700, fontSize: 13, textDecoration: 'none', cursor: 'pointer' }}>
+              📊 Statistiques
+            </a>
+          )}
           {canViewKpi && ['superadmin','admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase()) && (
             <>
               <button disabled={!!kpiActionLoading} onClick={async () => {
@@ -756,7 +810,7 @@ export default function TicketsDashboard() {
             value: stats?.resolved || 0, histKey: 'resolved',
             sub: `${getTypeCounts('resolved').incident} inc · ${getTypeCounts('resolved').request} dem`,
             goodDown: false },
-          { key: 'problems',     label: 'Problèmes',        color: '#7c3aed', filterKey: null,
+          { key: 'problems',     label: 'Problèmes',        color: '#7c3aed', filterKey: 'problems', onClick: () => handleFilterClick('problems'),
             value: stats?.problems || 0, histKey: 'problems', sub: '', goodDown: true },
           { key: 'sla_breached', label: 'SLA dépassés',     color: '#ef4444', filterKey: 'sla_breached',
             value: stats?.sla_breached || 0, histKey: null,
@@ -842,7 +896,7 @@ export default function TicketsDashboard() {
 
                 return (
                   <div key={card.key}
-                    onClick={card.filterKey ? () => handleFilterClick(card.filterKey as string) : undefined}
+                    onClick={card.onClick || (card.filterKey ? () => handleFilterClick(card.filterKey as string) : undefined)}
                     style={{
                       background: '#fff', border: `1px solid ${isActive ? card.color : '#e2e8f0'}`,
                       borderRadius: 12, padding: '12px 14px',
@@ -981,6 +1035,14 @@ export default function TicketsDashboard() {
 
       {viewMode === 'live' ? (
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 24 }}>
+          <div style={{ marginBottom: 14 }}>
+            <button
+              onClick={() => { setViewMode('table'); viewModeRef.current = 'table'; loadData(null, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569' }}
+            >
+              🏠 Retour aux tickets
+            </button>
+          </div>
           <LiveSessionsPanel />
         </div>
       ) : viewMode === 'table' ? (
@@ -994,6 +1056,7 @@ export default function TicketsDashboard() {
           activeCategory={activeCategory}
           activeSubcategory={activeSubcategory}
           onCategoryFilter={handleCategoryFilter}
+          activeFilter={activeFilter}
         />
       ) : viewMode === 'kanban' ? (
         <TicketKanban
@@ -1036,6 +1099,128 @@ export default function TicketsDashboard() {
       </div>
       )}
     </div>
+
+    {/* ── Modale Récupérer GLPI : avertissement + sauvegarde + progression ── */}
+    {showResetModal && (
+      <div style={{
+        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 1000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+      }}>
+        <div style={{
+          background: '#fff', borderRadius: 14, width: 'min(560px, 100%)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden',
+        }}>
+          {/* En-tête */}
+          <div style={{ padding: '18px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 22 }}>⚠️</span>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#7c2d12' }}>
+              Récupérer GLPI — Réinitialisation complète
+            </h3>
+          </div>
+
+          <div style={{ padding: 24 }}>
+            {/* Phase 1 : confirmation */}
+            {!resetRunning && !(resetProgress && resetProgress.active === false) && (
+              <>
+                <div style={{
+                  background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10,
+                  padding: '12px 14px', color: '#991b1b', fontSize: 14, lineHeight: 1.5, marginBottom: 16,
+                }}>
+                  Cette opération <strong>efface définitivement</strong> tous les tickets, suivis,
+                  observateurs, assignations, historiques, pièces jointes, liens, groupes/problèmes
+                  et <strong>chats live</strong> du hub, puis réimporte tout depuis GLPI.
+                  La base tickets devient un miroir exact de GLPI.
+                  <br /><br />
+                  La configuration (rôles, catégories, SLA, modèles, règles) et le niveau du
+                  collecteur mail sont conservés.
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', fontSize: 14, color: '#334155' }}>
+                  <input
+                    type="checkbox"
+                    checked={backupBeforeReset}
+                    onChange={(e) => setBackupBeforeReset(e.target.checked)}
+                    style={{ marginTop: 3, width: 16, height: 16, cursor: 'pointer' }}
+                  />
+                  <span>
+                    <strong>Effectuer une sauvegarde complète avant la réinitialisation</strong>
+                    <br />
+                    <span style={{ color: '#64748b', fontSize: 13 }}>
+                      Sauvegarde globale (SQLite + PostgreSQL + fichiers), comme dans Sécurité &amp; Sauvegarde.
+                      Recommandé — peut prendre plusieurs minutes.
+                    </span>
+                  </span>
+                </label>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24 }}>
+                  <button
+                    onClick={() => { setShowResetModal(false); setResetProgress(null); }}
+                    style={{
+                      padding: '10px 18px', border: '1px solid #cbd5e1', borderRadius: 8,
+                      background: '#fff', color: '#475569', fontWeight: 600, fontSize: 14, cursor: 'pointer',
+                    }}>
+                    Annuler
+                  </button>
+                  <button
+                    onClick={startGlpiReset}
+                    style={{
+                      padding: '10px 18px', border: 'none', borderRadius: 8,
+                      background: '#dc2626', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                    }}>
+                    Réinitialiser
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Phase 2 : progression */}
+            {resetRunning && (
+              <>
+                <p style={{ margin: '0 0 14px', fontSize: 14, color: '#334155', minHeight: 20 }}>
+                  {resetProgress?.message || 'Traitement en cours…'}
+                </p>
+                <div style={{ background: '#e2e8f0', borderRadius: 999, height: 12, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${Math.max(3, resetProgress?.percent || 0)}%`, height: '100%',
+                    background: 'linear-gradient(90deg, #7c3aed, #a855f7)', borderRadius: 999,
+                    transition: 'width 0.4s ease',
+                  }} />
+                </div>
+                <div style={{ textAlign: 'right', marginTop: 6, fontSize: 13, fontWeight: 700, color: '#7c3aed' }}>
+                  {resetProgress?.percent || 0}%
+                </div>
+              </>
+            )}
+
+            {/* Phase 3 : résultat / erreur */}
+            {!resetRunning && resetProgress && resetProgress.active === false && (
+              <>
+                <div style={{
+                  background: resetProgress.error ? '#fef2f2' : '#f0fdf4',
+                  border: `1px solid ${resetProgress.error ? '#fecaca' : '#bbf7d0'}`,
+                  borderRadius: 10, padding: '12px 14px',
+                  color: resetProgress.error ? '#991b1b' : '#166534', fontSize: 14, lineHeight: 1.5,
+                }}>
+                  <strong>{resetProgress.error ? '❌ Échec' : '✅ Terminé'}</strong>
+                  <br />
+                  {resetProgress.message}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
+                  <button
+                    onClick={() => { setShowResetModal(false); setResetProgress(null); }}
+                    style={{
+                      padding: '10px 18px', border: 'none', borderRadius: 8,
+                      background: '#7c3aed', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer',
+                    }}>
+                    Fermer
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }

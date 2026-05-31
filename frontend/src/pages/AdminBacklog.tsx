@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Check, X, Clock, AlertCircle, Trash2, Edit2, Filter, User, Download, Zap, ChevronUp } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
+import { useADSearch } from '../utils/useADSearch';
 
 interface BacklogItem {
   id: number;
@@ -28,13 +29,6 @@ interface Tile {
   icon: string;
 }
 
-interface ADUser {
-  username: string;
-  displayName: string;
-  email: string;
-  service?: string;
-}
-
 const AdminBacklog: React.FC = () => {
   const { token } = useAuth();
   const [items, setItems] = useState<BacklogItem[]>([]);
@@ -50,10 +44,8 @@ const AdminBacklog: React.FC = () => {
   const [editingComment, setEditingComment] = useState('');
   const [editingTitle, setEditingTitle] = useState('');
   const [editingCreatedBy, setEditingCreatedBy] = useState('');
+  const backlogAd = useADSearch(token);
   const [showUserSearch, setShowUserSearch] = useState(false);
-  const [userSearchQuery, setUserSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ADUser[]>([]);
-  const [searchingUsers, setSearchingUsers] = useState(false);
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [versionData, setVersionData] = useState<any>(null);
   const [versionLoading, setVersionLoading] = useState(false);
@@ -105,26 +97,6 @@ const AdminBacklog: React.FC = () => {
     }
   };
 
-  const searchADUsers = async (query: string) => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    setSearchingUsers(true);
-    try {
-      const response = await axios.get('/api/ad/search', {
-        params: { q: query },
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setSearchResults(response.data || []);
-    } catch (error) {
-      console.error('Error searching AD users:', error);
-      setSearchResults([]);
-    } finally {
-      setSearchingUsers(false);
-    }
-  };
-
   const handleStatusChange = async (id: number, newStatus: string) => {
     try {
       const updateData: any = { status: newStatus };
@@ -151,8 +123,8 @@ const AdminBacklog: React.FC = () => {
     setEditingTitle(item.title);
     setEditingCreatedBy(item.created_by);
     setShowUserSearch(false);
-    setUserSearchQuery('');
-    setSearchResults([]);
+    backlogAd.setQuery('');
+    backlogAd.clearResults();
   };
 
   const handleSaveEdit = async (id: number) => {
@@ -416,11 +388,10 @@ const AdminBacklog: React.FC = () => {
                           <div style={{ position: 'relative' }}>
                             <input
                               type='text'
-                              value={showUserSearch ? userSearchQuery : editingCreatedBy}
+                              value={showUserSearch ? backlogAd.query : editingCreatedBy}
                               onChange={e => {
                                 if (showUserSearch) {
-                                  setUserSearchQuery(e.target.value);
-                                  searchADUsers(e.target.value);
+                                  backlogAd.setQuery(e.target.value);
                                 } else {
                                   setEditingCreatedBy(e.target.value);
                                 }
@@ -437,7 +408,7 @@ const AdminBacklog: React.FC = () => {
                                 outline: 'none'
                               }}
                             />
-                            {showUserSearch && searchResults.length > 0 && (
+                            {showUserSearch && backlogAd.results.length > 0 && (
                               <div style={{
                                 position: 'absolute',
                                 top: '100%',
@@ -452,14 +423,14 @@ const AdminBacklog: React.FC = () => {
                                 maxHeight: '200px',
                                 overflowY: 'auto'
                               }}>
-                                {searchResults.map((user, idx) => (
+                                {backlogAd.results.map((user, idx) => (
                                   <button
                                     key={idx}
                                     onClick={() => {
                                       setEditingCreatedBy(user.displayName || user.username);
                                       setShowUserSearch(false);
-                                      setUserSearchQuery('');
-                                      setSearchResults([]);
+                                      backlogAd.setQuery('');
+                                      backlogAd.clearResults();
                                     }}
                                     style={{
                                       width: '100%',
@@ -480,7 +451,7 @@ const AdminBacklog: React.FC = () => {
                                     <User size={14} color='#3b82f6' />
                                     <div>
                                       <div style={{ fontWeight: '600' }}>{user.displayName || user.username}</div>
-                                      {user.email && <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{user.email}</div>}
+                                      {user.email && <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{user.email}{user.service ? ` · ${user.service}` : ''}</div>}
                                     </div>
                                   </button>
                                 ))}

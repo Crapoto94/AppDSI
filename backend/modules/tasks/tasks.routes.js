@@ -2,13 +2,26 @@ const express = require('express');
 const router  = express.Router();
 const multer  = require('multer');
 const path    = require('path');
+const jwt     = require('jsonwebtoken');
 const { authenticateJWT } = require('../../shared/middleware');
+const { requireTicketPermission } = require('../tickets/middleware/ticket-permissions');
+const { SECRET_KEY } = require('../../shared/config');
 const controller = require('./tasks.controller');
 
 // ─── Multer for task-note file uploads ───────────────────────────────────────
-const TASK_NOTES_DIR = path.join(__dirname, '..', '..', 'file_task_notes');
-if (!require('fs').existsSync(TASK_NOTES_DIR)) require('fs').mkdirSync(TASK_NOTES_DIR, { recursive: true });
-const uploadNote = multer({ dest: TASK_NOTES_DIR, limits: { fileSize: 50 * 1024 * 1024 } });
+const uploadNote = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+// Accepte token en query OU header (utile pour <a href="...?token=..."> côté front).
+const authJwtOrQuery = (req, res, next) => {
+    const headerToken = (req.headers.authorization || '').split(' ')[1];
+    const token = req.query.token || headerToken;
+    if (!token) return res.status(401).json({ message: 'Token manquant' });
+    jwt.verify(token, SECRET_KEY, (err, user) => {
+        if (err) return res.status(403).json({ message: 'Token invalide' });
+        req.user = user;
+        next();
+    });
+};
 
 // ─── Static / non-param routes (MUST come before /:source/:id) ───────────────
 router.get('/count',              authenticateJWT, (req, res) => controller.getMyTasksCount(req, res));
@@ -27,7 +40,8 @@ router.post('/todo-sync/run',     authenticateJWT, (req, res) => controller.runT
 
 // ─── Task CRUD ────────────────────────────────────────────────────────────────
 router.get('/',                   authenticateJWT, (req, res) => controller.getMyTasks(req, res));
-router.post('/',                  authenticateJWT, (req, res) => controller.createTask(req, res));
+router.post('/',                  authenticateJWT, requireTicketPermission("ticket:create"), (req, res) => controller.createTask(req, res));
+router.patch('/:source/:id/favorite',      authenticateJWT, (req, res) => controller.toggleFavorite(req, res));
 router.patch('/:source/:id',      authenticateJWT, (req, res) => controller.updateTaskStatus(req, res));
 router.delete('/personal/:id',    authenticateJWT, (req, res) => controller.deleteTask(req, res));
 
@@ -37,7 +51,7 @@ router.delete('/personal/:id',    authenticateJWT, (req, res) => controller.dele
 router.get('/:source/:id/notes',                  authenticateJWT, (req, res) => controller.getTaskNotes(req, res));
 router.post('/:source/:id/notes',                 authenticateJWT, (req, res) => controller.addTaskNote(req, res));
 router.post('/:source/:id/notes/file',            authenticateJWT, uploadNote.single('file'), (req, res) => controller.addTaskNoteFile(req, res));
-router.get('/:source/:id/notes/:noteId/file',     authenticateJWT, (req, res) => controller.downloadTaskNoteFile(req, res));
+router.get('/:source/:id/notes/:noteId/file',     authJwtOrQuery, (req, res) => controller.downloadTaskNoteFile(req, res));
 router.delete('/:source/:id/notes/:noteId',       authenticateJWT, (req, res) => controller.deleteTaskNote(req, res));
 
 module.exports = router;

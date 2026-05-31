@@ -22,6 +22,7 @@ const DEFAULT_PERMISSIONS = {
     'ticket:view_all':        ['supervisor', 'admin', 'superadmin'],
     'dashboard:view_stats':   ['technician', 'supervisor', 'admin', 'superadmin'],
     'dashboard:view_kpi':     ['technician', 'supervisor', 'admin', 'superadmin'],
+    'ticket:ad_search':       ['user', 'technician', 'supervisor', 'admin', 'superadmin'],
 };
 
 // Mutable in-memory cache — starts with defaults, refreshed from DB

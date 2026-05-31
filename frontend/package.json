@@ -10,14 +10,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/react-signature-canvas": "^1.0.7",
+    "@xyflow/react": "^12.10.2",
     "axios": "^1.7.2",
+    "html5-qrcode": "^2.3.8",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.577.0",
+    "pdfjs-dist": "^6.0.227",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-leaflet": "^5.0.0",
     "react-quill-new": "^3.8.3",
     "react-router-dom": "^7.13.1",
+    "react-signature-canvas": "^1.1.0-alpha.2",
     "recharts": "^3.7.0",
     "socket.io-client": "^4.8.3"
   },

@@ -179,11 +179,11 @@ module.exports = {
                 await this.assign(ticket.glpi_id, { technician_id: rule.assign_to_id }, { id: null, username: 'system' });
                 assigned = true;
             } else if (action === 'group' && !assigned) {
-                const tech = await this.findLeastBusyInGroup(rule.assign_to_id);
-                if (tech) {
-                    await this.assign(ticket.glpi_id, { technician_id: tech.user_id, group_id: rule.assign_to_id }, { id: null, username: 'system' });
-                    assigned = true;
-                }
+                // Première affectation : on affecte au GROUPE uniquement (file d'attente du
+                // groupe support), sans désigner de technicien individuel. Un technicien se
+                // l'attribuera ensuite manuellement (ou via escalade).
+                await this.assign(ticket.glpi_id, { group_id: rule.assign_to_id }, { id: null, username: 'system' });
+                assigned = true;
             }
         }
     },
@@ -247,7 +247,7 @@ module.exports = {
                 ON ta.technician_id = tgm.user_id
                 AND ta.ticket_id IN (
                     SELECT glpi_id FROM hub_tickets.tickets
-                    WHERE status IN (1, 2, 3) AND source = 'hub'
+                    WHERE status IN (1, 2, 3, 4)
                 )
             WHERE tgm.group_id = $1
             GROUP BY tgm.user_id

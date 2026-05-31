@@ -35,8 +35,8 @@ router.get('/escalade/targets', authenticateJWT, async (req, res) => {
                 FROM hub_tickets.technician_groups g
                 LEFT JOIN hub_tickets.technician_group_members m ON g.id = m.group_id
                 LEFT JOIN hub.users u ON m.user_id = u.id
-                WHERE g.is_active = true AND g.is_default = false
-                GROUP BY g.id
+                WHERE g.is_active = true AND g.is_default = false AND g.id IS NOT NULL
+                GROUP BY g.id, g.name, g.description, g.is_default
                 ORDER BY g.name
             `),
         ]);
@@ -46,6 +46,7 @@ router.get('/escalade/targets', authenticateJWT, async (req, res) => {
 
 // ─── Dashboard & Stats ───────────────────────────────────────────
 router.get('/ticket-stats', authenticateJWT, (req, res) => controller.getTicketCountsBySoftware(req, res));
+router.get('/stats', authenticateJWT, (req, res) => controller.getTicketsStats(req, res));
 router.get('/dashboard/stats', authenticateJWT, (req, res) => controller.getDashboardStats(req, res));
 router.get('/dashboard/my-stats', authenticateJWT, (req, res) => controller.getMyStats(req, res));
 router.get('/dashboard/daily-metrics', authenticateJWT, (req, res) => controller.getDailyMetrics(req, res));
@@ -75,6 +76,54 @@ router.get('/:id/history', authenticateJWT, (req, res) => controller.getHistory(
 router.post('/:id/log-activity', authenticateJWT, (req, res) => controller.logActivity(req, res));
 router.get('/:id/sla', authenticateJWT, (req, res) => controller.getSLA(req, res));
 
+// ─── Problem Associations ───────────────────────────────────────
+router.get('/problem/:problemId/tickets', authenticateJWT, async (req, res) => {
+    try {
+        const problemId = parseInt(req.params.problemId);
+        const rows = await pgDb.all(`
+            SELECT t.glpi_id as id, t.title, t.requester_name
+            FROM hub_tickets.tickets t
+            JOIN hub_tickets.ticket_group_members tgm ON t.glpi_id = tgm.ticket_id
+            JOIN hub_tickets.ticket_groups tg ON tgm.group_id = tg.id
+            WHERE tg.problem_ticket_id = $1 AND t.glpi_id != $1
+        `, [problemId]);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.post('/:id/resolve', authenticateJWT, async (req, res) => {
+    try {
+        const ticketId = parseInt(req.params.id);
+        const { solution, auto_resolve_linked } = req.body;
+        await require('./services/ticket.service').resolveProblem(ticketId, !!auto_resolve_linked, solution, req.user);
+        res.json({ message: 'Ticket résolu' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.post('/:id/link-to-problem', authenticateJWT, async (req, res) => {
+    try {
+        const ticketId = parseInt(req.params.id);
+        const { problem_ticket_id } = req.body;
+        // Find group for ticket
+        const group = await require('./repositories/ticket-group.repository').findByTicket(ticketId);
+        if (!group) return res.status(404).json({ message: 'Ticket non associé à un groupe' });
+
+        await require('./repositories/ticket-group.repository').setProblemTicket(group.id, problem_ticket_id);
+        res.json({ message: 'Ticket associé au problème' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.get('/search', authenticateJWT, requireTicketPermission("ticket:search"), async (req, res) => {
+    try {
+        const q = req.query.q || '';
+        const type = req.query.type;
+        const filters = { search: q };
+        if (type) filters.type = type;
+        const result = await require('./services/ticket.service').findAll(filters, { page: 1, limit: 20, sort: 'date_creation', order: 'desc' }, req.user);
+        res.json(result.data);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // ─── Actions ──────────────────────────────────────────────────────
 router.post('/:id/assign', authenticateJWT, (req, res) => controller.assign(req, res));
 router.post('/:id/assign-to-group', authenticateJWT, (req, res) => controller.assignToGroup(req, res));
@@ -97,8 +146,8 @@ router.post('/:id/status', authenticateJWT, (req, res) => controller.changeStatu
 router.post('/:id/solution', authenticateJWT, (req, res) => controller.setSolution(req, res));
 router.post('/:id/reopen', authenticateJWT, (req, res) => controller.reopen(req, res));
 router.post('/:id/vip', authenticateJWT, (req, res) => controller.toggleVip(req, res));
-router.get('/users/search', authenticateJWT, (req, res) => controller.searchUsers(req, res));
-router.get('/users/ad-search', authenticateJWT, async (req, res) => {
+router.get('/users/search', authenticateJWT, requireTicketPermission("ticket:search"), (req, res) => controller.searchUsers(req, res));
+router.get('/users/ad-search', authenticateJWT, requireTicketPermission("ticket:ad_search"), async (req, res) => {
     try {
         const q = (req.query.q || '').trim();
         if (!q || q.length < 2) return res.json([]);

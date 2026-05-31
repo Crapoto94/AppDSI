@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FolderOpen, Plus, Search } from 'lucide-react';
 import Header from '../components/Header';
 import CreerProjetModal from '../components/projets/CreerProjetModal';
+import { useADSearch } from '../utils/useADSearch';
 import { useAuth } from '../contexts/AuthContext';
 import { isSuperAdmin, isAdminLike } from '../utils/roles';
 
@@ -557,9 +558,7 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
 interface GestionPmoModalProps { token: string | null; onClose: () => void; }
 const GestionPmoModal: React.FC<GestionPmoModalProps> = ({ token, onClose }) => {
   const [pmoUsers, setPmoUsers] = useState<any[]>([]);
-  const [adQuery, setAdQuery] = useState('');
-  const [adResults, setAdResults] = useState<any[]>([]);
-  const [adSearching, setAdSearching] = useState(false);
+  const ad = useADSearch(token);
   const [loading, setLoading] = useState(true);
 
   const fetchPmos = useCallback(async () => {
@@ -576,19 +575,6 @@ const GestionPmoModal: React.FC<GestionPmoModalProps> = ({ token, onClose }) => 
     setLoading(true);
     fetchPmos().finally(() => setLoading(false));
   }, [fetchPmos]);
-
-  useEffect(() => {
-    if (!adQuery.trim()) { setAdResults([]); return; }
-    const timer = setTimeout(async () => {
-      setAdSearching(true);
-      try {
-        const r = await fetch(`/api/ad/search?q=${encodeURIComponent(adQuery.trim())}`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = await r.json();
-        if (Array.isArray(data)) setAdResults(data); else setAdResults([]);
-      } catch { setAdResults([]); } finally { setAdSearching(false); }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [adQuery, token]);
 
   const togglePmo = async (username: string, isPmo: boolean) => {
     try {
@@ -622,13 +608,16 @@ const GestionPmoModal: React.FC<GestionPmoModalProps> = ({ token, onClose }) => 
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
           <div style={{ marginBottom: '16px', position: 'relative' }}>
-            <input value={adQuery} onChange={e => setAdQuery(e.target.value)} placeholder="Rechercher un utilisateur AD..." style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', background: 'white', outline: 'none', boxSizing: 'border-box' }} />
-            {adSearching && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8' }}>...</span>}
-            {adResults.length > 0 && (
+            <input value={ad.query} onChange={e => ad.setQuery(e.target.value)} placeholder="Rechercher un utilisateur AD..." style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', background: 'white', outline: 'none', boxSizing: 'border-box' }} />
+            {ad.searching && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8' }}>...</span>}
+            {ad.results.length > 0 && (
               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', marginTop: '4px', zIndex: 10, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                {adResults.map((u: any) => (
+                {ad.results.map((u: any) => (
                   <div key={u.username} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
-                    <span style={{ fontSize: '13px', color: '#1e293b' }}>{u.displayName || u.username} <span style={{ color: '#94a3b8' }}>({u.username})</span></span>
+                    <div>
+                      <span style={{ fontSize: '13px', color: '#1e293b' }}>{u.displayName || u.username}</span>
+                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
+                    </div>
                     <button onClick={() => togglePmo(u.username, true)} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Désigner PMO</button>
                   </div>
                 ))}
@@ -658,9 +647,7 @@ const MesAgentsModal: React.FC<MesAgentsModalProps> = ({ token, onClose }) => {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [orgUnits, setOrgUnits] = useState<{ directions: any[]; services: any[]; secteurs: any[] }>({ directions: [], services: [], secteurs: [] });
   const [tab, setTab] = useState<'direct' | 'org'>('direct');
-  const [adQuery, setAdQuery] = useState('');
-  const [adResults, setAdResults] = useState<any[]>([]);
-  const [adSearching, setAdSearching] = useState(false);
+  const agentAd = useADSearch(token);
   const [selectedOrgType, setSelectedOrgType] = useState<'service' | 'secteur' | 'direction'>('service');
   const [selectedOrgCode, setSelectedOrgCode] = useState('');
   const [loading, setLoading] = useState(true);
@@ -679,19 +666,6 @@ const MesAgentsModal: React.FC<MesAgentsModalProps> = ({ token, onClose }) => {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  useEffect(() => {
-    if (!adQuery.trim()) { setAdResults([]); return; }
-    const timer = setTimeout(async () => {
-      setAdSearching(true);
-      try {
-        const r = await fetch(`/api/ad/search?q=${encodeURIComponent(adQuery.trim())}`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = await r.json();
-        setAdResults(Array.isArray(data) ? data : []);
-      } catch { setAdResults([]); } finally { setAdSearching(false); }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [adQuery, token]);
-
   const addDirect = async (username: string) => {
     setSaving(true);
     try {
@@ -700,7 +674,7 @@ const MesAgentsModal: React.FC<MesAgentsModalProps> = ({ token, onClose }) => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ agent_username: username })
       });
-      setAdQuery(''); setAdResults([]);
+      agentAd.setQuery(''); agentAd.clearResults();
       await fetchAll();
     } catch {} finally { setSaving(false); }
   };
@@ -776,14 +750,17 @@ const MesAgentsModal: React.FC<MesAgentsModalProps> = ({ token, onClose }) => {
               {tab === 'direct' && (
                 <>
                   <div style={{ marginBottom: '16px', position: 'relative' }}>
-                    <input value={adQuery} onChange={e => setAdQuery(e.target.value)} placeholder="Rechercher un agent AD..."
+                    <input value={agentAd.query} onChange={e => agentAd.setQuery(e.target.value)} placeholder="Rechercher un agent AD..."
                       style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} />
-                    {adSearching && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8' }}>...</span>}
-                    {adResults.length > 0 && (
+                    {agentAd.searching && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8' }}>...</span>}
+                    {agentAd.results.length > 0 && (
                       <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', marginTop: '4px', zIndex: 10, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                        {adResults.map((u: any) => (
+                        {agentAd.results.map((u: any) => (
                           <div key={u.username} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
-                            <span style={{ fontSize: '13px', color: '#1e293b' }}>{u.displayName || u.username} <span style={{ color: '#94a3b8' }}>({u.username})</span></span>
+                            <div>
+                              <span style={{ fontSize: '13px', color: '#1e293b' }}>{u.displayName || u.username}</span>
+                              <div style={{ fontSize: '11px', color: '#94a3b8' }}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
+                            </div>
                             <button onClick={() => addDirect(u.username)} disabled={saving}
                               style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Ajouter</button>
                           </div>

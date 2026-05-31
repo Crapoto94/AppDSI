@@ -201,8 +201,50 @@ async function setupPgDb() {
         last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    // Ensure glpi_id has a unique constraint (FK requirement for ticket_assignments)
-    try { await client.query('ALTER TABLE hub_tickets.tickets ADD UNIQUE (glpi_id)'); } catch (e) {}
+    // Ensure glpi_id has a UNIQUE constraint (FK requirement for ticket_assignments),
+    // mais de façon IDEMPOTENTE : l'ancien `ADD UNIQUE (glpi_id)` recréait un index à chaque
+    // démarrage (→ des centaines de doublons tickets_glpi_id_keyN, INSERT très lents).
+    try {
+        // 1. Auto-réparation : les centaines de doublons sur glpi_id sont des CONTRAINTES
+        //    UNIQUE nommées tickets_glpi_id_keyN (chacune avec son index). On en garde une
+        //    seule et on supprime les contraintes redondantes numérotées.
+        const dupCons = await client.query(`
+            SELECT conname FROM pg_constraint
+            WHERE conrelid = 'hub_tickets.tickets'::regclass AND contype = 'u'
+              AND conname ~ '^tickets_glpi_id_key[0-9]+$'
+        `);
+        for (const r of dupCons.rows) {
+            await client.query(`ALTER TABLE hub_tickets.tickets DROP CONSTRAINT IF EXISTS "${r.conname}"`);
+        }
+        // Index uniques redondants éventuels non rattachés à une contrainte
+        const dupIdx = await client.query(`
+            SELECT indexname FROM pg_indexes
+            WHERE schemaname = 'hub_tickets' AND tablename = 'tickets'
+              AND indexname ~ '^tickets_glpi_id_key[0-9]+$'
+        `);
+        for (const r of dupIdx.rows) {
+            await client.query(`DROP INDEX IF EXISTS hub_tickets."${r.indexname}"`);
+        }
+        // 2. Garantir qu'il reste exactement une unicité sur glpi_id.
+        const hasUnique = await client.query(`
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'hub_tickets.tickets'::regclass AND contype IN ('u','p')
+              AND conkey = (
+                SELECT array_agg(attnum) FROM pg_attribute
+                WHERE attrelid = 'hub_tickets.tickets'::regclass AND attname = 'glpi_id'
+              )
+            LIMIT 1
+        `);
+        if (hasUnique.rowCount === 0) {
+            await client.query('ALTER TABLE hub_tickets.tickets ADD UNIQUE (glpi_id)');
+        }
+    } catch (e) { console.error('[MIGRATIONS] glpi_id unique repair:', e.message); }
+    // Index fonctionnels pour les requêtes courantes (KPI, filtres, stats)
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_status ON hub_tickets.tickets(status)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_category_id ON hub_tickets.tickets(category_id)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_date_creation ON hub_tickets.tickets(date_creation)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_source ON hub_tickets.tickets(source)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_requester_email ON hub_tickets.tickets(requester_email_22)'); } catch (e) {}
     // Create sequence for atomic ID generation
     try { await client.query('CREATE SEQUENCE IF NOT EXISTS hub_tickets.ticket_id_seq'); } catch (e) {}
     try { await client.query(`SELECT setval('hub_tickets.ticket_id_seq', COALESCE((SELECT MAX(glpi_id) FROM hub_tickets.tickets), 10000000))`); } catch (e) {}
@@ -307,6 +349,48 @@ async function setupPgDb() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tc_parent ON hub_tickets.ticket_categories(parent_id)`);
+
+    // Auto-réparation : restaurer la PK de ticket_categories si elle a été perdue
+    // (sinon les FK et les requêtes par id échouent).
+    try {
+        await client.query('DELETE FROM hub_tickets.ticket_categories WHERE id IS NULL');
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conrelid = 'hub_tickets.ticket_categories'::regclass AND contype = 'p'
+                ) THEN
+                    ALTER TABLE hub_tickets.ticket_categories
+                        ALTER COLUMN id SET NOT NULL,
+                        ADD PRIMARY KEY (id);
+                END IF;
+            END $$;
+        `);
+        // Garantir la séquence + le DEFAULT nextval sur id (le SERIAL a pu perdre son
+        // default après import GLPI avec ids explicites → INSERT id NULL).
+        await client.query(`CREATE SEQUENCE IF NOT EXISTS hub_tickets.ticket_categories_id_seq OWNED BY hub_tickets.ticket_categories.id`);
+        await client.query(`ALTER TABLE hub_tickets.ticket_categories ALTER COLUMN id SET DEFAULT nextval('hub_tickets.ticket_categories_id_seq')`);
+        await client.query(`SELECT setval('hub_tickets.ticket_categories_id_seq', COALESCE((SELECT MAX(id) FROM hub_tickets.ticket_categories), 0) + 1, false)`);
+        // is_active a aussi pu perdre son DEFAULT → les nouvelles catégories naissaient
+        // is_active = NULL et restaient invisibles (filtre WHERE is_active = true).
+        await client.query(`ALTER TABLE hub_tickets.ticket_categories ALTER COLUMN is_active SET DEFAULT true`);
+    } catch (e) { console.error('[MIGRATIONS] ticket_categories PK repair:', e.message); }
+
+    // Transposition des anciennes catégories GLPI (texte) → nouvelles catégories structurées.
+    // category_id sans FK dur (la PK de ticket_categories peut avoir été instable) ; intégrité gérée applicativement.
+    try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS hub_tickets.category_mapping (
+            id SERIAL PRIMARY KEY,
+            old_category TEXT NOT NULL UNIQUE,
+            category_id INTEGER,
+            software_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+        await client.query(`ALTER TABLE hub_tickets.category_mapping ADD COLUMN IF NOT EXISTS software_id INTEGER`);
+    } catch (e) { console.error('[MIGRATIONS] category_mapping:', e.message); }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_category_assignments (
@@ -581,6 +665,38 @@ async function setupPgDb() {
       );
     `);
     await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.auto_resolution_settings (
+        id SERIAL PRIMARY KEY,
+        enabled BOOLEAN DEFAULT false,
+        inactivity_days INTEGER DEFAULT 30,
+        max_reminders INTEGER DEFAULT 3,
+        reminder_frequency_days INTEGER DEFAULT 7,
+        notify_observers BOOLEAN DEFAULT false,
+        reminder_subject TEXT DEFAULT 'Votre ticket n°{{ticket_id}} est-il toujours d''actualité ?',
+        reminder_message TEXT DEFAULT '<p>Bonjour {{requester_name}},</p><p>Le ticket <strong>#{{ticket_id}} – {{ticket_title}}</strong> n''a pas eu d''activité depuis {{inactivity_days}} jours.</p><p>Si vous avez toujours besoin d''assistance, merci de cliquer sur le bouton ci-dessous :</p><p><a href="{{keep_alive_url}}" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Mon ticket est toujours d''actualité</a></p>',
+        closure_message TEXT DEFAULT 'Le ticket n°{{ticket_id}} ({{ticket_title}}) a été automatiquement clos.',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    try { await client.query("INSERT INTO hub_tickets.auto_resolution_settings (id) VALUES (1) ON CONFLICT DO NOTHING"); } catch (e) {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.auto_resolution_logs (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL,
+        action VARCHAR(50) NOT NULL,
+        reminder_count INTEGER DEFAULT 0,
+        token VARCHAR(100),
+        details TEXT,
+        used_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_arl_ticket ON hub_tickets.auto_resolution_logs(ticket_id)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_arl_token ON hub_tickets.auto_resolution_logs(token)'); } catch (e) {}
+    try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS auto_resolution_status VARCHAR(20)"); } catch (e) {}
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_relations (
         id SERIAL PRIMARY KEY,
         ticket_id INTEGER NOT NULL REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
@@ -683,11 +799,36 @@ async function setupPgDb() {
                 UNIQUE(ticket_id)
             )
         `);
+        // Nettoyage : appartenances orphelines (groupe parent supprimé) qui se rattachent
+        // par erreur aux tickets ré-importés après un « Récupérer GLPI ».
+        await client.query(`
+            DELETE FROM hub_tickets.ticket_group_members
+            WHERE group_id NOT IN (SELECT id FROM hub_tickets.ticket_groups)
+        `);
     } catch (e) { console.error('[MIGRATIONS] ticket_groups:', e.message); }
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS resolution_method TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS knowledge_article TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.ticket_followups ADD COLUMN IF NOT EXISTS sent_to_user INTEGER DEFAULT 0"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.technician_groups ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE"); } catch (e) {}
+    // Auto-réparation : des lignes corrompues (id NULL) ont pu être insérées après une
+    // perte de la clé primaire, ce qui casse les requêtes GROUP BY g.id. On nettoie et on restaure la PK.
+    try { await client.query("DELETE FROM hub_tickets.technician_groups WHERE id IS NULL"); } catch (e) {}
+    try {
+        await client.query(`
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conrelid = 'hub_tickets.technician_groups'::regclass AND contype = 'p'
+                ) THEN
+                    ALTER TABLE hub_tickets.technician_groups
+                        ALTER COLUMN id SET NOT NULL,
+                        ADD PRIMARY KEY (id);
+                END IF;
+            END $$;
+        `);
+        // Resynchroniser la séquence SERIAL au cas où elle aurait dérivé
+        await client.query(`SELECT setval(pg_get_serial_sequence('hub_tickets.technician_groups','id'), COALESCE((SELECT MAX(id) FROM hub_tickets.technician_groups), 0) + 1, false)`);
+    } catch (e) { console.error('[MIGRATIONS] technician_groups PK repair:', e.message); }
 
     // ── Historique quotidien des KPI ────────────────────────────────
     await client.query(`
@@ -929,6 +1070,20 @@ async function setupPgDb() {
         login VARCHAR(255),
         email VARCHAR(255),
         is_active INTEGER DEFAULT 1,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(ticket_id, user_id)
+      );
+    `);
+
+    // Assignés (techniciens) GLPI — Ticket_User type 2 (miroir de glpi.observers)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.assignees (
+        id SERIAL PRIMARY KEY,
+        ticket_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        name VARCHAR(255),
+        login VARCHAR(255),
+        email VARCHAR(255),
         last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(ticket_id, user_id)
       );
@@ -2797,6 +2952,16 @@ async function setupPgDb() {
       )
     `);
 
+    // Visibilité des « vrais modules » de l'app (cf. shared/modules-registry.js)
+    // Un module sans ligne est considéré visible par défaut.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.module_settings (
+        module_key VARCHAR(100) PRIMARY KEY,
+        is_visible BOOLEAN DEFAULT true,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.tile_links (
         id SERIAL PRIMARY KEY,
@@ -2963,6 +3128,7 @@ async function setupPgDb() {
       )
     `);
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_task_notes_src ON hub.task_notes(source, task_id)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.task_notes ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
     // Préférence sync Microsoft Todo — colonne legacy dans hub.users, conservée pour compatibilité
     try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS ms_todo_sync BOOLEAN DEFAULT FALSE`); } catch (e) {}
@@ -2971,7 +3137,12 @@ async function setupPgDb() {
     try {
         await client.query(`
             INSERT INTO hub_tickets.tickets (glpi_id, title, content, status, priority, urgency, impact, category, type, date_creation, date_mod, date_closed, date_solved, location, solution, source, entity, requester_name, email_alt, requester_email_22)
-            SELECT glpi_id, title, content, status, priority, urgency, impact, category, type, NULLIF(date_creation, '')::TIMESTAMP, NULLIF(date_mod, '')::TIMESTAMP, NULLIF(date_closed, '')::TIMESTAMP, NULLIF(date_solved, '')::TIMESTAMP, location, solution, 'hub', entity, requester_name, email_alt, requester_email_22 FROM glpi.tickets
+            SELECT glpi_id, title, content, status, priority, urgency, impact, category, type,
+                   CASE WHEN date_creation::text ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_creation::text::TIMESTAMP ELSE NULL END,
+                   CASE WHEN date_mod::text ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_mod::text::TIMESTAMP ELSE NULL END,
+                   CASE WHEN date_closed::text ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_closed::text::TIMESTAMP ELSE NULL END,
+                   CASE WHEN date_solved::text ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_solved::text::TIMESTAMP ELSE NULL END,
+                   location, solution, 'hub', entity, requester_name, email_alt, requester_email_22 FROM glpi.tickets
             ON CONFLICT (glpi_id) DO NOTHING
         `);
         await client.query(`UPDATE hub_tickets.tickets SET source = 'hub' WHERE source IS NULL OR source = 'glpi'`);
@@ -2991,7 +3162,8 @@ async function setupPgDb() {
         `);
         await client.query(`
             INSERT INTO hub_tickets.ticket_followups (ticket_id, content, content_hash, author_name, author_email, is_private, date_creation)
-            SELECT ticket_id, content, content_hash, author_name, author_email, is_private, NULLIF(date_creation, '')::TIMESTAMP FROM glpi.ticket_followups
+            SELECT ticket_id, content, content_hash, author_name, author_email, is_private,
+                   CASE WHEN date_creation::text ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_creation::text::TIMESTAMP ELSE NULL END FROM glpi.ticket_followups
             ON CONFLICT (ticket_id, content_hash, date_creation) DO NOTHING
         `);
         console.log('[PG DB] hub_tickets migration from glpi completed');
@@ -2999,13 +3171,25 @@ async function setupPgDb() {
         console.log('[PG DB] hub_tickets migration skip:', e.message);
     }
 
-    // Migrate date columns from TEXT to TIMESTAMP (after GLPI copy)
+    // Migrate date columns from TEXT to TIMESTAMP (after GLPI copy) — idempotent :
+    // on ne migre que les colonnes encore en TEXT (no-op si déjà TIMESTAMP), et le
+    // garde regex écarte les valeurs vides/invalides (ex. '0000-00-00') au lieu de planter.
     try {
-        await client.query(`ALTER TABLE hub_tickets.tickets ALTER COLUMN date_creation TYPE TIMESTAMP USING NULLIF(date_creation, '')::TIMESTAMP`);
-        await client.query(`ALTER TABLE hub_tickets.tickets ALTER COLUMN date_mod TYPE TIMESTAMP USING NULLIF(date_mod, '')::TIMESTAMP`);
-        await client.query(`ALTER TABLE hub_tickets.tickets ALTER COLUMN date_closed TYPE TIMESTAMP USING NULLIF(date_closed, '')::TIMESTAMP`);
-        await client.query(`ALTER TABLE hub_tickets.tickets ALTER COLUMN date_solved TYPE TIMESTAMP USING NULLIF(date_solved, '')::TIMESTAMP`);
-        console.log('[PG DB] hub_tickets.tickets date columns migrated to TIMESTAMP');
+        const dateCols = ['date_creation', 'date_mod', 'date_closed', 'date_solved'];
+        const { rows: colTypes } = await client.query(`
+            SELECT column_name, data_type FROM information_schema.columns
+            WHERE table_schema = 'hub_tickets' AND table_name = 'tickets' AND column_name = ANY($1)
+        `, [dateCols]);
+        const textCols = colTypes
+            .filter(c => c.data_type === 'text' || c.data_type.includes('character'))
+            .map(c => c.column_name);
+        for (const col of textCols) {
+            await client.query(
+                `ALTER TABLE hub_tickets.tickets ALTER COLUMN ${col} TYPE TIMESTAMP ` +
+                `USING CASE WHEN ${col} ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN ${col}::TIMESTAMP ELSE NULL END`
+            );
+        }
+        if (textCols.length) console.log('[PG DB] hub_tickets.tickets date columns migrated to TIMESTAMP:', textCols.join(', '));
     } catch (e) {
         console.log('[PG DB] date column migration skip:', e.message);
     }
@@ -3202,6 +3386,408 @@ async function setupPgDb() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // ─── Gestion documentaire centralisée (hub_docs) ─────────────────────────
+    // Tous les modules (certificats, projets, contrats, tickets, telecom,
+    // rencontres, tasks, live, etc.) stockent leurs pièces jointes ici.
+    // documents = pièce logique avec versions, document_versions = N versions.
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_docs;');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_docs.documents (
+        id SERIAL PRIMARY KEY,
+        module VARCHAR(50) NOT NULL,
+        entity_type VARCHAR(50) NOT NULL DEFAULT 'attachment',
+        entity_id VARCHAR(100) NOT NULL,
+        title VARCHAR(500) NOT NULL,
+        current_version INTEGER NOT NULL DEFAULT 1,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_by VARCHAR(100),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        deleted_at TIMESTAMPTZ
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_hub_docs_entity ON hub_docs.documents(module, entity_type, entity_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_hub_docs_module ON hub_docs.documents(module) WHERE deleted_at IS NULL`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_hub_docs_title ON hub_docs.documents(title)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_docs.document_versions (
+        id SERIAL PRIMARY KEY,
+        document_id INTEGER NOT NULL REFERENCES hub_docs.documents(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL,
+        filename VARCHAR(500) NOT NULL,
+        original_name VARCHAR(500) NOT NULL,
+        mimetype VARCHAR(200),
+        size BIGINT,
+        storage_backend VARCHAR(20) NOT NULL DEFAULT 'smb',
+        storage_ref TEXT NOT NULL,
+        metadata JSONB DEFAULT '{}'::jsonb,
+        uploaded_by VARCHAR(100),
+        uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+        is_missing BOOLEAN DEFAULT FALSE,
+        UNIQUE (document_id, version)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_doc_versions_doc ON hub_docs.document_versions(document_id)`);
+
+    // Trace des migrations one-shot depuis tables legacy
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_docs.migration_log (
+        id SERIAL PRIMARY KEY,
+        source_table VARCHAR(100) NOT NULL,
+        source_id VARCHAR(100) NOT NULL,
+        document_id INTEGER REFERENCES hub_docs.documents(id) ON DELETE SET NULL,
+        version_id INTEGER REFERENCES hub_docs.document_versions(id) ON DELETE SET NULL,
+        migrated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (source_table, source_id)
+      )
+    `);
+
+    // ─── hub_stocks — Module de gestion des stocks ───────────────
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_stocks;');
+
+    // Magasins
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.stores (
+        id SERIAL PRIMARY KEY,
+        code VARCHAR(50) UNIQUE,
+        name VARCHAR(255) NOT NULL,
+        address TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Droits par magasin (résolus par username, comme tickets)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.store_members (
+        id SERIAL PRIMARY KEY,
+        store_id INTEGER NOT NULL REFERENCES hub_stocks.stores(id) ON DELETE CASCADE,
+        username VARCHAR(255) NOT NULL,
+        role VARCHAR(20) NOT NULL DEFAULT 'viewer' CHECK (role IN ('viewer','operator','manager')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(store_id, username)
+      );
+    `);
+
+    // Lieux de stockage paramétrables (hiérarchie via parent_id)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.storage_locations (
+        id SERIAL PRIMARY KEY,
+        store_id INTEGER NOT NULL REFERENCES hub_stocks.stores(id) ON DELETE CASCADE,
+        code VARCHAR(50),
+        name VARCHAR(255) NOT NULL,
+        parent_id INTEGER REFERENCES hub_stocks.storage_locations(id) ON DELETE SET NULL,
+        description TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Catalogue articles
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.items (
+        id SERIAL PRIMARY KEY,
+        reference VARCHAR(255) UNIQUE,
+        label VARCHAR(500) NOT NULL,
+        category VARCHAR(100),
+        brand VARCHAR(255),
+        model VARCHAR(255),
+        ean VARCHAR(64),
+        specs JSONB DEFAULT '{}'::jsonb,
+        tracking_mode VARCHAR(20) NOT NULL DEFAULT 'batch' CHECK (tracking_mode IN ('batch','serial')),
+        unit VARCHAR(50) DEFAULT 'unité',
+        min_threshold INTEGER DEFAULT 0,
+        photo_document_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Niveaux de stock par article / magasin / emplacement / type (normal|loan)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.stock_levels (
+        id SERIAL PRIMARY KEY,
+        item_id INTEGER NOT NULL REFERENCES hub_stocks.items(id) ON DELETE CASCADE,
+        store_id INTEGER NOT NULL REFERENCES hub_stocks.stores(id) ON DELETE CASCADE,
+        location_id INTEGER REFERENCES hub_stocks.storage_locations(id) ON DELETE SET NULL,
+        stock_type VARCHAR(20) NOT NULL DEFAULT 'normal' CHECK (stock_type IN ('normal','loan')),
+        quantity INTEGER NOT NULL DEFAULT 0,
+        min_threshold INTEGER DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(item_id, store_id, location_id, stock_type)
+      );
+    `);
+
+    // Journal des mouvements (source de vérité)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.movements (
+        id SERIAL PRIMARY KEY,
+        item_id INTEGER NOT NULL REFERENCES hub_stocks.items(id) ON DELETE CASCADE,
+        serial_item_id INTEGER,
+        store_id INTEGER NOT NULL REFERENCES hub_stocks.stores(id) ON DELETE CASCADE,
+        location_id INTEGER REFERENCES hub_stocks.storage_locations(id) ON DELETE SET NULL,
+        counterpart_store_id INTEGER REFERENCES hub_stocks.stores(id) ON DELETE SET NULL,
+        type VARCHAR(20) NOT NULL CHECK (type IN ('in','out','transfer','loan_out','loan_return','adjust')),
+        stock_type VARCHAR(20) NOT NULL DEFAULT 'normal' CHECK (stock_type IN ('normal','loan')),
+        quantity INTEGER NOT NULL,
+        reason TEXT,
+        reference VARCHAR(255),
+        created_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_members_user ON hub_stocks.store_members(username)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_members_store ON hub_stocks.store_members(store_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_locations_store ON hub_stocks.storage_locations(store_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_levels_item ON hub_stocks.stock_levels(item_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_levels_store ON hub_stocks.stock_levels(store_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_movements_item ON hub_stocks.movements(item_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_movements_store ON hub_stocks.movements(store_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_movements_created ON hub_stocks.movements(created_at DESC)');
+
+    // ─── hub_stocks — Réception de commande (Phase 2) ────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.receptions (
+        id SERIAL PRIMARY KEY,
+        order_number VARCHAR(255),
+        store_id INTEGER NOT NULL REFERENCES hub_stocks.stores(id) ON DELETE CASCADE,
+        supplier VARCHAR(255),
+        status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','partial','received')),
+        notes TEXT,
+        received_by VARCHAR(255),
+        received_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.reception_lines (
+        id SERIAL PRIMARY KEY,
+        reception_id INTEGER NOT NULL REFERENCES hub_stocks.receptions(id) ON DELETE CASCADE,
+        item_id INTEGER REFERENCES hub_stocks.items(id) ON DELETE SET NULL,
+        reference VARCHAR(255),
+        label VARCHAR(500),
+        ean VARCHAR(64),
+        quantity_received INTEGER NOT NULL DEFAULT 0,
+        tracking_mode VARCHAR(20) NOT NULL DEFAULT 'batch' CHECK (tracking_mode IN ('batch','serial')),
+        location_id INTEGER REFERENCES hub_stocks.storage_locations(id) ON DELETE SET NULL,
+        specs JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Articles unitaires (sérialisés) — serial_number nullable = saisie différée
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.serial_items (
+        id SERIAL PRIMARY KEY,
+        item_id INTEGER NOT NULL REFERENCES hub_stocks.items(id) ON DELETE CASCADE,
+        store_id INTEGER NOT NULL REFERENCES hub_stocks.stores(id) ON DELETE CASCADE,
+        location_id INTEGER REFERENCES hub_stocks.storage_locations(id) ON DELETE SET NULL,
+        serial_number VARCHAR(255),
+        status VARCHAR(20) NOT NULL DEFAULT 'in_stock' CHECK (status IN ('in_stock','loaned','delivered','reserved')),
+        order_number VARCHAR(255),
+        reception_id INTEGER REFERENCES hub_stocks.receptions(id) ON DELETE SET NULL,
+        specs JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_receptions_store ON hub_stocks.receptions(store_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_receptions_order ON hub_stocks.receptions(order_number)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_reclines_reception ON hub_stocks.reception_lines(reception_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_serials_item ON hub_stocks.serial_items(item_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_serials_store ON hub_stocks.serial_items(store_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_serials_status ON hub_stocks.serial_items(status)');
+
+    // ─── hub_stocks — Sorties (BL signé) & Prêts (Phase 3) ───────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.deliveries (
+        id SERIAL PRIMARY KEY,
+        store_id INTEGER NOT NULL REFERENCES hub_stocks.stores(id) ON DELETE CASCADE,
+        beneficiary_name VARCHAR(255),
+        beneficiary_username VARCHAR(255),
+        beneficiary_email VARCHAR(255),
+        status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','signed','delivered')),
+        signature_document_id INTEGER,
+        signed_at TIMESTAMP,
+        notes TEXT,
+        delivered_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.delivery_lines (
+        id SERIAL PRIMARY KEY,
+        delivery_id INTEGER NOT NULL REFERENCES hub_stocks.deliveries(id) ON DELETE CASCADE,
+        item_id INTEGER NOT NULL REFERENCES hub_stocks.items(id) ON DELETE CASCADE,
+        serial_item_id INTEGER REFERENCES hub_stocks.serial_items(id) ON DELETE SET NULL,
+        location_id INTEGER REFERENCES hub_stocks.storage_locations(id) ON DELETE SET NULL,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.loans (
+        id SERIAL PRIMARY KEY,
+        store_id INTEGER NOT NULL REFERENCES hub_stocks.stores(id) ON DELETE CASCADE,
+        item_id INTEGER NOT NULL REFERENCES hub_stocks.items(id) ON DELETE CASCADE,
+        serial_item_id INTEGER REFERENCES hub_stocks.serial_items(id) ON DELETE SET NULL,
+        borrower_name VARCHAR(255),
+        borrower_username VARCHAR(255),
+        borrower_email VARCHAR(255),
+        quantity INTEGER NOT NULL DEFAULT 1,
+        loaned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        due_date DATE,
+        returned_at TIMESTAMP,
+        status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active','returned')),
+        signature_document_id INTEGER,
+        delivered_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_deliveries_store ON hub_stocks.deliveries(store_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_dlines_delivery ON hub_stocks.delivery_lines(delivery_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_loans_store ON hub_stocks.loans(store_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_stocks_loans_status ON hub_stocks.loans(status)');
+
+    // ─── hub_stocks — Gabarits de BL & livraison 2 phases (Phase 4) ─
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_stocks.bl_templates (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        base_document_id INTEGER,
+        fields JSONB DEFAULT '[]'::jsonb,
+        is_default BOOLEAN DEFAULT FALSE,
+        created_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Livraison en 2 phases : colonnes additionnelles (non destructif)
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD COLUMN IF NOT EXISTS template_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD COLUMN IF NOT EXISTS prepared_by VARCHAR(255)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD COLUMN IF NOT EXISTS prepared_at TIMESTAMP`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD COLUMN IF NOT EXISTS preparer_signature_document_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD COLUMN IF NOT EXISTS recipient_signature_document_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD COLUMN IF NOT EXISTS bl_document_id INTEGER`); } catch (e) {}
+    // Étendre le statut pour inclure 'prepared'
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries DROP CONSTRAINT IF EXISTS deliveries_status_check`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD CONSTRAINT deliveries_status_check CHECK (status IN ('draft','prepared','signed','delivered'))`); } catch (e) {}
+
+    // ─── Module Réseau Ville (hub_reseau) ─────────────────────────
+    // Adaptation du schema.sql fourni : géométrie en JSONB GeoJSON (PostGIS indisponible).
+    // gen_random_uuid() est natif en PG13+. Référencement des sites via site_code (= hub.sites.code_bien).
+    try {
+      await client.query('CREATE SCHEMA IF NOT EXISTS hub_reseau');
+
+      // ENUM idempotents
+      await client.query(`DO $$ BEGIN CREATE TYPE hub_reseau.network_link_type AS ENUM ('FIBRE','WAN','OPERATEUR'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+      await client.query(`DO $$ BEGIN CREATE TYPE hub_reseau.network_operator AS ENUM ('LINKT','MOJI','RED','OTHER'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+      await client.query(`DO $$ BEGIN CREATE TYPE hub_reseau.duct_status AS ENUM ('LIBRE','OCCUPE'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+      await client.query(`DO $$ BEGIN CREATE TYPE hub_reseau.access_type AS ENUM ('FIBRE','WAN','ADSL','SDSL','4G'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.network_links (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          site_a VARCHAR NOT NULL,
+          site_b VARCHAR NOT NULL,
+          type hub_reseau.network_link_type NOT NULL,
+          capacity VARCHAR,
+          operator hub_reseau.network_operator,
+          carries_data BOOLEAN DEFAULT TRUE,
+          carries_voice BOOLEAN DEFAULT FALSE,
+          is_loop BOOLEAN DEFAULT FALSE,
+          is_redundant BOOLEAN DEFAULT FALSE,
+          geometry JSONB,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.network_access (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          site_code VARCHAR NOT NULL,
+          type hub_reseau.access_type NOT NULL,
+          operator hub_reseau.network_operator,
+          mode VARCHAR,
+          bandwidth VARCHAR,
+          carries_data BOOLEAN DEFAULT TRUE,
+          carries_voice BOOLEAN DEFAULT FALSE,
+          comment TEXT,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.ducts (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          name VARCHAR,
+          status hub_reseau.duct_status NOT NULL,
+          capacity INTEGER,
+          used_capacity INTEGER DEFAULT 0,
+          geometry JSONB,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_links_site_a ON hub_reseau.network_links(site_a)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_links_site_b ON hub_reseau.network_links(site_b)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_access_site ON hub_reseau.network_access(site_code)`);
+
+      // Seed initial (idempotent : seulement si vide)
+      const { rows: lc } = await client.query('SELECT COUNT(*)::int AS c FROM hub_reseau.network_links');
+      if (lc[0].c === 0) {
+        // Backbone FIBRE — cœur + boucles Nord/Sud (is_loop)
+        await client.query(`
+          INSERT INTO hub_reseau.network_links (site_a, site_b, type, capacity, is_loop, is_redundant) VALUES
+          ('S001','S064','FIBRE','40G',false,true),
+          ('S001','S005','FIBRE','10G',true,false),
+          ('S005','S004','FIBRE','10G',true,false),
+          ('S004','S022','FIBRE','10G',true,false),
+          ('S022','S001C','FIBRE','10G',true,false),
+          ('S001C','S001','FIBRE','10G',true,false),
+          ('S001','S007','FIBRE','10G',true,false),
+          ('S007','S045','FIBRE','1G',true,false),
+          ('S045','S001','FIBRE','1G',true,false)
+        `);
+        // WAN LINKT (MPLS) — VRF DATA/ECOLE/TOIP ; TOIP => carries_voice
+        await client.query(`
+          INSERT INTO hub_reseau.network_links (site_a, site_b, type, capacity, operator, carries_data, carries_voice) VALUES
+          ('S001','S045','OPERATEUR','30M','LINKT',true,true),
+          ('S001','S028','OPERATEUR','20M','LINKT',true,false)
+        `);
+        // WAN RED (VPN + Internet via Sophos)
+        await client.query(`
+          INSERT INTO hub_reseau.network_links (site_a, site_b, type, capacity, operator, carries_data, carries_voice, is_redundant) VALUES
+          ('S001','S064','OPERATEUR','100M','RED',true,false,true)
+        `);
+        // Accès faibles (sites isolés)
+        await client.query(`
+          INSERT INTO hub_reseau.network_access (site_code, type, operator, mode, bandwidth, carries_voice, comment) VALUES
+          ('S045','WAN','LINKT','MPLS','30M',true,'Accès MPLS LINKT VRF TOIP'),
+          ('S028','ADSL','OTHER','INTERNET','20M',false,'Site isolé - ADSL de secours'),
+          ('S022','SDSL','OTHER','INTERNET','8M',false,'Liaison SDSL'),
+          ('S004','4G','OTHER','BACKUP','50M',false,'Backup 4G')
+        `);
+        // Fourreaux
+        await client.query(`
+          INSERT INTO hub_reseau.ducts (name, status, capacity, used_capacity) VALUES
+          ('FO_Boucle_Nord','OCCUPE',48,36),
+          ('FO_Boucle_Sud','OCCUPE',48,40),
+          ('FO_Extension','LIBRE',24,0)
+        `);
+        console.log('[PG DB] hub_reseau seed inséré');
+      }
+      console.log('[PG DB] hub_reseau schema OK');
+    } catch (e) {
+      console.error('[PG DB] hub_reseau init error:', e.message);
+    }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

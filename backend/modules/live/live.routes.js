@@ -34,6 +34,7 @@ router.post('/sessions/:id/close',  authenticateJWT, (req, res) => controller.cl
 router.post('/sessions/:id/reject', authenticateJWT, (req, res) => controller.rejectSession(req, res));
 router.post('/sessions/:id/task',   authenticateJWT, (req, res) => controller.createTask(req, res));
 router.patch('/sessions/:id/type',         authenticateJWT, (req, res) => controller.setTicketType(req, res));
+router.patch('/sessions/:id/priority',     authenticateJWT, (req, res) => controller.setTicketPriority(req, res));
 router.patch('/sessions/:id/app',          authenticateJWT, (req, res) => controller.setSessionApp(req, res));
 router.post('/sessions/:id/satisfaction',  authenticateJWT, (req, res) => controller.submitSatisfaction(req, res));
 router.post('/sessions/:id/emergency',     authenticateJWT, (req, res) => controller.sendEmergencyMessage(req, res));

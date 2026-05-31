@@ -19,6 +19,7 @@ interface TileData {
   pending_requests?: number;
   warning_count?: number;
   info_count?: number;
+  is_module?: boolean;
 }
 
 const Dashboard: React.FC = () => {
@@ -48,13 +49,15 @@ const Dashboard: React.FC = () => {
 
   const saveTileOrder = async (order: number[]) => {
     try {
+      // Ne pas persister les tuiles-module (id négatif) dans l'ordre utilisateur.
+      const cleanOrder = order.filter(id => id >= 0);
       await fetch('/api/user-tile-order', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ tileOrder: order })
+        body: JSON.stringify({ tileOrder: cleanOrder })
       });
       console.log('Tile order saved:', order);
     } catch (error) {
@@ -203,11 +206,11 @@ const Dashboard: React.FC = () => {
               .map((tile) => (
                 <div
                   key={tile.id}
-                  draggable
-                  onDragStart={() => handleDragStart(tile.id)}
-                  onDragOver={(e) => handleDragOver(tile.id, e)}
+                  draggable={!tile.is_module && tile.id >= 0}
+                  onDragStart={() => { if (!tile.is_module && tile.id >= 0) handleDragStart(tile.id); }}
+                  onDragOver={(e) => { if (!tile.is_module && tile.id >= 0) handleDragOver(tile.id, e); }}
                   onDragLeave={handleDragLeave}
-                  onDrop={() => handleDrop(tile.id)}
+                  onDrop={() => { if (!tile.is_module && tile.id >= 0) handleDrop(tile.id); }}
                   style={{
                     opacity: draggedTile === tile.id ? 0.5 : 1,
                     backgroundColor: dragOverTile === tile.id ? 'rgba(37, 99, 235, 0.05)' : 'transparent',

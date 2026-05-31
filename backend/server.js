@@ -9,6 +9,7 @@ const bcrypt = require('bcryptjs');
 const { setupDb, pgDb, pool, setupPgDb } = require('./shared/database');
 const { logMouchard, flattenLDAPEntry, decodeLDAPString, excelDateToISO } = require('./shared/utils');
 const { SECRET_KEY, PORT, FOLDERS } = require('./shared/config');
+const { MODULES_REGISTRY } = require('./shared/modules-registry');
 const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl, isSuperAdmin, isAdminLike } = require('./shared/middleware');
 const magappRouter = require('./modules/magapp/magapp.routes');
 const rhRouter = require('./modules/rh/rh.routes');
@@ -2209,6 +2210,12 @@ const consommablesCtrl = require('./modules/consommables/consommables.controller
 consommablesCtrl.setSendMail(sendMail);
 app.use('/api/consumable', consommablesRouter);
 
+// Stocks Module (gestion des stocks)
+app.use('/api/stocks', require('./modules/stocks/stocks.routes'));
+
+// Réseau Ville Module (cartographie réseau inter-sites)
+app.use('/api/network', require('./modules/reseau/reseau.routes'));
+
 // Finance & Tiers Module
 app.use('/api/budget', financeRouter);
 app.use('/api/finance/field-mapping', fieldMappingRouter);
@@ -2973,6 +2980,15 @@ setupDb().then(async database => {
 
     // Initialize PostgreSQL for MagApp
     await setupPgDb();
+
+    // Migration one-shot des tables documentaires existantes vers hub_docs
+    // (idempotente via hub_docs.migration_log)
+    try {
+        const { runAllMigrations } = require('./shared/documents_migration');
+        await runAllMigrations();
+    } catch (e) {
+        console.error('[DOCS MIGRATION] échec:', e.message);
+    }
 
     // Deduplicate operations (keep the one with linked commands)
     await deduplicateOperations();
@@ -3964,6 +3980,43 @@ app.post('/api/change-password', authenticateJWT, async (req, res) => {
 
 // Tiles Routes
 // Public/Authenticated endpoint to fetch tiles with authorization status
+// ─── Modules de l'application (registre + visibilité) ──────────────
+// Renvoie le registre fusionné avec l'état de visibilité persisté.
+app.get('/api/admin/modules', authenticateAdmin, async (req, res) => {
+    try {
+        const rows = await pgDb.all('SELECT module_key, is_visible FROM hub.module_settings');
+        const byKey = {};
+        rows.forEach(r => { byKey[r.module_key] = r.is_visible; });
+        const modules = MODULES_REGISTRY.map(m => ({
+            ...m,
+            is_visible: byKey[m.key] !== false, // défaut : visible
+        }));
+        res.json(modules);
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des modules', error: error.message });
+    }
+});
+
+// Met à jour la visibilité d'un module.
+app.put('/api/admin/modules/:key', authenticateAdmin, async (req, res) => {
+    try {
+        const { key } = req.params;
+        if (!MODULES_REGISTRY.some(m => m.key === key)) {
+            return res.status(404).json({ message: 'Module inconnu' });
+        }
+        const isVisible = req.body?.is_visible === true || req.body?.is_visible === 'true';
+        await pgDb.run(
+            `INSERT INTO hub.module_settings (module_key, is_visible, updated_at)
+             VALUES ($1, $2, CURRENT_TIMESTAMP)
+             ON CONFLICT (module_key) DO UPDATE SET is_visible = EXCLUDED.is_visible, updated_at = CURRENT_TIMESTAMP`,
+            [key, isVisible]
+        );
+        res.json({ key, is_visible: isVisible });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la mise à jour du module', error: error.message });
+    }
+});
+
 app.get('/api/tiles', async (req, res) => {
     try {
         const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
@@ -4014,6 +4067,38 @@ app.get('/api/tiles', async (req, res) => {
             
             // Load links
             tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
+        }
+
+        // ─── Tuiles-module (registre + visibilité) ───────────────────
+        // Un module est affiché si l'utilisateur est admin OU si le module est visible.
+        // Les admins voient tous les modules quel que soit le réglage.
+        try {
+            const visRows = await pgDb.all('SELECT module_key, is_visible FROM hub.module_settings');
+            const visByKey = {};
+            visRows.forEach(r => { visByKey[r.module_key] = r.is_visible; });
+            const admin = user && isAdminLike(user);
+
+            MODULES_REGISTRY.forEach((m, index) => {
+                const visible = visByKey[m.key] !== false; // défaut : visible
+                if (!admin && !visible) return; // non-admin : masquer si non visible
+                if (!user) return;              // non connecté : rien
+
+                const moduleId = -(index + 1); // id négatif → pas de collision avec les tuiles SQLite
+                tiles.push({
+                    id: moduleId,
+                    title: m.title,
+                    icon: m.icon,
+                    description: m.description,
+                    status: 'active',
+                    sort_order: 100000 + index,
+                    is_public: 0,
+                    is_authorized: true,
+                    is_module: true,
+                    links: [{ id: moduleId, label: 'Ouvrir', url: m.url, is_internal: 1 }],
+                });
+            });
+        } catch (e) {
+            console.error('[TILES] Injection des tuiles-module échouée:', e.message);
         }
 
         res.json(tiles);
@@ -5345,6 +5430,12 @@ app.use('/api/tickets/groups', ticketGroupsRouter);
 app.use('/api/tickets/admin', ticketsAdminRouter);
 app.use('/api/tickets', ticketsRouter);
 
+// ── Auto Resolution ──────────────────────────────────────────────────
+const autoResolutionRouter = require('./modules/auto-resolution/auto-resolution.routes');
+const autoResolutionCtrl = require('./modules/auto-resolution/auto-resolution.controller');
+autoResolutionCtrl.setSendMail(sendMail);
+app.use('/api/auto-resolution', autoResolutionRouter);
+
 // ── Live chat ─────────────────────────────────────────────────────────
 const liveRouter = require('./modules/live/live.routes');
 const liveCtrl = require('./modules/live/live.controller');
@@ -5352,12 +5443,21 @@ liveCtrl.setSendMail(sendMail);
 liveCtrl.startScheduler();
 app.use('/api/live', liveRouter);
 
+// Module documents centralisé (gestion documentaire avec versionning)
+app.use('/api/documents', require('./modules/documents/documents.routes'));
+
 // GED / Alfresco
 app.use('/api/ged', require('./modules/ged/ged.routes'));
 
 // Mail Collector
 app.use('/api/mail-collector', require('./modules/mail_collector/mail_collector.routes'));
 app.use('/api/ville', require('./modules/ville/ville.routes'));
+
+// Backup & Security
+const backupCtrl = require('./modules/backup/backup.controller');
+backupCtrl.setSendMail(sendMail);
+app.use('/api/backup', require('./modules/backup/backup.routes'));
+require('./modules/backup/backup.scheduler').init();
 
 // Public reply routes (no auth)
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));
@@ -5390,6 +5490,24 @@ cron.schedule('* * * * *', async () => {
     }
 });
 console.log('[TICKETS CRON] SLA check registered');
+
+// Cron: Résolution automatique à 2h du matin
+cron.schedule('0 2 * * *', async () => {
+    try {
+        const { pgDb } = require('./shared/database');
+        const settings = await pgDb.get('SELECT enabled FROM hub_tickets.auto_resolution_settings WHERE id = 1');
+        if (settings && settings.enabled) {
+            console.log('[AUTO-RESOLUTION] Running scheduled process...');
+            const svc = require('./modules/auto-resolution/services/auto-resolution.service');
+            if (typeof svc.setSendMail === 'function') svc.setSendMail(sendMail);
+            const result = await svc.processTickets();
+            console.log('[AUTO-RESOLUTION] Done:', result.message);
+        }
+    } catch (e) {
+        console.error('[AUTO-RESOLUTION CRON]', e.message);
+    }
+});
+console.log('[TICKETS CRON] Auto-resolution registered');
 
 // Cron: Traitement file d'attente notifications toutes les 30s
 cron.schedule('*/30 * * * * *', async () => {

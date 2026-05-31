@@ -279,7 +279,28 @@
       "Bash(node scripts/inventory_documents.js)",
       "Bash(node scripts/migrate_documents_to_storage.js)",
       "Bash(node scripts/migrate_documents_to_storage.js --apply)",
-      "Bash(node -e \"const db=require\\('./shared/database'\\);\\(async\\(\\)=>{await db.setupDb\\(\\);const r=await db.pgDb.all\\(\\\\\"SELECT id,document_id,file_path,file_missing FROM projets.projet_versions_document WHERE file_path IS NOT NULL\\\\\"\\);console.log\\(r\\);const fs=require\\('fs'\\),s=require\\('./shared/storage'\\);const cfg=await s.getStorageConfig\\(\\);const root=s.resolveRoot\\(cfg\\);for\\(const v of r\\){const abs=s.resolveAbsolute\\(root,v.file_path\\);console.log\\(v.file_path,'=>',fs.existsSync\\(abs\\)\\);}process.exit\\(0\\)}\\)\\(\\)\")"
+      "Bash(node -e \"const db=require\\('./shared/database'\\);\\(async\\(\\)=>{await db.setupDb\\(\\);const r=await db.pgDb.all\\(\\\\\"SELECT id,document_id,file_path,file_missing FROM projets.projet_versions_document WHERE file_path IS NOT NULL\\\\\"\\);console.log\\(r\\);const fs=require\\('fs'\\),s=require\\('./shared/storage'\\);const cfg=await s.getStorageConfig\\(\\);const root=s.resolveRoot\\(cfg\\);for\\(const v of r\\){const abs=s.resolveAbsolute\\(root,v.file_path\\);console.log\\(v.file_path,'=>',fs.existsSync\\(abs\\)\\);}process.exit\\(0\\)}\\)\\(\\)\")",
+      "Bash(xargs grep -l \"upload\\\\|File\\\\|document\")",
+      "Bash(sqlite3 backend/data/database.sqlite \"SELECT setting_key, setting_value FROM app_settings WHERE setting_key LIKE 'storage%';\")",
+      "Bash(cat)",
+      "Bash(chmod +x /tmp/diagnostic_storage.sh)",
+      "Bash(/tmp/diagnostic_storage.sh)",
+      "Bash(cat > *)",
+      "Bash(chmod +x /tmp/check_storage_config.sh)",
+      "Bash(/tmp/check_storage_config.sh)",
+      "Bash(node --openssl-legacy-provider -e ' *)",
+      "Bash(npm uninstall *)",
+      "Bash(grep -v \"//.*res\\\\.\")",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(node -e \"require\\('./modules/backup/backup.controller'\\); console.log\\('controller OK'\\)\")",
+      "Bash(node -e \"require\\('./modules/backup/backup.controller'\\); require\\('./modules/backup/backup.routes'\\); console.log\\('backend OK'\\)\")",
+      "Bash(node -e \"const j=require\\('./modules/backup/pg_jsdump'\\); require\\('./modules/backup/backup.controller'\\); console.log\\('OK schemas:', j.APP_SCHEMAS.length, j.APP_SCHEMAS.join\\(','\\)\\)\")",
+      "Bash(node -e \"const c=require\\('./modules/backup/backup.controller'\\); require\\('./modules/backup/backup.routes'\\); console.log\\('OK', typeof c.getSchemasRoute, typeof c.saveSchemasRoute, typeof c.getSelectedSchemas\\);\")",
+      "Bash(node --check modules/backup/backup.controller.js)",
+      "Bash(node --check modules/backup/pg_jsdump.js)",
+      "Bash(node --check modules/backup/backup.routes.js)",
+      "Bash(cd /c/dev/AppDSI/backend && grep -n \"req.query\" server.js | grep -i \"ad/search\\\\|\\\\.q\\\\b\\\\|query\" | head; sed -n '615,660p' server.js)",
+      "Bash(cd /c/dev/AppDSI/frontend && grep -rn \"live\\\\|LiveChat\\\\|LiveSession\\\\|/chat\" src/App.tsx | head -20)"
     ]
   }
 }

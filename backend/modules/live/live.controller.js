@@ -656,6 +656,24 @@ async function uploadAttachment(req, res) {
             file.originalname,
         ]);
 
+        // Dual-write hub_docs (viewer central)
+        try {
+            const docsService = require('../../shared/documents.service');
+            await docsService.registerExternalUpload({
+                module: 'live',
+                entityType: 'attachment',
+                entityId: id,
+                title: file.originalname,
+                filename: saved.filename,
+                originalName: file.originalname,
+                mimetype: file.mimetype,
+                size: file.size,
+                storageRef: saved.dbPath,
+                metadata: { sender_type: senderType, message_id: result.lastID },
+                uploadedBy: user.username || null,
+            });
+        } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+
         const message = await pgDb.get(
             `SELECT * FROM hub_tickets.live_messages WHERE id = $1`, [result.lastID]
         );
@@ -1202,6 +1220,44 @@ async function setTicketType(req, res) {
     }
 }
 
+// ── PATCH /api/live/sessions/:id/priority ─────────────────────────────────
+// Permet au technicien de modifier l'impact et/ou la priorité pendant un live.
+async function setTicketPriority(req, res) {
+    try {
+        const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
+        const { priority, impact } = req.body || {};
+        const valid = (v) => v != null && ['1', '2', '3', '4', '5'].includes(String(v));
+        if (priority === undefined && impact === undefined) {
+            return res.status(400).json({ message: 'priority ou impact requis' });
+        }
+        if (priority !== undefined && !valid(priority)) return res.status(400).json({ message: 'Priorité invalide (1-5)' });
+        if (impact !== undefined && !valid(impact)) return res.status(400).json({ message: 'Impact invalide (1-5)' });
+
+        const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
+        if (!session) return res.status(404).json({ message: 'Session introuvable' });
+        if (!session.ticket_id) return res.status(400).json({ message: 'Aucun ticket associé' });
+
+        const sets = [];
+        const params = [];
+        if (priority !== undefined) { params.push(String(priority)); sets.push(`priority = $${params.length}`); }
+        if (impact !== undefined) { params.push(String(impact)); sets.push(`impact = $${params.length}`); }
+        params.push(session.ticket_id);
+        await pgDb.run(
+            `UPDATE hub_tickets.tickets SET ${sets.join(', ')}, date_mod = NOW() WHERE glpi_id = $${params.length}`,
+            params
+        );
+
+        res.json({
+            success: true,
+            priority: priority !== undefined ? String(priority) : undefined,
+            impact: impact !== undefined ? String(impact) : undefined,
+        });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
 // ── POST /api/live/guest-login (public) ───────────────────────────────────
 async function guestLogin(req, res) {
     try {
@@ -1407,4 +1463,4 @@ async function smsTokenAuth(req, res) {
     }
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setSessionApp, submitSatisfaction, getSatisfactionStats, sendEmergencyMessage, smsTokenAuth };
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setTicketPriority, setSessionApp, submitSatisfaction, getSatisfactionStats, sendEmergencyMessage, smsTokenAuth };

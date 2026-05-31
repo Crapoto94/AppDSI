@@ -3,16 +3,14 @@ import { X, Plus, Send, Upload, Trash2, FileText, Users } from 'lucide-react';
 import TranscriptUploadModal from './TranscriptUploadModal';
 import TranscriptViewModal from './TranscriptViewModal';
 import AddTaskModal from './AddTaskModal';
+import { useADSearch } from '../utils/useADSearch';
+import type { ADUser } from '../utils/useADSearch';
 
 interface Reunion {
   id: number; titre: string; date_reunion: string; annee: number; lieu?: string;
   description?: string; releve_decision?: string; liste_taches?: string;
   statut: string; created_by?: string; participants?: any[]; demandes?: any[];
   transcript_id?: number | null;
-}
-
-interface ADUser {
-  username: string; displayName: string; email: string; service?: string; direction?: string;
 }
 
 interface Attachment {
@@ -39,9 +37,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [reunionAttachments, setReunionAttachments] = useState<Attachment[]>([]);
   const [newDecision, setNewDecision] = useState('');
   const [showAddParticipantDetail, setShowAddParticipantDetail] = useState(false);
-  const [detailAdQuery, setDetailAdQuery] = useState('');
-  const [detailAdResults, setDetailAdResults] = useState<ADUser[]>([]);
-  const [detailAdSearching, setDetailAdSearching] = useState(false);
+  const detailAd = useADSearch(token);
   const [detailNewParticipant, setDetailNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'externe' as 'metier' | 'dsi' | 'externe', statut_presence: 'present' as 'present' | 'excuse' | 'info', commentaire: '' });
   const [isAddingDetailParticipant, setIsAddingDetailParticipant] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
@@ -53,13 +49,9 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [newDemande, setNewDemande] = useState({ titre: '', direction: '', service: '', type: '', description: '' });
   const derouleRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const detailAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editingTaskIndex, setEditingTaskIndex] = useState<number | null>(null);
   const [editTaskData, setEditTaskData] = useState({ tache: '', responsable: '', responsable_username: '', echeance: '', statut: 'a_faire' });
-
-  const [taskAdResults, setTaskAdResults] = useState<ADUser[]>([]);
-  const [taskAdSearching, setTaskAdSearching] = useState(false);
-  const taskAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskAd = useADSearch(token);
 
   // Hub tasks (via API unifiée + tâches d'équipe)
   const [hubTasks, setHubTasks] = useState<any[]>([]);
@@ -83,39 +75,13 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
     } catch (e) { console.error(e); }
   }, [reunionId, token]);
 
-  const searchADDetail = useCallback((q: string) => {
-    setDetailAdQuery(q);
-    if (detailAdSearchTimerRef.current) clearTimeout(detailAdSearchTimerRef.current);
-    if (q.length < 2) { setDetailAdResults([]); return; }
-    setDetailAdSearching(true);
-    detailAdSearchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-        setDetailAdResults((await res.json()) || []);
-      } catch (e) { setDetailAdResults([]); }
-      finally { setDetailAdSearching(false); }
-    }, 400);
-  }, [token]);
-
-  const searchADForTask = useCallback((q: string) => {
-    if (taskAdSearchTimerRef.current) clearTimeout(taskAdSearchTimerRef.current);
-    if (q.length < 2) { setTaskAdResults([]); return; }
-    setTaskAdSearching(true);
-    taskAdSearchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-        setTaskAdResults((await res.json()) || []);
-      } catch (e) { setTaskAdResults([]); }
-      finally { setTaskAdSearching(false); }
-    }, 400);
-  }, [token]);
 
 
   const startEditTask = (index: number) => {
     const items = JSON.parse(detailReunionData.liste_taches || '[]') as any[];
     setEditingTaskIndex(index);
     setEditTaskData({ ...items[index] });
-    setTaskAdResults([]);
+    taskAd.clearResults();
   };
 
   const saveEditTask = () => {
@@ -124,13 +90,13 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
     items[editingTaskIndex] = { ...editTaskData };
     setDetailReunionData(v => ({...v, liste_taches: JSON.stringify(items)}));
     setEditingTaskIndex(null);
-    setTaskAdResults([]);
+    taskAd.clearResults();
     setTimeout(autoSave, 0);
   };
 
   const cancelEditTask = () => {
     setEditingTaskIndex(null);
-    setTaskAdResults([]);
+    taskAd.clearResults();
   };
 
   const fetchAttachments = async (id: number) => {
@@ -221,7 +187,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
           commentaire: detailNewParticipant.commentaire
         })
       });
-      if (res.ok) { setDetailAdQuery(''); setDetailAdResults([]); fetchReunion(); }
+      if (res.ok) { detailAd.setQuery(''); detailAd.clearResults(); fetchReunion(); }
       else { const err = await res.json(); alert(`Erreur : ${err.error}`); }
     } catch (e) { alert('Erreur ajout participant'); }
     finally { setIsAddingDetailParticipant(false); }
@@ -339,12 +305,12 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                 <div style={{marginBottom: '12px'}}>
                   <div style={{fontSize: '11px', fontWeight: '700', color: '#1d4ed8', marginBottom: '6px'}}>🔍 Ajouter agent DSI</div>
                   <div style={{position: 'relative'}}>
-                    <input type="text" placeholder="Rechercher par nom..." style={{width: '100%', padding: '8px 10px', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '13px'}} value={detailAdQuery} onChange={e => searchADDetail(e.target.value)} />
-                    {detailAdSearching && <span style={{position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#64748b'}}>...</span>}
+                    <input type="text" placeholder="Rechercher par nom..." style={{width: '100%', padding: '8px 10px', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '13px'}} value={detailAd.query} onChange={e => detailAd.setQuery(e.target.value)} />
+                    {detailAd.searching && <span style={{position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#64748b'}}>...</span>}
                   </div>
-                  {detailAdResults.length > 0 && (
+                  {detailAd.results.length > 0 && (
                     <div style={{marginTop: '6px', border: '1px solid #bfdbfe', borderRadius: '6px', background: 'white', maxHeight: '120px', overflowY: 'auto'}}>
-                      {detailAdResults.map(u => (
+                      {detailAd.results.map(u => (
                         <div key={u.username} style={{padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}} onClick={() => addParticipantFromADDetail(u)} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
                           <div>
                             <div style={{fontWeight: '600'}}>{u.displayName}</div>
@@ -452,14 +418,14 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                       <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px'}}>
                         <input type="text" placeholder="Tâche..." style={{flex: '2', minWidth: '120px', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editTaskData.tache} onChange={e => setEditTaskData(v => ({...v, tache: e.target.value}))} />
                         <div style={{flex: '1', minWidth: '120px', position: 'relative'}}>
-                          <input type="text" placeholder="Responsable (recherche AD)..." style={{width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editTaskData.responsable} onChange={e => { setEditTaskData(v => ({...v, responsable: e.target.value})); searchADForTask(e.target.value); }} />
-                          {taskAdSearching && <span style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: '#64748b'}}>...</span>}
-                          {taskAdResults.length > 0 && (
+                          <input type="text" placeholder="Responsable (recherche AD)..." style={{width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editTaskData.responsable} onChange={e => { setEditTaskData(v => ({...v, responsable: e.target.value})); taskAd.setQuery(e.target.value); }} />
+                          {taskAd.searching && <span style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: '#64748b'}}>...</span>}
+                          {taskAd.results.length > 0 && (
                             <div style={{position: 'absolute', top: '100%', left: 0, right: 0, border: '1px solid #bfdbfe', borderRadius: '4px', background: 'white', maxHeight: '100px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)'}}>
-                              {taskAdResults.map(u => (
-                                <div key={u.username} style={{padding: '4px 8px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px'}} onClick={() => { setEditTaskData(v => ({...v, responsable: u.displayName, responsable_username: u.username})); setTaskAdResults([]); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
+                              {taskAd.results.map(u => (
+                                <div key={u.username} style={{padding: '4px 8px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px'}} onClick={() => { setEditTaskData(v => ({...v, responsable: u.displayName, responsable_username: u.username})); taskAd.clearResults(); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
                                   <div style={{fontWeight: '600'}}>{u.displayName}</div>
-                                  <div style={{fontSize: '10px', color: '#64748b'}}>{u.email}</div>
+                                  <div style={{fontSize: '10px', color: '#64748b'}}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
                                 </div>
                               ))}
                             </div>
@@ -567,7 +533,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                     <div style={{display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0}}>
                       <span style={{fontSize: '18px'}}>{att.mimetype?.includes('pdf') ? '📄' : att.mimetype?.includes('image') ? '🖼️' : att.mimetype?.includes('sheet') || att.original_name.endsWith('.xlsx') ? '📊' : '📎'}</span>
                       <div style={{minWidth: 0}}>
-                        <a href={`/file_reunions/${att.filename}`} target="_blank" rel="noopener noreferrer" style={{fontSize: '13px', color: '#2563eb', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}} title={att.original_name}>{att.original_name}</a>
+                        <a href={`/api/rencontres-reunions/attachments/${att.id}/file?mode=inline&token=${encodeURIComponent(token || '')}`} target="_blank" rel="noopener noreferrer" style={{fontSize: '13px', color: '#2563eb', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}} title={att.original_name}>{att.original_name}</a>
                         <span style={{fontSize: '11px', color: '#9ca3af'}}>{att.size ? `${(att.size / 1024).toFixed(0)} Ko` : ''} · {att.uploaded_by}</span>
                       </div>
                     </div>

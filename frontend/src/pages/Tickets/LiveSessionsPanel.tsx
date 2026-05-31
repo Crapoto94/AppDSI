@@ -57,6 +57,9 @@ export default function LiveSessionsPanel() {
   const [openerMessage, setOpenerMessage] = useState<{ content: string; sender_name: string } | null>(null);
   // Ticket type classification
   const [ticketType, setTicketType] = useState<string | null>(null);
+  // Impact / priorité (modifiables en live)
+  const [ticketPriority, setTicketPriority] = useState<string | null>(null);
+  const [ticketImpact, setTicketImpact] = useState<string | null>(null);
   // Task creation modal
   const [showTaskModal, setShowTaskModal] = useState(false);
   // App association picker
@@ -211,7 +214,7 @@ export default function LiveSessionsPanel() {
       setRequesterTickets([]);
       setMessages([]);
       setOpenerMessage(null);
-      setTicketType(null);
+      setTicketType(null); setTicketPriority(null); setTicketImpact(null);
       // Load history via REST immediately
       const msgs = await axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } });
       setMessages(msgs.data);
@@ -221,7 +224,7 @@ export default function LiveSessionsPanel() {
           .then(tr => {
             const t = tr.data;
             if (t?.content) setOpenerMessage({ content: t.content, sender_name: t.requester_name || r.data.user_display_name || r.data.user_username });
-            if (t?.type) setTicketType(String(t.type));
+            if (t?.type) setTicketType(String(t.type)); setTicketPriority(t?.priority != null ? String(t.priority) : null); setTicketImpact(t?.impact != null ? String(t.impact) : null);
           }).catch(() => {});
       }
       // Also join via socket for real-time updates
@@ -251,7 +254,7 @@ export default function LiveSessionsPanel() {
     setActiveSession(session);
     setMessages([]);
     setOpenerMessage(null);
-    setTicketType(null);
+    setTicketType(null); setTicketPriority(null); setTicketImpact(null);
     setShowRename(false);
     setShowTakeover(false);
     setShowRequesterTickets(false);
@@ -265,7 +268,7 @@ export default function LiveSessionsPanel() {
         .then(tr => {
           const t = tr.data;
           if (t?.content) setOpenerMessage({ content: t.content, sender_name: t.requester_name || session.user_display_name || session.user_username });
-          if (t?.type) setTicketType(String(t.type));
+          if (t?.type) setTicketType(String(t.type)); setTicketPriority(t?.priority != null ? String(t.priority) : null); setTicketImpact(t?.impact != null ? String(t.impact) : null);
         }).catch(() => {});
     }
     // Also join via socket for real-time
@@ -366,6 +369,22 @@ export default function LiveSessionsPanel() {
       setTicketType(type);
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors du classement');
+    }
+  }
+
+  async function setPriorityImpactApi(patch: { priority?: string; impact?: string }) {
+    if (!activeSession) return;
+    // Maj optimiste
+    if (patch.priority !== undefined) setTicketPriority(patch.priority);
+    if (patch.impact !== undefined) setTicketImpact(patch.impact);
+    try {
+      await axios.patch(
+        `/api/live/sessions/${activeSession.id}/priority`,
+        patch,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la mise à jour');
     }
   }
 
@@ -1031,6 +1050,43 @@ export default function LiveSessionsPanel() {
                     )}
                   </div>
                 )}
+                {/* Impact / Priorité (modifiables par le tech pendant le live) */}
+                {activeSession.status !== 'closed' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <select
+                      value={ticketImpact ?? ''}
+                      onChange={e => setPriorityImpactApi({ impact: e.target.value })}
+                      disabled={!isMySession}
+                      title="Impact"
+                      style={{ fontSize: 11, fontWeight: 600, padding: '3px 4px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', cursor: isMySession ? 'pointer' : 'default' }}>
+                      <option value="" disabled>Impact</option>
+                      <option value="1">Impact: Très faible</option>
+                      <option value="2">Impact: Faible</option>
+                      <option value="3">Impact: Moyen</option>
+                      <option value="4">Impact: Fort</option>
+                      <option value="5">Impact: Très fort</option>
+                    </select>
+                    <select
+                      value={ticketPriority ?? ''}
+                      onChange={e => setPriorityImpactApi({ priority: e.target.value })}
+                      disabled={!isMySession}
+                      title="Priorité"
+                      style={{
+                        fontSize: 11, fontWeight: 700, padding: '3px 4px', borderRadius: 6,
+                        border: `1.5px solid ${ticketPriority === '5' ? '#dc2626' : ticketPriority === '4' ? '#f59e0b' : '#e2e8f0'}`,
+                        background: ticketPriority === '5' ? '#fef2f2' : ticketPriority === '4' ? '#fffbeb' : '#f8fafc',
+                        color: ticketPriority === '5' ? '#dc2626' : ticketPriority === '4' ? '#92400e' : '#475569',
+                        cursor: isMySession ? 'pointer' : 'default',
+                      }}>
+                      <option value="" disabled>Priorité</option>
+                      <option value="1">Priorité: Très basse</option>
+                      <option value="2">Priorité: Basse</option>
+                      <option value="3">Priorité: Moyenne</option>
+                      <option value="4">Priorité: Haute</option>
+                      <option value="5">Priorité: Critique</option>
+                    </select>
+                  </div>
+                )}
                 {/* Status badge */}
                 <span style={{
                   padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
@@ -1112,8 +1168,8 @@ export default function LiveSessionsPanel() {
                       const tid = t.glpi_id || t.id;
                       const sid = typeof t.status === 'object' ? t.status.id : t.status;
                       const slabel = typeof t.status === 'object' ? t.status.label : null;
-                      const statusColors: Record<number, string> = { 1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b', 4: '#f97316', 5: '#22c55e', 6: '#64748b', 7: '#475569', 8: '#ef4444' };
-                      const statusLabels: Record<number, string> = { 1: 'Nouveau', 2: 'En cours (attribué)', 3: 'Planifié', 4: 'En attente utilisateur', 5: 'En attente fournisseur', 6: 'Résolu', 7: 'Clos', 8: 'Rejeté' };
+                      const statusColors: Record<number, string> = { 1: '#6366f1', 2: '#8b5cf6', 3: '#0ea5e9', 4: '#f59e0b', 5: '#22c55e', 6: '#64748b', 8: '#ef4444' };
+                      const statusLabels: Record<number, string> = { 1: 'Nouveau', 2: 'En cours (attribué)', 3: 'En cours (planifié)', 4: 'En attente', 5: 'Résolu', 6: 'Clos', 8: 'Rejeté' };
                       const label = slabel || statusLabels[sid] || `#${sid}`;
                       return (
                         <a key={tid} href={`/tickets/${tid}`} target="_blank" rel="noreferrer"

@@ -6,9 +6,14 @@
  * stockés en base. Cela permet à une instance Linux (Docker) d'écrire sur un
  * partage UNC sans avoir à monter le partage au niveau du système.
  *
- * NB : `smb2` utilise NTLM (MD4/RC4) ; sous OpenSSL 3 (Node >= 18) il faut
- * lancer Node avec NODE_OPTIONS="--openssl-legacy-provider".
+ * NB : `smb2` utilise NTLM (DES-ECB/MD4) que OpenSSL 3 (Node >= 18) retire
+ * de l'API crypto par défaut. Pour ne pas dépendre du flag
+ * `--openssl-legacy-provider` (qui n'est pas toujours appliqué selon la
+ * méthode de démarrage), on patche `ntlm/lib/smbhash.js` avec une
+ * implémentation DES (via `des.js`) + MD4 (maison) en pur JavaScript.
+ * Le patch DOIT être appliqué AVANT le require('smb2').
  */
+require('./ntlm_patch').applyPatch();
 const SMB2 = require('smb2');
 const { promisify } = require('util');
 

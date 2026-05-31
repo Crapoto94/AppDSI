@@ -110,7 +110,7 @@ export default function RequesterSearch({ value, onChange, initialEmail, initial
                   onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{u.displayName}</div>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>{u.email} · {u.username}</div>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</div>
                 </div>
               ))}
             </div>

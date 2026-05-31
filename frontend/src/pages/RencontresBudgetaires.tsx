@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Header from '../components/Header';
 import {
   Upload, Search, X, Columns, Eye, Plus, Trash2, Info, Mail, AlertCircle, Ticket
 } from 'lucide-react';
+import { useADSearch } from '../utils/useADSearch';
 import { useAuth } from '../contexts/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 import CreateReunionModal from '../components/CreateReunionModal';
@@ -63,14 +64,6 @@ interface ReunionParticipant {
   ad_username?: string;
 }
 
-interface ADUser {
-  username: string;
-  displayName: string;
-  email: string;
-  service?: string;
-  direction?: string;
-}
-
 const RencontresBudgetaires: React.FC = () => {
   const { token, user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -117,10 +110,7 @@ const RencontresBudgetaires: React.FC = () => {
   const [directions, setDirections] = useState<string[]>([]);
   const [services, setServices] = useState<string[]>([]);
   const [dirServicesMap, setDirServicesMap] = useState<Record<string, string[]>>({});
-  const emailAdSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [emailAdQuery, setEmailAdQuery] = useState('');
-  const [emailAdResults, setEmailAdResults] = useState<ADUser[]>([]);
-  const [emailAdSearching, setEmailAdSearching] = useState(false);
+  const emailAd = useADSearch(token);
   const [handledInitialReunionId, setHandledInitialReunionId] = useState(false);
 
   const annees = [...new Set(rencontres.map(r => r.annee))].filter(a => a).sort((a, b) => b - a);
@@ -545,25 +535,10 @@ const RencontresBudgetaires: React.FC = () => {
     }
   };
 
-  const searchADForEmail = useCallback((q: string) => {
-    setEmailAdQuery(q);
-    if (emailAdSearchTimerRef.current) clearTimeout(emailAdSearchTimerRef.current);
-    if (q.length < 2) { setEmailAdResults([]); return; }
-    setEmailAdSearching(true);
-    emailAdSearchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-        const data = await res.json();
-        setEmailAdResults(Array.isArray(data) ? data : []);
-      } catch (e) { setEmailAdResults([]); }
-      finally { setEmailAdSearching(false); }
-    }, 400);
-  }, [token]);
-
-  const selectADUserForEmail = (user: ADUser) => {
+  const selectADUserForEmail = (user: { username: string; displayName: string; email: string }) => {
     setNewEmail(user.email);
-    setEmailAdQuery('');
-    setEmailAdResults([]);
+    emailAd.setQuery('');
+    emailAd.clearResults();
   };
 
   const handleDeleteAll = async () => {
@@ -1281,20 +1256,20 @@ const RencontresBudgetaires: React.FC = () => {
                       type="text"
                       placeholder="Nom prénom..."
                       style={{width: '100%', padding: '8px 10px', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '13px', background: '#eff6ff'}}
-                      value={emailAdQuery}
-                      onChange={(e) => searchADForEmail(e.target.value)}
+                      value={emailAd.query}
+                      onChange={(e) => emailAd.setQuery(e.target.value)}
                     />
-                    {emailAdSearching && <span style={{position: 'absolute', right: '8px', top: '30px', fontSize: '11px', color: '#6b7280'}}>...</span>}
-                    {emailAdResults.length > 0 && (
+                    {emailAd.searching && <span style={{position: 'absolute', right: '8px', top: '30px', fontSize: '11px', color: '#6b7280'}}>...</span>}
+                    {emailAd.results.length > 0 && (
                       <div style={{position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #bfdbfe', borderRadius: '6px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: '180px', overflowY: 'auto'}}>
-                        {emailAdResults.map(u => (
+                        {emailAd.results.map(u => (
                           <div key={u.username} onClick={() => selectADUserForEmail(u)}
                             style={{padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '13px'}}
                             onMouseEnter={(e) => e.currentTarget.style.background = '#eff6ff'}
                             onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
                           >
                             <div style={{fontWeight: '600', color: '#1e293b'}}>{u.displayName}</div>
-                            <div style={{color: '#64748b', fontSize: '12px'}}>{u.email || 'Pas d\'email AD'}</div>
+                            <div style={{color: '#64748b', fontSize: '12px'}}>{u.email || 'Pas d\'email AD'}{u.service ? ` — ${u.service}` : ''}</div>
                           </div>
                         ))}
                       </div>

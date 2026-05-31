@@ -3,16 +3,18 @@ const { pgDb, pool } = require('../../../shared/database');
 const BASE_SELECT = `
 SELECT t.*,
            ta.technician_id, ta.group_id,
-           tca.category_id,
+           tca.category_id as assigned_category_id,
            ts.label as status_label,
            tu.displayName as technician_name,
            tg2.name as assignee_group_name,
            tp.status as technician_status,
            mu.service_code as requester_service_code,
            mu.service_complement as requester_service,
-           tgm_sub.bundle_id,
-           tgm_sub.bundle_name,
-           tgm_sub.bundle_problem_ticket_id,
+            tgm_sub.bundle_id,
+            tgm_sub.bundle_name,
+            tgm_sub.bundle_problem_ticket_id,
+            tgm_sub.bundle_members,
+            problem_sub.problem_linked_tickets,
            ma.name as software_name,
            tc.name as category_name,
            tsc.name as subcategory_name,
@@ -32,16 +34,30 @@ LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id AND (ta.
      LEFT JOIN (SELECT DISTINCT ON (LOWER(email)) email, service_code, service_complement FROM magapp.users ORDER BY LOWER(email)) mu ON LOWER(t.requester_email_22) = LOWER(mu.email)
      LEFT JOIN (SELECT DISTINCT ON (ticket_id) ticket_id, category_id FROM hub_tickets.ticket_category_assignments ORDER BY ticket_id) tca ON tca.ticket_id = t.glpi_id
      LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
-     LEFT JOIN (
-         SELECT DISTINCT ON (tgm.ticket_id)
-             tgm.ticket_id,
-             tgm.group_id AS bundle_id,
-             tg.name AS bundle_name,
-             tg.problem_ticket_id AS bundle_problem_ticket_id
-         FROM hub_tickets.ticket_group_members tgm
-         LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
-         ORDER BY tgm.ticket_id
-     ) tgm_sub ON tgm_sub.ticket_id = t.glpi_id
+      LEFT JOIN (
+          SELECT DISTINCT ON (tgm.ticket_id)
+              tgm.ticket_id,
+              tgm.group_id AS bundle_id,
+              tg.name AS bundle_name,
+              tg.problem_ticket_id AS bundle_problem_ticket_id,
+              (SELECT COALESCE(json_agg(json_build_object('ticket_id', m.ticket_id, 'title', mt.title, 'status', mt.status, 'priority', mt.priority, 'type', mt.type, 'date_creation', mt.date_creation, 'impact', mt.impact, 'source', mt.source)), '[]'::json)
+               FROM hub_tickets.ticket_group_members m
+               JOIN hub_tickets.tickets mt ON mt.glpi_id = m.ticket_id
+               WHERE m.group_id = tgm.group_id
+                 AND m.ticket_id != tgm.ticket_id) AS bundle_members
+          FROM hub_tickets.ticket_group_members tgm
+          LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
+          ORDER BY tgm.ticket_id
+      ) tgm_sub ON tgm_sub.ticket_id = t.glpi_id
+      LEFT JOIN (
+          SELECT
+              tg.problem_ticket_id,
+              COALESCE(json_agg(json_build_object('ticket_id', m.ticket_id, 'title', mt.title, 'status', mt.status, 'priority', mt.priority, 'type', mt.type, 'date_creation', mt.date_creation, 'impact', mt.impact, 'source', mt.source)), '[]'::json) AS problem_linked_tickets
+          FROM hub_tickets.ticket_groups tg
+          JOIN hub_tickets.ticket_group_members m ON m.group_id = tg.id
+          JOIN hub_tickets.tickets mt ON mt.glpi_id = m.ticket_id
+          GROUP BY tg.problem_ticket_id
+      ) problem_sub ON problem_sub.problem_ticket_id = t.glpi_id AND t.type = '3'
      LEFT JOIN magapp.apps ma ON t.software_id = ma.id
      LEFT JOIN hub_tickets.ticket_categories tc ON t.category_id = tc.id
      LEFT JOIN hub_tickets.ticket_categories tsc ON t.subcategory_id = tsc.id
@@ -234,11 +250,11 @@ module.exports = {
         fields.push(`date_mod = $${idx++}`);
         params.push(new Date().toISOString());
 
-        if (data.status === 6) {
+        if (data.status === 5) {
             fields.push(`date_solved = $${idx++}`);
             params.push(new Date().toISOString());
         }
-        if (data.status === 7) {
+        if (data.status === 6) {
             fields.push(`date_closed = $${idx++}`);
             params.push(new Date().toISOString());
         }
@@ -264,23 +280,23 @@ module.exports = {
             SELECT
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE status IN (1,2,3)) as open,
-                COUNT(*) FILTER (WHERE status = 6) as resolved,
-                COUNT(*) FILTER (WHERE status = 7) as closed,
-                COUNT(*) FILTER (WHERE status = 3) as in_progress,
+                COUNT(*) FILTER (WHERE status = 5) as resolved,
+                COUNT(*) FILTER (WHERE status = 6) as closed,
+                COUNT(*) FILTER (WHERE status IN (2,3)) as in_progress,
                 COUNT(*) FILTER (WHERE priority = 5 AND status IN (1,2,3)) as critical_open,
-                COUNT(*) FILTER (WHERE status IN (4,5)) as waiting,
+                COUNT(*) FILTER (WHERE status = 4) as waiting,
                 COUNT(*) FILTER (WHERE type::text = '1') as total_incident,
                 COUNT(*) FILTER (WHERE type::text = '2') as total_request,
                 COUNT(*) FILTER (WHERE status IN (1,2,3) AND type::text = '1') as open_incident,
                 COUNT(*) FILTER (WHERE status IN (1,2,3) AND type::text = '2') as open_request,
-                COUNT(*) FILTER (WHERE status = 3 AND type::text = '1') as in_progress_incident,
-                COUNT(*) FILTER (WHERE status = 3 AND type::text = '2') as in_progress_request,
-                COUNT(*) FILTER (WHERE status IN (4,5) AND type::text = '1') as waiting_incident,
-                COUNT(*) FILTER (WHERE status IN (4,5) AND type::text = '2') as waiting_request,
+                COUNT(*) FILTER (WHERE status IN (2,3) AND type::text = '1') as in_progress_incident,
+                COUNT(*) FILTER (WHERE status IN (2,3) AND type::text = '2') as in_progress_request,
+                COUNT(*) FILTER (WHERE status = 4 AND type::text = '1') as waiting_incident,
+                COUNT(*) FILTER (WHERE status = 4 AND type::text = '2') as waiting_request,
                 COUNT(*) FILTER (WHERE priority = 5 AND status IN (1,2,3) AND type::text = '1') as critical_incident,
                 COUNT(*) FILTER (WHERE priority = 5 AND status IN (1,2,3) AND type::text = '2') as critical_request,
-                COUNT(*) FILTER (WHERE status = 6 AND type::text = '1') as resolved_incident,
-                COUNT(*) FILTER (WHERE status = 6 AND type::text = '2') as resolved_request,
+                COUNT(*) FILTER (WHERE status = 5 AND type::text = '1') as resolved_incident,
+                COUNT(*) FILTER (WHERE status = 5 AND type::text = '2') as resolved_request,
                 COUNT(*) FILTER (WHERE is_vip = true) as vip_total,
                 COUNT(*) FILTER (WHERE type::text = '3' AND status IN (1,2,3,4,5)) as problems,
                 COUNT(*) FILTER (WHERE tsla.sla_status = 'breached') as sla_breached,
@@ -296,8 +312,8 @@ module.exports = {
             SELECT
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE t.status IN (1,2,3)) as active,
-                COUNT(*) FILTER (WHERE t.status = 3) as in_progress,
-                COUNT(*) FILTER (WHERE t.status IN (4,5)) as waiting,
+                COUNT(*) FILTER (WHERE t.status IN (2,3)) as in_progress,
+                COUNT(*) FILTER (WHERE t.status = 4) as waiting,
                 COUNT(*) FILTER (WHERE t.priority = 5 AND t.status IN (1,2,3)) as critical
             FROM hub_tickets.tickets t
             JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id
@@ -354,7 +370,7 @@ module.exports = {
                     ) FILTER (WHERE date_creation IS NOT NULL), 0
                 )::integer as avg_active_seconds_week
             FROM hub_tickets.tickets
-            WHERE status = 6
+            WHERE status = 5
               AND date_solved >= DATE_TRUNC('week', CURRENT_TIMESTAMP)::date
         `);
     },
@@ -519,14 +535,14 @@ module.exports = {
                 FROM hub_tickets.ticket_history
                 WHERE DATE(created_at) = CURRENT_DATE
                   AND action = 'status_changed'
-                  AND new_value = '6'
+                  AND new_value = '5'
             ),
             today_closed AS (
                 SELECT COUNT(DISTINCT ticket_id) as count
                 FROM hub_tickets.ticket_history
                 WHERE DATE(created_at) = CURRENT_DATE
                   AND action = 'status_changed'
-                  AND new_value = '7'
+                  AND new_value = '6'
             ),
             -- Business days for rolling average calculation (weekdays only, no holidays for now)
             business_days AS (
@@ -568,5 +584,388 @@ module.exports = {
             LEFT JOIN rolling_stats rs ON true
         `);
         return result;
+    },
+
+    // ── Stats pilotage ────────────────────────────────────────
+    async getTicketsStats(filters = {}) {
+        // Plage de dates optionnelle (année / mois / période glissante) appliquée à tous les KPI.
+        const isoDate = (s) => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
+        const from = isoDate(filters.from);
+        const to = isoDate(filters.to);
+        const range = !!(from && to);
+        // Conditions composables (dates validées en YYYY-MM-DD → pas d'injection)
+        const dcAnd = range ? ` AND t.date_creation >= '${from} 00:00:00' AND t.date_creation <= '${to} 23:59:59'` : '';
+        const dcWhere = range ? ` WHERE t.date_creation >= '${from} 00:00:00' AND t.date_creation <= '${to} 23:59:59'` : '';
+
+        const statusDist = await pgDb.all(`
+            SELECT COALESCE(s.label, 'Inconnu') as name, COUNT(*)::int as value
+            FROM hub_tickets.tickets t
+            LEFT JOIN hub_tickets.ticket_status s ON t.status::integer = s.id${dcWhere}
+            GROUP BY s.label, t.status ORDER BY value DESC
+        `);
+
+        const typeDist = await pgDb.all(`
+            SELECT
+                CASE t.type::text
+                    WHEN '1' THEN 'Incident'
+                    WHEN '2' THEN 'Demande'
+                    WHEN '3' THEN 'Problème'
+                    ELSE 'Autre'
+                END as name,
+                COUNT(*)::int as value
+            FROM hub_tickets.tickets t${dcWhere}
+            GROUP BY t.type ORDER BY value DESC
+        `);
+
+        const priorityDist = await pgDb.all(`
+            SELECT t.priority::int as priority, COUNT(*)::int as value
+            FROM hub_tickets.tickets t
+            WHERE t.status NOT IN ('5','6','8')${dcAnd}
+            GROUP BY t.priority ORDER BY t.priority DESC
+        `);
+
+        // Tendance mensuelle :
+        //  - barres = tickets CRÉÉS dans le mois, ventilés par état actuel (empilés)
+        //  - ligne "resolved" = tickets RÉSOLUS/CLÔTURÉS dans le mois (par date_solved),
+        //    indépendant des créations (peut dépasser le nombre de créations).
+        const monthlyTrend = await pgDb.all(`
+            WITH months AS (
+                SELECT TO_CHAR(d, 'YYYY-MM') AS month, TO_CHAR(d, 'Mon YYYY') AS label
+                FROM generate_series(
+                    DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months',
+                    DATE_TRUNC('month', CURRENT_DATE),
+                    INTERVAL '1 month'
+                ) d
+            ),
+            created AS (
+                SELECT TO_CHAR(DATE_TRUNC('month', date_creation), 'YYYY-MM') AS month,
+                    COUNT(*)::int AS created,
+                    COUNT(*) FILTER (WHERE status::int = 1)::int      AS nouveau,
+                    COUNT(*) FILTER (WHERE status::int IN (2,3))::int AS en_cours,
+                    COUNT(*) FILTER (WHERE status::int = 4)::int      AS en_attente,
+                    COUNT(*) FILTER (WHERE status::int = 5)::int      AS resolu,
+                    COUNT(*) FILTER (WHERE status::int = 6)::int      AS clos,
+                    COUNT(*) FILTER (WHERE status::int = 8)::int      AS rejete
+                FROM hub_tickets.tickets
+                WHERE date_creation >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months'
+                GROUP BY 1
+            ),
+            solved AS (
+                SELECT TO_CHAR(DATE_TRUNC('month', date_solved), 'YYYY-MM') AS month,
+                    COUNT(*)::int AS resolved
+                FROM hub_tickets.tickets
+                WHERE date_solved IS NOT NULL AND status::int IN (5,6)
+                  AND date_solved >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months'
+                GROUP BY 1
+            )
+            SELECT m.month, m.label,
+                COALESCE(c.created, 0)    AS created,
+                COALESCE(c.nouveau, 0)    AS nouveau,
+                COALESCE(c.en_cours, 0)   AS en_cours,
+                COALESCE(c.en_attente, 0) AS en_attente,
+                COALESCE(c.resolu, 0)     AS resolu,
+                COALESCE(c.clos, 0)       AS clos,
+                COALESCE(c.rejete, 0)     AS rejete,
+                COALESCE(s.resolved, 0)   AS resolved
+            FROM months m
+            LEFT JOIN created c ON c.month = m.month
+            LEFT JOIN solved s ON s.month = m.month
+            ORDER BY m.month ASC
+        `);
+
+        const weeklyCreated = await pgDb.all(`
+            SELECT
+                DATE_TRUNC('week', t.date_creation)::date as week_start,
+                COUNT(*)::int as count
+            FROM hub_tickets.tickets t
+            WHERE t.date_creation >= CURRENT_DATE - INTERVAL '90 days'
+            GROUP BY DATE_TRUNC('week', t.date_creation)
+            ORDER BY week_start ASC
+        `);
+
+        const categoryDist = await pgDb.all(`
+            SELECT
+                COALESCE(c.full_path, c.name, 'Sans catégorie') as name,
+                COUNT(*)::int as count
+            FROM hub_tickets.tickets t
+            LEFT JOIN hub_tickets.ticket_categories c ON t.category_id = c.id${dcWhere}
+            GROUP BY c.full_path, c.name ORDER BY count DESC LIMIT 15
+        `);
+
+        const topRequesters = await pgDb.all(`
+            SELECT
+                t.requester_email_22 as email,
+                t.requester_name as name,
+                COUNT(*)::int as count
+            FROM hub_tickets.tickets t
+            WHERE t.requester_email_22 IS NOT NULL AND t.requester_email_22 != ''${dcAnd}
+            GROUP BY t.requester_email_22, t.requester_name
+            ORDER BY count DESC LIMIT 10
+        `);
+
+        const techAssignments = await pgDb.all(`
+            SELECT
+                u.displayName as name,
+                u.username,
+                COUNT(*)::int as count
+            FROM hub_tickets.ticket_assignments ta
+            JOIN hub.users u ON ta.technician_id = u.id
+            JOIN hub_tickets.tickets t ON ta.ticket_id = t.glpi_id
+            WHERE t.status IN ('1','2','3','4','5')${dcAnd}
+            GROUP BY u.displayName, u.username
+            ORDER BY count DESC LIMIT 15
+        `);
+
+        const resolutionTimeTrend = await pgDb.all(`
+            SELECT
+                TO_CHAR(DATE_TRUNC('month', t.date_solved), 'YYYY-MM') as month,
+                ROUND(AVG(
+                    EXTRACT(EPOCH FROM (t.date_solved - t.date_creation)) / 3600.0
+                )::numeric, 1)::float as avg_hours,
+                COUNT(*)::int as solved_count
+            FROM hub_tickets.tickets t
+            WHERE t.status = '5' AND t.date_solved IS NOT NULL
+              AND t.date_solved >= CURRENT_DATE - INTERVAL '12 months'
+            GROUP BY DATE_TRUNC('month', t.date_solved)
+            ORDER BY month ASC
+        `);
+
+        const backlogAging = await pgDb.all(`
+            SELECT
+                CASE
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '1 day'  THEN '< 1j'
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '3 days' THEN '1-3j'
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '7 days' THEN '3-7j'
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '14 days' THEN '1-2 sem'
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '30 days' THEN '2-4 sem'
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '90 days' THEN '1-3 mois'
+                    ELSE '3+ mois'
+                END as range,
+                CASE
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '1 day'  THEN 0
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '3 days' THEN 1
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '7 days' THEN 2
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '14 days' THEN 3
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '30 days' THEN 4
+                    WHEN AGE(CURRENT_DATE, t.date_creation::date) < INTERVAL '90 days' THEN 5
+                    ELSE 6
+                END as sort_order,
+                COUNT(*)::int as count
+            FROM hub_tickets.tickets t
+            WHERE t.status IN ('1','2','3','4','5')${dcAnd}
+            GROUP BY range, sort_order
+            ORDER BY sort_order ASC
+        `);
+
+        const hourlyDist = await pgDb.all(`
+            SELECT
+                EXTRACT(HOUR FROM t.date_creation)::int as hour,
+                COUNT(*)::int as count
+            FROM hub_tickets.tickets t
+            WHERE t.date_creation >= ${range ? `'${from} 00:00:00'` : `CURRENT_DATE - INTERVAL '12 months'`}${range ? ` AND t.date_creation <= '${to} 23:59:59'` : ''}
+            GROUP BY EXTRACT(HOUR FROM t.date_creation)
+            ORDER BY hour ASC
+        `);
+
+        const slaOverview = await pgDb.all(`
+            SELECT
+                CASE ts.sla_status
+                    WHEN 'ok' THEN 'OK'
+                    WHEN 'warning' THEN 'Avertissement'
+                    WHEN 'breached' THEN 'Violé'
+                    ELSE 'Non défini'
+                END as name,
+                COUNT(*)::int as value
+            FROM hub_tickets.tickets t
+            LEFT JOIN hub_tickets.ticket_sla ts ON ts.ticket_id = t.glpi_id
+            WHERE t.status IN ('1','2','3','4','5')${dcAnd}
+            GROUP BY ts.sla_status ORDER BY value DESC
+        `);
+
+        const overview = await pgDb.get(`
+            SELECT
+                COUNT(*)::int as total,
+                COUNT(*) FILTER (WHERE t.status IN ('1','2','3'))::int as open,
+                COUNT(*) FILTER (WHERE t.status IN ('2','3'))::int as in_progress,
+                COUNT(*) FILTER (WHERE t.status = '5')::int as resolved,
+                COUNT(*) FILTER (WHERE t.status = '6')::int as closed,
+                COUNT(*) FILTER (WHERE t.status = '4')::int as waiting,
+                COUNT(*) FILTER (WHERE t.priority = '5' AND t.status IN ('1','2','3'))::int as critical_open,
+                COUNT(*) FILTER (WHERE t.is_vip = true AND t.status IN ('1','2','3','4','5'))::int as vip_open,
+                COUNT(*) FILTER (WHERE ts.sla_status = 'breached')::int as sla_breached,
+                COUNT(*) FILTER (WHERE t.type::text = '1')::int as total_incidents,
+                COUNT(*) FILTER (WHERE t.type::text = '2')::int as total_requests,
+                COUNT(*) FILTER (WHERE t.type::text = '3' AND t.status IN ('1','2','3','4','5'))::int as open_problems
+            FROM hub_tickets.tickets t
+            LEFT JOIN hub_tickets.ticket_sla ts ON ts.ticket_id = t.glpi_id${dcWhere}
+        `);
+
+        // Reopened tickets = tickets with status 1/2/3 that were previously solved/closed
+        const reopenedResult = await pgDb.get(`
+            SELECT COUNT(*)::int as count
+            FROM hub_tickets.ticket_history h
+            WHERE h.new_value IN ('1','2','3')
+              AND h.old_value IN ('5','6')
+              AND h.field_name = 'status'
+              AND h.created_at >= ${range ? `'${from} 00:00:00'` : `CURRENT_DATE - INTERVAL '30 days'`}${range ? ` AND h.created_at <= '${to} 23:59:59'` : ''}
+        `);
+
+        // Avg resolution time for tickets resolved this month
+        const avgTimes = await pgDb.get(`
+            SELECT
+                ROUND(AVG(EXTRACT(EPOCH FROM (t.date_solved - t.date_creation)) / 3600.0)::numeric, 1)::float as avg_resolution_hours,
+                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, t.date_closed) - t.date_creation)) / 3600.0)::numeric, 1)::float as avg_closure_hours
+            FROM hub_tickets.tickets t
+            WHERE t.status IN ('5','6') AND t.date_solved IS NOT NULL
+              AND t.date_solved >= ${range ? `'${from} 00:00:00'` : `DATE_TRUNC('month', CURRENT_DATE)`}${range ? ` AND t.date_solved <= '${to} 23:59:59'` : ''}
+        `);
+
+        const weeklyComparison = await pgDb.get(`
+            WITH weeks AS (
+                SELECT
+                    COUNT(*) FILTER (WHERE DATE_TRUNC('week', date_creation) = DATE_TRUNC('week', CURRENT_DATE))::int as this_week,
+                    COUNT(*) FILTER (WHERE DATE_TRUNC('week', date_creation) = DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days'))::int as last_week
+                FROM hub_tickets.tickets t
+                WHERE t.date_creation >= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '7 days')
+            )
+            SELECT this_week, last_week,
+                CASE WHEN last_week > 0 THEN ROUND((this_week::numeric - last_week) / last_week * 100, 1)::float ELSE NULL END as change_pct
+            FROM weeks
+        `);
+
+        // Top logiciels
+        const topSoftwares = await pgDb.all(`
+            SELECT
+                a.name as software,
+                COUNT(*)::int as count,
+                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, CURRENT_TIMESTAMP) - t.date_creation)) / 3600.0)::numeric, 1)::float as avg_resolution_hours
+            FROM hub_tickets.tickets t
+            LEFT JOIN magapp.apps a ON t.software_id = a.id
+            WHERE t.status IN ('1','2','3','4','5','6')${dcAnd}
+            GROUP BY a.name
+            ORDER BY count DESC LIMIT 12
+        `);
+
+        // Top demandeurs (top 15)
+        const topRequestersExtended = await pgDb.all(`
+            SELECT
+                t.requester_email_22 as email,
+                t.requester_name as name,
+                COUNT(*)::int as total_count,
+                COUNT(*) FILTER (WHERE t.status IN ('1','2','3','4','5'))::int as open_count,
+                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, CURRENT_TIMESTAMP) - t.date_creation)) / 3600.0)::numeric, 1)::float as avg_resolution_hours
+            FROM hub_tickets.tickets t
+            WHERE t.requester_email_22 IS NOT NULL AND t.requester_email_22 != ''${dcAnd}
+            GROUP BY t.requester_email_22, t.requester_name
+            ORDER BY total_count DESC LIMIT 15
+        `);
+
+        // Performance par technicien (résolution)
+        const technicianPerformance = await pgDb.all(`
+            SELECT
+                u.displayName as name,
+                u.username,
+                COUNT(*)::int as tickets_count,
+                COUNT(*) FILTER (WHERE t.status IN ('5','6'))::int as resolved_count,
+                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, CURRENT_TIMESTAMP) - t.date_creation)) / 3600.0)::numeric, 1)::float as avg_resolution_hours,
+                ROUND((COUNT(*) FILTER (WHERE t.status IN ('5','6'))::numeric / COUNT(*)) * 100, 1)::float as resolution_rate
+            FROM hub_tickets.ticket_assignments ta
+            JOIN hub.users u ON ta.technician_id = u.id
+            JOIN hub_tickets.tickets t ON ta.ticket_id = t.glpi_id
+            WHERE (ta.is_primary = true OR ta.is_primary IS NULL)${dcAnd}
+            GROUP BY u.displayName, u.username
+            HAVING COUNT(*) >= 3
+            ORDER BY avg_resolution_hours ASC LIMIT 12
+        `);
+
+        // Distribution VIP par priorité
+        const vipByPriority = await pgDb.all(`
+            SELECT
+                t.priority::int as priority,
+                COUNT(*)::int as count
+            FROM hub_tickets.tickets t
+            WHERE t.is_vip = true AND t.status IN ('1','2','3','4','5')${dcAnd}
+            GROUP BY t.priority
+            ORDER BY t.priority DESC
+        `);
+
+        // Tickets par statut sur 12 mois
+        const statusTrend = await pgDb.all(`
+            SELECT
+                TO_CHAR(DATE_TRUNC('month', t.date_creation), 'YYYY-MM') as month,
+                TO_CHAR(DATE_TRUNC('month', t.date_creation), 'MMM YY') as label,
+                COUNT(*) FILTER (WHERE t.status IN ('1','2','3','4','5'))::int as open,
+                COUNT(*) FILTER (WHERE t.status IN ('5','6'))::int as resolved,
+                COUNT(*) FILTER (WHERE t.status = '8')::int as rejected
+            FROM hub_tickets.tickets t
+            WHERE t.date_creation >= CURRENT_DATE - INTERVAL '12 months'
+            GROUP BY DATE_TRUNC('month', t.date_creation), label, month
+            ORDER BY month ASC
+        `);
+
+        // Incidents vs Demandes par semaine (90 jours)
+        const incidentVsRequestTrend = await pgDb.all(`
+            SELECT
+                DATE_TRUNC('week', t.date_creation)::date as week_start,
+                COUNT(*) FILTER (WHERE t.type::text = '1')::int as incidents,
+                COUNT(*) FILTER (WHERE t.type::text = '2')::int as requests
+            FROM hub_tickets.tickets t
+            WHERE t.date_creation >= CURRENT_DATE - INTERVAL '90 days'
+            GROUP BY DATE_TRUNC('week', t.date_creation)
+            ORDER BY week_start ASC
+        `);
+
+        // Observers (top tickets being observed)
+        const topObservers = await pgDb.all(`
+            SELECT
+                COALESCE(o.name, o.login, o.email, 'Inconnu') as name,
+                o.login as username,
+                COUNT(DISTINCT o.ticket_id)::int as observed_count
+            FROM hub_tickets.observers o
+            WHERE o.is_active = 1
+            GROUP BY o.name, o.login, o.email
+            ORDER BY observed_count DESC LIMIT 10
+        `);
+
+        // Temps moyen par catégorie
+        const categoryPerformance = await pgDb.all(`
+            SELECT
+                COALESCE(c.full_path, c.name, 'Sans catégorie') as category,
+                COUNT(*)::int as count,
+                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, CURRENT_TIMESTAMP) - t.date_creation)) / 3600.0)::numeric, 1)::float as avg_resolution_hours
+            FROM hub_tickets.tickets t
+            LEFT JOIN hub_tickets.ticket_categories c ON t.category_id = c.id
+            WHERE t.status IN ('5','6') AND t.date_solved IS NOT NULL${dcAnd}
+            GROUP BY c.full_path, c.name
+            ORDER BY count DESC LIMIT 12
+        `);
+
+        return {
+            overview,
+            statusDistribution: statusDist,
+            typeDistribution: typeDist,
+            priorityDistribution: priorityDist,
+            monthlyTrend,
+            weeklyCreated,
+            categoryDistribution: categoryDist,
+            topRequesters,
+            topRequestersExtended,
+            technicianAssignments: techAssignments,
+            technicianPerformance,
+            resolutionTimeTrend,
+            backlogAging,
+            slaOverview,
+            hourlyDistribution: hourlyDist,
+            reopened30d: reopenedResult?.count || 0,
+            avgResolutionHours: avgTimes?.avg_resolution_hours || 0,
+            avgClosureHours: avgTimes?.avg_closure_hours || 0,
+            weeklyComparison,
+            topSoftwares,
+            vipByPriority,
+            statusTrend,
+            incidentVsRequestTrend,
+            topObservers,
+            categoryPerformance,
+        };
     },
 };

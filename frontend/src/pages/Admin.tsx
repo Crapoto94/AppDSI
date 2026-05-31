@@ -85,6 +85,7 @@ ${FENCE}`;
 const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const { token, user: currentUser } = useAuth();
   const [tiles, setTiles] = useState<TileData[]>([]);
+  const [appModules, setAppModules] = useState<{ key: string; title: string; icon: string; description: string; url: string; is_visible: boolean }[]>([]);
   const [users, setUsers] = useState<UserData[]>([]);
   const [showTileModal, setShowTileModal] = useState(false);
   const [iconSearch, setIconSearch] = useState('');
@@ -438,6 +439,32 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     } catch (e) {}
   };
 
+  const fetchModules = async () => {
+    try {
+      const response = await fetch('/api/admin/modules', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (response.ok) {
+        const data = await response.json();
+        setAppModules(Array.isArray(data) ? data : []);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const toggleModuleVisibility = async (key: string, isVisible: boolean) => {
+    // MAJ optimiste
+    setAppModules(prev => prev.map(m => m.key === key ? { ...m, is_visible: isVisible } : m));
+    try {
+      const response = await fetch(`/api/admin/modules/${key}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_visible: isVisible }),
+      });
+      if (!response.ok) throw new Error('échec');
+    } catch {
+      // rollback en cas d'erreur
+      setAppModules(prev => prev.map(m => m.key === key ? { ...m, is_visible: !isVisible } : m));
+    }
+  };
+
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -721,7 +748,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   };
 
   useEffect(() => {
-    if (section === 'tiles') fetchTiles();
+    if (section === 'tiles') { fetchTiles(); fetchModules(); }
     if (section === 'users') { fetchTiles(); fetchUsers(); }
     if (section === 'ad') fetchADSettings();
     if (section === 'azure-ad') fetchAzureSettings();
@@ -2020,25 +2047,63 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         )}
 
         {section === 'users' && (
-          <div className="section-container">
-            <div className="section-header">
-              <div className="search-bar">
-                <Search size={18} className="search-icon" />
-                <input 
-                  type="text" 
-                  placeholder="Rechercher un utilisateur, un service..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+          <div className="users-section">
+            {/* ── Rangée de statistiques ── */}
+            <div className="users-stats">
+              <div className="ustat">
+                <div className="ustat-icon total"><Users size={20} /></div>
+                <div className="ustat-body">
+                  <span className="ustat-value">{users.length}</span>
+                  <span className="ustat-label">Utilisateurs</span>
+                </div>
               </div>
-              <button 
-                className="btn btn-primary" 
-                style={{ borderRadius: '14px', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '800', boxShadow: '0 4px 12px rgba(227, 6, 19, 0.2)' }}
-                onClick={() => { setIsAddingUser(!isAddingUser); setEditingUser(null); }}
-              >
-                <UserPlus size={18} /> Nouvel Utilisateur
-              </button>
+              <div className="ustat">
+                <div className="ustat-icon ok"><ShieldCheck size={20} /></div>
+                <div className="ustat-body">
+                  <span className="ustat-value">{users.filter(u => u.is_approved === 1).length}</span>
+                  <span className="ustat-label">Approuvés</span>
+                </div>
+              </div>
+              <div className="ustat">
+                <div className="ustat-icon pending"><ShieldAlert size={20} /></div>
+                <div className="ustat-body">
+                  <span className="ustat-value">{users.filter(u => u.is_approved !== 1).length}</span>
+                  <span className="ustat-label">En attente</span>
+                </div>
+              </div>
+              <div className="ustat">
+                <div className="ustat-icon admin"><ShieldCheck size={20} /></div>
+                <div className="ustat-body">
+                  <span className="ustat-value">{users.filter(u => u.role === 'admin' || u.role === 'superadmin').length}</span>
+                  <span className="ustat-label">Administrateurs</span>
+                </div>
+              </div>
             </div>
+
+            <div className="section-container">
+              <div className="users-toolbar">
+                <div className="users-title-block">
+                  <h2 className="users-title">Gestion des utilisateurs</h2>
+                  <p className="users-subtitle">Comptes, rôles et accès aux briques applicatives</p>
+                </div>
+                <div className="users-toolbar-actions">
+                  <div className="search-bar">
+                    <Search size={18} className="search-icon" />
+                    <input
+                      type="text"
+                      placeholder="Rechercher un utilisateur, un service..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    className="btn-new-user"
+                    onClick={() => { setIsAddingUser(!isAddingUser); setEditingUser(null); }}
+                  >
+                    <UserPlus size={18} /> Nouvel utilisateur
+                  </button>
+                </div>
+              </div>
 
              {(isAddingUser || editingUser) && (
                <div className="modal-overlay" onClick={() => { setIsAddingUser(false); setEditingUser(null); setEditingUserPassword(''); }}>
@@ -2137,89 +2202,82 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </div>
             )}
 
-            <div className="data-table-container">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Utilisateur</th>
-                    <th>Rôle</th>
-                    <th>Statut</th>
-                    <th>Service</th>
-                    <th>Activité</th>
-                    <th className="actions">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredUsers.map(user => (
-                    <tr key={user.id}>
-                      <td className="user-cell">
-                        <div className="avatar">{user.username?.substring(0, 2).toUpperCase() || '??'}</div>
-                        <span className="username font-bold text-gray-900">{user.username}</span>
-                      </td>
-                      <td>
-                        <span className={`role-badge ${user.role}`}>{user.role}</span>
-                      </td>
-                      <td>
-                        <div className="flex flex-col gap-2">
-                          {user.is_approved === 1 ? (
-                            <span className="status-badge approved self-start"><ShieldCheck size={12} /> OK</span>
-                          ) : (
-                            <span className="status-badge pending self-start"><ShieldAlert size={12} /> ATTENTE</span>
-                          )}
-                          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', marginTop: '4px', maxWidth: '260px' }}>
-                            {user.role === 'superadmin' ? (
-                              <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.05em', background: '#f3e8ff', color: '#7c3aed', border: '1px solid #c4b5fd' }}>SUPERADMIN</span>
-                            ) : user.role === 'admin' ? (
-                              <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 800, letterSpacing: '0.05em', background: '#fef3c7', color: '#d97706', border: '1px solid #fcd34d' }}>ADMIN</span>
-                            ) : (
-                              tiles.filter(t => user.authorized_tiles?.includes(t.id)).map(t => {
-                                const colors: Record<string, { bg: string; color: string; border: string }> = {
-                                  '1': { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
-                                  '2': { bg: '#fef3c7', color: '#92400e', border: '#fcd34d' },
-                                  '3': { bg: '#d1fae5', color: '#065f46', border: '#6ee7b7' },
-                                  '4': { bg: '#fce7f3', color: '#9d174d', border: '#f9a8d4' },
-                                  '5': { bg: '#e0e7ff', color: '#3730a3', border: '#a5b4fc' },
-                                  '6': { bg: '#fef9c3', color: '#854d0e', border: '#fde047' },
-                                  '7': { bg: '#cffafe', color: '#155e75', border: '#67e8f9' },
-                                  '8': { bg: '#f1f5f9', color: '#334155', border: '#cbd5e1' },
-                                  '9': { bg: '#fff7ed', color: '#9a3412', border: '#fdba74' },
-                                  '10': { bg: '#ede9fe', color: '#5b21b6', border: '#c4b5fd' },
-                                  '11': { bg: '#ecfdf5', color: '#065f46', border: '#a7f3d0' },
-                                  '12': { bg: '#fef2f2', color: '#991b1b', border: '#fca5a5' },
-                                  '13': { bg: '#f0f9ff', color: '#075985', border: '#7dd3fc' },
-                                  '14': { bg: '#fdf4ff', color: '#86198f', border: '#e879f9' },
-                                  '15': { bg: '#fffbeb', color: '#92400e', border: '#fcd34d' },
-                                  '16': { bg: '#ecfccb', color: '#3f6212', border: '#bef264' },
-                                  '17': { bg: '#f5f3ff', color: '#4c1d95', border: '#c4b5fd' },
-                                  '18': { bg: '#f0fdf4', color: '#166534', border: '#86efac' },
-                                  '19': { bg: '#fefce8', color: '#854d0e', border: '#fde047' },
-                                  '20': { bg: '#faf5ff', color: '#6b21a8', border: '#d8b4fe' },
-                                  '21': { bg: '#eef2ff', color: '#3730a3', border: '#a5b4fc' },
-                                };
-                                const c = colors[String(t.id)] || { bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' };
-                                return (
-                                  <span key={t.id} style={{ padding: '3px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}`, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                    {t.title}
-                                  </span>
-                                );
-                              })
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="service-cell">
-                        <div style={{ fontWeight: 700, color: '#334155' }}>{user.service_code || '-'}</div>
-                        <div style={{ fontSize: '10px', color: '#9ca3af' }}>{user.service_complement}</div>
-                      </td>
-                      <td className="activity-cell" style={{ fontSize: '0.75rem', color: '#6b7280' }}>{formatActivityDate(user.last_activity)}</td>
-                      <td className="actions">
-                        <button className="icon-btn edit" onClick={() => setEditingUser(user)}><Edit2 size={16} /></button>
-                        <button className="icon-btn delete" onClick={() => handleDeleteUser(user.id)} disabled={user.username === 'admin' || user.username === 'adminhub'}><Trash2 size={16} /></button>
-                      </td>
+              <div className="data-table-container">
+                <table className="admin-table users-table">
+                  <thead>
+                    <tr>
+                      <th>Utilisateur</th>
+                      <th>Rôle</th>
+                      <th>Statut</th>
+                      <th>Accès aux briques</th>
+                      <th>Dernière activité</th>
+                      <th className="actions">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filteredUsers.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="users-empty">
+                          <Users size={32} />
+                          <span>Aucun utilisateur ne correspond à la recherche.</span>
+                        </td>
+                      </tr>
+                    )}
+                    {filteredUsers.map(user => {
+                      const isAdminRole = user.role === 'superadmin' || user.role === 'admin';
+                      const userTiles = tiles.filter(t => user.authorized_tiles?.includes(t.id));
+                      const MAX_CHIPS = 4;
+                      return (
+                        <tr key={user.id}>
+                          <td className="user-cell">
+                            <div className={`avatar role-${user.role}`}>{user.username?.substring(0, 2).toUpperCase() || '??'}</div>
+                            <div className="user-ident">
+                              <span className="username">{user.username}</span>
+                              <span className="user-service-sub">
+                                {user.service_code || 'Aucun service'}
+                                {user.service_complement ? ` · ${user.service_complement}` : ''}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`role-badge ${user.role}`}>{user.role}</span>
+                          </td>
+                          <td>
+                            {user.is_approved === 1 ? (
+                              <span className="status-pill approved"><ShieldCheck size={13} /> Approuvé</span>
+                            ) : (
+                              <span className="status-pill pending"><ShieldAlert size={13} /> En attente</span>
+                            )}
+                          </td>
+                          <td>
+                            {isAdminRole ? (
+                              <span className="access-full"><ShieldCheck size={13} /> Accès complet</span>
+                            ) : userTiles.length === 0 ? (
+                              <span className="access-none">Aucun accès</span>
+                            ) : (
+                              <div className="access-chips">
+                                {userTiles.slice(0, MAX_CHIPS).map(t => (
+                                  <span key={t.id} className="access-chip">{t.title}</span>
+                                ))}
+                                {userTiles.length > MAX_CHIPS && (
+                                  <span className="access-chip more" title={userTiles.slice(MAX_CHIPS).map(t => t.title).join(', ')}>
+                                    +{userTiles.length - MAX_CHIPS}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="activity-cell">{formatActivityDate(user.last_activity)}</td>
+                          <td className="actions">
+                            <button className="icon-btn edit" title="Modifier" onClick={() => setEditingUser(user)}><Edit2 size={16} /></button>
+                            <button className="icon-btn delete" title="Supprimer" onClick={() => handleDeleteUser(user.id)} disabled={user.username === 'admin' || user.username === 'adminhub'}><Trash2 size={16} /></button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -3985,6 +4043,40 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </button>
             </div>
 
+            {/* ── Modules de l'application ── */}
+            <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Modules de l'application</h3>
+                  <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '4px 0 0' }}>
+                    Cochez les modules à afficher sous forme de tuile sur la page d'accueil.
+                  </p>
+                </div>
+                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ede9fe', borderRadius: 999, padding: '6px 12px' }}>
+                  Les administrateurs voient tous les modules
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+                {appModules.map(m => (
+                  <label key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: `2px solid ${m.is_visible ? '#bfdbfe' : '#e2e8f0'}`, background: m.is_visible ? '#eff6ff' : '#f8fafc', borderRadius: 14, cursor: 'pointer', transition: 'all .15s ease' }}>
+                    <input
+                      type="checkbox"
+                      checked={m.is_visible}
+                      onChange={e => toggleModuleVisibility(m.key, e.target.checked)}
+                      style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#2563eb', flexShrink: 0 }}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.9rem' }}>{m.title}</div>
+                      <div style={{ fontSize: '0.72rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.url}</div>
+                    </div>
+                  </label>
+                ))}
+                {appModules.length === 0 && (
+                  <p style={{ fontSize: '0.85rem', color: '#cbd5e1', fontStyle: 'italic' }}>Aucun module détecté.</p>
+                )}
+              </div>
+            </div>
+
             {showTileModal && (
               <div className="modal-overlay" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(false); }}>
                 <div className="modal-container" onClick={(e) => e.stopPropagation()}>
@@ -4569,8 +4661,56 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         .admin-table tbody tr:hover td { background: #f8fafc; }
         .admin-table tbody tr:last-child td { border-bottom: none; }
 
-        .user-cell { display: flex; align-items: center; gap: 16px; }
-        .avatar { width: 42px; height: 42px; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); color: #2563eb; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9rem; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.1); border: 1px solid rgba(255,255,255,0.5); }
+        /* ───── Section Utilisateurs (redesign) ───── */
+        .users-section { display: flex; flex-direction: column; gap: 24px; }
+
+        .users-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 18px; }
+        .ustat { background: white; border: 1px solid #e9eef5; border-radius: 18px; padding: 18px 20px; display: flex; align-items: center; gap: 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); transition: transform .2s ease, box-shadow .2s ease; }
+        .ustat:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -12px rgba(15,23,42,0.18); }
+        .ustat-icon { width: 46px; height: 46px; border-radius: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .ustat-icon.total { background: #eef2ff; color: #4338ca; }
+        .ustat-icon.ok { background: #dcfce7; color: #15803d; }
+        .ustat-icon.pending { background: #fff7ed; color: #ea580c; }
+        .ustat-icon.admin { background: #fef2f2; color: #dc2626; }
+        .ustat-body { display: flex; flex-direction: column; line-height: 1.1; }
+        .ustat-value { font-size: 1.6rem; font-weight: 800; color: #0f172a; }
+        .ustat-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; margin-top: 4px; }
+
+        .users-toolbar { padding: 24px 28px; display: flex; justify-content: space-between; align-items: center; gap: 20px; border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
+        .users-title-block { display: flex; flex-direction: column; gap: 4px; }
+        .users-title { font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0; }
+        .users-subtitle { font-size: 0.85rem; color: #94a3b8; margin: 0; font-weight: 500; }
+        .users-toolbar-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .btn-new-user { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border: none; border-radius: 14px; background: linear-gradient(135deg, #2563eb, #4f46e5); color: white; font-weight: 700; font-size: 0.9rem; cursor: pointer; box-shadow: 0 8px 18px -6px rgba(37,99,235,0.5); transition: transform .15s ease, box-shadow .15s ease; white-space: nowrap; }
+        .btn-new-user:hover { transform: translateY(-1px); box-shadow: 0 12px 22px -6px rgba(37,99,235,0.55); }
+
+        .users-table th:last-child, .users-table td.actions { text-align: right; }
+        .users-empty { text-align: center !important; padding: 50px 20px !important; color: #cbd5e1; }
+        .users-empty span { display: block; margin-top: 12px; font-size: 0.9rem; font-weight: 600; color: #94a3b8; }
+
+        .user-cell { display: flex; align-items: center; gap: 14px; }
+        .user-ident { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .username { font-weight: 700; color: #0f172a; font-size: 0.95rem; }
+        .user-service-sub { font-size: 0.75rem; color: #94a3b8; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+
+        .avatar { width: 44px; height: 44px; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); color: #2563eb; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9rem; flex-shrink: 0; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.12); }
+        .avatar.role-superadmin { background: linear-gradient(135deg, #fef2f2, #fee2e2); color: #dc2626; }
+        .avatar.role-admin { background: linear-gradient(135deg, #fffbeb, #fef3c7); color: #d97706; }
+        .avatar.role-finances { background: linear-gradient(135deg, #f0fdf4, #dcfce7); color: #16a34a; }
+        .avatar.role-magapp { background: linear-gradient(135deg, #eff6ff, #dbeafe); color: #2563eb; }
+
+        /* Statut */
+        .status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; }
+        .status-pill.approved { color: #15803d; background: #dcfce7; }
+        .status-pill.pending { color: #c2410c; background: #ffedd5; }
+
+        /* Accès aux briques */
+        .access-full { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; background: #f5f3ff; color: #7c3aed; border: 1px solid #ede9fe; }
+        .access-none { font-size: 0.8rem; color: #cbd5e1; font-style: italic; }
+        .access-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-width: 320px; }
+        .access-chip { padding: 4px 11px; border-radius: 8px; font-size: 0.76rem; font-weight: 600; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; white-space: nowrap; }
+        .access-chip.more { background: #e0e7ff; color: #4338ca; border-color: #c7d2fe; cursor: default; }
+
         .role-badge { padding: 6px 14px; border-radius: 20px; font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-flex; align-items: center; justify-content: center; }
         .role-badge.admin { background: #fef3c7; color: #d97706; border: 1px solid #fcd34d; }
         .role-badge.superadmin { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }

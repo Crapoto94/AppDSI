@@ -5,6 +5,19 @@ const { pgDb, getSqlite } = require('../../shared/database');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
 const technicianRepo = require('./repositories/technician.repository');
 
+// ─── État de progression de la réinitialisation GLPI (en mémoire) ──
+// Un seul reset à la fois ; alimente la barre de progression côté front.
+let glpiResetProgress = {
+    active: false,
+    phase: null,        // 'backup' | 'wipe' | 'import' | 'sequences' | 'done'
+    percent: 0,
+    message: '',
+    startedAt: null,
+    finishedAt: null,
+    error: null,
+    result: null,
+};
+
 // ─── Categories ─────────────────────────────────────────────────
 router.get('/categories', authenticateJWT, async (req, res) => {
     try {
@@ -19,8 +32,8 @@ router.post('/categories', authenticateAdmin, async (req, res) => {
     try {
         const { name, parent_id, sort_order, icon } = req.body;
         const result = await pgDb.run(`
-            INSERT INTO hub_tickets.ticket_categories (name, parent_id, full_path, sort_order, icon)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO hub_tickets.ticket_categories (name, parent_id, full_path, sort_order, icon, is_active)
+            VALUES ($1, $2, $3, $4, $5, true)
         `, [name, parent_id || null, name, sort_order || 0, icon || null]);
         const id = result.lastID;
         if (parent_id) {
@@ -47,6 +60,156 @@ router.delete('/categories/:id', authenticateAdmin, async (req, res) => {
         await pgDb.run('UPDATE hub_tickets.ticket_categories SET is_active = false WHERE id = $1', [req.params.id]);
         res.json({ message: 'Catégorie désactivée' });
     } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// ─── Transposition des anciennes catégories (texte GLPI) → nouvelles ─────────
+// Normalise un libellé pour comparer (sans accents, minuscules, dernier segment).
+function normalizeCat(s) {
+    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Anciennes catégories texte UTILISÉES + nb de tickets + mapping actuel + suggestion auto.
+router.get('/category-mapping/used', authenticateAdmin, async (req, res) => {
+    try {
+        const used = await pgDb.all(`
+            SELECT category AS old_category, COUNT(*)::int AS ticket_count
+            FROM hub_tickets.tickets
+            WHERE category IS NOT NULL AND category <> ''
+            GROUP BY category ORDER BY ticket_count DESC
+        `);
+        const cats = await pgDb.all('SELECT id, name, full_path, parent_id, sort_order FROM hub_tickets.ticket_categories WHERE is_active = true ORDER BY sort_order, name');
+        const mappings = await pgDb.all('SELECT old_category, category_id, software_id FROM hub_tickets.category_mapping');
+        const mapByOld = {};
+        mappings.forEach(m => { mapByOld[m.old_category] = m; });
+
+        // Logiciels métier = applications magapp
+        const apps = await pgDb.all('SELECT id, name FROM magapp.apps ORDER BY name');
+        const appById = {};
+        apps.forEach(a => { appById[a.id] = a.name; });
+        const appNorm = apps.map(a => ({ id: a.id, name: a.name, norm: normalizeCat(a.name) }));
+
+        // Catégorie "Logiciels / Métier" existante (lecture seule)
+        const metier = await pgDb.get(
+            `SELECT c.id FROM hub_tickets.ticket_categories c
+             JOIN hub_tickets.ticket_categories p ON p.id = c.parent_id
+             WHERE public.unaccent(LOWER(c.name)) = 'metier' AND public.unaccent(LOWER(p.name)) LIKE '%logiciels%'
+               AND c.is_active = true ORDER BY c.id LIMIT 1`
+        );
+        const metierCategoryId = metier?.id || null;
+
+        // Index de suggestion catégorie : dernier segment normalisé → id
+        const catNorm = cats.map(c => ({ id: c.id, norm: normalizeCat((c.name || '').split('>').pop()) }));
+
+        // Suggestion logiciel : 1er mot de la catégorie source → app unique
+        function suggestApp(oldCat) {
+            const firstSeg = (oldCat || '').split(/[>/]/)[0];
+            const fw = normalizeCat(firstSeg).split(' ').filter(Boolean)[0];
+            if (!fw || fw.length < 2) return null;
+            const matches = appNorm.filter(a =>
+                a.norm === fw || a.norm.split(' ').includes(fw) || a.norm.startsWith(fw + ' ') || a.norm === fw
+            );
+            return matches.length === 1 ? matches[0] : null;
+        }
+
+        const rows = used.map(u => {
+            const m = mapByOld[u.old_category];
+            let suggestion = null, suggestedSoftwareId = null, suggestedSoftwareName = null;
+            if (!m) {
+                const lastSeg = normalizeCat((u.old_category || '').split('>').pop());
+                const hit = catNorm.find(c => c.norm && (c.norm === lastSeg || lastSeg.includes(c.norm) || c.norm.includes(lastSeg)));
+                if (hit) suggestion = hit.id;
+                const app = suggestApp(u.old_category);
+                if (app) {
+                    suggestedSoftwareId = app.id;
+                    suggestedSoftwareName = app.name;
+                    if (metierCategoryId) suggestion = metierCategoryId; // logiciel → catégorie Logiciels/Métier
+                }
+            }
+            return {
+                old_category: u.old_category,
+                ticket_count: u.ticket_count,
+                category_id: m?.category_id ?? null,
+                software_id: m?.software_id ?? null,
+                software_name: m?.software_id ? (appById[m.software_id] || null) : null,
+                suggested_category_id: suggestion,
+                suggested_software_id: suggestedSoftwareId,
+                suggested_software_name: suggestedSoftwareName,
+            };
+        });
+        res.json({ rows, categories: cats, metier_category_id: metierCategoryId });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// Enregistre/Met à jour une correspondance.
+router.put('/category-mapping', authenticateAdmin, async (req, res) => {
+    try {
+        const { old_category, category_id } = req.body;
+        if (!old_category) return res.status(400).json({ message: 'old_category requis' });
+        await pgDb.run(`
+            INSERT INTO hub_tickets.category_mapping (old_category, category_id, updated_at)
+            VALUES ($1, $2, CURRENT_TIMESTAMP)
+            ON CONFLICT (old_category) DO UPDATE SET category_id = EXCLUDED.category_id, updated_at = CURRENT_TIMESTAMP
+        `, [old_category, category_id || null]);
+        res.json({ message: 'Correspondance enregistrée' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// Garantit l'existence de la catégorie "Logiciels / Métier" et renvoie son id.
+async function ensureMetierCategory() {
+    // unaccent + lower + LIKE pour réutiliser une catégorie existante même préfixée
+    // (ex. "📱 Logiciels") plutôt que d'en créer une nouvelle.
+    let parent = await pgDb.get(
+        `SELECT id, full_path FROM hub_tickets.ticket_categories
+         WHERE public.unaccent(LOWER(name)) LIKE '%logiciels%' AND parent_id IS NULL AND is_active = true ORDER BY id LIMIT 1`
+    );
+    if (!parent) {
+        const r = await pgDb.run(
+            `INSERT INTO hub_tickets.ticket_categories (name, parent_id, full_path, sort_order, is_active) VALUES ('Logiciels', NULL, 'Logiciels', 0, true)`
+        );
+        parent = { id: r.lastID, full_path: 'Logiciels' };
+    }
+    let child = await pgDb.get(
+        `SELECT id FROM hub_tickets.ticket_categories
+         WHERE public.unaccent(LOWER(name)) = 'metier' AND parent_id = $1 AND is_active = true ORDER BY id LIMIT 1`,
+        [parent.id]
+    );
+    if (!child) {
+        const r = await pgDb.run(
+            `INSERT INTO hub_tickets.ticket_categories (name, parent_id, full_path, sort_order, is_active) VALUES ('Métier', $1, $2, 0, true)`,
+            [parent.id, (parent.full_path || 'Logiciels') + ' / Métier']
+        );
+        child = { id: r.lastID };
+    }
+    return child.id;
+}
+
+// Bouton "logiciel métier" : affecte un logiciel (app magapp) + catégorie Logiciels / Métier.
+router.post('/category-mapping/assign-metier', authenticateAdmin, async (req, res) => {
+    try {
+        const { old_category, software_id } = req.body;
+        if (!old_category) return res.status(400).json({ message: 'old_category requis' });
+        const categoryId = await ensureMetierCategory();
+        await pgDb.run(`
+            INSERT INTO hub_tickets.category_mapping (old_category, category_id, software_id, updated_at)
+            VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+            ON CONFLICT (old_category) DO UPDATE SET category_id = EXCLUDED.category_id, software_id = EXCLUDED.software_id, updated_at = CURRENT_TIMESTAMP
+        `, [old_category, categoryId, software_id || null]);
+        res.json({ category_id: categoryId, software_id: software_id || null, message: 'Associé à Logiciels / Métier' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// Applique toutes les correspondances : renseigne tickets.category_id (+ software_id) pour les stats.
+router.post('/category-mapping/apply', authenticateAdmin, async (req, res) => {
+    try {
+        const result = await pgDb.run(`
+            UPDATE hub_tickets.tickets t
+            SET category_id = m.category_id,
+                software_id = COALESCE(m.software_id, t.software_id)
+            FROM hub_tickets.category_mapping m
+            WHERE t.category = m.old_category AND m.category_id IS NOT NULL
+        `);
+        res.json({ message: 'Transposition appliquée', updated: result.changes ?? result.rowCount ?? 0 });
+    } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
 // ─── Tags ────────────────────────────────────────────────────────
@@ -756,79 +919,90 @@ router.put('/role-permissions', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-// ─── Sync GLPI → hub_tickets (écrasement complet) ────────────────
-router.post('/sync-glpi', authenticateJWT, async (req, res) => {
+/* ═══════════════════════════════════════════════════════════════════════════════
+ *  Récupérer GLPI — réinitialisation complète + ré-import depuis le schéma glpi.*
+ *
+ *  La base tickets devient un miroir du schéma glpi.* :
+ *   1. (optionnel) sauvegarde globale via le module backup ;
+ *   2. effacement de TOUTES les données liées aux tickets (tickets, observers,
+ *      suivis, assignations, historique, pièces jointes, liens, tags, SLA, favoris,
+ *      relations, groupes/problèmes, chats live, KPI, files de notification) ;
+ *   3. ré-import des 4 tables source glpi.* (ticket_status, tickets, observers, followups) ;
+ *   4. réinitialisation des séquences.
+ *
+ *  La config admin (rôles, catégories, SLA, modèles, règles, VIP, groupes techniciens)
+ *  et le niveau du collecteur mail (mail_collectors.last_run) sont CONSERVÉS.
+ *  ═══════════════════════════════════════════════════════════════════════════════ */
+
+// Tables de DONNÉES tickets à vider (RESTART IDENTITY réinitialise leurs séquences).
+// CASCADE prend en charge les tables avec FK vers hub_tickets.tickets ; les tables
+// sans FK (observers, ticket_followups, ticket_history) sont listées explicitement.
+const GLPI_RESET_WIPE_TABLES = [
+    'hub_tickets.tickets',          // CASCADE: ticket_assignments, ticket_category_assignments,
+                                    //          ticket_tag_links, ticket_attachments, ticket_links,
+                                    //          ticket_sla, ticket_sla_pauses, ticket_favorites,
+                                    //          ticket_relations, ticket_email_mapping, ticket_group_members
+    'hub_tickets.observers',
+    'hub_tickets.ticket_followups',
+    'hub_tickets.ticket_history',
+    'hub_tickets.ticket_groups',    // groupes / problèmes
+    'hub_tickets.ticket_group_members', // appartenances (sécurité ; aussi via CASCADE)
+    'hub_tickets.ticket_status',
+    'hub_tickets.kpi_history',
+    'hub_tickets.notification_queue',
+    'hub_tickets.notification_logs',
+    'hub_tickets.auto_resolution_logs',
+    'hub_tickets.live_satisfaction', // chats
+    'hub_tickets.live_messages',
+    'hub_tickets.live_sessions',
+    'hub_tickets.live_otp_codes',
+];
+
+async function runGlpiReset({ backup, triggeredBy }) {
     const { pool } = require('../../shared/database');
-    const { resolveTicketRole } = require('./middleware/ticket-permissions');
+    glpiResetProgress = {
+        active: true, phase: 'starting', percent: 0, message: 'Initialisation…',
+        startedAt: new Date().toISOString(), finishedAt: null, error: null, result: null,
+    };
 
     try {
-        const role = await resolveTicketRole(req.user);
-        if (!['superadmin', 'admin', 'supervisor'].includes(role)) {
-            return res.status(403).json({ message: 'Rôle superviseur requis' });
+        // ─── Phase 1 : sauvegarde (optionnelle) ──────────────────────
+        if (backup) {
+            glpiResetProgress.phase = 'backup';
+            glpiResetProgress.percent = 5;
+            glpiResetProgress.message = 'Sauvegarde complète en cours… (cela peut prendre plusieurs minutes)';
+            const backupCtrl = require('../backup/backup.controller');
+            const summary = await backupCtrl.runAutomaticBackup('glpi-reset');
+            glpiResetProgress.percent = 25;
+            glpiResetProgress.message = `Sauvegarde terminée : ${summary?.file || ''}`;
         }
 
-        // Vérifier que les tables glpi.* contiennent des données
-        const ticketCount = await pgDb.get('SELECT COUNT(*) as cnt FROM glpi.tickets');
-        if (!ticketCount || ticketCount.cnt === 0) {
-            return res.json({ message: 'Aucun ticket dans le schéma glpi. Lancez d\'abord une synchro depuis /admin/glpi.' });
-        }
-
-        // ─── Copier glpi.* → hub_tickets.* (transaction) ─────────────
+        // ─── Phase 2 : effacement + ré-import (transaction) ──────────
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
 
-            // Lister les tickets hub qui n'existent pas dans glpi (créés dans le hub)
-            const orphans = await client.query(`
-                SELECT h.glpi_id FROM hub_tickets.tickets h
-                LEFT JOIN glpi.tickets g ON g.glpi_id = h.glpi_id
-                WHERE g.glpi_id IS NULL
-            `);
-            const orphanIds = orphans.rows.map(r => r.glpi_id);
+            // Wipe — données tickets + chats
+            glpiResetProgress.phase = 'wipe';
+            glpiResetProgress.percent = 30;
+            glpiResetProgress.message = 'Suppression des données tickets…';
+            await client.query(
+                `TRUNCATE TABLE ${GLPI_RESET_WIPE_TABLES.join(', ')} RESTART IDENTITY CASCADE`
+            );
+            // Tâches personnelles liées aux tickets
+            await client.query(`DELETE FROM hub.user_tasks WHERE context_source = 'ticket'`);
+            glpiResetProgress.percent = 55;
 
-            if (orphanIds.length > 0) {
-                const tables = [
-                    'ticket_assignments', 'ticket_category_assignments', 'ticket_tag_links',
-                    'ticket_attachments', 'ticket_links', 'ticket_history',
-                    'ticket_group_members', 'ticket_favorites', 'ticket_sla',
-                    'observers', 'ticket_followups',
-                ];
-                for (const table of tables) {
-                    await client.query(
-                        `DELETE FROM hub_tickets.${table} WHERE ticket_id = ANY($1)`,
-                        [orphanIds]
-                    );
-                }
-
-                await client.query(
-                    `DELETE FROM hub.user_tasks WHERE context_source = 'ticket' AND context_id = ANY($1)`,
-                    [orphanIds]
-                );
-
-                await client.query(
-                    'DELETE FROM hub_tickets.tickets WHERE glpi_id = ANY($1)',
-                    [orphanIds]
-                );
-            }
-
-            // Supprimer les lignes orphelines avant réinsertion
-            await client.query(`
-                DELETE FROM hub_tickets.observers o
-                WHERE NOT EXISTS (SELECT 1 FROM hub_tickets.tickets t WHERE t.glpi_id = o.ticket_id)
-            `);
-            await client.query(`
-                DELETE FROM hub_tickets.ticket_followups f
-                WHERE NOT EXISTS (SELECT 1 FROM hub_tickets.tickets t WHERE t.glpi_id = f.ticket_id)
-            `);
-
-            // 1. ticket_status
-            await client.query('DELETE FROM hub_tickets.ticket_status');
+            // Import — ré-insertion depuis glpi.*
+            glpiResetProgress.phase = 'import';
+            glpiResetProgress.message = 'Import des statuts depuis GLPI…';
             await client.query(`
                 INSERT INTO hub_tickets.ticket_status (id, label)
                 SELECT id, label FROM glpi.ticket_status
             `);
+            glpiResetProgress.percent = 60;
 
-            // 2. tickets — insérer/mettre à jour depuis glpi
+            glpiResetProgress.message = 'Import des tickets depuis GLPI…';
             await client.query(`
                 INSERT INTO hub_tickets.tickets
                     (glpi_id, title, content, status, priority, urgency, impact,
@@ -837,76 +1011,141 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
                      requester_email_22)
                 SELECT glpi_id, title, content, status, priority, urgency, impact,
                        category, type,
-                       CASE WHEN date_creation ~ '^\d{4}-\d{2}-\d{2}' THEN date_creation::TIMESTAMP ELSE NULL END,
-                       CASE WHEN date_mod ~ '^\d{4}-\d{2}-\d{2}' THEN date_mod::TIMESTAMP ELSE NULL END,
-                       CASE WHEN date_closed ~ '^\d{4}-\d{2}-\d{2}' THEN date_closed::TIMESTAMP ELSE NULL END,
-                       CASE WHEN date_solved ~ '^\d{4}-\d{2}-\d{2}' THEN date_solved::TIMESTAMP ELSE NULL END,
+                       CASE WHEN date_creation ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_creation::TIMESTAMP ELSE NULL END,
+                       CASE WHEN date_mod ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_mod::TIMESTAMP ELSE NULL END,
+                       CASE WHEN date_closed ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_closed::TIMESTAMP ELSE NULL END,
+                       CASE WHEN date_solved ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_solved::TIMESTAMP ELSE NULL END,
                        location, solution, source, entity, requester_name, email_alt,
                        requester_email_22
                 FROM glpi.tickets
-                ON CONFLICT (glpi_id) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    content = EXCLUDED.content,
-                    status = EXCLUDED.status,
-                    priority = EXCLUDED.priority,
-                    urgency = EXCLUDED.urgency,
-                    impact = EXCLUDED.impact,
-                    category = EXCLUDED.category,
-                    type = EXCLUDED.type,
-                    date_creation = EXCLUDED.date_creation,
-                    date_mod = EXCLUDED.date_mod,
-                    date_closed = EXCLUDED.date_closed,
-                    date_solved = EXCLUDED.date_solved,
-                    location = EXCLUDED.location,
-                    solution = EXCLUDED.solution,
-                    entity = EXCLUDED.entity,
-                    requester_name = EXCLUDED.requester_name,
-                    email_alt = EXCLUDED.email_alt,
-                    requester_email_22 = EXCLUDED.requester_email_22
             `);
+            glpiResetProgress.percent = 75;
 
-            // 3. observers — remplacer
-            await client.query('DELETE FROM hub_tickets.observers');
+            glpiResetProgress.message = 'Import des observateurs depuis GLPI…';
             await client.query(`
                 INSERT INTO hub_tickets.observers
                     (ticket_id, user_id, name, login, email, is_active)
                 SELECT ticket_id, user_id, name, login, email, is_active
                 FROM glpi.observers
             `);
+            glpiResetProgress.percent = 82;
 
-            // 4. ticket_followups — remplacer
-            await client.query('DELETE FROM hub_tickets.ticket_followups');
+            glpiResetProgress.message = 'Import des suivis/commentaires depuis GLPI…';
             await client.query(`
                 INSERT INTO hub_tickets.ticket_followups
                     (ticket_id, content, content_hash, author_name, author_email,
                      is_private, date_creation)
                 SELECT ticket_id, content, content_hash, author_name, author_email,
-                       is_private, NULLIF(date_creation, '')::TIMESTAMP
+                       is_private,
+                       CASE WHEN date_creation::text ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}'
+                            THEN date_creation::text::TIMESTAMP ELSE NULL END
                 FROM glpi.ticket_followups
             `);
+            glpiResetProgress.percent = 88;
 
-            // 5. Réinitialiser la séquence d'ID des tickets
-            const maxId = await client.query(
-                `SELECT COALESCE(MAX(glpi_id), 0) as max_id FROM hub_tickets.tickets`
-            );
-            const nextId = (maxId.rows[0]?.max_id || 0) + 1;
-            await client.query(
-                `ALTER SEQUENCE hub_tickets.ticket_id_seq RESTART WITH ${nextId}`
-            );
+            // Assignations : copie glpi.assignees → ticket_assignments, en résolvant
+            // l'id GLPI → hub.users.id par le login (renseigné via « noms/prénoms »).
+            glpiResetProgress.message = 'Import des assignations depuis GLPI…';
+            // ticket_assignments est vidé par le TRUNCATE ; un assigné principal par ticket.
+            await client.query(`
+                INSERT INTO hub_tickets.ticket_assignments (ticket_id, technician_id, is_primary)
+                SELECT DISTINCT ON (a.ticket_id) a.ticket_id, u.id, true
+                FROM glpi.assignees a
+                JOIN hub.users u ON LOWER(u.username) = LOWER(a.login)
+                JOIN hub_tickets.tickets t ON t.glpi_id = a.ticket_id
+                ORDER BY a.ticket_id, a.user_id
+            `);
+            glpiResetProgress.percent = 90;
+
+            // ─── Phase 3 : séquence d'ID des tickets hub ─────────────
+            glpiResetProgress.phase = 'sequences';
+            glpiResetProgress.message = 'Réinitialisation des séquences…';
+            await client.query(`
+                SELECT setval('hub_tickets.ticket_id_seq',
+                    GREATEST(COALESCE((SELECT MAX(glpi_id) FROM hub_tickets.tickets), 0) + 1, 10000000))
+            `);
 
             await client.query('COMMIT');
-            const deletedCount = orphanIds.length;
-            res.json({
-                message: `Récupération GLPI terminée : ${ticketCount.cnt} tickets copiés, ${deletedCount} ticket(s) hub orphelin(s) supprimé(s).`
-            });
+
+            // Rafraîchir les statistiques du planificateur pour des requêtes rapides post-import.
+            glpiResetProgress.message = 'Optimisation (ANALYZE)…';
+            try {
+                await client.query('ANALYZE hub_tickets.tickets');
+                await client.query('ANALYZE hub_tickets.ticket_followups');
+                await client.query('ANALYZE hub_tickets.observers');
+            } catch (e) { console.error('[GLPI-RESET] ANALYZE:', e.message); }
+            glpiResetProgress.percent = 100;
+
+            const counts = await pgDb.get(`
+                SELECT
+                    (SELECT COUNT(*) FROM hub_tickets.tickets) AS tickets,
+                    (SELECT COUNT(*) FROM hub_tickets.observers) AS observers,
+                    (SELECT COUNT(*) FROM hub_tickets.ticket_followups) AS followups
+            `);
+            glpiResetProgress.result = counts;
+            glpiResetProgress.message =
+                `Réinitialisation terminée : ${counts.tickets} ticket(s), ` +
+                `${counts.observers} observateur(s), ${counts.followups} suivi(s) importé(s) depuis GLPI.`;
         } catch (e) {
             await client.query('ROLLBACK');
             throw e;
         } finally {
             client.release();
         }
+
+        glpiResetProgress.phase = 'done';
     } catch (error) {
-        console.error('[SYNC-GLPI] Erreur:', error.message);
+        console.error('[GLPI-RESET] Erreur:', error.message);
+        glpiResetProgress.phase = 'error';
+        glpiResetProgress.error = error.message;
+        glpiResetProgress.message = `Échec : ${error.message}`;
+    } finally {
+        glpiResetProgress.active = false;
+        glpiResetProgress.finishedAt = new Date().toISOString();
+        console.log(`[GLPI-RESET] Terminé (déclenché par ${triggeredBy}) : ${glpiResetProgress.message}`);
+    }
+}
+
+// Progression de la réinitialisation (polling pour la barre de progression)
+router.get('/sync-glpi/progress', authenticateJWT, async (req, res) => {
+    const { resolveTicketRole } = require('./middleware/ticket-permissions');
+    const role = await resolveTicketRole(req.user);
+    if (!['superadmin', 'admin', 'supervisor'].includes(role)) {
+        return res.status(403).json({ message: 'Rôle superviseur requis' });
+    }
+    res.json(glpiResetProgress);
+});
+
+// Déclenchement de la réinitialisation GLPI (asynchrone)
+router.post('/sync-glpi', authenticateJWT, async (req, res) => {
+    const { resolveTicketRole } = require('./middleware/ticket-permissions');
+
+    try {
+        const role = await resolveTicketRole(req.user);
+        if (!['superadmin', 'admin', 'supervisor'].includes(role)) {
+            return res.status(403).json({ message: 'Rôle superviseur requis' });
+        }
+
+        if (glpiResetProgress.active) {
+            return res.status(409).json({ message: 'Une réinitialisation est déjà en cours.' });
+        }
+
+        // Vérifier que le schéma glpi.* contient des données
+        const ticketCount = await pgDb.get('SELECT COUNT(*) as cnt FROM glpi.tickets');
+        if (!ticketCount || Number(ticketCount.cnt) === 0) {
+            return res.status(400).json({
+                message: 'Aucun ticket dans le schéma glpi. Lancez d\'abord une synchro depuis /admin/glpi.'
+            });
+        }
+
+        const backup = req.body?.backup === true || req.body?.backup === 'true';
+
+        // Lancer en arrière-plan ; le front suit via /sync-glpi/progress
+        runGlpiReset({ backup, triggeredBy: req.user?.username || 'inconnu' });
+
+        res.status(202).json({ started: true, backup });
+    } catch (error) {
+        console.error('[GLPI-RESET] Erreur au démarrage:', error.message);
         res.status(500).json({ message: error.message });
     }
 });

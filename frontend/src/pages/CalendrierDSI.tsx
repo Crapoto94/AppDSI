@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield } from 'lucide-react';
+import { useADSearch } from '../utils/useADSearch';
 
 const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'reunion', 'hotline', 'maintenance'] as const;
 type Categorie = typeof CATEGORIES[number];
@@ -41,14 +42,6 @@ interface Evenement {
   source?: string;
   generated?: boolean;
   pending?: boolean;
-}
-
-interface ADUser {
-  username: string;
-  displayName: string;
-  email: string;
-  service?: string;
-  direction?: string;
 }
 
 function getWeekRange(date: Date): { start: Date; end: Date } {
@@ -152,11 +145,8 @@ export default function CalendrierDSI() {
   const [formDescription, setFormDescription] = useState('');
   const [formPeriode, setFormPeriode] = useState('');
 
-  const [adQuery, setAdQuery] = useState('');
-  const [adResults, setAdResults] = useState<ADUser[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<ADUser | null>(null);
-  const [searchingAD, setSearchingAD] = useState(false);
-  const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ad = useADSearch(token);
+  const [selectedAgent, setSelectedAgent] = useState<{ username: string; displayName: string; email: string; service?: string } | null>(null);
 
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
@@ -724,25 +714,10 @@ export default function CalendrierDSI() {
     }
   };
 
-  const searchAD = useCallback((q: string) => {
-    setAdQuery(q);
-    if (adTimerRef.current !== null) clearTimeout(adTimerRef.current);
-    if (q.length < 2) { setAdResults([]); return; }
-    setSearchingAD(true);
-    adTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = await res.json();
-        setAdResults(Array.isArray(data) ? data : []);
-      } catch { setAdResults([]); }
-      setSearchingAD(false);
-    }, 400);
-  }, [token]);
-
-  const selectAgent = (agent: ADUser) => {
+  const selectAgent = (agent: { username: string; displayName: string; email: string; service?: string }) => {
     setSelectedAgent(agent);
-    setAdQuery(agent.displayName);
-    setAdResults([]);
+    ad.setQuery(agent.displayName);
+    ad.clearResults();
     setFormTitre(agent.displayName);
   };
 
@@ -755,8 +730,8 @@ export default function CalendrierDSI() {
     setFormDescription('');
     setFormPeriode('');
     setSelectedAgent(null);
-    setAdQuery('');
-    setAdResults([]);
+    ad.setQuery('');
+    ad.clearResults();
     setShowModal(true);
   };
 
@@ -799,12 +774,12 @@ export default function CalendrierDSI() {
         displayName: evt.agent_nom,
         email: evt.agent_email || ''
       });
-      setAdQuery(evt.agent_nom);
+      ad.setQuery(evt.agent_nom);
     } else {
       setSelectedAgent(null);
-      setAdQuery('');
+      ad.setQuery('');
     }
-    setAdResults([]);
+    ad.clearResults();
     setShowModal(true);
   };
 
@@ -2114,7 +2089,7 @@ const renderDot = (evt: Evenement) => {
             <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} disabled={readonly} />
 
             <label>Catégorie</label>
-            <select value={formCategorie} onChange={e => { const cat = e.target.value as Categorie; setFormCategorie(cat); if (cat !== 'absence' && cat !== 'teletravail') { setSelectedAgent(null); setAdQuery(''); } }} disabled={readonly}>
+            <select value={formCategorie} onChange={e => { const cat = e.target.value as Categorie; setFormCategorie(cat); if (cat !== 'absence' && cat !== 'teletravail') { setSelectedAgent(null); ad.setQuery(''); } }} disabled={readonly}>
               {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
             </select>
 
@@ -2122,11 +2097,11 @@ const renderDot = (evt: Evenement) => {
             <div className="ad-search-wrapper">
               <input
                 type="text" placeholder="Rechercher un agent (min 2 caractères)..."
-                value={adQuery} onChange={e => searchAD(e.target.value)} disabled={readonly}
+                value={ad.query} onChange={e => ad.setQuery(e.target.value)} disabled={readonly}
               />
-              {adResults.length > 0 && (
+              {ad.results.length > 0 && (
                 <div className="ad-results">
-                  {adResults.map(u => (
+                  {ad.results.map(u => (
                     <div key={u.username} className="ad-result-item" onClick={() => selectAgent(u)}>
                       <div className="ad-name">{u.displayName}</div>
                       <div className="ad-detail">{u.email} {u.service ? `- ${u.service}` : ''}</div>
@@ -2134,13 +2109,13 @@ const renderDot = (evt: Evenement) => {
                   ))}
                 </div>
               )}
-              {searchingAD && <div style={{ fontSize: '0.8rem', color: '#888', marginTop: 2 }}>Recherche...</div>}
+              {ad.searching && <div style={{ fontSize: '0.8rem', color: '#888', marginTop: 2 }}>Recherche...</div>}
             </div>
             {selectedAgent && (
               <div className="ad-selected">
                 <strong>{selectedAgent.displayName}</strong>
                 {selectedAgent.service && <span style={{ fontSize: '0.75rem', color: '#666', marginLeft: 4 }}>({selectedAgent.service})</span>}
-                <span className="remove" onClick={() => { setSelectedAgent(null); setAdQuery(''); setFormTitre(''); }}>✕</span>
+                <span className="remove" onClick={() => { setSelectedAgent(null); ad.setQuery(''); setFormTitre(''); }}>✕</span>
               </div>
             )}
 

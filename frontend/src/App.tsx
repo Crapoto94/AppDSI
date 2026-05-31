@@ -6,6 +6,7 @@ import Admin from './pages/Admin';
 import Budget from './pages/Budget';
 import Profile from './pages/Profile';
 import Certif from './pages/Certif';
+import Documents from './pages/Documents';
 import MesTaches from './pages/MesTaches';
 import AdminMail from './pages/AdminMail';
 import Tiers from './pages/Tiers';
@@ -46,11 +47,23 @@ import TicketsDashboard from './pages/Tickets/TicketsDashboard';
 import TicketDetail from './pages/Tickets/TicketDetail';
 import TicketCreate from './pages/Tickets/TicketCreate';
 import TicketAdmin from './pages/Tickets/TicketAdmin';
+import TicketsStats from './pages/Tickets/TicketsStats';
 import ChatEcole from './pages/Tickets/ChatEcole';
 import AdminGED from './pages/AdminGED';
 import PublicTicketReply from './pages/PublicTicketReply';
 import ChatWidget from './components/LiveChat/ChatWidget';
 import ParamVille from './pages/Admin/ParamVille';
+import HubSettings from './pages/Admin/HubSettings';
+import SecurityMenu from './pages/Admin/SecurityMenu';
+import AutoResolution from './pages/Admin/AutoResolution';
+import AutoResolutionConfirm from './pages/AutoResolutionConfirm';
+import StocksDashboard from './pages/Stocks/StocksDashboard';
+import ReseauDashboard from './pages/Reseau/ReseauDashboard';
+import StocksAdmin from './pages/Stocks/StocksAdmin';
+import StocksReception from './pages/Stocks/Reception';
+import StocksSerialEntry from './pages/Stocks/SerialEntry';
+import StocksSortie from './pages/Stocks/Sortie';
+import StocksPrets from './pages/Stocks/Prets';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -108,6 +121,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/request-access" element={<AccessRequestPage />} />
         <Route path="/repondre/:token" element={<PublicTicketReply />} />
+        <Route path="/auto-resolution/keep-alive/:token" element={<AutoResolutionConfirm />} />
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
         <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />
@@ -117,6 +131,7 @@ function App() {
         <Route path="/tiers" element={<PrivateRoute path="/tiers"><Tiers /></PrivateRoute>} />
         <Route path="/profile" element={<PrivateRoute path="/profile"><Profile /></PrivateRoute>} />
         <Route path="/certif" element={<PrivateRoute path="/certif"><Certif /></PrivateRoute>} />
+        <Route path="/documents" element={<PrivateRoute path="/documents"><Documents /></PrivateRoute>} />
         <Route path="/mes-taches" element={<PrivateRoute path="/mes-taches"><MesTaches /></PrivateRoute>} />
         <Route path="/telecom" element={<PrivateRoute path="/telecom"><TelecomManagement /></PrivateRoute>} />
         <Route path="/rencontres-budgetaires" element={<PrivateRoute path="/rencontres-budgetaires"><RencontresBudgetaires /></PrivateRoute>} />
@@ -132,11 +147,21 @@ function App() {
         <Route path="/copieurs/kpi" element={<PrivateRoute path="/copieurs"><CopieursKPI /></PrivateRoute>} />
         <Route path="/copieurs" element={<PrivateRoute path="/copieurs"><Copieurs /></PrivateRoute>} />
         <Route path="/consommables" element={<PrivateRoute path="/consommables"><ConsommablesManagement /></PrivateRoute>} />
+        <Route path="/reseau" element={<PrivateRoute path="/reseau"><ReseauDashboard /></PrivateRoute>} />
         <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
         <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
 
+        {/* Stocks Routes */}
+        <Route path="/stocks" element={<PrivateRoute path="/stocks"><StocksDashboard /></PrivateRoute>} />
+        <Route path="/stocks/admin" element={<PrivateRoute path="/stocks"><StocksAdmin /></PrivateRoute>} />
+        <Route path="/stocks/reception" element={<PrivateRoute path="/stocks"><StocksReception /></PrivateRoute>} />
+        <Route path="/stocks/series" element={<PrivateRoute path="/stocks"><StocksSerialEntry /></PrivateRoute>} />
+        <Route path="/stocks/sortie" element={<PrivateRoute path="/stocks"><StocksSortie /></PrivateRoute>} />
+        <Route path="/stocks/prets" element={<PrivateRoute path="/stocks"><StocksPrets /></PrivateRoute>} />
+
         {/* Tickets Routes */}
         <Route path="/tickets" element={<PrivateRoute path="/tickets"><TicketsDashboard /></PrivateRoute>} />
+        <Route path="/tickets/stats" element={<PrivateRoute path="/tickets"><TicketsStats /></PrivateRoute>} />
         <Route path="/tickets/new" element={<PrivateRoute path="/tickets"><TicketCreate /></PrivateRoute>} />
         <Route path="/tickets/:id" element={<PrivateRoute path="/tickets"><TicketDetail /></PrivateRoute>} />
         <Route path="/chatecole" element={<PrivateRoute path="/tickets"><ChatEcole /></PrivateRoute>} />
@@ -150,6 +175,7 @@ function App() {
           }
         >
           <Route index element={<Admin section="main" />} />
+          <Route path="hub" element={<HubSettings />} />
           <Route path="users" element={<Admin section="users" />} />
           <Route path="tiles" element={<Admin section="tiles" />} />
           <Route path="ad" element={<AdminSync />} />
@@ -174,6 +200,7 @@ function App() {
           <Route path="tickets" element={<TicketAdmin />} />
           <Route path="ged" element={<AdminGED />} />
           <Route path="inventaire" element={<AdminInventaire />} />
+          <Route path="security" element={<SecurityMenu />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />

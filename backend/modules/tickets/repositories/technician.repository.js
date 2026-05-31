@@ -72,7 +72,7 @@ module.exports = {
                    u.displayName, u.email,
                    (SELECT COUNT(*) FROM hub_tickets.ticket_assignments ta
                     JOIN hub_tickets.tickets t ON ta.ticket_id = t.glpi_id
-                    WHERE ta.technician_id = tp.user_id AND t.status NOT IN (6,7,8)) as active_tickets
+                    WHERE ta.technician_id = tp.user_id AND t.status NOT IN (5,6,8)) as active_tickets
             FROM hub_tickets.technician_profiles tp
             JOIN hub.users u ON tp.user_id = u.id
             WHERE tp.status = 'active'

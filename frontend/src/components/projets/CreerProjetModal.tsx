@@ -1,10 +1,6 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState } from 'react';
 import { X, Search, Plus, User } from 'lucide-react';
-
-interface ADUser {
-  username: string; displayName: string; email: string;
-  service?: string; direction?: string;
-}
+import { useADSearch } from '../../utils/useADSearch';
 
 interface CreerProjetModalProps {
   isOpen: boolean;
@@ -23,9 +19,7 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
   const [servicesAssocies, setServicesAssocies] = useState<string[]>([]);
   const [nouveauService, setNouveauService] = useState('');
   const [equipe, setEquipe] = useState<{username: string; displayName: string}[]>([]);
-  const [adQuery, setAdQuery] = useState('');
-  const [adResults, setAdResults] = useState<ADUser[]>([]);
-  const [adSearching, setAdSearching] = useState(false);
+  const ad = useADSearch(token);
   const [isCreating, setIsCreating] = useState(false);
   const [manuelUsername, setManuelUsername] = useState('');
   const [manuelDisplayName, setManuelDisplayName] = useState('');
@@ -37,28 +31,13 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
   const [appSearch, setAppSearch] = useState('');
   const [appResults, setAppResults] = useState<any[]>([]);
   const [appSearching, setAppSearching] = useState(false);
-  const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const searchAD = useCallback((q: string) => {
-    setAdQuery(q);
-    if (adTimerRef.current) clearTimeout(adTimerRef.current);
-    if (q.length < 2) { setAdResults([]); return; }
-    setAdSearching(true);
-    adTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
-        const data = await res.json();
-        setAdResults(Array.isArray(data) ? data : []);
-      } catch { setAdResults([]); }
-      finally { setAdSearching(false); }
-    }, 400);
-  }, [token]);
-
-  const ajouterEquipe = (user: ADUser) => {
+  const ajouterEquipe = (user: { username: string; displayName: string }) => {
     if (!equipe.find(e => e.username === user.username)) {
       setEquipe([...equipe, { username: user.username, displayName: user.displayName }]);
     }
-    setAdQuery(''); setAdResults([]);
+    ad.setQuery('');
+    ad.clearResults();
   };
 
   const ajouterEquipeManuel = () => {
@@ -183,11 +162,11 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
             <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px', display: 'block' }}>Équipe projet</label>
             <div style={{ position: 'relative' }}>
               <Search size={14} style={{ position: 'absolute', left: '10px', top: '15px', color: '#94a3b8' }} />
-              <input value={adQuery} onChange={e => searchAD(e.target.value)} placeholder="Rechercher un agent dans l'annuaire..." style={{ width: '100%', padding: '8px 10px 8px 32px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
-              {adSearching && <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>Recherche en cours...</div>}
-              {adResults.length > 0 && (
+              <input value={ad.query} onChange={e => ad.setQuery(e.target.value)} placeholder="Rechercher un agent dans l'annuaire..." style={{ width: '100%', padding: '8px 10px 8px 32px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
+              {ad.searching && <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>Recherche en cours...</div>}
+              {ad.results.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', marginTop: '4px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, maxHeight: '200px', overflow: 'auto' }}>
-                  {adResults.map(u => (
+                  {ad.results.map(u => (
                     <div key={u.username} onClick={() => ajouterEquipe(u)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                       onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
                       <div><div style={{ fontWeight: '600', fontSize: '13px', color: '#1e293b' }}>{u.displayName}</div><div style={{ fontSize: '11px', color: '#94a3b8' }}>{u.email} · {u.service || ''}</div></div>

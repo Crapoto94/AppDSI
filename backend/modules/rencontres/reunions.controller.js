@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const { pgDb } = require('../../shared/database');
+const storage = require('../../shared/storage');
 const { isSuperAdmin, isAdminLike } = require('../../shared/middleware');
+
+const MODULE = 'rencontres';
 
 // Forward declaration - sendMail will be injected from server.js
 let sendMailFn = null;
@@ -278,12 +281,24 @@ ${tasksHtml}
             const attachments = await pgDb.all('SELECT * FROM reunion_attachments WHERE reunion_id=? ORDER BY created_at DESC', [id]);
             const fileAttachments = [];
             for (const att of attachments) {
-                const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
-                if (fs.existsSync(filePath)) {
-                    fileAttachments.push({
-                        filename: att.original_name,
-                        content: fs.readFileSync(filePath).toString('base64')
-                    });
+                const storagePath = att.file_path
+                    || (storage.isStoragePath(att.filename) ? att.filename : null);
+                if (storagePath) {
+                    try {
+                        const f = await storage.getFileForServe(storagePath);
+                        if (f) {
+                            const buf = f.buffer || fs.readFileSync(f.absolutePath);
+                            fileAttachments.push({ filename: att.original_name, content: buf.toString('base64') });
+                        }
+                    } catch (e) {}
+                } else {
+                    const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+                    if (fs.existsSync(filePath)) {
+                        fileAttachments.push({
+                            filename: att.original_name,
+                            content: fs.readFileSync(filePath).toString('base64')
+                        });
+                    }
                 }
             }
 
@@ -377,11 +392,33 @@ ${tasksHtml}
 
             const inserted = [];
             for (const file of req.files) {
+                // Corrige l'encodage et sauvegarde via storage
+                if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
+                const saved = await storage.saveFile(MODULE, id, file);
+
                 const result = await pgDb.run(
-                    `INSERT INTO reunion_attachments (reunion_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`,
-                    [id, file.filename, file.originalname, file.mimetype, file.size, username]
+                    `INSERT INTO reunion_attachments (reunion_id, filename, original_name, mimetype, size, uploaded_by, file_path) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [id, saved.filename, file.originalname, file.mimetype, file.size, username, saved.dbPath]
                 );
-                inserted.push({ id: result.lastID, filename: file.filename, original_name: file.originalname, mimetype: file.mimetype, size: file.size });
+
+                // Dual-write hub_docs (viewer central)
+                try {
+                    const docsService = require('../../shared/documents.service');
+                    await docsService.registerExternalUpload({
+                        module: 'rencontres',
+                        entityType: 'attachment',
+                        entityId: id,
+                        title: file.originalname,
+                        filename: saved.filename,
+                        originalName: file.originalname,
+                        mimetype: file.mimetype,
+                        size: file.size,
+                        storageRef: saved.dbPath,
+                        uploadedBy: username,
+                    });
+                } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+
+                inserted.push({ id: result.lastID, filename: saved.filename, original_name: file.originalname, mimetype: file.mimetype, size: file.size });
             }
             res.json({ uploaded: inserted.length, files: inserted });
         } catch (error) { res.status(500).json({ error: error.message }); }
@@ -394,12 +431,47 @@ ${tasksHtml}
         } catch (error) { res.status(500).json({ error: error.message }); }
     },
 
+    // GET /api/rencontres-reunions/attachments/:id/file?token=...
+    downloadAttachment: async (req, res) => {
+        try {
+            const att = await pgDb.get(`SELECT * FROM reunion_attachments WHERE id = ?`, [req.params.id]);
+            if (!att) return res.status(404).json({ error: 'PJ introuvable' });
+
+            const storagePath = att.file_path
+                || (storage.isStoragePath(att.filename) ? att.filename : null);
+
+            if (storagePath) {
+                const f = await storage.getFileForServe(storagePath);
+                if (!f) return res.status(404).json({ error: 'Fichier introuvable sur le stockage' });
+                const displayName = att.original_name || att.filename || 'fichier';
+                const disposition = req.query.mode === 'inline' ? 'inline' : 'attachment';
+                res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(displayName)}"`);
+                if (att.mimetype) res.type(att.mimetype);
+                else res.type(path.extname(displayName) || 'application/octet-stream');
+                if (f.absolutePath) return res.sendFile(f.absolutePath);
+                return res.send(f.buffer);
+            }
+
+            // Fallback legacy local
+            const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+            if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Fichier introuvable' });
+            res.download(filePath, att.original_name || att.filename);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
     deleteAttachment: async (req, res) => {
         try {
             const att = await pgDb.get(`SELECT * FROM reunion_attachments WHERE id = ?`, [req.params.id]);
             if (!att) return res.status(404).json({ error: 'PJ introuvable' });
-            const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+            // Supprime via le service de stockage (nouveau ou legacy)
+            if (storage.isStoragePath(att.filename)) {
+                await storage.deleteFile(att.filename);
+            } else {
+                const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            }
+
             await pgDb.run(`DELETE FROM reunion_attachments WHERE id = ?`, [req.params.id]);
             res.json({ success: true });
         } catch (error) { res.status(500).json({ error: error.message }); }

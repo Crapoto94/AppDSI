@@ -6,7 +6,7 @@ import {
   CheckSquare, Clock, AlertTriangle, CheckCircle2,
   FolderKanban, MessageSquare, Users, RotateCcw, Filter,
   ExternalLink, RefreshCw, Inbox, Plus, X, Trash2, Upload,
-  RefreshCcw, Zap, XCircle, Send, BarChart2, ChevronDown, ChevronUp,
+  RefreshCcw, Zap, XCircle, Send, BarChart2, ChevronDown, ChevronUp, Star,
 } from 'lucide-react';
 import AddTaskModal from '../components/AddTaskModal';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -39,6 +39,7 @@ interface Task {
   team_group_id?: string | null;
   created_by?: string | null;
   refus_raison?: string | null;
+  is_favorite?: boolean;
 }
 
 interface AssignedTask {
@@ -453,6 +454,22 @@ const MesTaches: React.FC = () => {
         setConfirmModal(null);
       }
     });
+  };
+
+  const toggleFavorite = async (task: Task) => {
+    if (task.source !== 'personal') return;
+    try {
+      const res = await fetch(`/api/tasks/personal/${task.id}/favorite`, {
+        method: 'PATCH',
+        headers: authHeaders
+      });
+      if (res.ok) {
+        const { is_favorite } = await res.json();
+        setTasks(prev => prev.map(t =>
+          (t.source === task.source && t.id === task.id) ? { ...t, is_favorite } : t
+        ));
+      }
+    } catch (e) { console.error('Erreur favori:', e); }
   };
 
   const handleCreated = (created: any) => {
@@ -940,6 +957,9 @@ const MesTaches: React.FC = () => {
                       <td style={{ padding: '10px 12px', fontWeight: 600, color: isDone ? '#94a3b8' : '#1e293b', textDecoration: isDone ? 'line-through' : 'none', maxWidth: 340 }}>
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, flexDirection: 'column' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <button onClick={() => toggleFavorite(task)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: task.is_favorite ? '#fbbf24' : '#d1d5db' }}>
+                              <Star size={14} fill={task.is_favorite ? '#fbbf24' : 'none'} />
+                            </button>
                             {task.is_team_task && (
                               <span title="Tâche d'équipe" style={{ color: '#2563eb', flexShrink: 0 }}>
                                 <Users size={13} />
@@ -1043,7 +1063,7 @@ const MesTaches: React.FC = () => {
                               <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 11, borderBottom: ni < notes.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
                                 {n.type === 'file' ? (
                                   <a
-                                    href={`/api/tasks/${task.source}/${task.id}/notes/${n.id}/file?token=${token}`}
+                                    href={`/api/tasks/${task.source}/${task.id}/notes/${n.id}/file?mode=inline&token=${token}`}
                                     target="_blank" rel="noopener noreferrer"
                                     style={{ flex: 1, color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
                                   >

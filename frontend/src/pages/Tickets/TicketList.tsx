@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, Fragment } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -176,7 +176,8 @@ export default function TicketList({
   activeCategory,
   activeSubcategory,
   onCategoryFilter,
-}: {
+  activeFilter,
+  }: {
   tickets: any[];
   loading: boolean;
   onRefresh?: () => void;
@@ -187,6 +188,7 @@ export default function TicketList({
   activeCategory?: number | null;
   activeSubcategory?: number | null;
   onCategoryFilter?: (categoryId: number | null, subcategoryId: number | null) => void;
+  activeFilter?: string | null;
 }) {
   const { user } = useAuth();
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -253,7 +255,54 @@ export default function TicketList({
   }
 
   // Utiliser les tickets reçus (supposément déjà triés par le serveur)
-  const sortedTickets = tickets;
+  const filteredTickets = tickets.filter(t => String(t.type) !== '3' || activeFilter === 'problems' || t.linked_tickets?.length > 0);
+
+  // ── Construire les relations parent-enfant pour affichage groupé ──
+  const childIds = new Set<number>();
+  const parentChildren = new Map<number, any[]>();
+
+  // Chaque groupe (bundle) n'affiche ses membres qu'une fois : par le ticket le plus petit id du groupe
+  const bundleFirstTicket = new Map<number, number>();
+
+  filteredTickets.forEach(t => {
+    // Problème : afficher les tickets liés
+    if (t.linked_tickets?.length > 0) {
+      parentChildren.set(t.id, t.linked_tickets);
+      t.linked_tickets.forEach((c: any) => childIds.add(c.ticket_id));
+    }
+
+    // Groupe (bundle) : déterminer le plus petit id
+    if (t.bundle?.members?.length > 0) {
+      const minInGroup = Math.min(t.id, ...t.bundle.members.map((m: any) => m.ticket_id));
+      const existing = bundleFirstTicket.get(t.bundle.id);
+      if (!existing || minInGroup < existing) {
+        bundleFirstTicket.set(t.bundle.id, minInGroup);
+      }
+    }
+  });
+
+  // Marquer comme enfant les membres non-premiers de chaque groupe
+  filteredTickets.forEach(t => {
+    if (t.bundle?.members?.length > 0) {
+      const firstId = bundleFirstTicket.get(t.bundle.id);
+      if (firstId && t.id !== firstId) {
+        childIds.add(t.id);
+      }
+    }
+  });
+
+  // Associer les membres du groupe au premier ticket
+  filteredTickets.forEach(t => {
+    if (t.bundle?.members?.length > 0) {
+      const firstId = bundleFirstTicket.get(t.bundle.id);
+      if (firstId && t.id === firstId) {
+        parentChildren.set(t.id, t.bundle.members);
+      }
+    }
+  });
+
+  // Filtrer les tickets enfants du rendu principal
+  const sortedTickets = filteredTickets.filter(t => !childIds.has(t.id));
 
   const allSelected = tickets.length > 0 && selectedIds.size === tickets.length;
   const someSelected = selectedIds.size > 0 && !allSelected;
@@ -311,234 +360,332 @@ export default function TicketList({
               })}
             </tr>
           </thead>
+          {sortedTickets.length === 0 && (
+            <tbody><tr><td colSpan={15} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun ticket trouvé</td></tr></tbody>
+          )}
           <tbody>
-            {tickets.length === 0 && (
-              <tr><td colSpan={15} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun ticket trouvé</td></tr>
-            )}
-            {sortedTickets.map((t: any) => {
-              const isSelected = selectedIds.has(t.id);
-              const inBundle = !!t.bundle;
+          {(() => {
+            // Construire la liste d'affichage avec métadonnées de groupe
+            const displayRows: Array<{
+              kind: 'parent' | 'child';
+              data: any;
+              parentId?: number;
+              isGroup: boolean;
+              isFirstInGroup?: boolean;
+              isLastInGroup?: boolean;
+            }> = [];
+
+            sortedTickets.forEach(t => {
+              const children = parentChildren.get(t.id) || [];
+              const isGroup = children.length > 0;
+              displayRows.push({
+                kind: 'parent',
+                data: t,
+                isGroup,
+                isFirstInGroup: isGroup,
+                isLastInGroup: !isGroup,
+              });
+              children.forEach((c: any, i: number) => {
+                displayRows.push({
+                  kind: 'child',
+                  data: c,
+                  parentId: t.id,
+                  isGroup: true,
+                  isFirstInGroup: false,
+                  isLastInGroup: i === children.length - 1,
+                });
+              });
+            });
+
+            // Marquer les isFirstInGroup/isLastInGroup pour les parents sans enfants
+            displayRows.forEach((r, i) => {
+              if (!r.isGroup) {
+                r.isFirstInGroup = true;
+                r.isLastInGroup = true;
+              }
+            });
+
+            return displayRows.map((row, idx) => {
+              const { kind, data, parentId, isGroup, isFirstInGroup, isLastInGroup } = row;
+              const isChild = kind === 'child';
+              const isSelected = selectedIds.has(data.id);
+              const hasProblem = String(data.type) === '3' || !!data.bundle?.problem_ticket_id;
+
+              // Normaliser les champs pour les lignes enfants (données JSON simplifiées)
+              const sId = isChild ? (typeof data.status === 'object' ? data.status?.id : data.status) : data.status?.id;
+              const pId = isChild ? (typeof data.priority === 'object' ? data.priority?.id : data.priority) : data.priority?.id;
+              const iId = isChild ? (typeof data.impact === 'object' ? data.impact?.id : data.impact) : data.impact?.id;
+
+              const BORDER_COLOR = '#c7d2fe';
+              const rowStyle: React.CSSProperties = {
+                borderTop: isFirstInGroup && isGroup ? `2px solid ${BORDER_COLOR}` : undefined,
+                borderBottom: isLastInGroup && isGroup ? `2px solid ${BORDER_COLOR}` : (isChild ? '1px solid #e0e7ff' : '1px solid #f1f5f9'),
+                borderLeft: isGroup ? `2px solid ${BORDER_COLOR}` : undefined,
+                borderRight: isGroup ? `2px solid ${BORDER_COLOR}` : undefined,
+                cursor: 'pointer',
+                background: isSelected ? '#eef2ff' : isChild ? '#f8faff' : hasProblem ? '#ede9fe' : data.is_live ? '#f0fdf4' : data.is_vip ? '#fffbeb' : undefined,
+                transition: 'background 0.1s',
+              };
+
               return (
-                <tr key={t.id}
-                  style={{
-                    borderBottom: '1px solid #f1f5f9',
-                    cursor: 'pointer',
-                    background: isSelected ? '#eef2ff' : t.is_live ? '#f0fdf4' : t.is_vip ? '#fffbeb' : undefined,
-                    transition: 'background 0.1s'
-                  }}
-                  onClick={() => window.location.href = `/tickets/${t.id}`}>
-
-                  {/* Checkbox */}
-                  <td style={tdStyle} onClick={e => toggleSelect(t.id, e)}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  </td>
-
-                  {/* ID + VIP + Groupe + SLA */}
-                  <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 600, color: '#6366f1' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                      {t.is_vip && <span title="Ticket VIP" style={{ fontSize: 11 }}>⭐</span>}
-                      {inBundle && (
-                        <span
-                          title={`Groupe : ${t.bundle.name}`}
-                          style={{
-                            fontSize: 11, cursor: 'default',
-                            background: '#e0e7ff', color: '#4f46e5',
-                            borderRadius: 4, padding: '1px 4px', fontFamily: 'sans-serif'
-                          }}>
-                          🔗
+                <Fragment key={isChild ? `child-${parentId}-${data.ticket_id}` : data.id}>
+                  {/* Espacement avant un groupe */}
+                  {isFirstInGroup && isGroup && (
+                    <tr style={{ background: 'transparent' }}>
+                      <td colSpan={15} style={{ padding: 0, borderBottom: 'none', height: 6 }} />
+                    </tr>
+                  )}
+                  {/* En-tête du groupe */}
+                  {isFirstInGroup && isGroup && (
+                    <tr style={{ background: 'transparent' }}>
+                      <td colSpan={15} style={{ padding: '4px 16px 2px', borderBottom: 'none', fontSize: 11, fontWeight: 600, color: '#6366f1', textAlign: 'left' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          🔗 Groupe
+                          {data.bundle?.name && <span style={{ color: '#818cf8' }}>— {data.bundle.name}</span>}
                         </span>
-                      )}
-                      {t.sla_status === 'breached' && <span title="SLA dépassé" style={{ fontSize: 13, color: '#ef4444' }}>⚠️</span>}
-                      {t.sla_status === 'warning' && <span title="SLA en alerte" style={{ fontSize: 13, color: '#f59e0b' }}>⚠️</span>}
-                      {(() => {
-                        const created = t.date_creation ? new Date(t.date_creation) : null;
-                        const isNew = created && (Date.now() - created.getTime()) < 15 * 60 * 1000;
-                        return isNew ? <span title="Nouveau ticket" style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: '#22c55e', borderRadius: 8, padding: '1px 5px', marginRight: 2 }}>NEW</span> : null;
-                      })()}
-                      {t.id}
-                    </div>
-                  </td>
+                      </td>
+                    </tr>
+                  )}
+                  <tr style={rowStyle}
+                    onClick={() => window.location.href = isChild ? `/tickets/${data.ticket_id}` : `/tickets/${data.id}`}>
 
-                  {/* Titre + Catégorie */}
-                  <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 300 }}>
-                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {t.is_live && (
-                        <span style={{
-                          flexShrink: 0, fontSize: 10, fontWeight: 800,
-                          background: '#22c55e', color: '#fff',
-                          borderRadius: 6, padding: '1px 6px', letterSpacing: '0.05em',
-                          animation: 'livePulseRow 2s infinite',
-                        }}>LIVE</span>
+                    {/* Checkbox */}
+                    <td style={tdStyle} onClick={e => { if (!isChild) { toggleSelect(data.id, e); } }}>
+                      {isChild ? null : (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}}
+                          style={{ cursor: 'pointer' }}
+                        />
                       )}
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-                    </div>
-                    {(t.category_name || t.subcategory_name) && (
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {t.category_name && <span>{t.category_name}</span>}
-                        {t.category_name && t.subcategory_name && <span> / </span>}
-                        {t.subcategory_name && <span>{t.subcategory_name}</span>}
+                    </td>
+
+                    {/* ID + VIP + Groupe + SLA */}
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontWeight: 600, color: isChild ? '#818cf8' : '#6366f1', fontSize: isChild ? 12 : undefined }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                        {isChild && <span style={{ fontSize: 11, color: '#a5b4fc' }}>└─</span>}
+                        {!isChild && data.is_vip && <span title="Ticket VIP" style={{ fontSize: 11 }}>⭐</span>}
+                        {!isChild && data.bundle && (
+                          <span
+                            title={`Groupe : ${data.bundle.name}`}
+                            style={{
+                              fontSize: 11, cursor: 'default',
+                              background: '#e0e7ff', color: '#4f46e5',
+                              borderRadius: 4, padding: '1px 4px', fontFamily: 'sans-serif'
+                            }}>
+                            🔗
+                          </span>
+                        )}
+                        {!isChild && data.sla_status === 'breached' && <span title="SLA dépassé" style={{ fontSize: 13, color: '#ef4444' }}>⚠️</span>}
+                        {!isChild && data.sla_status === 'warning' && <span title="SLA en alerte" style={{ fontSize: 13, color: '#f59e0b' }}>⚠️</span>}
+                        {!isChild && (() => {
+                          const created = data.date_creation ? new Date(data.date_creation) : null;
+                          const isNew = created && (Date.now() - created.getTime()) < 15 * 60 * 1000;
+                          return isNew ? <span title="Nouveau ticket" style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: '#22c55e', borderRadius: 8, padding: '1px 5px', marginRight: 2 }}>NEW</span> : null;
+                        })()}
+                        {isChild ? data.ticket_id : data.id}
                       </div>
-                    )}
-                  </td>
+                    </td>
 
-                  {/* Statut */}
-                  <td style={tdStyle}>
-                    <span
-                      title={t.status?.id === 4 && t.waiting_reason ? `Motif : ${t.waiting_reason}` : undefined}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        padding: '3px 10px', borderRadius: 20,
-                        fontSize: 12, fontWeight: 600,
-                        background: (STATUS_COLORS[t.status?.id] || '#64748b') + '20',
-                        color: STATUS_COLORS[t.status?.id] || '#64748b',
-                        cursor: t.status?.id === 4 && t.waiting_reason ? 'help' : 'default',
-                      }}>
-                      {STATUS_NAMES[t.status?.id] || t.status?.label || 'Inconnu'}
-                      {t.status?.id === 4 && t.waiting_reason && (
-                        <span style={{ fontSize: 11, opacity: 0.75 }}>💬</span>
+                    {/* Titre + Catégorie */}
+                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 300 }}>
+                      <div style={{ fontWeight: isChild ? 400 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6, fontSize: isChild ? 13 : undefined }}>
+                        {isChild && (
+                          <span style={{ color: '#a5b4fc', fontSize: 11, flexShrink: 0 }}>↳ Lié </span>
+                        )}
+                        {!isChild && data.is_live && (
+                          <span style={{
+                            flexShrink: 0, fontSize: 10, fontWeight: 800,
+                            background: '#22c55e', color: '#fff',
+                            borderRadius: 6, padding: '1px 6px', letterSpacing: '0.05em',
+                            animation: 'livePulseRow 2s infinite',
+                          }}>LIVE</span>
+                        )}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.title}</span>
+                      </div>
+                      {!isChild && (data.category_name || data.subcategory_name) && (
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {data.category_name && <span>{data.category_name}</span>}
+                          {data.category_name && data.subcategory_name && <span> / </span>}
+                          {data.subcategory_name && <span>{data.subcategory_name}</span>}
+                        </div>
                       )}
-                    </span>
-                  </td>
+                    </td>
 
-                  {/* Priorité */}
-                  <td style={tdStyle}>
-                    <PriorityDots priorityId={t.priority?.id} />
-                  </td>
-
-                  {/* Impact */}
-                  <td style={tdStyle}>
-                    {t.impact?.id ? (
-                      <span title={IMPACT_LABELS[t.impact.id]?.label} style={{ fontSize: 15 }}>
-                        {IMPACT_LABELS[t.impact.id]?.icon || '—'}
+                    {/* Statut */}
+                    <td style={tdStyle}>
+                      <span
+                        title={sId === 4 && data.waiting_reason ? `Motif : ${data.waiting_reason}` : undefined}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: isChild ? '2px 8px' : '3px 10px', borderRadius: 20,
+                          fontSize: isChild ? 11 : 12, fontWeight: 600,
+                          background: (STATUS_COLORS[sId] || '#64748b') + '20',
+                          color: STATUS_COLORS[sId] || '#64748b',
+                          cursor: sId === 4 && data.waiting_reason ? 'help' : 'default',
+                        }}>
+                        {STATUS_NAMES[sId] || 'Inconnu'}
+                        {sId === 4 && data.waiting_reason && (
+                          <span style={{ fontSize: 11, opacity: 0.75 }}>💬</span>
+                        )}
                       </span>
-                    ) : <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>}
-                  </td>
+                    </td>
 
-                  {/* Logiciel */}
-                  <td style={tdStyle}>
-                    {t.software_name ? (
+                    {/* Priorité */}
+                    <td style={tdStyle}>
+                      <PriorityDots priorityId={pId} />
+                    </td>
+
+                    {/* Impact */}
+                    <td style={tdStyle}>
+                      {iId ? (
+                        <span title={IMPACT_LABELS[iId]?.label} style={{ fontSize: isChild ? 13 : 15 }}>
+                          {IMPACT_LABELS[iId]?.icon || '—'}
+                        </span>
+                      ) : <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>}
+                    </td>
+
+                    {/* Logiciel */}
+                    <td style={tdStyle}>
+                      {data.software_name ? (
+                        <span style={{
+                          display: 'inline-block', padding: '3px 10px', borderRadius: 20,
+                          fontSize: isChild ? 11 : 12, fontWeight: 500,
+                          background: '#e0e7ff',
+                          color: '#4f46e5',
+                          maxWidth: 150,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }} title={data.software_name}>
+                          💾 {data.software_name}
+                        </span>
+                      ) : <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>}
+                    </td>
+
+                    {/* Type */}
+                    <td style={tdStyle}>
                       <span style={{
-                        display: 'inline-block', padding: '3px 10px', borderRadius: 20,
-                        fontSize: 12, fontWeight: 500,
-                        background: '#e0e7ff',
-                        color: '#4f46e5',
-                        maxWidth: 150,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }} title={t.software_name}>
-                        💾 {t.software_name}
+                        fontSize: isChild ? 11 : 12,
+                        color: String(data.type) === '3' ? '#7c3aed' : '#64748b',
+                        fontWeight: String(data.type) === '3' ? 700 : 400,
+                      }}>
+                        {data.type_label || (String(data.type) === '2' ? 'Demande' : String(data.type) === '3' ? 'Problème' : 'Incident')}
                       </span>
-                    ) : <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>}
-                  </td>
+                    </td>
 
-                  {/* Type */}
-                  <td style={tdStyle}>
-                    <span style={{
-                      fontSize: 12,
-                      color: String(t.type) === '3' ? '#7c3aed' : '#64748b',
-                      fontWeight: String(t.type) === '3' ? 700 : 400,
-                    }}>
-                      {t.type_label || (String(t.type) === '2' ? 'Demande' : String(t.type) === '3' ? 'Problème' : 'Incident')}
-                    </span>
-                  </td>
+                    {/* Indicateurs compacts */}
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      {isChild ? (
+                        <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
+                      ) : (
+                      <div style={{ display: 'flex', gap: 3, justifyContent: 'center', alignItems: 'center' }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
+                          fontSize: 10, fontWeight: 600,
+                          background: (data.followups_count || 0) > 0 ? '#e0f2fe' : '#f1f5f9',
+                          color: (data.followups_count || 0) > 0 ? '#0284c7' : '#94a3b8'
+                        }} title="Commentaires">
+                          💬{data.followups_count || 0}
+                        </span>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
+                          fontSize: 10, fontWeight: 600,
+                          background: (data.tasks_count || 0) > 0 ? '#fef3c7' : '#f1f5f9',
+                          color: (data.tasks_count || 0) > 0 ? '#d97706' : '#94a3b8'
+                        }} title="Tâches">
+                          ✓{data.tasks_count || 0}
+                        </span>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
+                          fontSize: 10, fontWeight: 600,
+                          background: (data.observer_count || 0) > 0 ? '#ede9fe' : '#f1f5f9',
+                          color: (data.observer_count || 0) > 0 ? '#7c3aed' : '#94a3b8'
+                        }} title="Observateurs">
+                          👁{data.observer_count || 0}
+                        </span>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
+                          fontSize: 10, fontWeight: 600,
+                          background: data.active_days != null && data.active_days > 0 ? '#f0fdf4' : '#f1f5f9',
+                          color: data.active_days != null && data.active_days > 0 ? '#16a34a' : '#94a3b8'
+                        }} title="Jours actifs">
+                          {data.active_days != null
+                            ? data.active_days < 1 ? '<1j' : `${Math.round(data.active_days)}j`
+                            : '?'}
+                        </span>
+                      </div>
+                      )}
+                    </td>
 
-                  {/* Indicateurs compacts */}
-                  <td style={{ ...tdStyle, textAlign: 'center' }}>
-                    <div style={{ display: 'flex', gap: 3, justifyContent: 'center', alignItems: 'center' }}>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
-                        fontSize: 10, fontWeight: 600,
-                        background: (t.followups_count || 0) > 0 ? '#e0f2fe' : '#f1f5f9',
-                        color: (t.followups_count || 0) > 0 ? '#0284c7' : '#94a3b8'
-                      }} title="Commentaires">
-                        💬{t.followups_count || 0}
-                      </span>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
-                        fontSize: 10, fontWeight: 600,
-                        background: (t.tasks_count || 0) > 0 ? '#fef3c7' : '#f1f5f9',
-                        color: (t.tasks_count || 0) > 0 ? '#d97706' : '#94a3b8'
-                      }} title="Tâches">
-                        ✓{t.tasks_count || 0}
-                      </span>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
-                        fontSize: 10, fontWeight: 600,
-                        background: (t.observer_count || 0) > 0 ? '#ede9fe' : '#f1f5f9',
-                        color: (t.observer_count || 0) > 0 ? '#7c3aed' : '#94a3b8'
-                      }} title="Observateurs">
-                        👁{t.observer_count || 0}
-                      </span>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        minWidth: 20, height: 20, borderRadius: 10, padding: '0 5px',
-                        fontSize: 10, fontWeight: 600,
-                        background: t.active_days != null && t.active_days > 0 ? '#f0fdf4' : '#f1f5f9',
-                        color: t.active_days != null && t.active_days > 0 ? '#16a34a' : '#94a3b8'
-                      }} title="Jours actifs">
-                        {t.active_days != null
-                          ? t.active_days < 1 ? '<1j' : `${Math.round(t.active_days)}j`
-                          : '?'}
-                      </span>
-                    </div>
-                  </td>
+                    {/* Demandeur */}
+                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 200 }}>
+                      <div style={{ fontSize: isChild ? 12 : 13, color: '#1e293b', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {isChild ? `#${data.ticket_id}` : (data.requester_name || 'Anonyme')}
+                      </div>
+                      <div style={{ fontSize: isChild ? 11 : 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {isChild ? '' : (data.requester_service || data.requester_email || '')}
+                      </div>
+                    </td>
 
-                  {/* Demandeur */}
-                  <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 200 }}>
-                    <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {t.requester_name || 'Anonyme'}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {t.requester_service || t.requester_email || ''}
-                    </div>
-                  </td>
+                    {/* Source */}
+                    <td style={{ ...tdStyle, fontSize: 12, color: '#64748b' }}>
+                      {isChild ? (
+                        <span style={{ color: '#94a3b8' }}>—</span>
+                      ) : (
+                        (() => {
+                          const src = data.source || '';
+                          if (src === 'glpi') return <span style={{ color: '#6366f1', fontWeight: 600 }}>GLPI</span>;
+                          if (src === 'email' || src === 'mail') return <span style={{ color: '#16a34a', fontWeight: 600 }}>Email</span>;
+                          if (src === 'magapp') return <span style={{ color: '#d946ef', fontWeight: 600 }}>Magapp</span>;
+                          if (src === 'hub') return <span style={{ color: '#64748b', fontWeight: 600 }}>Hub</span>;
+                          if (src) return <span>{src}</span>;
+                          return <span style={{ color: '#94a3b8' }}>—</span>;
+                        })()
+                      )}
+                    </td>
 
-                  {/* Source */}
-                  <td style={{ ...tdStyle, fontSize: 12, color: '#64748b' }}>
-                    {(() => {
-                      const src = t.source || '';
-                      if (src === 'glpi') return <span style={{ color: '#6366f1', fontWeight: 600 }}>GLPI</span>;
-                      if (src === 'email' || src === 'mail') return <span style={{ color: '#16a34a', fontWeight: 600 }}>Email</span>;
-                      if (src === 'magapp') return <span style={{ color: '#d946ef', fontWeight: 600 }}>Magapp</span>;
-                      if (src === 'hub') return <span style={{ color: '#64748b', fontWeight: 600 }}>Hub</span>;
-                      if (src) return <span>{src}</span>;
-                      return <span style={{ color: '#94a3b8' }}>—</span>;
-                    })()}
-                  </td>
+                    {/* Technicien */}
+                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 160 }}>
+                      {isChild ? (
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>
+                      ) : (
+                        data.assignee_group_name ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#6366f1', fontWeight: 500 }}>
+                            <span style={{ fontSize: 12 }}>👥</span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{data.assignee_group_name}</span>
+                          </span>
+                        ) : data.technician_name ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#0284c7', fontWeight: 500 }}>
+                            <span style={{ fontSize: 12 }}>🔧</span>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{data.technician_name}</span>
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>
+                        )
+                      )}
+                    </td>
 
-                  {/* Technicien */}
-                  <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 160 }}>
-                    {t.assignee_group_name ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#6366f1', fontWeight: 500 }}>
-                        <span style={{ fontSize: 12 }}>👥</span>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{t.assignee_group_name}</span>
-                      </span>
-                    ) : t.technician_name ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#0284c7', fontWeight: 500 }}>
-                        <span style={{ fontSize: 12 }}>🔧</span>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{t.technician_name}</span>
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>
-                    )}
-                  </td>
-
-                  {/* Date */}
-                  <td style={{ ...tdStyle, fontSize: 12, color: '#64748b' }}>
-                    {t.date_creation ? new Date(t.date_creation).toLocaleDateString('fr-FR') : ''}
-                  </td>
-                </tr>
+                    {/* Date */}
+                    <td style={{ ...tdStyle, fontSize: isChild ? 11 : 12, color: '#64748b' }}>
+                      {data.date_creation ? new Date(data.date_creation).toLocaleDateString('fr-FR') : ''}
+                    </td>
+                  </tr>
+                  {/* Espacement après un groupe */}
+                  {isLastInGroup && isGroup && (
+                    <tr style={{ background: 'transparent' }}>
+                      <td colSpan={15} style={{ padding: 0, borderBottom: 'none', height: 6 }} />
+                    </tr>
+                  )}
+                </Fragment>
               );
-            })}
+            });
+          })()}
           </tbody>
         </table>
       </div>

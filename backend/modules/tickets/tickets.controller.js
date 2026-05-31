@@ -577,7 +577,23 @@ async assign(req, res) {
         try {
             const file = await attachmentRepo.findById(parseInt(req.params.aid));
             if (!file) return res.status(404).json({ message: 'Fichier non trouvé' });
-            res.download(file.file_path, file.original_name);
+            const path = require('path');
+            // Défaut : inline (prévisualisation navigateur). Forcer DL via ?mode=attachment.
+            const disposition = req.query.mode === 'attachment' ? 'attachment' : 'inline';
+
+            if (storage.isStoragePath(file.file_path)) {
+                const f = await storage.getFileForServe(file.file_path);
+                if (!f) return res.status(404).json({ message: 'Fichier introuvable sur le stockage' });
+                res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(file.original_name)}"`);
+                res.type(file.mimetype || path.extname(file.original_name) || 'application/octet-stream');
+                if (f.absolutePath) return res.sendFile(f.absolutePath);
+                return res.send(f.buffer);
+            }
+
+            // Fallback legacy
+            res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(file.original_name)}"`);
+            res.type(file.mimetype || path.extname(file.original_name) || 'application/octet-stream');
+            res.sendFile(file.file_path);
         } catch (error) {
             res.status(500).json({ message: error.message });
         }
@@ -637,6 +653,15 @@ async assign(req, res) {
     },
 
     // ─── Dashboard ─────────────────────────────────────────────
+    async getTicketsStats(req, res) {
+        try {
+            const stats = await ticketService.getTicketsStats({ from: req.query.from, to: req.query.to });
+            res.json(stats);
+        } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    },
+
     async getDashboardStats(req, res) {
         try {
             const stats = await ticketService.getDashboardStats(req.user);

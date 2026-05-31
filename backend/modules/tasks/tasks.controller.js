@@ -2,6 +2,7 @@ const { pool, pgDb } = require('../../shared/database');
 const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const storage = require('../../shared/storage');
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
@@ -128,7 +129,7 @@ module.exports = {
                         ut.created_by,
                         ut.refus_raison
                     FROM hub.user_tasks ut
-                    WHERE LOWER(ut.username) = $1
+                    WHERE LOWER(ut.username) = $1 OR LOWER(ut.created_by) = $1
 
                     UNION ALL
 
@@ -594,34 +595,18 @@ module.exports = {
     },
 
     // DELETE /api/tasks/personal/:id
-    async deleteTask(req, res) {
-        const username = req.user.username;
-        const { id } = req.params;
+    async toggleFavorite(req, res) {
+        const { source, id } = req.params;
         try {
-            // Check if task exists and get its owner and creator
+            // Only 'personal' tasks are supported for favorites currently
+            if (source !== 'personal') return res.status(400).json({ error: 'Favoris uniquement pour tâches personnelles' });
+            
             const { rows } = await pool.query(
-                'SELECT username, created_by FROM hub.user_tasks WHERE id = $1',
+                'UPDATE hub.user_tasks SET is_favorite = NOT is_favorite WHERE id = $1 RETURNING is_favorite',
                 [id]
             );
             if (rows.length === 0) return res.status(404).json({ error: 'Tâche non trouvée' });
-
-            const taskOwner = rows[0].username;
-            const taskCreator = rows[0].created_by;
-            const isAdmin = req.user?.role === 'superadmin' || req.user?.role === 'admin';
-            const isOwner = username.toLowerCase() === taskOwner.toLowerCase();
-            const isCreator = taskCreator && username.toLowerCase() === taskCreator.toLowerCase();
-
-            if (!isAdmin && !isOwner && !isCreator) {
-                return res.status(403).json({ error: 'Vous ne pouvez supprimer que vos propres tâches' });
-            }
-
-            await pool.query(
-                'DELETE FROM hub.user_tasks WHERE id = $1',
-                [id]
-            );
-            // cleanup notes
-            await pool.query('DELETE FROM hub.task_notes WHERE source = $1 AND task_id = $2', ['personal', String(id)]);
-            res.json({ ok: true });
+            res.json({ is_favorite: rows[0].is_favorite });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -666,26 +651,63 @@ module.exports = {
         const username = req.user.username;
         if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
         try {
+            if (req.file.originalname) req.file.originalname = storage.fixUploadName(req.file.originalname);
+            const saved = await storage.saveFile('tasks', id, req.file);
             const { rows } = await pool.query(
                 `INSERT INTO hub.task_notes (source, task_id, content, type, filename, filepath, created_by)
                  VALUES ($1,$2,$3,'file',$4,$5,$6) RETURNING *`,
-                [source, String(id), req.file.originalname, req.file.originalname, req.file.filename, username]
+                [source, String(id), req.file.originalname, req.file.originalname, saved.dbPath, username]
             );
+
+            // Dual-write : enregistre aussi dans hub_docs pour le viewer central
+            try {
+                const docsService = require('../../shared/documents.service');
+                await docsService.registerExternalUpload({
+                    module: 'tasks',
+                    entityType: 'note_file',
+                    entityId: id,
+                    title: req.file.originalname,
+                    filename: saved.filename,
+                    originalName: req.file.originalname,
+                    mimetype: req.file.mimetype,
+                    size: req.file.size,
+                    storageRef: saved.dbPath,
+                    metadata: { task_source: source },
+                    uploadedBy: username,
+                });
+            } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+
             res.status(201).json(rows[0]);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
     },
 
-    // GET /api/tasks/:source/:id/notes/:noteId/file
+    // GET /api/tasks/:source/:id/notes/:noteId/file?mode=inline|attachment
     async downloadTaskNoteFile(req, res) {
         const { noteId } = req.params;
         try {
             const { rows } = await pool.query('SELECT * FROM hub.task_notes WHERE id=$1 AND type=$2', [noteId, 'file']);
             if (!rows[0]) return res.status(404).json({ error: 'Fichier non trouvé' });
-            const filePath = path.join(TASK_NOTES_DIR, rows[0].filepath);
+            const note = rows[0];
+            const displayName = note.filename || note.content || 'fichier';
+            const disposition = req.query.mode === 'inline' ? 'inline' : 'attachment';
+
+            if (storage.isStoragePath(note.filepath)) {
+                const f = await storage.getFileForServe(note.filepath);
+                if (!f) return res.status(404).json({ error: 'Fichier manquant sur le stockage' });
+                res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(displayName)}"`);
+                res.type(path.extname(displayName) || 'application/octet-stream');
+                if (f.absolutePath) return res.sendFile(f.absolutePath);
+                return res.send(f.buffer);
+            }
+
+            // Fallback legacy : fichier local dans file_task_notes
+            const filePath = path.join(TASK_NOTES_DIR, note.filepath);
             if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Fichier manquant sur le disque' });
-            res.download(filePath, rows[0].filename || rows[0].content || 'fichier');
+            res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(displayName)}"`);
+            res.type(path.extname(displayName) || 'application/octet-stream');
+            res.sendFile(filePath);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -697,8 +719,12 @@ module.exports = {
         try {
             const { rows } = await pool.query('SELECT * FROM hub.task_notes WHERE id=$1', [noteId]);
             if (rows[0]?.type === 'file' && rows[0]?.filepath) {
-                const fp = path.join(TASK_NOTES_DIR, rows[0].filepath);
-                if (fs.existsSync(fp)) fs.unlinkSync(fp);
+                if (storage.isStoragePath(rows[0].filepath)) {
+                    try { await storage.deleteFile(rows[0].filepath); } catch (e) {}
+                } else {
+                    const fp = path.join(TASK_NOTES_DIR, rows[0].filepath);
+                    if (fs.existsSync(fp)) fs.unlinkSync(fp);
+                }
             }
             await pool.query('DELETE FROM hub.task_notes WHERE id=$1', [noteId]);
             res.json({ ok: true });
@@ -1097,10 +1123,11 @@ module.exports = {
                     if (ex.rows.length > 0) { knownTodoIds.add(todoTask.id); continue; }
 
                     const statut = todoTask.status === 'inProgress' ? 'en_cours' : 'a_faire';
+                    const dueDate = todoTask.dueDateTime ? todoTask.dueDateTime.dateTime.split('T')[0] : null;
                     const ins = await pool.query(`
-                        INSERT INTO hub.user_tasks (username, description, statut, context_source, todo_task_id, created_by, created_at)
-                        VALUES ($1,$2,$3,'todo',$4,'todo_sync',NOW()) RETURNING id
-                    `, [username, todoTask.title, statut, todoTask.id]);
+                        INSERT INTO hub.user_tasks (username, description, echeance, statut, context_source, todo_task_id, created_by, created_at)
+                        VALUES ($1,$2,$3,$4,'todo',$5,'todo_sync',NOW()) RETURNING id
+                    `, [username, todoTask.title, dueDate, statut, todoTask.id]);
                     const newId = ins.rows[0].id;
                     knownTodoIds.add(todoTask.id);
 

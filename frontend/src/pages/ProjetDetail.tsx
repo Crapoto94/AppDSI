@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useADSearch } from '../utils/useADSearch';
+import type { ADUser } from '../utils/useADSearch';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users } from 'lucide-react';
 import Header from '../components/Header';
@@ -921,9 +923,7 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
   const [newComite, setNewComite] = useState({ nom: '', role: '', frequence: '', responsable_username: '' });
   const [showMembreForm, setShowMembreForm] = useState<number | null>(null);
   const [newMembre, setNewMembre] = useState({ prenom: '', nom: '', email: '', societe: '', fonction: '', role: '', telephone: '', ad_username: '' });
-  const [adQuery, setAdQuery] = useState('');
-  const [adResults, setAdResults] = useState<any[]>([]);
-  const adTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const comiteAd = useADSearch(token);
   const [comiteEditing, setComiteEditing] = useState<number | null>(null);
   const [comiteEditNom, setComiteEditNom] = useState('');
 
@@ -951,14 +951,8 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
   };
   const supprimerMembre = async (comiteId: number, membreId: number) => { await fetch(`/api/projets/${projetId}/comites/${comiteId}/membres/${membreId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); load(); };
 
-  const searchAD = (q: string) => {
-    setAdQuery(q);
-    if (adTimerRef.current) clearTimeout(adTimerRef.current);
-    if (q.length < 2) { setAdResults([]); return; }
-    adTimerRef.current = setTimeout(async () => {
-      try { const r = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } }); const d = await r.json(); setAdResults(Array.isArray(d) ? d : []); } catch { setAdResults([]); }
-    }, 400);
-  };
+
+
 
   return (
     <div>
@@ -1048,15 +1042,15 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                 <div style={{ position: 'relative', flex: 1 }}>
-                  <input value={adQuery} onChange={e => searchAD(e.target.value)} placeholder="Rechercher dans l'annuaire..." style={{ width: '100%', padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
-                  {adResults.length > 0 && (
+                  <input value={comiteAd.query} onChange={e => comiteAd.setQuery(e.target.value)} placeholder="Rechercher dans l'annuaire..." style={{ width: '100%', padding: '5px 8px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
+                  {comiteAd.results.length > 0 && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', marginTop: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, maxHeight: '120px', overflow: 'auto' }}>
-                      {adResults.map(u => (
-                        <div key={u.username} onClick={() => { setNewMembre({...newMembre, nom: u.displayName, email: u.email, ad_username: u.username }); setAdQuery(''); setAdResults([]); }}
+                      {comiteAd.results.map(u => (
+                        <div key={u.username} onClick={() => { setNewMembre({...newMembre, nom: u.displayName, email: u.email, ad_username: u.username }); comiteAd.setQuery(''); comiteAd.clearResults(); }}
                           style={{ padding: '5px 8px', cursor: 'pointer', fontSize: '11px', borderBottom: '1px solid #f1f5f9' }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
                           <div style={{ fontWeight: '600' }}>{u.displayName}</div>
-                          <div style={{ color: '#94a3b8' }}>{u.email}</div>
+                          <div style={{ color: '#94a3b8' }}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
                         </div>
                       ))}
                     </div>
@@ -2210,10 +2204,6 @@ const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterR
 };
 
 // ===== ONGLET TÂCHES =====
-interface ADUser {
-  username: string; displayName: string; email: string; service?: string; direction?: string;
-}
-
 const STATUT_CYCLE = ['a_faire', 'en_cours', 'terminee', 'refuse'];
 
 const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: string | null; onVoirReunion?: (id: number) => void }> = ({ projetId, projetTitre, token, onVoirReunion }) => {
@@ -2223,9 +2213,7 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
   const [sortField, setSortField] = useState('tache');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [adResults, setAdResults] = useState<ADUser[]>([]);
-  const [adSearching, setAdSearching] = useState(false);
-  const adSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskAd = useADSearch(token);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ tache: '', responsable: '', echeance: '', statut: 'a_faire' });
   const [expandedNotesId, setExpandedNotesId] = useState<string | null>(null);
@@ -2233,19 +2221,6 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
   const [uploadingNote, setUploadingNote] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [noteTaskRef, setNoteTaskRef] = useState<any>(null);
-
-  const searchAD = useCallback((q: string) => {
-    if (adSearchTimerRef.current) clearTimeout(adSearchTimerRef.current);
-    if (q.length < 2) { setAdResults([]); return; }
-    setAdSearching(true);
-    adSearchTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { 'Authorization': `Bearer ${token}` } });
-        setAdResults((await res.json()) || []);
-      } catch (e) { setAdResults([]); }
-      finally { setAdSearching(false); }
-    }, 400);
-  }, [token]);
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -2496,7 +2471,7 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                             {(t.notes || []).map((n: any, ni: number) => (
                               <div key={n.id || ni} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 0', fontSize: '11px', borderBottom: ni < t.notes.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
                                 {n.type === 'file' ? (
-                                  <a href={`/api/projets/${projetId}/taches-agregees/${t.id}/notes/${ni}/file?token=${token}`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <a href={`/api/projets/${projetId}/taches-agregees/${t.id}/notes/${ni}/file?mode=inline&token=${token}`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                     <Upload size={10} /> {n.filename || n.content}
                                   </a>
                                 ) : (

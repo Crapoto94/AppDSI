@@ -4,9 +4,9 @@ import Header from './Header';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  LayoutDashboard, Users, MessageSquare, ShieldCheck,
+  LayoutDashboard, Users, MessageSquare,
   Mail, Settings, LayoutGrid, Activity,
-  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, Network, HardDrive, Server
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, HardDrive, Server, AlertCircle
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -43,15 +43,11 @@ const AdminLayout: React.FC = () => {
 
   const menuItems = [
     { title: "Dashboard", icon: LayoutDashboard, path: "/admin", exact: true },
-    { title: "Utilisateurs", icon: Users, path: "/admin/users" },
-    { title: "Organisation", icon: Network, path: "/admin/organisation" },
+    { title: "Paramétrage Hub", icon: Sliders, path: "/admin/hub", badge: isSuperAdmin ? pendingCount : 0 },
     { title: "Param Ville", icon: LayoutGrid, path: "/admin/param-ville" },
-    ...(isSuperAdmin ? [{ title: "Demandes d'Acces", icon: ShieldCheck, path: "/admin/access-requests", badge: pendingCount }] : []),
     { title: "Backlog", icon: Inbox, path: "/admin/backlog" },
     { title: "Messagerie & Emails", icon: Mail, path: "/admin/mail" },
     { title: "AD et Entra", icon: Users, path: "/admin/ad" },
-    { title: "Configuration Hub", icon: LayoutGrid, path: "/admin/tiles" },
-    { title: "Paramètres", icon: Sliders, path: "/admin/settings" },
     { title: "Inventaire", icon: Server, path: "/admin/inventaire" },
     { title: "SMS Frizbi", icon: MessageSquare, path: "/admin/frizbi" },
     { title: "Intelligence Artificielle", icon: MessageSquare, path: "/admin/transcript" },
@@ -59,6 +55,7 @@ const AdminLayout: React.FC = () => {
     { title: "Synchronisations", icon: Database, path: "/admin/glpi" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
     { title: "GED / Alfresco", icon: HardDrive, path: "/admin/ged" },
+    ...(isSuperAdmin ? [{ title: "Sécurité & Sauvegarde", icon: AlertCircle, path: "/admin/security" }] : []),
     { title: "Logs Système", icon: Activity, path: "/mouchard", external: true },
   ];
 

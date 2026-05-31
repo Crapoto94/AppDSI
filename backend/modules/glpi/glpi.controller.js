@@ -637,10 +637,12 @@ const glpiController = {
                 ));
 
                 const obsToInsert = [];
+                const assigneesToInsert = [];
                 results.forEach((r, idx) => {
                     const ticketId = batch[idx].glpi_id;
-                    const observers = (r.data || []).filter(tu => tu.type === 3);
-                    observers.forEach(obs => {
+                    const rows = (Array.isArray(r.data) ? r.data : []);
+                    // type 3 = observateur, type 2 = technicien assigné
+                    rows.filter(tu => tu.type === 3).forEach(obs => {
                         obsToInsert.push({
                             ticket_id: ticketId,
                             user_id: obs.users_id,
@@ -649,11 +651,23 @@ const glpiController = {
                             email: obs.alternative_email || ''
                         });
                     });
+                    rows.filter(tu => tu.type === 2).forEach(asg => {
+                        assigneesToInsert.push({
+                            ticket_id: ticketId,
+                            user_id: asg.users_id,
+                            name: asg.users_id?.toString() || '',
+                            login: asg.users_id?.toString() || '',
+                            email: asg.alternative_email || ''
+                        });
+                    });
                 });
 
                 if (obsToInsert.length > 0) {
                     await glpiController.saveObserversToPg(obsToInsert);
                     observerCount += obsToInsert.length;
+                }
+                if (assigneesToInsert.length > 0) {
+                    await glpiController.saveAssigneesToPg(assigneesToInsert);
                 }
 
                 observersSyncProgress.processed = Math.min(i + batchSize, tickets.length);
@@ -702,7 +716,7 @@ const glpiController = {
                 const followupsToInsert = [];
                 results.forEach((r, idx) => {
                     if (r.status === 'fulfilled') {
-                        const fus = r.value.data || [];
+                        const fus = Array.isArray(r.value.data) ? r.value.data : [];
                         fus.forEach(fu => {
                             if (fu.content) {
                                 followupsToInsert.push({
@@ -942,6 +956,12 @@ const glpiController = {
     },
 
     saveObserversToPg: async (obs) => {
+        // Dédupliquer par (ticket_id, user_id) : un INSERT ... ON CONFLICT DO UPDATE
+        // ne peut pas affecter deux fois la même ligne dans une seule commande.
+        // La dernière occurrence (nom résolu) l'emporte.
+        const uniqObs = new Map();
+        for (const o of obs) uniqObs.set(`${o.ticket_id}|${o.user_id}`, o);
+        obs = [...uniqObs.values()];
         const pgBatchSize = 100;
         for (let i = 0; i < obs.length; i += pgBatchSize) {
             const batch = obs.slice(i, i + pgBatchSize);
@@ -951,6 +971,23 @@ const glpiController = {
             }).join(', ');
             const params = batch.flatMap(o => [o.ticket_id, o.user_id, o.name, o.login, o.email]);
             await pool.query(`INSERT INTO glpi.observers (ticket_id, user_id, name, login, email, last_sync) VALUES ${values} ON CONFLICT (ticket_id, user_id) DO UPDATE SET name = EXCLUDED.name, login = EXCLUDED.login, email = EXCLUDED.email, last_sync = EXCLUDED.last_sync`, params);
+        }
+    },
+
+    saveAssigneesToPg: async (asg) => {
+        // Dédupliquer par (ticket_id, user_id) — cf. saveObserversToPg.
+        const uniqAsg = new Map();
+        for (const a of asg) uniqAsg.set(`${a.ticket_id}|${a.user_id}`, a);
+        asg = [...uniqAsg.values()];
+        const pgBatchSize = 100;
+        for (let i = 0; i < asg.length; i += pgBatchSize) {
+            const batch = asg.slice(i, i + pgBatchSize);
+            const values = batch.map((_, idx) => {
+                const base = idx * 5;
+                return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, CURRENT_TIMESTAMP)`;
+            }).join(', ');
+            const params = batch.flatMap(o => [o.ticket_id, o.user_id, o.name, o.login, o.email]);
+            await pool.query(`INSERT INTO glpi.assignees (ticket_id, user_id, name, login, email, last_sync) VALUES ${values} ON CONFLICT (ticket_id, user_id) DO UPDATE SET name = EXCLUDED.name, login = EXCLUDED.login, email = EXCLUDED.email, last_sync = EXCLUDED.last_sync`, params);
         }
     },
 
@@ -1278,9 +1315,11 @@ const glpiController = {
 
             // 1. Collect all unique numeric GLPI user IDs from both tables
             // Use simple IS NOT NULL filter — JavaScript handles the numeric parsing
-            const [ticketReqRes, observerIdsRes] = await Promise.all([
+            const [ticketReqRes, observerIdsRes, followupAuthorRes] = await Promise.all([
                 pool.query(`SELECT DISTINCT requester_name FROM glpi.tickets WHERE requester_name IS NOT NULL AND requester_name != ''`),
-                pool.query(`SELECT DISTINCT user_id FROM glpi.observers WHERE user_id IS NOT NULL`)
+                pool.query(`SELECT DISTINCT user_id FROM glpi.observers WHERE user_id IS NOT NULL`),
+                // Auteurs de suivis stockés sous forme d'id GLPI numérique (ex. "2984")
+                pool.query(`SELECT DISTINCT author_name FROM glpi.ticket_followups WHERE author_name ~ '^[0-9]+$'`)
             ]);
 
             const allIds = new Set();
@@ -1295,6 +1334,10 @@ const glpiController = {
             }
             for (const row of observerIdsRes.rows) {
                 if (row.user_id > 0) allIds.add(row.user_id);
+            }
+            for (const row of followupAuthorRes.rows) {
+                const n = parseInt(row.author_name, 10);
+                if (!isNaN(n) && n > 0) allIds.add(n);
             }
 
             const idList = [...allIds];
@@ -1413,6 +1456,13 @@ const glpiController = {
                          WHERE hub_tickets.observers.user_id = v.user_id`,
                         params
                     );
+                    // Idem pour les assignés (copie GLPI), pour permettre le rattachement à hub.users au reset
+                    await pool.query(
+                        `UPDATE glpi.assignees SET name = v.full_name, login = v.login
+                         FROM (VALUES ${valSql}) AS v(user_id, full_name, login)
+                         WHERE glpi.assignees.user_id = v.user_id`,
+                        params
+                    );
                 }
 
                 // Update glpi.tickets + hub_tickets.tickets (single numeric requester_name)
@@ -1426,6 +1476,21 @@ const glpiController = {
                     );
                     await pool.query(
                         `UPDATE hub_tickets.tickets SET requester_name = v.name FROM (VALUES ${valSql}) AS v(old_id, name) WHERE hub_tickets.tickets.requester_name = v.old_id`,
+                        params
+                    );
+                }
+
+                // Update author_name des suivis (commentaires) : id GLPI numérique → nom complet
+                for (let i = 0; i < entries.length; i += 100) {
+                    const batch = entries.slice(i, i + 100);
+                    const valSql = batch.map((_, k) => `($${k*2+1}::text, $${k*2+2}::text)`).join(', ');
+                    const params = batch.flatMap(([id, { fullName }]) => [String(id), fullName]);
+                    await pool.query(
+                        `UPDATE glpi.ticket_followups SET author_name = v.name FROM (VALUES ${valSql}) AS v(old_id, name) WHERE glpi.ticket_followups.author_name = v.old_id`,
+                        params
+                    );
+                    await pool.query(
+                        `UPDATE hub_tickets.ticket_followups SET author_name = v.name FROM (VALUES ${valSql}) AS v(old_id, name) WHERE hub_tickets.ticket_followups.author_name = v.old_id`,
                         params
                     );
                 }

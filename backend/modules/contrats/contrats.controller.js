@@ -341,8 +341,26 @@ module.exports = {
 
             const result = await db.run(
                 'INSERT INTO contrat_documents (contrat_id, file_path, file_name, nature, est_principal) VALUES (?,?,?,?,?)',
-                [req.params.id, saved.dbPath, req.file.originalname, nature, isPrincipal ? 1 : 0]
+                [req.params.id, saved.dbPath, saved.filename, nature, isPrincipal ? 1 : 0]
             );
+
+            // Dual-write hub_docs (viewer central)
+            try {
+                const docsService = require('../../shared/documents.service');
+                await docsService.registerExternalUpload({
+                    module: 'contrats',
+                    entityType: 'attachment',
+                    entityId: req.params.id,
+                    title: nature || req.file.originalname,
+                    filename: saved.filename,
+                    originalName: req.file.originalname,
+                    mimetype: req.file.mimetype,
+                    size: req.file.size,
+                    storageRef: saved.dbPath,
+                    metadata: { nature, est_principal: isPrincipal },
+                    uploadedBy: req.user?.username || null,
+                });
+            } catch (e) { console.warn('[DOCS] register failed:', e.message); }
 
             if (isPrincipal) {
                 await db.run(

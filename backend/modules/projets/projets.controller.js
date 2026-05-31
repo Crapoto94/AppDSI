@@ -839,8 +839,10 @@ const supprimerDocument = async (req, res) => {
         const versions = await pgDb.all('SELECT * FROM projet_versions_document WHERE document_id = $1', [did]);
         for (const v of versions) {
             try {
-                if (storage.isStoragePath(v.fichier_nom)) {
-                    await storage.deleteFile(v.fichier_nom);
+                const storagePath = v.file_path
+                    || (storage.isStoragePath(v.fichier_nom) ? v.fichier_nom : null);
+                if (storagePath) {
+                    await storage.deleteFile(storagePath);
                 } else {
                     // Legacy path
                     const chemin = path.join(DOCUMENTS_DIR, v.fichier_nom);
@@ -894,9 +896,28 @@ const uploadVersion = async (req, res) => {
         const saved = await storage.saveFile(MODULE, id, req.file);
 
         await pgDb.run(`
-            INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, commentaire, est_version_courante, depose_par_username)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8)
-        `, [did, newVersion, saved.dbPath, req.file.originalname, req.file.size, req.file.mimetype, req.body.commentaire || null, username]);
+            INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, commentaire, est_version_courante, depose_par_username, file_path)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $9)
+        `, [did, newVersion, saved.filename, req.file.originalname, req.file.size, req.file.mimetype, req.body.commentaire || null, username, saved.dbPath]);
+
+        // Dual-write hub_docs (viewer central)
+        try {
+            const docsService = require('../../shared/documents.service');
+            await docsService.registerExternalUpload({
+                module: 'projets',
+                entityType: 'documentation',
+                entityId: id,
+                title: doc.type_documentaire || req.file.originalname,
+                filename: saved.filename,
+                originalName: req.file.originalname,
+                mimetype: req.file.mimetype,
+                size: req.file.size,
+                storageRef: saved.dbPath,
+                metadata: { projet_id: id, type_documentaire: doc.type_documentaire, legacy_document_id: did },
+                versionMetadata: { legacy_version_label: newVersion, commentaire: req.body.commentaire || null },
+                uploadedBy: username,
+            });
+        } catch (e) { console.warn('[DOCS] register failed:', e.message); }
 
         if (req.body.journal === 'true') {
             await ajouterJournal(id, 'document_depose', `Version ${newVersion} de ${doc.type_documentaire} déposée`, { document_id: did, version: newVersion, type: doc.type_documentaire }, username);
@@ -927,9 +948,27 @@ const uploadVersionsVrac = async (req, res) => {
             if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
             const saved = await storage.saveFile(MODULE, id, file);
             await pgDb.run(
-                `INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username) VALUES ($1, 'v1.0', $2, $3, $4, $5, 1, $6)`,
-                [did, saved.dbPath, file.originalname, file.size, file.mimetype, username]
+                `INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username, file_path) VALUES ($1, 'v1.0', $2, $3, $4, $5, 1, $6, $7)`,
+                [did, saved.filename, file.originalname, file.size, file.mimetype, username, saved.dbPath]
             );
+
+            // Dual-write hub_docs (viewer central)
+            try {
+                const docsService = require('../../shared/documents.service');
+                await docsService.registerExternalUpload({
+                    module: 'projets',
+                    entityType: 'vrac',
+                    entityId: id,
+                    title: file.originalname,
+                    filename: saved.filename,
+                    originalName: file.originalname,
+                    mimetype: file.mimetype,
+                    size: file.size,
+                    storageRef: saved.dbPath,
+                    metadata: { projet_id: id, legacy_document_id: did },
+                    uploadedBy: username,
+                });
+            } catch (e) { console.warn('[DOCS] register failed:', e.message); }
             results.push({ id: did, nom: file.originalname });
         }
         res.status(201).json({ count: results.length, documents: results });
@@ -980,16 +1019,29 @@ const telechargerVersion = async (req, res) => {
         const version = await pgDb.get('SELECT * FROM projet_versions_document WHERE id = $1 AND document_id = $2', [vid, did]);
         if (!version) return res.status(404).json({ error: 'Version non trouvée' });
 
+        const originalName = version.fichier_original;
+        // Défaut : inline (prévisualisation navigateur). Forcer DL via ?mode=attachment.
+        const disposition = req.query.mode === 'attachment' ? 'attachment' : 'inline';
+
+        // Chemin de stockage unifié : file_path (nouveau), ou fichier_nom si c'est déjà un chemin storage/.
+        const storagePath = version.file_path
+            || (storage.isStoragePath(version.fichier_nom) ? version.fichier_nom : null);
+
+        if (storagePath) {
+            const f = await storage.getFileForServe(storagePath);
+            if (!f) return res.status(404).json({ error: 'Fichier introuvable' });
+            res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(originalName)}"`);
+            res.type(version.fichier_type || path.extname(originalName) || 'application/octet-stream');
+            if (f.absolutePath) return res.sendFile(f.absolutePath);
+            return res.send(f.buffer);
+        }
+
+        // Repli legacy : fichier local dans DOCUMENTS_DIR.
         const filePath = path.join(DOCUMENTS_DIR, version.fichier_nom);
         if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Fichier introuvable' });
-
-        const mode = req.query.mode;
-        if (mode === 'inline') {
-            res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(version.fichier_original)}"`);
-            res.sendFile(filePath);
-        } else {
-            res.download(filePath, version.fichier_original);
-        }
+        res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(originalName)}"`);
+        res.type(version.fichier_type || path.extname(originalName) || 'application/octet-stream');
+        res.sendFile(filePath);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1523,11 +1575,33 @@ const ajouterNoteFichier = async (req, res) => {
         const username = req.user?.username || 'inconnu';
         if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
 
+        if (req.file.originalname) req.file.originalname = storage.fixUploadName(req.file.originalname);
+        const saved = await storage.saveFile('taches-notes', taskId, req.file);
+
         const note = {
-            id: Date.now(), type: 'file', content: req.file.filename,
+            id: Date.now(), type: 'file', content: saved.filename,
+            file_path: saved.dbPath,
             filename: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype,
             created_at: new Date().toISOString(), created_by: username
         };
+
+        // Dual-write hub_docs (viewer central)
+        try {
+            const docsService = require('../../shared/documents.service');
+            await docsService.registerExternalUpload({
+                module: 'projets',
+                entityType: 'task_note',
+                entityId: taskId,
+                title: req.file.originalname,
+                filename: saved.filename,
+                originalName: req.file.originalname,
+                mimetype: req.file.mimetype,
+                size: req.file.size,
+                storageRef: saved.dbPath,
+                metadata: { projet_id: id, task_id: taskId },
+                uploadedBy: username,
+            });
+        } catch (e) { console.warn('[DOCS] register failed:', e.message); }
 
         const addNoteToArray = (notes) => { notes.push(note); return notes; };
 
@@ -1602,9 +1676,27 @@ const telechargerNoteFichier = async (req, res) => {
         }
 
         if (!note || note.type !== 'file') return res.status(404).json({ error: 'Fichier non trouvé' });
+
+        // Défaut : inline (prévisualisation navigateur). Forcer DL via ?mode=attachment.
+        const disposition = req.query.mode === 'attachment' ? 'attachment' : 'inline';
+        const storagePath = note.file_path
+            || (storage.isStoragePath(note.content) ? note.content : null);
+
+        if (storagePath) {
+            const f = await storage.getFileForServe(storagePath);
+            if (!f) return res.status(404).json({ error: 'Fichier introuvable sur le stockage' });
+            res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(note.filename)}"`);
+            res.type(note.mimetype || path.extname(note.filename) || 'application/octet-stream');
+            if (f.absolutePath) return res.sendFile(f.absolutePath);
+            return res.send(f.buffer);
+        }
+
+        // Fallback legacy
         const filePath = path.join(__dirname, '..', '..', 'file_notes_taches', note.content);
         if (!require('fs').existsSync(filePath)) return res.status(404).json({ error: 'Fichier introuvable sur le disque' });
-        res.download(filePath, note.filename);
+        res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(note.filename)}"`);
+        res.type(note.mimetype || path.extname(note.filename) || 'application/octet-stream');
+        res.sendFile(filePath);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1613,6 +1705,17 @@ const telechargerNoteFichier = async (req, res) => {
 const supprimerNoteTache = async (req, res) => {
     try {
         const { id, taskId, noteIdx } = req.params;
+        const idx = parseInt(noteIdx, 10);
+
+        const deleteNoteFile = async (note) => {
+            if (!note || note.type !== 'file') return;
+            const sp = note.file_path || (storage.isStoragePath(note.content) ? note.content : null);
+            if (sp) { try { await storage.deleteFile(sp); } catch (e) {} }
+            else if (note.content) {
+                const fp = path.join(__dirname, '..', '..', 'file_notes_taches', note.content);
+                try { if (fs.existsSync(fp)) fs.unlinkSync(fp); } catch (e) {}
+            }
+        };
 
         if (taskId.startsWith('m-')) {
             const parts = taskId.split('-');
@@ -1626,9 +1729,10 @@ const supprimerNoteTache = async (req, res) => {
             try { tasks = JSON.parse(reunion.liste_taches || '[]'); } catch (e) {}
             if (taskIndex < 0 || taskIndex >= tasks.length) return res.status(404).json({ error: 'Tâche non trouvée' });
 
-            if (!tasks[taskIndex].notes || noteIdx < 0 || noteIdx >= tasks[taskIndex].notes.length) return res.status(404).json({ error: 'Note non trouvée' });
+            if (!tasks[taskIndex].notes || idx < 0 || idx >= tasks[taskIndex].notes.length) return res.status(404).json({ error: 'Note non trouvée' });
 
-            tasks[taskIndex].notes.splice(noteIdx, 1);
+            await deleteNoteFile(tasks[taskIndex].notes[idx]);
+            tasks[taskIndex].notes.splice(idx, 1);
             await pgDb.run(
                 'UPDATE hub_rencontres.rencontres_reunions SET liste_taches = $1 WHERE id = $2',
                 [JSON.stringify(tasks), reunionId]
@@ -1641,8 +1745,9 @@ const supprimerNoteTache = async (req, res) => {
 
             let notes = [];
             try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
-            if (noteIdx < 0 || noteIdx >= notes.length) return res.status(404).json({ error: 'Note non trouvée' });
-            notes.splice(noteIdx, 1);
+            if (idx < 0 || idx >= notes.length) return res.status(404).json({ error: 'Note non trouvée' });
+            await deleteNoteFile(notes[idx]);
+            notes.splice(idx, 1);
             await pgDb.run(
                 'UPDATE projet_taches_standalone SET notes = $1 WHERE id = $2',
                 [JSON.stringify(notes), dbId]
@@ -1654,8 +1759,9 @@ const supprimerNoteTache = async (req, res) => {
             if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
             let notes = [];
             try { notes = JSON.parse(existing.notes || '[]'); } catch (e) {}
-            if (noteIdx < 0 || noteIdx >= notes.length) return res.status(404).json({ error: 'Note non trouvée' });
-            notes.splice(noteIdx, 1);
+            if (idx < 0 || idx >= notes.length) return res.status(404).json({ error: 'Note non trouvée' });
+            await deleteNoteFile(notes[idx]);
+            notes.splice(idx, 1);
             await pgDb.run(
                 'UPDATE hub_rencontres.revue_taches SET notes = $1 WHERE id = $2',
                 [JSON.stringify(notes), dbId]
