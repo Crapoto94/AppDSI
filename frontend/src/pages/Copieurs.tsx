@@ -53,6 +53,17 @@ interface Copieur {
   has_decreasing_counter?: boolean;
   last_snmp_releve_date?: string;
   last_snmp_releve_value?: number;
+  snmp_toner_black?: number | null;
+  snmp_toner_cyan?: number | null;
+  snmp_toner_magenta?: number | null;
+  snmp_toner_yellow?: number | null;
+  snmp_toner_waste?: number | null;
+  snmp_error?: string | null;
+  snmp_console?: string | null;
+  snmp_total?: number | string | null;
+  snmp_total_noir?: number | string | null;
+  snmp_total_couleur?: number | string | null;
+  snmp_last_check?: string | null;
 }
 
 interface CopieurForm {
@@ -231,6 +242,10 @@ const Copieurs: React.FC = () => {
   const [releveValues, setReleveValues] = useState<Record<number, string>>({});
   const [savingReleve, setSavingReleve] = useState(false);
 
+  const [snmpCollecting, setSnmpCollecting] = useState(false);
+  const [snmpCollectStats, setSnmpCollectStats] = useState<any>(null);
+  const snmpCollectDone = useRef(false);
+
   useEffect(() => {
     axios.get('/api/copieurs/boundary').then(r => setIvryBoundary(r.data)).catch(() => {});
   }, []);
@@ -250,6 +265,27 @@ const Copieurs: React.FC = () => {
   }, [token, filterMode]);
 
   useEffect(() => { fetchCopieurs(); }, [fetchCopieurs]);
+
+  // Collecte SNMP automatique à l'ouverture de la page (une seule fois)
+  const runSnmpCollect = useCallback(async () => {
+    setSnmpCollecting(true);
+    setSnmpCollectStats(null);
+    try {
+      const res = await api.post('/snmp-collect');
+      setSnmpCollectStats(res.data);
+      await fetchCopieurs();
+    } catch (e) {
+      console.error('Erreur collecte SNMP', e);
+    } finally {
+      setSnmpCollecting(false);
+    }
+  }, [token, fetchCopieurs]);
+
+  useEffect(() => {
+    if (snmpCollectDone.current) return;
+    snmpCollectDone.current = true;
+    runSnmpCollect();
+  }, [runSnmpCollect]);
 
   const handleSort = (col: string) => {
     if (sortBy === col) {
@@ -942,6 +978,9 @@ const Copieurs: React.FC = () => {
             </div>
           </div>
           <div className="page-actions">
+            <button className="btn btn-outline" onClick={runSnmpCollect} disabled={snmpCollecting} style={{ color: '#7c3aed', borderColor: '#c4b5fd' }} title={snmpCollectStats ? `${snmpCollectStats.ok}/${snmpCollectStats.total} OK · ${snmpCollectStats.releves} relevés · ${snmpCollectStats.erreurs} alertes · ${snmpCollectStats.injoignables} injoignables` : 'Collecter compteurs et états SNMP'}>
+              <Wifi size={16} /> {snmpCollecting ? 'Collecte SNMP...' : 'Collecte SNMP'}
+            </button>
             <button className="btn btn-outline" onClick={handlePingAll} disabled={pinging}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: pinging ? '#fbbf24' : '#16a34a' }} /> {pinging ? 'Ping...' : 'Ping tout'}
             </button>
@@ -1097,6 +1136,8 @@ const Copieurs: React.FC = () => {
                       </div>
                     )}
                   </th>
+                  <th>État SNMP</th>
+                  <th>Toners</th>
                   <th className="sortable" onClick={() => handleSort('date_acquisition')}>Date acq. {sortIcon('date_acquisition')}</th>
                   <th className="sortable" onClick={() => handleSort('divers')}>
                     Annotation {sortIcon('divers')}
@@ -1112,14 +1153,14 @@ const Copieurs: React.FC = () => {
                   </th>
                   <th className="sortable" onClick={() => handleSort('last_visit_date')}>Dernière visite {sortIcon('last_visit_date')}</th>
                   <th className="sortable" onClick={() => handleSort('last_releve_date')}>Dernier relevé {sortIcon('last_releve_date')}</th>
-                  <th className="sortable" onClick={() => handleSort('last_snmp_releve_date')}>Dernier SNMP {sortIcon('last_snmp_releve_date')}</th>
+                  <th className="sortable" onClick={() => handleSort('snmp_total_noir')}>Compteurs SNMP {sortIcon('snmp_total_noir')}</th>
                   <th className="sortable" style={{ width: 60 }} onClick={() => handleSort('interventions')}>Int. {sortIcon('interventions')}</th>
                   <th style={{ width: 150 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={13} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
+                  <tr><td colSpan={16} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Aucun copieur trouvé</td></tr>
                 )}
                 {filtered.map(c => (
                   <React.Fragment key={c.id}>
@@ -1174,6 +1215,32 @@ const Copieurs: React.FC = () => {
                           <span className="kpax-badge kpax-non">non</span>
                         )}
                       </td>
+                      <td title={c.snmp_last_check ? `Vérifié le ${new Date(c.snmp_last_check).toLocaleString('fr-FR')}` : ''}>
+                        {(() => {
+                          const err = (c.snmp_error || '').toLowerCase();
+                          if (!c.snmp_last_check) return <span style={{ fontSize: 11, color: '#94a3b8' }}>—</span>;
+                          if (err === 'injoignable') return <span className="snmp-badge snmp-off">injoignable</span>;
+                          if (c.snmp_error) {
+                            const isTonerLow = err.includes('toner');
+                            return <span className={`snmp-badge ${isTonerLow ? 'snmp-warn' : 'snmp-err'}`} title={c.snmp_error}>{c.snmp_error}</span>;
+                          }
+                          return <span className="snmp-badge snmp-ok" title={c.snmp_console || 'OK'}>OK</span>;
+                        })()}
+                      </td>
+                      <td>
+                        {c.snmp_last_check && c.snmp_error !== 'injoignable' && (c.snmp_toner_black != null || c.snmp_toner_cyan != null) ? (
+                          <div style={{ display: 'flex', gap: 3 }}>
+                            {([['K', c.snmp_toner_black, '#1e293b'], ['C', c.snmp_toner_cyan, '#0891b2'], ['M', c.snmp_toner_magenta, '#db2777'], ['J', c.snmp_toner_yellow, '#ca8a04']] as [string, number | null | undefined, string][]).map(([lbl, val, col]) => (
+                              <div key={lbl} title={`${lbl}: ${val ?? '?'}%`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 18 }}>
+                                <div style={{ width: 14, height: 28, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                                  <div style={{ height: `${Math.max(0, Math.min(100, val ?? 0))}%`, background: (val != null && val <= 10) ? '#dc2626' : col }} />
+                                </div>
+                                <span style={{ fontSize: 8, color: '#64748b' }}>{lbl}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : <span style={{ fontSize: 11, color: '#94a3b8' }}>—</span>}
+                      </td>
                       <td>{formatDate(c.date_acquisition)}</td>
                       <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.divers || ''}>{c.divers || '-'}</td>
                       <td>
@@ -1213,15 +1280,25 @@ const Copieurs: React.FC = () => {
                         )}
                       </td>
                       <td>
-                        {c.last_snmp_releve_date ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
-                            <span className="visit-badge visit-badge-active">
-                              {formatDate(c.last_snmp_releve_date)}
-                            </span>
-                            {c.last_snmp_releve_value && (
-                              <span style={{ fontSize: 11, color: '#0891b2', fontFamily: 'monospace', background: '#e0f2fe', padding: '0 5px', borderRadius: 3, display: 'inline-block' }}>
-                                📊 {Number(c.last_snmp_releve_value).toLocaleString('fr-FR')}
+                        {(c.snmp_total_noir != null || c.snmp_total_couleur != null || c.snmp_total != null) ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
+                            {c.snmp_total_noir != null && (
+                              <span style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace', background: '#f1f5f9', padding: '0 5px', borderRadius: 4 }} title="Total noir">
+                                ⚫ {Number(c.snmp_total_noir).toLocaleString('fr-FR')}
                               </span>
+                            )}
+                            {c.snmp_total_couleur != null && (
+                              <span style={{ fontSize: 10, color: '#0891b2', fontFamily: 'monospace', background: '#e0f2fe', padding: '0 5px', borderRadius: 4 }} title="Total couleur">
+                                🎨 {Number(c.snmp_total_couleur).toLocaleString('fr-FR')}
+                              </span>
+                            )}
+                            {c.snmp_total != null && (
+                              <span style={{ fontSize: 10, color: '#334155', fontFamily: 'monospace', fontWeight: 600 }} title="Compteur total (à vie)">
+                                Σ {Number(c.snmp_total).toLocaleString('fr-FR')}
+                              </span>
+                            )}
+                            {c.last_snmp_releve_date && (
+                              <span style={{ fontSize: 9, color: '#94a3b8' }}>{formatDate(c.last_snmp_releve_date)}</span>
                             )}
                           </div>
                         ) : (
@@ -1248,7 +1325,7 @@ const Copieurs: React.FC = () => {
                     </tr>
                     {expandedId === c.id && (
                       <tr className="expanded-row">
-                        <td colSpan={12}>
+                        <td colSpan={16}>
                           <div className="expanded-details">
                             <div><strong>Secteur:</strong> {c.secteur || '-'}</div>
                             <div><strong>N° série:</strong> {c.numero_serie}</div>
@@ -2995,6 +3072,11 @@ const Copieurs: React.FC = () => {
           transition: all 0.2s ease;
         }
         .modal-compteurs { max-width: 860px; width: 100%; }
+        .snmp-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .snmp-ok { background: #dcfce7; color: #166534; }
+        .snmp-warn { background: #fef9c3; color: #854d0e; }
+        .snmp-err { background: #fee2e2; color: #991b1b; }
+        .snmp-off { background: #f1f5f9; color: #94a3b8; }
       `}</style>
     </div>
   );

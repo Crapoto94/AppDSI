@@ -2192,4 +2192,185 @@ module.exports = {
             res.status(500).json({ message: 'Erreur enregistrement relevé', error: error.message });
         }
     },
+
+    // ─── Collecte SNMP de masse (toners, erreurs, compteurs) ──────────────────
+    //  Appelée à l'ouverture de la page. Met à jour les colonnes "live" sur chaque
+    //  copieur et insère un relevé/jour (UPSERT) par compteur.
+    snmpCollectAll: async (req, res) => {
+        try {
+            const { pool } = require('../../shared/database');
+            const community = 'public';
+            const today = new Date().toISOString().split('T')[0];
+            const username = req.user?.username || 'snmp-auto';
+
+            const copieurs = await pgDb.all(
+                "SELECT id, ip, numero_serie, mainteneur FROM hub_copieurs.copieurs WHERE archive = false AND ip IS NOT NULL AND ip <> '' AND ip <> '42'"
+            );
+
+            // Codes compteur indexés par mainteneur
+            const allCodes = await pgDb.all('SELECT id, code, libelle, format, couleur, mainteneur FROM hub_copieurs.compteur_codes');
+            const codesByMaint = {};
+            for (const c of allCodes) {
+                const k = (c.mainteneur || '').toLowerCase();
+                (codesByMaint[k] = codesByMaint[k] || []).push(c);
+            }
+
+            const CANON_MAP = { 'A4|false': '113', 'A3|false': '112', 'A4|true': '123', 'A3|true': '122' };
+
+            const parseSnmp = (stdout) => {
+                const map = {};
+                for (const raw of stdout.split('\n')) {
+                    const idx = raw.indexOf(' = ');
+                    if (idx < 0) continue;
+                    const oid = raw.slice(0, idx).trim().replace(/^\./, '');
+                    let val = raw.slice(idx + 3).trim();
+                    const t = val.match(/^(?:INTEGER|Counter32|Counter64|Gauge32|STRING|Hex-STRING|Timeticks):\s*(.*)$/);
+                    if (t) val = t[1];
+                    val = val.replace(/^"|"$/g, '').trim();
+                    map[oid] = val;
+                }
+                return map;
+            };
+
+            const decodeErrState = (hex) => {
+                if (!hex) return null;
+                const bytes = hex.trim().split(/\s+/).filter(Boolean);
+                const b0 = parseInt(bytes[0], 16);
+                if (isNaN(b0)) return null;
+                const labels = [];
+                if (b0 & 0x80) labels.push('papier bas');
+                if (b0 & 0x40) labels.push('plus de papier');
+                if (b0 & 0x20) labels.push('toner bas');
+                if (b0 & 0x10) labels.push('plus de toner');
+                if (b0 & 0x08) labels.push('capot ouvert');
+                if (b0 & 0x04) labels.push('bourrage');
+                if (b0 & 0x02) labels.push('hors ligne');
+                if (b0 & 0x01) labels.push('intervention requise');
+                return labels.length ? labels.join(', ') : null;
+            };
+
+            const stats = { total: copieurs.length, ok: 0, injoignables: 0, releves: 0, erreurs: 0 };
+
+            const collectOne = async (cop) => {
+                const ip = cop.ip.trim();
+                const maint = (cop.mainteneur || '').toLowerCase();
+                // OIDs standard : 4 toners couleur + usagé, console, erreur, total à vie
+                const errOid = '1.3.6.1.2.1.25.3.5.1.2.1';
+                const baseOids = [
+                    '1.3.6.1.2.1.43.11.1.1.9.1.1', '1.3.6.1.2.1.43.11.1.1.9.1.2',
+                    '1.3.6.1.2.1.43.11.1.1.9.1.3', '1.3.6.1.2.1.43.11.1.1.9.1.4',
+                    '1.3.6.1.2.1.43.11.1.1.9.1.5', '1.3.6.1.2.1.43.16.5.1.2.1.1',
+                    '1.3.6.1.2.1.43.10.2.1.4.1.1',
+                ];
+                let map;
+                try {
+                    const { stdout } = await execPromise(
+                        `snmpget -v 1 -c ${community} -On -t 2 -r 0 ${ip} ${[...baseOids, errOid].join(' ')}`,
+                        { timeout: 5000 }
+                    );
+                    map = parseSnmp(stdout);
+                } catch {
+                    // Retry sans l'OID erreur (certains modèles ne le supportent pas en v1)
+                    try {
+                        const { stdout } = await execPromise(
+                            `snmpget -v 1 -c ${community} -On -t 2 -r 0 ${ip} ${baseOids.join(' ')}`,
+                            { timeout: 5000 }
+                        );
+                        map = parseSnmp(stdout);
+                    } catch {
+                        stats.injoignables++;
+                        await pool.query(
+                            `UPDATE hub_copieurs.copieurs SET snmp_error='injoignable', snmp_last_check=NOW() WHERE id=$1`,
+                            [cop.id]
+                        );
+                        return;
+                    }
+                }
+
+                const intOf = (oid) => { const v = parseInt(map[oid]); return isNaN(v) ? null : v; };
+                const tBlack = intOf('1.3.6.1.2.1.43.11.1.1.9.1.1');
+                const tCyan = intOf('1.3.6.1.2.1.43.11.1.1.9.1.2');
+                const tMagenta = intOf('1.3.6.1.2.1.43.11.1.1.9.1.3');
+                const tYellow = intOf('1.3.6.1.2.1.43.11.1.1.9.1.4');
+                const tWaste = intOf('1.3.6.1.2.1.43.11.1.1.9.1.5');
+                const consoleText = map['1.3.6.1.2.1.43.16.5.1.2.1.1'] || null;
+                const lifeTotal = intOf('1.3.6.1.2.1.43.10.2.1.4.1.1');
+                let errText = decodeErrState(map[errOid]);
+                // Toner bas si une couleur <= 10 %
+                if (!errText) {
+                    const low = [['N', tBlack], ['C', tCyan], ['M', tMagenta], ['Y', tYellow]]
+                        .filter(([, v]) => v !== null && v <= 10).map(([k]) => k);
+                    if (low.length) errText = `toner bas (${low.join('')})`;
+                }
+
+                let totalNoir = null, totalCouleur = null;
+
+                // Canon : lire les 4 compteurs détaillés
+                if (maint === 'canon') {
+                    try {
+                        const canonOids = ['113', '112', '123', '122'].map(id => `1.3.6.1.4.1.1602.1.11.1.4.1.4.${id}`);
+                        const { stdout } = await execPromise(
+                            `snmpget -v 1 -c ${community} -On -t 2 -r 0 ${ip} ${canonOids.join(' ')}`,
+                            { timeout: 5000 }
+                        );
+                        const cmap = parseSnmp(stdout);
+                        const cv = (id) => { const v = parseInt(cmap[`1.3.6.1.4.1.1602.1.11.1.4.1.4.${id}`]); return isNaN(v) ? null : v; };
+                        const c113 = cv('113'), c112 = cv('112'), c123 = cv('123'), c122 = cv('122');
+                        if (c113 !== null || c112 !== null) totalNoir = (c113 || 0) + (c112 || 0);
+                        if (c123 !== null || c122 !== null) totalCouleur = (c123 || 0) + (c122 || 0);
+
+                        // Relevé du jour par code (UPSERT)
+                        const counters = { '113': c113, '112': c112, '123': c123, '122': c122 };
+                        const codes = codesByMaint['canon'] || [];
+                        let wrote = false;
+                        for (const c of codes) {
+                            const canonId = CANON_MAP[`${(c.format || '').toUpperCase()}|${c.couleur === true}`];
+                            if (!canonId || counters[canonId] === null || counters[canonId] === undefined) continue;
+                            await pool.query(
+                                `INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                                 VALUES ($1,$2,$3,$4,$5,$6)
+                                 ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, created_by=$6`,
+                                [cop.id, c.id, today, counters[canonId], cop.mainteneur, username]
+                            );
+                            wrote = true;
+                        }
+                        if (wrote) stats.releves++;
+                    } catch { /* compteurs Canon indisponibles, on garde les toners */ }
+                } else if (lifeTotal !== null) {
+                    totalNoir = lifeTotal;
+                    const codes = codesByMaint[maint] || [];
+                    const codeId = (codes.find(c => /^total/i.test(c.libelle || '')) || codes[0])?.id;
+                    if (codeId) {
+                        await pool.query(
+                            `INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                             VALUES ($1,$2,$3,$4,$5,$6)
+                             ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, created_by=$6`,
+                            [cop.id, codeId, today, lifeTotal, cop.mainteneur, username]
+                        );
+                        stats.releves++;
+                    }
+                }
+
+                if (errText) stats.erreurs++;
+                stats.ok++;
+                await pool.query(
+                    `UPDATE hub_copieurs.copieurs SET
+                        snmp_toner_black=$1, snmp_toner_cyan=$2, snmp_toner_magenta=$3, snmp_toner_yellow=$4, snmp_toner_waste=$5,
+                        snmp_console=$6, snmp_error=$7, snmp_total=$8, snmp_total_noir=$9, snmp_total_couleur=$10, snmp_last_check=NOW()
+                     WHERE id=$11`,
+                    [tBlack, tCyan, tMagenta, tYellow, tWaste, consoleText, errText, lifeTotal, totalNoir, totalCouleur, cop.id]
+                );
+            };
+
+            // Exécution par lots de 8 en parallèle
+            const CONCURRENCY = 10;
+            for (let i = 0; i < copieurs.length; i += CONCURRENCY) {
+                await Promise.all(copieurs.slice(i, i + CONCURRENCY).map(c => collectOne(c).catch(() => {})));
+            }
+
+            res.json(stats);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur collecte SNMP', error: error.message });
+        }
+    },
 };

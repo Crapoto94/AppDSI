@@ -2737,6 +2737,17 @@ async function setupPgDb() {
     try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_copieur_releves_unique ON hub_copieurs.copieur_releves(copieur_id, code_id, date_releve)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_copieurs.copieur_releves ADD COLUMN IF NOT EXISTS mainteneur TEXT`); } catch (e) {}
 
+    // Colonnes SNMP live (état toners, erreurs, derniers compteurs) sur le copieur
+    for (const col of [
+        'snmp_toner_black INTEGER', 'snmp_toner_cyan INTEGER', 'snmp_toner_magenta INTEGER',
+        'snmp_toner_yellow INTEGER', 'snmp_toner_waste INTEGER',
+        'snmp_error TEXT', 'snmp_console TEXT',
+        'snmp_total BIGINT', 'snmp_total_noir BIGINT', 'snmp_total_couleur BIGINT',
+        'snmp_last_check TIMESTAMP'
+    ]) {
+        try { await client.query(`ALTER TABLE hub_copieurs.copieurs ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
+    }
+
     // Create hub_consommables schema and tables
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_consommables;');
 

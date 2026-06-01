@@ -61,6 +61,7 @@ router.post('/:id/releves',                                               authen
 router.delete('/:id/releves/:releveId',                                   authenticateJWT, copieursController.deleteCopieurReleve);
 
 // ─── Test SNMP ────────────────────────────────────────────────────────────────
+router.post('/snmp-collect',                                              authenticateJWT, copieursController.snmpCollectAll);
 router.post('/:id/test-snmp',                                             authenticateJWT, copieursController.testSnmp);
 router.post('/:id/snmp-walk',                                             authenticateJWT, copieursController.snmpWalk);
 router.post('/:id/snmp-releve',                                           authenticateJWT, copieursController.takeSnmpReleve);
