@@ -3624,6 +3624,8 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS abbreviation VARCHAR(50)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION`); } catch (e) {}
+    // Géocodage manuel : bloque l'écrasement automatique par Nominatim
+    try { await client.query(`ALTER TABLE hub.sites ADD COLUMN IF NOT EXISTS geocoded_manually BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
     // ─── hub.ecoles ───────────────────────────────────────────────
     await client.query(`

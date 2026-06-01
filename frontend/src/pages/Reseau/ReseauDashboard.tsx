@@ -5,7 +5,7 @@ import {
   Network, Map as MapIcon, Share2, Plus, Trash2,
   Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router,
 } from 'lucide-react';
-import NetworkMap from './NetworkMap';
+import NetworkMap, { MoveResult } from './NetworkMap';
 import NetworkTopology from './NetworkTopology';
 import { linkStyle } from './utils';
 import type {
@@ -341,7 +341,15 @@ export default function ReseauDashboard() {
               </div>
               <div style={{ flex: 1, minHeight: 0 }}>
                 {view === 'map' ? (
-                  <NetworkMap sites={sites} links={links} ducts={ducts} layers={layers} drawMode={drawMode} drawnPoints={drawnPoints} onMapClick={onMapClick} highlightSites={[form.site_a, form.site_b].filter(Boolean)} />
+                  <NetworkMap sites={sites} links={links} ducts={ducts} layers={layers} drawMode={drawMode} drawnPoints={drawnPoints} onMapClick={onMapClick} highlightSites={[form.site_a, form.site_b].filter(Boolean)}
+                    onSiteMoved={(r: MoveResult) => {
+                      setSitesArr(prev => prev.map(s =>
+                        s.site_code === r.siteCode
+                          ? { ...s, lat: r.lat, lng: r.lng, lat_own: r.lat, lng_own: r.lng, geocoded_manually: true }
+                          : s
+                      ));
+                    }}
+                  />
                 ) : (
                   <NetworkTopology sites={sites} links={links} />
                 )}

@@ -158,7 +158,9 @@ module.exports = {
 
   getSites: async (req, res) => {
     try {
-      const sites = await pgDb.all('SELECT * FROM hub.sites ORDER BY nom');
+      const sites = await pgDb.all(
+        'SELECT *, COALESCE(geocoded_manually, false) AS geocoded_manually FROM hub.sites ORDER BY nom'
+      );
       res.json(sites);
     } catch (error) {
       res.status(500).json({ message: 'Erreur récupération sites', error: error.message });
@@ -204,12 +206,12 @@ module.exports = {
   saveGeocode: async (req, res) => {
     try {
       const { id } = req.params;
-      const { lat, lng } = req.body;
+      const { lat, lng, manual = false } = req.body;
       await pgDb.run(
-        'UPDATE hub.sites SET lat = ?, lng = ?, updated_at = NOW() WHERE id = ?',
-        [lat, lng, id]
+        'UPDATE hub.sites SET lat = ?, lng = ?, geocoded_manually = ?, updated_at = NOW() WHERE id = ?',
+        [lat, lng, manual ? 1 : 0, id]
       );
-      res.json({ ok: true });
+      res.json({ ok: true, geocoded_manually: !!manual });
     } catch (error) {
       res.status(500).json({ message: 'Erreur sauvegarde géocodage', error: error.message });
     }

@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, MapPin, ChevronRight, List, Network } from 'lucide-react';
 import AdminOrganisation from '../AdminOrganisation';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -20,7 +20,7 @@ interface Elu { id?: number; nom: string; prenom: string; email?: string; teleph
 interface Site {
   id?: number; code_bien?: string; nom: string; categorie?: string;
   adresse?: string; is_active: boolean; lat?: number; lng?: number;
-  abbreviation?: string;
+  abbreviation?: string; geocoded_manually?: boolean;
 }
 interface Ecole { id?: number; nom: string; adresse?: string; code_postal?: string; email?: string; telephone?: string; directeur?: string; }
 interface GeocodedSite { code: string; nom: string; lat: number; lng: number; adresse: string; categorie?: string; }
@@ -328,6 +328,14 @@ const MapController = ({ selectedCode, geocodedSites }: { selectedCode: string |
   return null;
 };
 
+const MapMoveHandler: React.FC<{
+  active: boolean;
+  onPick: (lat: number, lng: number) => void;
+}> = ({ active, onPick }) => {
+  useMapEvents({ click(e) { if (active) onPick(e.latlng.lat, e.latlng.lng); } });
+  return null;
+};
+
 const getSortValue = (site: Site, key: SortKey): string => {
   if (key === 'is_active') return site.is_active ? '1' : '0';
   return String((site as any)[key] ?? '');
@@ -494,6 +502,8 @@ export default function ParamVille() {
   const [selectedMapSite, setSelectedMapSite] = useState<string | null>(null);
   const [carteFilterCategorie, setCarteFilterCategorie] = useState('');
   const [showInactifsCarte, setShowInactifsCarte] = useState(false);
+  const [movingAdminSite, setMovingAdminSite] = useState<Site | null>(null);
+  const [movingAdminSaving, setMovingAdminSaving] = useState(false);
 
   const [ecoles, setEcoles] = useState<Ecole[]>([]);
   const [editingEcole, setEditingEcole] = useState<Ecole | null>(null);
@@ -1082,9 +1092,16 @@ export default function ParamVille() {
                         </td>
                         <td style={{ ...s.td, fontSize: '12px', color: '#475569', fontStyle: 'italic' }}>{site.abbreviation || '—'}</td>
                         <td style={{ ...s.td, textAlign: 'center' }}>
-                          {isGeo
-                            ? <span title={`${site.lat?.toFixed(5)}, ${site.lng?.toFixed(5)}`} style={{ color: '#16a34a', cursor: 'help' }}>📍</span>
-                            : <span style={{ color: '#d1d5db' }}>—</span>}
+                          {isGeo ? (
+                            <span title={`${site.lat?.toFixed(5)}, ${site.lng?.toFixed(5)}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'help' }}>
+                              <span style={{ color: '#16a34a' }}>📍</span>
+                              {site.geocoded_manually && (
+                                <span style={{ fontSize: 10, background: '#fef9c3', color: '#92400e', padding: '1px 5px', borderRadius: 8, fontWeight: 700 }}>Manuel</span>
+                              )}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#d1d5db' }}>—</span>
+                          )}
                         </td>
                         <td style={{ ...s.td }}>
                           <button style={{ ...s.btn('warning'), padding: '5px 9px' }} onClick={() => { setEditingSite(site); setSiteForm(site); }}><Edit2 size={14} /></button>
@@ -1356,25 +1373,66 @@ export default function ParamVille() {
             </div>
 
             {/* Carte Leaflet */}
-            <div style={{ flex: 1, borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', position: 'relative' }}>
+            <div style={{ flex: 1, borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', position: 'relative', cursor: movingAdminSite ? 'crosshair' : '' }}>
+              {/* Bandeau mode déplacement */}
+              {movingAdminSite && (
+                <div style={{
+                  position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+                  zIndex: 1000, background: '#1e293b', color: 'white', padding: '8px 18px',
+                  borderRadius: 10, fontSize: 13, fontWeight: 600,
+                  boxShadow: '0 4px 16px rgba(0,0,0,.3)', display: 'flex', alignItems: 'center', gap: 10,
+                }}>
+                  <span>📍 Cliquez pour repositionner :</span>
+                  <strong style={{ color: '#fbbf24' }}>{movingAdminSite.code_bien} — {movingAdminSite.nom}</strong>
+                  {movingAdminSaving && <span style={{ color: '#94a3b8' }}>Enregistrement…</span>}
+                  <button onClick={() => setMovingAdminSite(null)} style={{
+                    background: 'rgba(255,255,255,.15)', border: 'none', color: 'white',
+                    borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 12,
+                  }}>✕ Annuler</button>
+                </div>
+              )}
               <MapContainer center={CITY_CENTER} zoom={14} style={{ height: '100%', width: '100%' }}>
                 <TileLayer attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                 <MapController selectedCode={selectedMapSite} geocodedSites={geocodedSites} />
-                {geocodedSitesFiltered.map(site => (
+                <MapMoveHandler active={!!movingAdminSite} onPick={async (lat, lng) => {
+                  if (!movingAdminSite || movingAdminSaving) return;
+                  setMovingAdminSaving(true);
+                  try {
+                    await axios.patch(`/api/ville/sites/${movingAdminSite.id}/geocode`, { lat, lng, manual: true }, { headers: getHeaders() });
+                    setSites(prev => prev.map(s => s.id === movingAdminSite.id ? { ...s, lat, lng, geocoded_manually: true } : s));
+                    setGeocodedSites(prev => {
+                      const existing = prev.find(g => g.code === movingAdminSite.code_bien);
+                      if (existing) return prev.map(g => g.code === movingAdminSite.code_bien ? { ...g, lat, lng } : g);
+                      return [...prev, { code: movingAdminSite.code_bien!, nom: movingAdminSite.nom, lat, lng, adresse: movingAdminSite.adresse || '', categorie: movingAdminSite.categorie }];
+                    });
+                  } catch { alert('Erreur lors de l\'enregistrement'); }
+                  finally { setMovingAdminSaving(false); setMovingAdminSite(null); }
+                }} />
+                {geocodedSitesFiltered.map(site => {
+                  const fullSite = sites.find(s => s.code_bien === site.code);
+                  const isManual = fullSite?.geocoded_manually;
+                  return (
                   <Marker key={site.code} position={[site.lat, site.lng]} icon={getCategoryIcon(site.categorie)}>
                     <Popup>
                       <div style={{ minWidth: '180px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                           <span style={{ fontSize: '22px' }}>{getCategoryEmoji(site.categorie)}</span>
                           <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontSize: '12px', fontWeight: '700' }}>{site.code}</code>
+                          {isManual && <span style={{ fontSize: 10, background: '#fef9c3', color: '#92400e', padding: '1px 5px', borderRadius: 8, fontWeight: 700 }}>📍 Manuel</span>}
                         </div>
                         <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', marginBottom: '4px' }}>{site.nom}</div>
                         {site.categorie && <div style={{ fontSize: '11px', color: getCategoryColor(site.categorie), fontWeight: '600', marginBottom: '4px' }}>{site.categorie}</div>}
-                        {site.adresse && <div style={{ fontSize: '11px', color: '#64748b' }}>{site.adresse}</div>}
+                        {site.adresse && <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px' }}>{site.adresse}</div>}
+                        <button
+                          onClick={() => { setMovingAdminSite(fullSite || { id: undefined, nom: site.nom, code_bien: site.code, lat: site.lat, lng: site.lng, is_active: true }); }}
+                          style={{ width: '100%', padding: '6px', background: '#1e293b', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                          ✋ Déplacer ce site
+                        </button>
                       </div>
                     </Popup>
                   </Marker>
-                ))}
+                  );
+                })}
               </MapContainer>
 
               {/* Overlay filtres */}

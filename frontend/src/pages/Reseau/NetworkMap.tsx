@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
-  MapContainer, TileLayer, Polyline, CircleMarker, Marker,
-  Tooltip, Popup, useMapEvents, LayerGroup,
+  MapContainer, TileLayer, Polyline, CircleMarker,
+  Tooltip, LayerGroup, useMapEvents,
 } from 'react-leaflet';
-import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { NetworkLink, Duct, SiteRef } from './types';
 import { linkStyle } from './utils';
@@ -11,51 +10,49 @@ import { linkStyle } from './utils';
 // ── Constantes ──────────────────────────────────────────────────────
 const CITY_CENTER: [number, number] = [48.8130, 2.3890];
 
-// Importance des sites réseau (pour dimensionner le marqueur)
-const CORE_SITES = new Set(['S001', 'S001B01', 'S064', 'S064B01']); // Cœur
-const IRF_NORD = new Set(['S001B02','S004B01','S005B01','S022B01']); // Boucle Nord
-const IRF_SUD  = new Set(['S007B01','S045B01','S002B01','S002B02']); // Boucle Sud
+const CORE_SITES  = new Set(['S001', 'S001B01', 'S064', 'S064B01']);
+const IRF_NORD    = new Set(['S001B02','S004B01','S005B01','S022B01']);
+const IRF_SUD     = new Set(['S007B01','S045B01','S002B01','S002B02']);
 
-function siteImportance(code: string): 'core' | 'irf' | 'normal' {
-  if (CORE_SITES.has(code)) return 'core';
-  if (IRF_NORD.has(code) || IRF_SUD.has(code)) return 'irf';
-  return 'normal';
+function siteImportance(code: string) {
+  if (CORE_SITES.has(code))  return 'core' as const;
+  if (IRF_NORD.has(code) || IRF_SUD.has(code)) return 'irf' as const;
+  return 'normal' as const;
 }
 
-// Couleur d'un marqueur selon son rôle réseau
-function siteColor(code: string, isHighlighted: boolean): { fill: string; stroke: string } {
+function siteColor(code: string, isHighlighted: boolean, isMoving: boolean) {
+  if (isMoving)     return { fill: '#fef9c3', stroke: '#f59e0b' };
   if (isHighlighted) return { fill: '#fecaca', stroke: '#dc2626' };
-  const imp = siteImportance(code);
-  if (imp === 'core') return { fill: '#0f172a', stroke: '#0f172a' };
-  if (IRF_NORD.has(code)) return { fill: '#2563eb', stroke: '#1d4ed8' };
-  if (IRF_SUD.has(code))  return { fill: '#16a34a', stroke: '#15803d' };
+  if (CORE_SITES.has(code))  return { fill: '#0f172a', stroke: '#0f172a' };
+  if (IRF_NORD.has(code))    return { fill: '#2563eb', stroke: '#1d4ed8' };
+  if (IRF_SUD.has(code))     return { fill: '#16a34a', stroke: '#15803d' };
   return { fill: '#fff', stroke: '#64748b' };
 }
 
-function siteRadius(code: string): number {
+function siteRadius(code: string, isMoving: boolean) {
+  if (isMoving) return 13;
   const imp = siteImportance(code);
   if (imp === 'core') return 11;
   if (imp === 'irf')  return 8;
   return 5;
 }
 
-// ── Résolution des positions ─────────────────────────────────────────
+// ── Résolution géométrie ─────────────────────────────────────────────
 function linkLatLngs(link: NetworkLink, sites: Map<string, SiteRef>): [number, number][] | null {
-  if (link.geometry?.coordinates?.length >= 2) {
-    return link.geometry.coordinates.map((c: number[]) => [c[1], c[0]]);
-  }
+  const coords = link.geometry?.coordinates;
+  if (coords && coords.length >= 2)
+    return (coords as number[][]).map(c => [c[1], c[0]]);
   const a = sites.get(link.site_a);
   const b = sites.get(link.site_b);
-  if (a?.lat != null && a?.lng != null && b?.lat != null && b?.lng != null) {
-    return [[a.lat, a.lng], [b.lat, b.lng]];
-  }
+  if (a?.lat != null && a?.lng != null && b?.lat != null && b?.lng != null)
+    return [[a.lat as number, a.lng as number], [b.lat as number, b.lng as number]];
   return null;
 }
 
 function ductLatLngs(duct: Duct): [number, number][] | null {
-  if (duct.geometry?.coordinates?.length >= 2) {
-    return duct.geometry.coordinates.map((c: number[]) => [c[1], c[0]]);
-  }
+  const coords = duct.geometry?.coordinates;
+  if (coords && coords.length >= 2)
+    return (coords as number[][]).map(c => [c[1], c[0]]);
   return null;
 }
 
@@ -63,215 +60,295 @@ function ductLatLngs(duct: Duct): [number, number][] | null {
 const Legend: React.FC = () => (
   <div style={{
     position: 'absolute', bottom: 28, left: 12, zIndex: 1000,
-    background: 'white', borderRadius: 10, padding: '10px 14px',
-    boxShadow: '0 2px 12px rgba(0,0,0,.15)', fontSize: 12, minWidth: 180,
+    background: 'rgba(255,255,255,.95)', borderRadius: 10, padding: '10px 14px',
+    boxShadow: '0 2px 12px rgba(0,0,0,.15)', fontSize: 12, minWidth: 190,
+    backdropFilter: 'blur(4px)',
   }}>
     <div style={{ fontWeight: 700, marginBottom: 8, color: '#0f172a' }}>Légende</div>
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      {[
-        ['─────', '#0f172a', 7,  'Fibre 40G (DAC)'],
-        ['─────', '#16a34a', 4,  'Fibre 10G (IRF)'],
-        ['─────', '#16a34a', 2,  'Fibre 1G'],
-        ['- - -', '#f97316', 3,  'Opérateur LINKT'],
-        ['- - -', '#ef4444', 3,  'Opérateur RED'],
-        ['· · ·', '#f59e0b', 2,  'Laser 100Mb'],
-        ['- · -', '#3b82f6', 3,  'WAN'],
-      ].map(([dash, color, , label]) => (
-        <div key={label as string} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: color as string, fontFamily: 'monospace', fontWeight: 700, fontSize: 14, width: 30 }}>{dash}</span>
+    {([
+      ['─────', '#0f172a', 7, 'Fibre 40G (DAC Cœur)'],
+      ['─────', '#16a34a', 4, 'Fibre 10G (Boucles IRF)'],
+      ['─────', '#16a34a', 2, 'Fibre 1G'],
+      ['- - -', '#f97316', 3, 'Opérateur LINKT'],
+      ['- - -', '#ef4444', 3, 'Opérateur RED/SFR'],
+      ['· · ·', '#f59e0b', 2, 'Laser 100Mb'],
+      ['- · -', '#3b82f6', 3, 'WAN'],
+    ] as [string, string, number, string][]).map(([dash, color,, label]) => (
+      <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+        <span style={{ color, fontFamily: 'monospace', fontWeight: 700, width: 36, fontSize: 13 }}>{dash}</span>
+        <span style={{ color: '#374151' }}>{label}</span>
+      </div>
+    ))}
+    <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 6, paddingTop: 6 }}>
+      {([
+        ['●', '#0f172a', 'Cœur (HP5940 IRF)'],
+        ['●', '#2563eb', 'Boucle Nord (HP5500HI)'],
+        ['●', '#16a34a', 'Boucle Sud (HP5500HI)'],
+        ['○', '#64748b', 'Site dépendant'],
+      ] as [string, string, string][]).map(([sym, color, label]) => (
+        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+          <span style={{ color, fontSize: 16, width: 14, textAlign: 'center' }}>{sym}</span>
           <span style={{ color: '#374151' }}>{label}</span>
         </div>
       ))}
-      <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 4, paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {[
-          ['●', '#0f172a', 'Cœur (HP5940)'],
-          ['●', '#2563eb', 'IRF Boucle Nord'],
-          ['●', '#16a34a', 'IRF Boucle Sud'],
-          ['○', '#64748b', 'Site dépendant'],
-        ].map(([sym, color, label]) => (
-          <div key={label as string} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: color as string, fontSize: 16, lineHeight: 1 }}>{sym}</span>
-            <span style={{ color: '#374151' }}>{label}</span>
-          </div>
-        ))}
-      </div>
+    </div>
+    <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 6, paddingTop: 6, fontSize: 11, color: '#64748b' }}>
+      💡 Clic sur un site pour le déplacer
     </div>
   </div>
 );
 
-// ── DrawHandler ───────────────────────────────────────────────────────
-const DrawHandler: React.FC<{
-  active: boolean;
-  onClick: (lat: number, lng: number) => void;
-  onMove:  (lat: number, lng: number) => void;
-}> = ({ active, onClick, onMove }) => {
+// ── Gestionnaire clics carte ─────────────────────────────────────────
+const MapClickHandler: React.FC<{
+  drawMode: boolean;
+  moveMode: boolean;
+  onDrawClick: (lat: number, lng: number) => void;
+  onMoveClick: (lat: number, lng: number) => void;
+  onDrawMove:  (lat: number, lng: number) => void;
+  onMoveMove:  (lat: number, lng: number) => void;
+}> = ({ drawMode, moveMode, onDrawClick, onMoveClick, onDrawMove, onMoveMove }) => {
   useMapEvents({
-    click(e)     { if (active) onClick(e.latlng.lat, e.latlng.lng); },
-    mousemove(e) { if (active) onMove(e.latlng.lat,  e.latlng.lng); },
+    click(e) {
+      if (drawMode) onDrawClick(e.latlng.lat, e.latlng.lng);
+      else if (moveMode) onMoveClick(e.latlng.lat, e.latlng.lng);
+    },
+    mousemove(e) {
+      if (drawMode) onDrawMove(e.latlng.lat, e.latlng.lng);
+      else if (moveMode) onMoveMove(e.latlng.lat, e.latlng.lng);
+    },
   });
   return null;
 };
 
 // ── Props ─────────────────────────────────────────────────────────────
+export interface MoveResult { siteId: number; siteCode: string; lat: number; lng: number; }
+
 interface Props {
-  sites:    Map<string, SiteRef>;
-  links:    NetworkLink[];
-  ducts:    Duct[];
-  layers:   { fibre: boolean; wan: boolean; operator: boolean; ducts: boolean; sites: boolean };
-  drawMode: boolean;
-  drawnPoints:  [number, number][];
-  onMapClick:   (lat: number, lng: number) => void;
+  sites:          Map<string, SiteRef>;
+  links:          NetworkLink[];
+  ducts:          Duct[];
+  layers:         { fibre: boolean; wan: boolean; operator: boolean; ducts: boolean; sites: boolean };
+  drawMode:       boolean;
+  drawnPoints:    [number, number][];
+  onMapClick:     (lat: number, lng: number) => void;
   highlightSites?: string[];
+  onSiteMoved?:  (result: MoveResult) => void;
 }
 
-// ── Composant ─────────────────────────────────────────────────────────
+// ── Composant principal ───────────────────────────────────────────────
 const NetworkMap: React.FC<Props> = ({
-  sites, links, ducts, layers, drawMode, drawnPoints, onMapClick, highlightSites = [],
+  sites, links, ducts, layers, drawMode, drawnPoints, onMapClick,
+  highlightSites = [], onSiteMoved,
 }) => {
-  const [cursor, setCursor] = useState<[number, number] | null>(null);
+  const [drawCursor, setDrawCursor] = useState<[number, number] | null>(null);
 
-  // Sites référencés par au moins un lien + sites sélectionnés dans le formulaire
+  // Mode déplacement
+  const [movingSite, setMovingSite]       = useState<SiteRef | null>(null);
+  const [moveCursor, setMoveCursor]       = useState<[number, number] | null>(null);
+  const [moveSaving, setMoveSaving]       = useState(false);
+  const [moveConfirmPos, setMoveConfirmPos] = useState<[number, number] | null>(null);
+
+  const handleSiteClick = useCallback((s: SiteRef) => {
+    if (drawMode) return; // ne pas interférer avec le mode tracé
+    if (movingSite?.site_code === s.site_code) {
+      // Deuxième clic sur le même site → annule
+      setMovingSite(null); setMoveCursor(null); setMoveConfirmPos(null);
+    } else {
+      setMovingSite(s); setMoveCursor(null); setMoveConfirmPos(null);
+    }
+  }, [drawMode, movingSite]);
+
+  const handleMoveClick = useCallback(async (lat: number, lng: number) => {
+    if (!movingSite) return;
+    if (moveSaving) return;
+    setMoveConfirmPos([lat, lng]);
+    setMoveSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`/api/ville/sites/${movingSite.id}/geocode`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ lat, lng, manual: true }),
+      });
+      if (!res.ok) throw new Error('Erreur serveur');
+      if (onSiteMoved) onSiteMoved({ siteId: movingSite.id!, siteCode: movingSite.site_code, lat, lng });
+    } catch (e) {
+      alert('Impossible de sauvegarder la position');
+    } finally {
+      setMoveSaving(false);
+      setMovingSite(null);
+      setMoveCursor(null);
+      setMoveConfirmPos(null);
+    }
+  }, [movingSite, moveSaving, onSiteMoved]);
+
+  // ── Calculs ──────────────────────────────────────────────────────
   const referenced = new Set<string>();
   links.forEach(l => { referenced.add(l.site_a); referenced.add(l.site_b); });
   highlightSites.forEach(s => { if (s) referenced.add(s); });
 
-  // Afficher tous les sites géolocalisés si la couche sites est active
   const siteEntries = layers.sites
     ? Array.from(sites.values()).filter(s => s.lat != null && s.lng != null)
-    : Array.from(referenced)
-        .map(c => sites.get(c))
-        .filter((s): s is SiteRef => !!s && s.lat != null && s.lng != null);
+    : Array.from(referenced).map(c => sites.get(c)).filter((s): s is SiteRef => !!s && s.lat != null && s.lng != null);
 
-  // Filtre par type pour les liens
   const layerOn = (link: NetworkLink) =>
-    (link.type === 'FIBRE'    && layers.fibre)    ||
-    (link.type === 'LASER'    && layers.fibre)     || // Laser avec couche fibre
-    (link.type === 'WAN'      && layers.wan)        ||
-    (link.type === 'OPERATEUR'&& layers.operator);
+    (link.type === 'FIBRE'     && layers.fibre)    ||
+    (link.type === 'LASER'     && layers.fibre)     ||
+    (link.type === 'WAN'       && layers.wan)        ||
+    (link.type === 'OPERATEUR' && layers.operator);
 
-  const anchor = drawnPoints.length > 0 ? drawnPoints[drawnPoints.length - 1] : null;
+  const drawAnchor = drawnPoints.length > 0 ? drawnPoints[drawnPoints.length - 1] : null;
+  const isMoving = !!movingSite;
+  const cursorStyle = isMoving ? 'crosshair' : drawMode ? 'crosshair' : '';
 
   return (
-    <MapContainer
-      center={CITY_CENTER}
-      zoom={14}
-      style={{ height: '100%', width: '100%' }}
-      scrollWheelZoom
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <DrawHandler
-        active={drawMode}
-        onClick={onMapClick}
-        onMove={(la, ln) => setCursor([la, ln])}
-      />
+    <div style={{ position: 'relative', height: '100%', width: '100%', cursor: cursorStyle }}>
+      {/* ── Bandeau mode déplacement ── */}
+      {movingSite && (
+        <div style={{
+          position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 1000, background: '#1e293b', color: 'white',
+          padding: '8px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600,
+          boxShadow: '0 4px 16px rgba(0,0,0,.3)', display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span>📍 Cliquez sur la carte pour placer :</span>
+          <strong style={{ color: '#fbbf24' }}>{movingSite.site_code} — {movingSite.nom}</strong>
+          {moveSaving && <span style={{ color: '#94a3b8' }}>Enregistrement…</span>}
+          <button onClick={() => { setMovingSite(null); setMoveCursor(null); }} style={{
+            background: 'rgba(255,255,255,.15)', border: 'none', color: 'white',
+            borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 12,
+          }}>✕ Annuler</button>
+        </div>
+      )}
 
-      {/* ── Fourreaux ── */}
-      {layers.ducts && (
+      <MapContainer
+        center={CITY_CENTER}
+        zoom={14}
+        style={{ height: '100%', width: '100%' }}
+        scrollWheelZoom
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <MapClickHandler
+          drawMode={drawMode}
+          moveMode={isMoving}
+          onDrawClick={onMapClick}
+          onMoveClick={handleMoveClick}
+          onDrawMove={(la, ln) => setDrawCursor([la, ln])}
+          onMoveMove={(la, ln) => setMoveCursor([la, ln])}
+        />
+
+        {/* ── Fourreaux ── */}
+        {layers.ducts && (
+          <LayerGroup>
+            {ducts.map(duct => {
+              const pts = ductLatLngs(duct);
+              if (!pts) return null;
+              return (
+                <Polyline key={duct.id} positions={pts}
+                  pathOptions={{ color: '#92400e', weight: 6, dashArray: '2 8', opacity: 0.5 }}>
+                  <Tooltip sticky>
+                    <strong>Fourreau :</strong> {duct.name} · {duct.status} · {duct.used_capacity}/{duct.capacity}
+                  </Tooltip>
+                </Polyline>
+              );
+            })}
+          </LayerGroup>
+        )}
+
+        {/* ── Liens réseau ── */}
         <LayerGroup>
-          {ducts.map(duct => {
-            const pts = ductLatLngs(duct);
+          {links.filter(layerOn).map(link => {
+            const pts = linkLatLngs(link, sites);
             if (!pts) return null;
+            const st = linkStyle(link);
+            const siteA = sites.get(link.site_a);
+            const siteB = sites.get(link.site_b);
             return (
-              <Polyline key={duct.id} positions={pts}
-                pathOptions={{ color: '#92400e', weight: 6, dashArray: '2 8', opacity: 0.5 }}>
+              <Polyline key={link.id} positions={pts}
+                pathOptions={{ color: st.color, weight: st.weight, dashArray: st.dashArray, opacity: 0.9 }}>
                 <Tooltip sticky>
-                  <strong>Fourreau :</strong> {duct.name}<br />
-                  {duct.status} · {duct.used_capacity}/{duct.capacity} paires
+                  <div style={{ fontFamily: 'Arial, sans-serif', fontSize: 13, lineHeight: 1.5 }}>
+                    <strong style={{ color: st.color }}>
+                      {link.type}{link.operator ? ` · ${link.operator}` : ''}{link.capacity ? ` · ${link.capacity}` : ''}
+                    </strong><br />
+                    {siteA?.nom || link.site_a}<br />↕<br />{siteB?.nom || link.site_b}
+                    {link.fo_pairs && <><br /><small>Paires : {link.fo_pairs}</small></>}
+                    {link.bag_id   && <><br /><small>Agrégat : {link.bag_id}</small></>}
+                    {link.is_loop  && <><br /><span style={{ color: '#16a34a' }}>● Boucle IRF</span></>}
+                    {link.notes    && <><br /><small style={{ color: '#64748b' }}>{link.notes}</small></>}
+                  </div>
                 </Tooltip>
               </Polyline>
             );
           })}
         </LayerGroup>
-      )}
 
-      {/* ── Liens réseau ── */}
-      <LayerGroup>
-        {links.filter(layerOn).map(link => {
-          const pts = linkLatLngs(link, sites);
-          if (!pts) return null;
-          const st = linkStyle(link);
-          const siteA = sites.get(link.site_a);
-          const siteB = sites.get(link.site_b);
-          return (
-            <Polyline
-              key={link.id}
-              positions={pts}
-              pathOptions={{ color: st.color, weight: st.weight, dashArray: st.dashArray, opacity: 0.9 }}
-            >
-              <Tooltip sticky>
-                <div style={{ fontFamily: 'Arial, sans-serif', fontSize: 13, lineHeight: 1.5 }}>
-                  <strong style={{ color: st.color }}>
-                    {link.type}{link.operator ? ` · ${link.operator}` : ''}
-                    {link.capacity ? ` · ${link.capacity}` : ''}
-                  </strong><br />
-                  <span>{siteA?.nom || link.site_a}</span><br />
-                  <span>↕</span><br />
-                  <span>{siteB?.nom || link.site_b}</span>
-                  {link.fo_pairs && <><br /><small>Paires : {link.fo_pairs}</small></>}
-                  {link.bag_id   && <><br /><small>Agrégat : {link.bag_id}</small></>}
-                  {link.is_loop  && <><br /><span style={{ color: '#16a34a' }}>● Boucle IRF</span></>}
-                  {link.is_redundant && <><br /><span style={{ color: '#8b5cf6' }}>● Lien redondant</span></>}
-                  {link.notes && <><br /><small style={{ color: '#64748b' }}>{link.notes}</small></>}
-                </div>
-              </Tooltip>
-            </Polyline>
-          );
-        })}
-      </LayerGroup>
+        {/* ── Cursor fantôme en mode déplacement ── */}
+        {isMoving && moveCursor && (
+          <CircleMarker center={moveCursor} radius={10}
+            pathOptions={{ color: '#f59e0b', fillColor: '#fef9c3', fillOpacity: 0.7, weight: 2, dashArray: '4 3' }}>
+          </CircleMarker>
+        )}
 
-      {/* ── Tracé manuel en cours ── */}
-      {drawMode && drawnPoints.length > 0 && (
-        <Polyline positions={drawnPoints}
-          pathOptions={{ color: '#0ea5e9', weight: 3, dashArray: '4 4' }} />
-      )}
-      {drawMode && anchor && cursor && (
-        <Polyline positions={[anchor, cursor]}
-          pathOptions={{ color: '#0ea5e9', weight: 2, dashArray: '2 6', opacity: 0.7 }} />
-      )}
+        {/* ── Tracé manuel ── */}
+        {drawMode && drawnPoints.length > 0 && (
+          <Polyline positions={drawnPoints}
+            pathOptions={{ color: '#0ea5e9', weight: 3, dashArray: '4 4' }} />
+        )}
+        {drawMode && drawAnchor && drawCursor && (
+          <Polyline positions={[drawAnchor, drawCursor]}
+            pathOptions={{ color: '#0ea5e9', weight: 2, dashArray: '2 6', opacity: 0.7 }} />
+        )}
 
-      {/* ── Marqueurs sites ── */}
-      <LayerGroup>
-        {siteEntries.map(s => {
-          const isHl  = highlightSites.includes(s.site_code);
-          const isRef = referenced.has(s.site_code);
-          const imp   = siteImportance(s.site_code);
-          const c     = siteColor(s.site_code, isHl);
-          const r     = siteRadius(s.site_code);
-          // Sites non-référencés : petits points gris semi-transparents
-          if (!isRef && !layers.sites) return null;
+        {/* ── Marqueurs sites ── */}
+        <LayerGroup>
+          {siteEntries.map(s => {
+            const isHl     = highlightSites.includes(s.site_code);
+            const isRef    = referenced.has(s.site_code);
+            const isMov    = movingSite?.site_code === s.site_code;
+            const imp      = siteImportance(s.site_code);
+            const c        = siteColor(s.site_code, isHl, isMov);
+            const r        = siteRadius(s.site_code, isMov);
 
-          return (
-            <CircleMarker
-              key={s.site_code}
-              center={[s.lat!, s.lng!]}
-              radius={r}
-              pathOptions={{
-                color:        isRef || imp !== 'normal' ? c.stroke : '#94a3b8',
-                fillColor:    isRef || imp !== 'normal' ? c.fill   : '#cbd5e1',
-                fillOpacity:  isRef || imp !== 'normal' ? 1 : 0.5,
-                weight:       imp === 'core' ? 3 : 2,
-              }}
-            >
-              <Tooltip permanent={imp === 'core'} direction="top" offset={[0, -r]}>
-                <div style={{ fontFamily: 'Arial, sans-serif', fontSize: 12, lineHeight: 1.4 }}>
-                  <strong>{s.site_code}</strong><br />
-                  {s.nom}
-                  {imp === 'core' && <><br /><span style={{ color: '#2563eb', fontWeight: 600 }}>⬡ Cœur IRF</span></>}
-                  {IRF_NORD.has(s.site_code) && <><br /><span style={{ color: '#2563eb' }}>⬢ Boucle Nord</span></>}
-                  {IRF_SUD.has(s.site_code)  && <><br /><span style={{ color: '#16a34a' }}>⬢ Boucle Sud</span></>}
-                </div>
-              </Tooltip>
-            </CircleMarker>
-          );
-        })}
-      </LayerGroup>
+            if (!isRef && !layers.sites && !isMov) return null;
 
-      {/* ── Légende ── */}
-      <Legend />
-    </MapContainer>
+            return (
+              <CircleMarker
+                key={s.site_code}
+                center={[s.lat as number, s.lng as number]}
+                radius={r}
+                pathOptions={{
+                  color:       c.stroke,
+                  fillColor:   c.fill,
+                  fillOpacity: isRef || imp !== 'normal' || isMov ? 1 : 0.45,
+                  weight:      imp === 'core' ? 3 : isMov ? 3 : 2,
+                }}
+                eventHandlers={{ click: () => handleSiteClick(s) }}
+              >
+                {/* Tooltip visible uniquement au hover */}
+                <Tooltip direction="top" offset={[0, -r]}>
+                  <div style={{ fontFamily: 'Arial, sans-serif', fontSize: 12, lineHeight: 1.5 }}>
+                    <strong>{s.site_code}</strong> — {s.nom}
+                    {imp === 'core' && <><br /><span style={{ color: '#2563eb' }}>⬡ Cœur IRF</span></>}
+                    {IRF_NORD.has(s.site_code) && <><br /><span style={{ color: '#2563eb' }}>⬢ Boucle Nord</span></>}
+                    {IRF_SUD.has(s.site_code)  && <><br /><span style={{ color: '#16a34a' }}>⬢ Boucle Sud</span></>}
+                    {s.geocoded_manually && <><br /><span style={{ color: '#f59e0b' }}>📍 Position manuelle</span></>}
+                    {!s.geocoded_manually && s.lat_own == null && <><br /><span style={{ color: '#94a3b8', fontSize: 11 }}>📍 Hérité du site parent</span></>}
+                    <br /><span style={{ color: '#64748b', fontSize: 11 }}>Clic pour déplacer</span>
+                  </div>
+                </Tooltip>
+              </CircleMarker>
+            );
+          })}
+        </LayerGroup>
+
+        {/* ── Légende ── */}
+        <Legend />
+      </MapContainer>
+    </div>
   );
 };
 

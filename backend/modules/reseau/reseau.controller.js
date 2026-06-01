@@ -45,11 +45,15 @@ module.exports = {
             // Le parent est obtenu en tronquant au premier B/L/EXT.
             const { rows } = await pool.query(`
                 SELECT
+                    s.id,
                     s.code_bien AS site_code,
                     s.nom,
                     s.categorie,
                     COALESCE(s.lat, p.lat) AS lat,
-                    COALESCE(s.lng, p.lng) AS lng
+                    COALESCE(s.lng, p.lng) AS lng,
+                    s.lat AS lat_own,
+                    s.lng AS lng_own,
+                    COALESCE(s.geocoded_manually, false) AS geocoded_manually
                 FROM hub.sites s
                 LEFT JOIN hub.sites p
                   ON p.code_bien = regexp_replace(s.code_bien, '(B|L|EXT|ESP).*$', '')

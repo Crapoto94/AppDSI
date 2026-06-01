@@ -55,11 +55,15 @@ export interface Duct {
 }
 
 export interface SiteRef {
+  id?: number | null;
   site_code: string;
   nom: string;
   categorie?: string | null;
   lat: number | null;
   lng: number | null;
+  lat_own?: number | null;
+  lng_own?: number | null;
+  geocoded_manually?: boolean;
 }
 
 export interface IrfStack {
