@@ -577,7 +577,7 @@ const glpiController = {
                 return res.json({ success: true, count: 0 });
             }
 
-            const batchSize = 500;
+            const batchSize = 200;
             let processedCount = 0;
 
             const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 21];
@@ -592,6 +592,8 @@ const glpiController = {
                 }
 
                 const end = Math.min(start + batchSize, totalCount);
+                console.log(`[GLPI Sync] Processing batch ${start}-${end-1}. Memory usage: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`);
+                
                 const batchRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${start}-${end - 1}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
 
                 if (batchRes.data && Array.isArray(batchRes.data.data)) {
