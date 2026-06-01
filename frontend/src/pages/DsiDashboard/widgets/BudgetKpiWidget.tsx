@@ -3,6 +3,15 @@ import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
 import WidgetWrapper from './WidgetWrapper';
 
+const fmt = (n: number) =>
+  n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €';
+
+const parseNum = (v: any): number => {
+  if (v == null) return 0;
+  const n = typeof v === 'string' ? parseFloat(v.replace(',', '.')) : Number(v);
+  return isNaN(n) ? 0 : n;
+};
+
 export default function BudgetKpiWidget() {
   const { token } = useAuth();
   const [data, setData] = useState<any>(null);
@@ -12,30 +21,34 @@ export default function BudgetKpiWidget() {
   useEffect(() => {
     const headers = { Authorization: `Bearer ${token}` };
     Promise.all([
-      axios.get('/api/budget/lines', { headers }).catch(() => ({ data: [] })),
       axios.get('/api/budget/orders', { headers }).catch(() => ({ data: [] })),
       axios.get('/api/budget/invoices', { headers }).catch(() => ({ data: [] })),
-    ]).then(([lines, orders, invoices]) => {
-      const linesArr: any[] = Array.isArray(lines.data) ? lines.data : lines.data?.lines || [];
-      const ordersArr: any[] = Array.isArray(orders.data) ? orders.data : orders.data?.orders || [];
-      const invoicesArr: any[] = Array.isArray(invoices.data) ? invoices.data : invoices.data?.invoices || [];
+    ]).then(([orders, invoices]) => {
+      const ordersArr: any[] = Array.isArray(orders.data) ? orders.data : [];
+      const invoicesArr: any[] = Array.isArray(invoices.data) ? invoices.data : [];
 
-      const totalAlloc = linesArr.reduce((s: number, l: any) => s + (parseFloat(l.montant_alloue || l.allocated || 0)), 0);
-      const totalCmd = ordersArr.reduce((s: number, o: any) => s + (parseFloat(o.montant_ttc || o.total || 0)), 0);
-      const totalFact = invoicesArr.reduce((s: number, i: any) => s + (parseFloat(i.montant_ttc || i.amount || 0)), 0);
-      const pendingInv = invoicesArr.filter((i: any) => !i.validated && i.status !== 'payée').length;
+      // Orders use Oracle column names
+      const totalCmd = ordersArr.reduce((s: number, o: any) =>
+        s + parseNum(o['COMMANDE_MONTANT_TTC'] ?? o.montant_ttc ?? o.total), 0);
 
-      setData({ totalAlloc, totalCmd, totalFact, pendingInv });
+      // Invoices use Oracle column names
+      const totalFact = invoicesArr.reduce((s: number, inv: any) =>
+        s + parseNum(inv['FACTURE_MONTANTTC_E'] ?? inv['MONTANTTC_E'] ?? inv.montant_ttc ?? inv.amount), 0);
+
+      const pendingInv = invoicesArr.filter((inv: any) => {
+        const paid = inv['FACTURE_DATPAIEFF'];
+        return !paid || paid === '' || paid === null;
+      }).length;
+
+      setData({ totalCmd, totalFact, pendingInv, ordersCount: ordersArr.length, invoicesCount: invoicesArr.length });
     }).catch(e => setError(e.message)).finally(() => setLoading(false));
   }, [token]);
 
-  const fmt = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €';
-
   const kpis = data ? [
-    { label: 'Alloué', value: fmt(data.totalAlloc), color: '#3b82f6' },
-    { label: 'Commandé', value: fmt(data.totalCmd), color: '#8b5cf6' },
-    { label: 'Facturé', value: fmt(data.totalFact), color: '#f59e0b' },
-    { label: 'Factures en attente', value: data.pendingInv, color: data.pendingInv > 0 ? '#ef4444' : '#22c55e' },
+    { label: 'Commandes', value: fmt(data.totalCmd), sub: `${data.ordersCount} commande(s)`, color: '#8b5cf6' },
+    { label: 'Facturé', value: fmt(data.totalFact), sub: `${data.invoicesCount} facture(s)`, color: '#f59e0b' },
+    { label: 'Factures non payées', value: data.pendingInv, sub: 'en attente de paiement', color: data.pendingInv > 0 ? '#ef4444' : '#22c55e' },
+    { label: 'Taux d\'engagement', value: data.totalCmd > 0 ? `${Math.round((data.totalFact / data.totalCmd) * 100)}%` : '–', sub: 'facturé / commandé', color: '#3b82f6' },
   ] : [];
 
   return (
@@ -43,8 +56,9 @@ export default function BudgetKpiWidget() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, height: '100%' }}>
         {kpis.map(k => (
           <div key={k.label} style={{ background: '#f8fafc', borderRadius: 8, padding: '10px 12px', borderLeft: `3px solid ${k.color}` }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: k.color }}>{k.value}</div>
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{k.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: k.color }}>{k.value}</div>
+            <div style={{ fontSize: 11, color: '#374151', marginTop: 2, fontWeight: 600 }}>{k.label}</div>
+            <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{k.sub}</div>
           </div>
         ))}
       </div>

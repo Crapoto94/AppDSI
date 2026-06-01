@@ -89,6 +89,23 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 8, h: 4 },
     minSize: { w: 6, h: 3 },
   },
+  {
+    key: 'tickets_recent',
+    label: 'Derniers tickets créés',
+    description: 'Liste des 15 tickets les plus récents',
+    module: 'Tickets',
+    defaultSize: { w: 8, h: 5 },
+    minSize: { w: 5, h: 3 },
+  },
+  // ── Calendrier DSI ───────────────────────────────────────────────────────
+  {
+    key: 'calendrier_dsi',
+    label: 'Calendrier DSI',
+    description: 'Semaine en cours : TT, absences, congés, réunions',
+    module: 'Calendrier',
+    defaultSize: { w: 8, h: 4 },
+    minSize: { w: 6, h: 3 },
+  },
   // ── Copieurs ─────────────────────────────────────────────────────────────
   {
     key: 'copieurs_kpi',

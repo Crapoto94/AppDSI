@@ -3024,6 +3024,15 @@ setupDb().then(async database => {
     }
 
     // Initialize Oracle Automation Router dependencies
+    oracleAutomationRouter.setDependencies(db, pool, getOracleConnection);
+
+    // Initialize Oracle Scheduler
+    try {
+        oracleScheduler.initializeScheduler();
+        console.log('[Oracle Scheduler] Initialized');
+    } catch (e) {
+        console.error('[Oracle Scheduler] Error:', e.message);
+    }
 
     // Seed consumable email templates
     try {

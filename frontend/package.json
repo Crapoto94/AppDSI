@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@types/react-grid-layout": "^1.3.6",
     "@types/react-signature-canvas": "^1.0.7",
     "@xyflow/react": "^12.10.2",
     "axios": "^1.7.2",
@@ -20,7 +19,6 @@
     "pdfjs-dist": "^6.0.227",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-grid-layout": "^2.2.3",
     "react-leaflet": "^5.0.0",
     "react-quill-new": "^3.8.3",
     "react-router-dom": "^7.13.1",

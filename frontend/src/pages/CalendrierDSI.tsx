@@ -5,12 +5,13 @@ import axios from 'axios';
 import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
 
-const CATEGORIES = ['absence', 'teletravail', 'deploiement', 'reunion', 'hotline', 'maintenance'] as const;
+const CATEGORIES = ['absence', 'teletravail', 'deplacement', 'deploiement', 'reunion', 'hotline', 'maintenance'] as const;
 type Categorie = typeof CATEGORIES[number];
 
 const CATEGORY_COLORS: Record<Categorie, string> = {
   absence: '#E30613',
   teletravail: '#003366',
+  deplacement: '#0891b2',
   deploiement: '#4CAF50',
   reunion: '#9C27B0',
   hotline: '#22c55e',
@@ -20,6 +21,7 @@ const CATEGORY_COLORS: Record<Categorie, string> = {
 const CATEGORY_LABELS: Record<Categorie, string> = {
   absence: 'Absents',
   teletravail: 'Télétravailleurs',
+  deplacement: 'Déplacements',
   deploiement: 'Déploiements',
   reunion: 'Réunions importantes',
   hotline: 'Hotline',
@@ -283,9 +285,9 @@ export default function CalendrierDSI() {
           await fetch(`/api/calendrier-dsi/evenements/${editingEvent.id}?deleteSeries=true&titre=${titre}&agent_username=${username}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
         } catch (e) { console.error('[Prev] Error deleting old series:', e); }
       }
-      const colors: Record<string, string> = { 'absence_justifier': CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' };
-      const labels: Record<string, string> = { absence_justifier: 'Absence à justifier', teletravail: 'Télétravail', conge_previsionnel: 'Congé prévisionnel', asa: 'ASA' };
-      const catMap: Record<string, string> = { absence_justifier: 'absence', conge_previsionnel: 'absence', asa: 'absence', teletravail: 'teletravail' };
+      const colors: Record<string, string> = { 'absence_justifier': CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, deplacement: CATEGORY_COLORS.deplacement, conge_previsionnel: '#f59e0b', asa: '#8b5cf6' };
+      const labels: Record<string, string> = { absence_justifier: 'Absence à justifier', teletravail: 'Télétravail', deplacement: 'Déplacement', conge_previsionnel: 'Congé prévisionnel', asa: 'ASA' };
+      const catMap: Record<string, string> = { absence_justifier: 'absence', conge_previsionnel: 'absence', asa: 'absence', teletravail: 'teletravail', deplacement: 'deplacement' };
       const periodeLabel = (p: string) => p === 'matin' ? ' Matin' : p === 'apres-midi' ? ' Après-midi' : '';
 
       const createEvent = async (date: string, periode: string) => {
@@ -741,7 +743,7 @@ export default function CalendrierDSI() {
     const isOwnEvent = evt.agent_username?.toLowerCase() === user?.username?.toLowerCase();
     const isPublicCategory = evt.categorie === 'deploiement' || evt.categorie === 'reunion';
     if (!isManager && !isOwnEvent && !isPublicCategory) return;
-    if (selectedService && isManager && (evt.categorie === 'absence' || evt.categorie === 'teletravail' || evt.categorie === 'hotline') && (evt.id > 0 || evt.categorie === 'hotline')) {
+    if (selectedService && isManager && (evt.categorie === 'absence' || evt.categorie === 'teletravail' || evt.categorie === 'deplacement' || evt.categorie === 'hotline') && (evt.id > 0 || evt.categorie === 'hotline')) {
       setPrevAgent({ username: evt.agent_username || '', nom: evt.agent_nom || '', email: evt.agent_email || '' });
       setPrevDate(evt.date);
       setPrevPeriode(evt.periode || '');
@@ -751,6 +753,7 @@ export default function CalendrierDSI() {
         if (titreLC.includes('absence_justifier')) mappedType = 'absence_justifier';
         else if (titreLC.includes('conge_previsionnel')) mappedType = 'conge_previsionnel';
         else if (titreLC.includes('asa')) mappedType = 'asa';
+        else if (titreLC.includes('déplacement') || titreLC.includes('deplacement')) mappedType = 'deplacement';
         else mappedType = 'absence_justifier';
       }
       setPrevType(mappedType);
@@ -1741,11 +1744,12 @@ const renderPastille = (evt: Evenement) => {
       {(view === 'week' || view === 'week7') && selectedService && (() => {
         const svcAgents = agents.filter(a => a.service === selectedService).sort((a, b) => a.nom.localeCompare(b.nom));
         const ABSENCE_TYPE_COLORS: Record<string, string> = {
-absence: '#64748b',
+          absence: '#64748b',
           absence_justifier: '#E30613',
           sedit: '#7c3aed',
           sedit_pending: '#a78bfa',
           teletravail: '#003366',
+          deplacement: '#0891b2',
           conge_previsionnel: '#f59e0b',
           asa: '#8b5cf6',
           deploiement: '#4CAF50',
@@ -1759,8 +1763,10 @@ absence: '#64748b',
           if (titre.includes('asa')) return 'ASA';
           if (titre.includes('congé prévisionnel') || titre.includes('conge_previsionnel')) return 'Congé prév.';
           if (titre.includes('absence à justifier') || titre.includes('absence_justifier')) return 'Abs. à just.';
+          if (titre.includes('déplacement') || titre.includes('deplacement')) return 'Dépl.';
           if (evt.categorie === 'absence') return 'Absent';
           if (evt.categorie === 'teletravail') return 'TT';
+          if (evt.categorie === 'deplacement') return 'Dépl.';
           return evt.titre;
         };
         const getAbsenceColor = (evt: Evenement) => {
@@ -1769,9 +1775,10 @@ absence: '#64748b',
           if (titre.includes('asa')) return ABSENCE_TYPE_COLORS.asa;
           if (titre.includes('congé prévisionnel') || titre.includes('conge_previsionnel')) return ABSENCE_TYPE_COLORS.conge_previsionnel;
           if (titre.includes('absence à justifier') || titre.includes('absence_justifier')) return ABSENCE_TYPE_COLORS.absence_justifier;
+          if (titre.includes('déplacement') || titre.includes('deplacement')) return ABSENCE_TYPE_COLORS.deplacement;
           return ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1';
         };
-        const isAbsenceType = (evt: Evenement) => evt.categorie === 'absence' || evt.categorie === 'teletravail';
+        const isAbsenceType = (evt: Evenement) => evt.categorie === 'absence' || evt.categorie === 'teletravail' || evt.categorie === 'deplacement';
         return (
         <div className="week-grid" style={{ gridTemplateColumns: `140px repeat(${weekDays.length}, 1fr)` }}>
           <div className="header-cell" style={{ fontWeight: 700, background: getServiceColor(selectedService), color: '#fff' }}>{selectedService}</div>
@@ -1831,14 +1838,25 @@ absence: '#64748b',
                   const amEvts = allEvts.filter(e => e.periode === 'matin');
                   const pmEvts = allEvts.filter(e => e.periode === 'apres-midi');
                   const fullEvts = allEvts.filter(e => e.periode === '' || !e.periode);
-                  const amAbs = amEvts.filter(e => isAbsenceType(e)).sort((a, b) => isSedit(b) ? 1 : isSedit(a) ? -1 : 0)[0];
-                  const pmAbs = pmEvts.filter(e => isAbsenceType(e)).sort((a, b) => isSedit(b) ? 1 : isSedit(a) ? -1 : 0)[0];
-                  const fullAbs = fullEvts.filter(e => isAbsenceType(e)).sort((a, b) => isSedit(b) ? 1 : isSedit(a) ? -1 : 0)[0];
-                  const amOther = amEvts.filter(e => !isAbsenceType(e) && e.categorie !== 'hotline');
-                  const pmOther = pmEvts.filter(e => !isAbsenceType(e) && e.categorie !== 'hotline');
                   const amHl = amEvts.filter(e => e.categorie === 'hotline')[0];
                   const pmHl = pmEvts.filter(e => e.categorie === 'hotline')[0];
                   const fullHl = fullEvts.filter(e => e.categorie === 'hotline')[0];
+                  const amOther = amEvts.filter(e => !isAbsenceType(e) && e.categorie !== 'hotline');
+                  const pmOther = pmEvts.filter(e => !isAbsenceType(e) && e.categorie !== 'hotline');
+
+                  const amData = (() => {
+                    const mAbsences = [...amEvts.filter(isAbsenceType), ...fullEvts.filter(isAbsenceType)];
+                    const sedit = mAbsences.find(isSedit);
+                    const other = mAbsences.find(e => !isSedit(e));
+                    return { main: sedit || other, halo: (sedit && other) ? other : null };
+                  })();
+                  const pmData = (() => {
+                    const pAbsences = [...pmEvts.filter(isAbsenceType), ...fullEvts.filter(isAbsenceType)];
+                    const sedit = pAbsences.find(isSedit);
+                    const other = pAbsences.find(e => !isSedit(e));
+                    return { main: sedit || other, halo: (sedit && other) ? other : null };
+                  })();
+
                   const isToday = ds === formatDate(new Date());
                   const isRh = (e: Evenement) => e.source === 'demabs' || e.created_by === 'auto-rh' || e.created_by === 'auto-rh-pending';
                   const isWeekend = d.getDay() === 0 || d.getDay() === 6;
@@ -1846,16 +1864,24 @@ absence: '#64748b',
                     const seditStyle = isSedit(evt) ? { border: '2px solid #000', outline: '1px solid #000' } : {};
                     return <div key={evt.id} className="pastille" style={{ background: isSedit(evt) ? (evt.pending || evt.created_by === 'auto-rh-pending' ? ABSENCE_TYPE_COLORS.sedit_pending : ABSENCE_TYPE_COLORS.sedit) : ABSENCE_TYPE_COLORS[evt.categorie] || '#6366f1', fontSize: '0.65rem', padding: '1px 4px', ...seditStyle }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>{getAbsenceLabel(evt)}</div>;
                   };
-                  const renderFilledHalf = (evt: Evenement) => {
+                  const renderFilledHalf = (evt: Evenement, hasOther?: boolean, otherEvt?: Evenement | null) => {
                     const color = getAbsenceColor(evt);
                     const label = getAbsenceLabel(evt);
                     const seditBorder = isSedit(evt) ? '2px solid #000' : 'none';
                     const isTT = evt.categorie === 'teletravail' && !isSedit(evt);
                     const bgStyle = isTT
                       ? { background: `#ffffff repeating-linear-gradient(45deg, transparent, transparent 4px, ${color} 4px, ${color} 6px)`, color }
-                      : { background: color, color: '#fff' };
+                      : { background: color, color: '#fff', textShadow: '0 1px 2px rgba(0,0,0,0.3)' };
+                    
+                    // Effet de halo si superposition
+                    const overlayStyle: React.CSSProperties = hasOther && otherEvt ? {
+                      boxShadow: `0 0 0 3px ${getAbsenceColor(otherEvt)}99`,
+                      outline: `1px solid ${getAbsenceColor(otherEvt)}`,
+                      zIndex: 5
+                    } : {};
+
                     return (
-                      <div key={evt.id} style={{ width: '100%', height: '100%', ...bgStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer', borderRadius: 2, border: seditBorder }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
+                      <div key={evt.id} style={{ width: '100%', height: '100%', ...bgStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.7rem', cursor: 'pointer', borderRadius: 2, border: seditBorder, ...overlayStyle }} onClick={(e) => { e.stopPropagation(); openEditModal(evt); }}>
                         {isTT ? <span style={{ background: 'rgba(255,255,255,0.85)', padding: '0 4px', borderRadius: 2, color }}>{label}</span> : label}
                       </div>
                     );
@@ -1865,25 +1891,15 @@ absence: '#64748b',
                       {isWeekend || feria ? (
                         <div style={{ flex: 2, background: '#f1f5f9', minHeight: 44 }} />
                       ) : (
-                      <><div style={{ flex: 1, padding: '2px 3px', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: amAbs ? `${getAbsenceColor(amAbs)}22` : (fullAbs ? `${getAbsenceColor(fullAbs)}22` : ((amHl || fullHl) ? '#22c55e22' : 'transparent')) }}>
-                        {amAbs ? renderFilledHalf(amAbs) : fullAbs ? null : (amOther.length > 0 ? amOther.map(renderSmallPill) : ((isManager || agent.username?.toLowerCase() === user?.username?.toLowerCase()) ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'matin'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
+                      <><div style={{ flex: 1, padding: '2px 3px', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: amData.main ? `${getAbsenceColor(amData.main)}22` : ((amHl || fullHl) ? '#22c55e22' : 'transparent') }}>
+                        {amData.main ? renderFilledHalf(amData.main, !!amData.halo, amData.halo) : (amOther.length > 0 ? amOther.map(renderSmallPill) : ((isManager || agent.username?.toLowerCase() === user?.username?.toLowerCase()) ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'matin'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
                         {amHl && <div className="pastille" style={{ background: '#22c55e', color: '#fff', fontSize: '0.6rem', padding: '1px 3px', borderRadius: 2, lineHeight: 1.2, zIndex: 2, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); if (confirm('Supprimer la hotline du matin pour ' + agent.nom + ' le ' + ds + ' ?')) { fetch('/api/calendrier-dsi/hotline/override', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ agent_username: agent.username, date: ds, active: false, periode: 'matin' }) }).then(() => { if (view === 'week' || view === 'week7') { const { start } = getWeekRange(currentDate); const end = new Date(start); end.setDate(end.getDate() + (view === 'week7' ? 6 : 4)); fetchEvents(formatDate(start), formatDate(end)); } else { const y = currentDate.getFullYear(); const m = currentDate.getMonth(); fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0))); } }); } }}>HL</div>}
                       </div>
-                      <div style={{ flex: 1, padding: '2px 3px', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: pmAbs ? `${getAbsenceColor(pmAbs)}22` : (fullAbs ? `${getAbsenceColor(fullAbs)}22` : ((pmHl || fullHl) ? '#22c55e22' : 'transparent')) }}>
-                        {pmAbs ? renderFilledHalf(pmAbs) : (pmOther.length > 0 ? pmOther.map(renderSmallPill) : ((isManager || agent.username?.toLowerCase() === user?.username?.toLowerCase()) ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'apres-midi'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
+                      <div style={{ flex: 1, padding: '2px 3px', display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center', justifyContent: 'center', position: 'relative', minHeight: 22, background: pmData.main ? `${getAbsenceColor(pmData.main)}22` : ((pmHl || fullHl) ? '#22c55e22' : 'transparent') }}>
+                        {pmData.main ? renderFilledHalf(pmData.main, !!pmData.halo, pmData.halo) : (pmOther.length > 0 ? pmOther.map(renderSmallPill) : ((isManager || agent.username?.toLowerCase() === user?.username?.toLowerCase()) ? <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: '#cbd5e1', cursor: 'pointer', transition: 'all 0.15s' }} onClick={(e) => { e.stopPropagation(); openPrevModal(agent, ds, 'apres-midi'); }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#64748b'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.background = '#f1f5f9'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.color = '#cbd5e1'; e.currentTarget.style.background = 'transparent'; }}>+</div> : null))}
                         {pmHl && <div className="pastille" style={{ background: '#22c55e', color: '#fff', fontSize: '0.6rem', padding: '1px 3px', borderRadius: 2, lineHeight: 1.2, zIndex: 2, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); if (confirm('Supprimer la hotline de l\'après-midi pour ' + agent.nom + ' le ' + ds + ' ?')) { fetch('/api/calendrier-dsi/hotline/override', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ agent_username: agent.username, date: ds, active: false, periode: 'apres-midi' }) }).then(() => { if (view === 'week' || view === 'week7') { const { start } = getWeekRange(currentDate); const end = new Date(start); end.setDate(end.getDate() + (view === 'week7' ? 6 : 4)); fetchEvents(formatDate(start), formatDate(end)); } else { const y = currentDate.getFullYear(); const m = currentDate.getMonth(); fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0))); } }); } }}>HL</div>}
                       </div></>
-                      )}
-                      {fullAbs && !amAbs && !pmAbs && (
-                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex' }}>
-                          <div style={{ flex: 1, fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRight: isRh(fullAbs) ? '2px solid #000' : 'none', color: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? getAbsenceColor(fullAbs) : '#fff', textShadow: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? 'none' : '0 1px 2px rgba(0,0,0,0.3)', background: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? `#ffffff repeating-linear-gradient(45deg, transparent, transparent 4px, ${getAbsenceColor(fullAbs)} 4px, ${getAbsenceColor(fullAbs)} 6px)` : getAbsenceColor(fullAbs) }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
-                            {fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? <span style={{ background: 'rgba(255,255,255,0.85)', padding: '0 4px', borderRadius: 2, color: getAbsenceColor(fullAbs) }}>{getAbsenceLabel(fullAbs)}</span> : getAbsenceLabel(fullAbs)}
-                          </div>
-                          <div style={{ flex: 1, fontWeight: 700, fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderLeft: isRh(fullAbs) ? '2px solid #000' : 'none', color: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? getAbsenceColor(fullAbs) : '#fff', textShadow: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? 'none' : '0 1px 2px rgba(0,0,0,0.3)', background: fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? `#ffffff repeating-linear-gradient(45deg, transparent, transparent 4px, ${getAbsenceColor(fullAbs)} 4px, ${getAbsenceColor(fullAbs)} 6px)` : getAbsenceColor(fullAbs) }} onClick={(e) => { e.stopPropagation(); openEditModal(fullAbs); }}>
-                            {fullAbs.categorie === 'teletravail' && !isSedit(fullAbs) ? <span style={{ background: 'rgba(255,255,255,0.85)', padding: '0 4px', borderRadius: 2, color: getAbsenceColor(fullAbs) }}>{getAbsenceLabel(fullAbs)}</span> : getAbsenceLabel(fullAbs)}
-                          </div>
-                        </div>
-                      )}
+                      )  }
                       {fullHl && !amHl && !pmHl && (() => {
                         const fs: React.CSSProperties = { background: '#22c55e', color: '#fff', fontSize: '0.55rem', padding: '1px 6px', borderRadius: 2, lineHeight: 1.2, zIndex: 2, position: 'absolute', bottom: 1, left: 1, right: 1, textAlign: 'center', cursor: 'pointer' };
                         return <><div style={{ ...fs, left: 1, right: '50%', marginRight: 0.5 } as React.CSSProperties} onClick={(e) => { e.stopPropagation(); if (confirm('Supprimer la hotline du matin pour ' + agent.nom + ' le ' + ds + ' ?')) { fetch('/api/calendrier-dsi/hotline/override', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ agent_username: agent.username, date: ds, active: false, periode: '' }) }).then(() => { if (view === 'week' || view === 'week7') { const { start } = getWeekRange(currentDate); const end = new Date(start); end.setDate(end.getDate() + (view === 'week7' ? 6 : 4)); fetchEvents(formatDate(start), formatDate(end)); } else { const y = currentDate.getFullYear(); const m = currentDate.getMonth(); fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0))); } }); } }}>HL</div><div style={{ ...fs, left: '50%', right: 1, marginLeft: 0.5 } as React.CSSProperties} onClick={(e) => { e.stopPropagation(); if (confirm('Supprimer la hotline de l\'après-midi pour ' + agent.nom + ' le ' + ds + ' ?')) { fetch('/api/calendrier-dsi/hotline/override', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ agent_username: agent.username, date: ds, active: false, periode: '' }) }).then(() => { if (view === 'week' || view === 'week7') { const { start } = getWeekRange(currentDate); const end = new Date(start); end.setDate(end.getDate() + (view === 'week7' ? 6 : 4)); fetchEvents(formatDate(start), formatDate(end)); } else { const y = currentDate.getFullYear(); const m = currentDate.getMonth(); fetchEvents(formatDate(new Date(y, m, 1)), formatDate(new Date(y, m + 2, 0))); } }); } }}>HL</div></>;
@@ -2401,6 +2417,7 @@ const renderDot = (evt: Evenement) => {
               {[
                 { key: 'absence_justifier', label: 'Absence à justifier', color: CATEGORY_COLORS.absence },
                 { key: 'teletravail', label: 'Télétravail', color: CATEGORY_COLORS.teletravail },
+                { key: 'deplacement', label: 'Déplacement', color: CATEGORY_COLORS.deplacement },
                 { key: 'conge_previsionnel', label: 'Congé prévisionnel', color: '#f59e0b' },
                 { key: 'asa', label: 'ASA', color: '#8b5cf6' },
                 ...(isManager ? [{ key: 'hotline', label: 'Hotline', color: '#22c55e' }] : []),
@@ -2435,7 +2452,7 @@ const renderDot = (evt: Evenement) => {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               {editingEvent && <button onClick={() => { setShowPrevModal(false); setConfirmDelete(editingEvent!.id); }} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #fee2e2', background: '#fef2f2', color: '#dc2626', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}>🗑 Supprimer</button>}
               <button onClick={() => setShowPrevModal(false)} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #e2e8f0', background: 'white', color: '#475569', fontWeight: 600, cursor: 'pointer', fontSize: '0.9rem' }}>Annuler</button>
-              <button onClick={handlePrevSave} disabled={!prevType || prevSaving} style={{ padding: '10px 24px', borderRadius: 8, background: prevType ? ({ absence_justifier: CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, conge_previsionnel: '#f59e0b', asa: '#8b5cf6', hotline: '#22c55e' }[prevType] || '#6366f1') : '#cbd5e1', color: 'white', border: 'none', fontWeight: 600, cursor: prevType ? 'pointer' : 'not-allowed', fontSize: '0.9rem', transition: 'all 0.2s' }}>
+              <button onClick={handlePrevSave} disabled={!prevType || prevSaving} style={{ padding: '10px 24px', borderRadius: 8, background: prevType ? ({ absence_justifier: CATEGORY_COLORS.absence, teletravail: CATEGORY_COLORS.teletravail, deplacement: CATEGORY_COLORS.deplacement, conge_previsionnel: '#f59e0b', asa: '#8b5cf6', hotline: '#22c55e' }[prevType] || '#6366f1') : '#cbd5e1', color: 'white', border: 'none', fontWeight: 600, cursor: prevType ? 'pointer' : 'not-allowed', fontSize: '0.9rem', transition: 'all 0.2s' }}>
                 {prevSaving ? '⏳ Enregistrement...' : '✓ Valider'}
               </button>
             </div>

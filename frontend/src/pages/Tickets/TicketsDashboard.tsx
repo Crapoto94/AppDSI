@@ -838,62 +838,7 @@ export default function TicketsDashboard() {
           <button type="submit" style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#475569' }}>🔍</button>
         </form>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div className="view-tabs">
-            <button className={`view-tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => { setViewMode('table'); viewModeRef.current = 'table'; setSelectedInboxId(null); if (showResolved) { setShowResolved(false); showResolvedRef.current = false; } loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-              Tableau
-            </button>
-            <button className={`view-tab ${viewMode === 'kanban' ? 'active' : ''}`} onClick={() => { setViewMode('kanban'); viewModeRef.current = 'kanban'; setSelectedInboxId(null); if (!showResolved) { setShowResolved(true); showResolvedRef.current = true; } loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
-              Kanban
-            </button>
-            <button className={`view-tab ${viewMode === 'inbox' ? 'active' : ''}`} onClick={() => { setViewMode('inbox'); viewModeRef.current = 'inbox'; if (!showResolved) { setShowResolved(true); showResolvedRef.current = true; } setSelectedInboxId(null); loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 12h7l2-3 2 6 2-3h7"/></svg>
-              Boîte
-            </button>
-            {['superadmin','admin','supervisor','superviseur','technician','technician','tech'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
-              <button
-                className={`view-tab ${viewMode === 'live' ? 'active' : ''}`}
-                onClick={() => { setViewMode('live'); viewModeRef.current = 'live'; }}
-                style={{ position: 'relative' }}
-              >
-                🟢 Live
-                {liveNotif && liveNotif.count > 0 && (
-                  <span style={{
-                    position: 'absolute', top: 2, right: 2,
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: '#ef4444', border: '1.5px solid #fff',
-                  }} />
-                )}
-              </button>
-            )}
-          </div>
-          {canViewKpi && ['superadmin','admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase()) && (
-            <>
-              <button disabled={!!kpiActionLoading} onClick={async () => {
-                setKpiActionLoading('snapshot');
-                try {
-                  const token = localStorage.getItem('token');
-                  await axios.post('/api/tickets/dashboard/kpi-snapshot/run', {}, { headers: { Authorization: `Bearer ${token}` } });
-                  loadKpiHistory(kpiDays);
-                } catch { /**/ } finally { setKpiActionLoading(null); }
-              }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#475569', opacity: kpiActionLoading ? 0.5 : 1, marginLeft: 'auto' }}>
-                {kpiActionLoading === 'snapshot' ? '⏳' : '📸'} Snapshot
-              </button>
-              <button disabled={!!kpiActionLoading} onClick={async () => {
-                setKpiActionLoading('backfill');
-                try {
-                  const token = localStorage.getItem('token');
-                  await axios.post(`/api/tickets/dashboard/kpi-backfill?days=${kpiDays}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-                  loadKpiHistory(kpiDays);
-                } catch { /**/ } finally { setKpiActionLoading(null); }
-              }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#7c3aed', opacity: kpiActionLoading ? 0.5 : 1 }}>
-                {kpiActionLoading === 'backfill' ? '⏳' : '🔄'} Rétro-calculer
-              </button>
-            </>
-          )}
-        </div>
+
       </div>
 
       {activeFilter && (
@@ -1078,112 +1023,126 @@ export default function TicketsDashboard() {
                             </div>
                           );
                         }
-                        return <span style={{ fontSize: 24, fontWeight: 800, color: '#18181b', lineHeight: 1.1 }}>{card.value}</span>;
+                        return <span style={{ fontSize: 24, fontWeight: 800, color: card.color, lineHeight: 1.1 }}>{card.value}</span>;
                       })()}
                       {card.sub && <div style={{ fontSize: 10, color: '#a1a1aa', marginTop: 2 }}>{card.sub}</div>}
+                      {dailyMetrics && (card.key === 'open' || card.key === 'in_progress' || card.key === 'waiting' || card.key === 'resolved') && (() => {
+                        const dayKey = card.key === 'open' ? 'today_created'
+                                     : card.key === 'in_progress' ? 'today_in_progress'
+                                     : card.key === 'waiting' ? 'today_waiting'
+                                     : card.key === 'resolved' ? 'today_resolved' : null;
+                        const avgKey = card.key === 'open' ? 'avg_open_60d'
+                                     : card.key === 'in_progress' ? 'avg_in_progress_60d'
+                                     : card.key === 'waiting' ? 'avg_waiting_60d'
+                                     : card.key === 'resolved' ? 'avg_resolved_60d' : null;
+                        const todayVal = dayKey ? dailyMetrics[dayKey] || 0 : 0;
+                        const avgVal = avgKey ? dailyMetrics[avgKey] || 0 : 0;
+                        const diff = todayVal - avgVal;
+                        const diffPct = avgVal > 0 ? Math.round((diff / avgVal) * 100) : 0;
+                        const diffColor = diff === 0 ? '#94a3b8' : (card.goodDown ? (diff < 0 ? '#22c55e' : '#ef4444') : (diff > 0 ? '#22c55e' : '#ef4444'));
+                        return (
+                          <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
+                            <div>{todayVal} auj. | moy 60j: {avgVal}</div>
+                            <div style={{ color: diffColor, fontWeight: 600 }}>{diff > 0 ? '+' : ''}{diff} ({diffPct > 0 ? '+' : ''}{diffPct}%)</div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* ── Carte KPI live chat ─────────────────────────────── */}
-            {isLiveTech && liveStats && (
-              <div
-                onClick={() => { setViewMode('live'); viewModeRef.current = 'live'; }}
-                style={{
-                  marginTop: 10,
-                  background: '#fff',
-                  border: `1.5px solid ${liveStats.active > 0 ? '#86efac' : '#e2e8f0'}`,
-                  borderRadius: 12, padding: '12px 16px',
-                  cursor: 'pointer',
-                  boxShadow: liveStats.active > 0 ? '0 0 0 2px rgba(34,197,94,0.12)' : 'none',
-                  display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
-                  position: 'relative', overflow: 'hidden',
-                }}
-              >
-                {/* Mini area sparkline en fond */}
-                {liveStats.daily?.length >= 2 && (
-                  <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 180, opacity: 0.12, pointerEvents: 'none' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={liveStats.daily} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
-                        <Line type="monotone" dataKey="count" stroke="#22c55e" strokeWidth={2} dot={false} isAnimationActive={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-
-                {/* Badge live */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                  <span style={{
-                    width: 10, height: 10, borderRadius: '50%', flexShrink: 0, display: 'inline-block',
-                    background: liveStats.active > 0 ? '#22c55e' : '#94a3b8',
-                    boxShadow: liveStats.active > 0 ? '0 0 0 3px rgba(34,197,94,0.25)' : 'none',
-                  }} />
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Chat live
-                  </span>
-                </div>
-
-                {/* Métriques */}
-                {[
-                  { label: 'En cours', value: liveStats.active,      color: liveStats.active > 0 ? '#22c55e' : '#94a3b8', big: true },
-                  { label: "Auj.", value: liveStats.today,            color: '#6366f1' },
-                  { label: 'Semaine', value: liveStats.this_week,     color: '#8b5cf6' },
-                  { label: 'Mois',    value: liveStats.this_month,    color: '#3b82f6' },
-                  { label: 'Durée moy.', value: liveStats.avg_duration_min ? `${liveStats.avg_duration_min}mn` : '—', color: '#f59e0b' },
-                  { label: 'Rép. moy.',  value: liveStats.avg_response_min  ? `${liveStats.avg_response_min}mn` : '—', color: '#f97316' },
-                ].map(m => (
-                  <div key={m.label} style={{ textAlign: 'center', flexShrink: 0 }}>
-                    <div style={{ fontSize: m.big ? 24 : 18, fontWeight: 800, color: m.color, lineHeight: 1 }}>{m.value}</div>
-                    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{m.label}</div>
-                  </div>
-                ))}
-
-                <div style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4, position: 'relative', zIndex: 1 }}>
-                  Voir les sessions →
-                </div>
-              </div>
-            )}
           </div>
         );
       })()}
 
-      {/* Live KPI card pour les rôles sans accès KPI mais avec accès live */}
-      {!canViewKpi && liveStats && (() => {
-        const LIVE_TECH_ROLES = ['superadmin','admin','supervisor','superviseur','technician','tech'];
-        const isLiveTech = LIVE_TECH_ROLES.includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim());
-        if (!isLiveTech) return null;
-        return (
-          <div style={{ marginBottom: 24 }}>
-            <div
+      {/* ── Barre d'onglets + Live chat ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <div className="view-tabs">
+          <button className={`view-tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => { setViewMode('table'); viewModeRef.current = 'table'; setSelectedInboxId(null); if (showResolved) { setShowResolved(false); showResolvedRef.current = false; } loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            Tableau
+          </button>
+          <button className={`view-tab ${viewMode === 'kanban' ? 'active' : ''}`} onClick={() => { setViewMode('kanban'); viewModeRef.current = 'kanban'; setSelectedInboxId(null); if (!showResolved) { setShowResolved(true); showResolvedRef.current = true; } loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+            Kanban
+          </button>
+          <button className={`view-tab ${viewMode === 'inbox' ? 'active' : ''}`} onClick={() => { setViewMode('inbox'); viewModeRef.current = 'inbox'; if (!showResolved) { setShowResolved(true); showResolvedRef.current = true; } setSelectedInboxId(null); loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{verticalAlign:'middle',marginRight:4}}><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 12h7l2-3 2 6 2-3h7"/></svg>
+            Boîte
+          </button>
+          {['superadmin','admin','supervisor','superviseur','technician','technician','tech'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+            <button
+              className={`view-tab ${viewMode === 'live' ? 'active' : ''}`}
               onClick={() => { setViewMode('live'); viewModeRef.current = 'live'; }}
-              style={{
-                background: '#fff',
-                border: `1.5px solid ${liveStats.active > 0 ? '#86efac' : '#e2e8f0'}`,
-                borderRadius: 12, padding: '12px 16px',
-                cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
-              }}
+              style={{ position: 'relative' }}
             >
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: liveStats.active > 0 ? '#22c55e' : '#94a3b8', display: 'inline-block' }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Chat live</span>
-              {[
-                { label: 'En cours', value: liveStats.active, color: liveStats.active > 0 ? '#22c55e' : '#94a3b8' },
-                { label: "Auj.", value: liveStats.today, color: '#6366f1' },
-                { label: 'Semaine', value: liveStats.this_week, color: '#8b5cf6' },
-                { label: 'Durée moy.', value: liveStats.avg_duration_min ? `${liveStats.avg_duration_min}mn` : '—', color: '#f59e0b' },
-              ].map(m => (
-                <div key={m.label} style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: m.color }}>{m.value}</div>
-                  <div style={{ fontSize: 10, color: '#94a3b8' }}>{m.label}</div>
-                </div>
-              ))}
-              <div style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8' }}>Voir les sessions →</div>
+              🟢 Live
+              {liveNotif && liveNotif.count > 0 && (
+                <span style={{
+                  position: 'absolute', top: 2, right: 2,
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: '#ef4444', border: '1.5px solid #fff',
+                }} />
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Live chat compact à droite */}
+        {liveStats && (() => {
+          const isLiveTech = ['superadmin','admin','supervisor','superviseur','technician','tech'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim());
+          if (!isLiveTech) return null;
+          return (
+            <div onClick={() => { setViewMode('live'); viewModeRef.current = 'live'; }}
+              style={{
+                marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12,
+                background: '#fff', border: `1.5px solid ${liveStats.active > 0 ? '#86efac' : '#e2e8f0'}`,
+                borderRadius: 10, padding: '6px 14px', cursor: 'pointer',
+                boxShadow: liveStats.active > 0 ? '0 0 0 2px rgba(34,197,94,0.12)' : 'none',
+              }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                background: liveStats.active > 0 ? '#22c55e' : '#94a3b8',
+                boxShadow: liveStats.active > 0 ? '0 0 0 3px rgba(34,197,94,0.25)' : 'none',
+              }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Chat</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: liveStats.active > 0 ? '#22c55e' : '#94a3b8' }}>{liveStats.active}</span>
+              <span style={{ fontSize: 10, color: '#94a3b8' }}>Auj.</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#6366f1' }}>{liveStats.today}</span>
+              <span style={{ fontSize: 10, color: '#94a3b8' }}>Sem.</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#8b5cf6' }}>{liveStats.this_week}</span>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
+
+        {/* Boutons admin KPI */}
+        {canViewKpi && ['superadmin','admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase()) && (
+          <>
+            <button disabled={!!kpiActionLoading} onClick={async () => {
+              setKpiActionLoading('snapshot');
+              try {
+                const token = localStorage.getItem('token');
+                await axios.post('/api/tickets/dashboard/kpi-snapshot/run', {}, { headers: { Authorization: `Bearer ${token}` } });
+                loadKpiHistory(kpiDays);
+              } catch { /**/ } finally { setKpiActionLoading(null); }
+            }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#475569', opacity: kpiActionLoading ? 0.5 : 1 }}>
+              {kpiActionLoading === 'snapshot' ? '⏳' : '📸'} Snapshot
+            </button>
+            <button disabled={!!kpiActionLoading} onClick={async () => {
+              setKpiActionLoading('backfill');
+              try {
+                const token = localStorage.getItem('token');
+                await axios.post(`/api/tickets/dashboard/kpi-backfill?days=${kpiDays}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+                loadKpiHistory(kpiDays);
+              } catch { /**/ } finally { setKpiActionLoading(null); }
+            }} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', color: '#7c3aed', opacity: kpiActionLoading ? 0.5 : 1 }}>
+              {kpiActionLoading === 'backfill' ? '⏳' : '🔄'} Rétro-calculer
+            </button>
+          </>
+        )}
+      </div>
 
       {viewMode === 'live' ? (
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 24 }}>

@@ -508,7 +508,7 @@ const glpiController = {
             });
 
             // Immediate sync for this ticket
-            const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 62];
+            const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 21];
             const forcedStr = forcedFields.map(id => `forcedisplay[${id}]=${id}`).join('&');
             const ticketRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&criteria[0][field]=2&criteria[0][searchtype]=equals&criteria[0][value]=${ticketId}&${forcedStr}`, { headers: commonHeaders, timeout: 10000 });
 
@@ -580,7 +580,7 @@ const glpiController = {
             const batchSize = 500;
             let processedCount = 0;
 
-            const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 62];
+            const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 21];
             const forcedStr = forcedFields.map(id => `forcedisplay[${id}]=${id}`).join('&');
 
             for (let start = 0; start < totalCount; start += batchSize) {
@@ -893,7 +893,7 @@ const glpiController = {
             );
             syncLogId = logRes.rows[0]?.id;
 
-            const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 62];
+            const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 21];
             const forcedStr = forcedFields.map(id => `forcedisplay[${id}]=${id}`).join('&');
             const ticketsRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${startOffset}-${totalAvailable - 1}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
 
@@ -957,7 +957,7 @@ const glpiController = {
             }).join(', ');
 
             const params = batch.flatMap(t => [
-                valInt(t, 2), val(t, 1), val(t, 62) || '', valInt(t, 12), valInt(t, 3), valInt(t, 10), valInt(t, 11),
+                valInt(t, 2), val(t, 1), val(t, 21) || '', valInt(t, 12), valInt(t, 3), valInt(t, 10), valInt(t, 11),
                 val(t, 7), val(t, 14), val(t, 15), val(t, 19) || val(t, 15), val(t, 16) || null, val(t, 17) || null,
                 val(t, 83), val(t, 24), val(t, 9), val(t, 80), val(t, 4) || 'Inconnu', normEmail(val(t, 34)), normEmail(val(t, 22))
             ]);

@@ -52,12 +52,19 @@ const ctrl = {
           'UPDATE hub.dsi_dashboards SET is_default = false WHERE username = $1', [req.user.username]
         );
       }
+      const { rotation_seconds, rotation_order, rotation_filter, is_rotating } = req.body;
       const r = await pool.query(
         `UPDATE hub.dsi_dashboards SET
           name = COALESCE($1, name),
-          is_default = COALESCE($2, is_default)
+          is_default = COALESCE($2, is_default),
+          is_rotating = COALESCE($5, is_rotating),
+          rotation_seconds = COALESCE($6, rotation_seconds),
+          rotation_order = COALESCE($7, rotation_order),
+          rotation_filter = COALESCE($8, rotation_filter)
          WHERE id = $3 AND username = $4 RETURNING *`,
-        [name || null, is_default ?? null, id, req.user.username]
+        [name || null, is_default ?? null, id, req.user.username,
+         is_rotating ?? null, rotation_seconds ?? null, rotation_order ?? null,
+         rotation_filter ? JSON.stringify(rotation_filter) : null]
       );
       res.json(r.rows[0]);
     } catch (e) {

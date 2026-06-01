@@ -1,20 +1,22 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
 import WidgetWrapper from './WidgetWrapper';
+import { useDashboardFilter, filterToQueryString } from '../DashboardFilterContext';
 
 export default function TicketsTechWidget() {
   const { token } = useAuth();
+  const filter = useDashboardFilter();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get('/api/tickets/stats', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setData(r.data?.technicianLoad || r.data?.technician_load || []))
+    axios.get(`/api/tickets/stats${filterToQueryString(filter)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setData(r.data?.technicianAssignments || []))
       .catch(e => setError(e.response?.data?.message || 'Erreur'))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, filter]);
 
   const max = Math.max(...data.map((d: any) => d.count || d.open || 0), 1);
 
@@ -40,3 +42,7 @@ export default function TicketsTechWidget() {
     </WidgetWrapper>
   );
 }
+
+
+
+

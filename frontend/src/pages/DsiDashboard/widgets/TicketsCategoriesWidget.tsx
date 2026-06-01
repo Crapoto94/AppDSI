@@ -2,23 +2,26 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
 import WidgetWrapper from './WidgetWrapper';
+import { useDashboardFilter, filterToQueryString } from '../DashboardFilterContext';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 export default function TicketsCategoriesWidget() {
   const { token } = useAuth();
+  const filter = useDashboardFilter();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get('/api/tickets/stats', { headers: { Authorization: `Bearer ${token}` } })
+    setLoading(true);
+    axios.get(`/api/tickets/stats${filterToQueryString(filter)}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => {
-        const cats = r.data?.topCategories || r.data?.top_categories || [];
+        const cats = r.data?.categoryDistribution || [];
         setData(cats.slice(0, 10));
       })
       .catch(e => setError(e.response?.data?.message || 'Erreur'))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, filter]);
 
   return (
     <WidgetWrapper title="Top 10 catégories" loading={loading} error={error}>

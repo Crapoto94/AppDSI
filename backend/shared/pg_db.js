@@ -3371,7 +3371,14 @@ async function setupPgDb() {
                    CASE WHEN date_closed::text ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_closed::text::TIMESTAMP ELSE NULL END,
                    CASE WHEN date_solved::text ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_solved::text::TIMESTAMP ELSE NULL END,
                    location, solution, 'hub', entity, requester_name, email_alt, requester_email_22 FROM glpi.tickets
-            ON CONFLICT (glpi_id) DO NOTHING
+            ON CONFLICT (glpi_id) DO UPDATE SET
+                title = EXCLUDED.title, content = EXCLUDED.content, status = EXCLUDED.status,
+                priority = EXCLUDED.priority, urgency = EXCLUDED.urgency, impact = EXCLUDED.impact,
+                category = EXCLUDED.category, type = EXCLUDED.type,
+                date_mod = EXCLUDED.date_mod, date_closed = EXCLUDED.date_closed, date_solved = EXCLUDED.date_solved,
+                location = EXCLUDED.location, solution = EXCLUDED.solution,
+                entity = EXCLUDED.entity, requester_name = EXCLUDED.requester_name,
+                email_alt = EXCLUDED.email_alt, requester_email_22 = EXCLUDED.requester_email_22
         `);
         await client.query(`UPDATE hub_tickets.tickets SET source = 'hub' WHERE source IS NULL OR source = 'glpi'`);
         await client.query(`
@@ -3380,7 +3387,7 @@ async function setupPgDb() {
         `);
         await client.query(`
             INSERT INTO hub_tickets.ticket_status (id, label) VALUES
-            (4, 'En attente utilisateur'), (5, 'En attente fournisseur'), (8, 'Rejeté')
+            (4, 'En attente utilisateur'), (5, 'Résolu'), (6, 'Fermé'), (8, 'Rejeté')
             ON CONFLICT (id) DO NOTHING
         `);
         await client.query(`
@@ -4365,6 +4372,10 @@ async function setupPgDb() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await client.query(`ALTER TABLE hub.dsi_dashboards ADD COLUMN IF NOT EXISTS is_rotating BOOLEAN NOT NULL DEFAULT false`);
+    await client.query(`ALTER TABLE hub.dsi_dashboards ADD COLUMN IF NOT EXISTS rotation_seconds INT NOT NULL DEFAULT 30`);
+    await client.query(`ALTER TABLE hub.dsi_dashboards ADD COLUMN IF NOT EXISTS rotation_order INT NOT NULL DEFAULT 0`);
+    await client.query(`ALTER TABLE hub.dsi_dashboards ADD COLUMN IF NOT EXISTS rotation_filter JSONB NOT NULL DEFAULT '{}'`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.dsi_dashboard_widgets (
         id SERIAL PRIMARY KEY,

@@ -655,9 +655,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.data.success) {
-        alert(`Test de synchronisation ${syncType} réussi!\n${res.data.records_synced} enregistrements synchronisés`);
+        const detail = res.data.records_synced != null
+          ? `${res.data.records_synced} enregistrement(s) synchronisé(s)`
+          : (res.data.message || 'Synchronisation lancée — consultez les logs pour les détails.');
+        alert(`Test de synchronisation ${syncType} réussi!\n${detail}`);
         // Recharger les logs
-        setTimeout(fetchOracleSyncLogs, 500);
+        setTimeout(fetchOracleSyncLogs, 1500);
       } else {
         alert(`Erreur lors du test de synchronisation ${syncType}:\n${res.data.error}`);
       }

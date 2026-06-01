@@ -2,29 +2,27 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
 import WidgetWrapper from './WidgetWrapper';
+import { useDashboardFilter, filterToQueryString } from '../DashboardFilterContext';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-
-const SLA_COLORS: Record<string, string> = { ok: '#22c55e', violated: '#ef4444', warning: '#f59e0b' };
 
 export default function TicketsSlaWidget() {
   const { token } = useAuth();
+  const filter = useDashboardFilter();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    axios.get('/api/tickets/stats', { headers: { Authorization: `Bearer ${token}` } })
+    setLoading(true);
+    axios.get(`/api/tickets/stats${filterToQueryString(filter)}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => {
-        const sla = r.data?.slaStatus || r.data?.sla_status || {};
-        setData([
-          { name: 'OK', value: sla.ok || 0, color: SLA_COLORS.ok },
-          { name: 'Violé', value: sla.violated || sla.breached || 0, color: SLA_COLORS.violated },
-          { name: 'Avertissement', value: sla.warning || 0, color: SLA_COLORS.warning },
-        ].filter(d => d.value > 0));
+        const slaArr: any[] = r.data?.slaOverview || [];
+        const COLOR_MAP: Record<string, string> = { 'OK': '#22c55e', 'Violé': '#ef4444', 'Avertissement': '#f59e0b' };
+        setData(slaArr.filter(d => d.value > 0).map(d => ({ ...d, color: COLOR_MAP[d.name] || '#94a3b8' })));
       })
       .catch(e => setError(e.response?.data?.message || 'Erreur'))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, filter]);
 
   return (
     <WidgetWrapper title="Statut SLA" loading={loading} error={error}>

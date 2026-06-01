@@ -13,7 +13,7 @@ ON CONFLICT (id) DO NOTHING;
 -- Ajout des statuts spécifiques hub (si non existants)
 INSERT INTO hub_tickets.ticket_status (id, label) VALUES
 (4, 'En attente utilisateur'),
-(5, 'En attente fournisseur'),
+(5, 'Résolu'), (6, 'Fermé'),
 (8, 'Rejeté')
 ON CONFLICT (id) DO NOTHING;
 

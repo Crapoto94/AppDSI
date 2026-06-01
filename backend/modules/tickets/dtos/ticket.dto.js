@@ -2,8 +2,8 @@ const IMPACT_NAMES = { 2: '1 utilisateur', 3: 'Groupe de travail', 4: 'Service /
 
 const STATUS_NAMES = {
     1: 'Nouveau', 2: 'Assigné', 3: 'En cours',
-    4: 'En attente', 5: 'En attente',
-    6: 'Résolu', 7: 'Fermé', 8: 'Rejeté'
+    4: 'En attente', 5: 'Résolu',
+    6: 'Fermé', 7: 'Fermé', 8: 'Rejeté'
 };
 
 const PRIORITY_NAMES = { 2: 'Basse', 3: 'Normale', 4: 'Haute', 5: 'Tres haute' };

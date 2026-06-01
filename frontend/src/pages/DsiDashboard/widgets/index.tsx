@@ -23,6 +23,8 @@ const MagappMaintenancesWidget = lazy(() => import('./MagappMaintenancesWidget')
 const MagappIdeasWidget     = lazy(() => import('./MagappIdeasWidget'));
 const MagappClicksWidget    = lazy(() => import('./MagappClicksWidget'));
 const ProjetsWidget         = lazy(() => import('./ProjetsWidget'));
+const TicketsRecentWidget   = lazy(() => import('./TicketsRecentWidget'));
+const CalendrierDsiWidget   = lazy(() => import('./CalendrierDsiWidget'));
 
 const ConsommablesWidget = lazy(() => import('./CounterWidget').then(m => ({ default: m.ConsommablesWidget })));
 const CertificatsWidget  = lazy(() => import('./CounterWidget').then(m => ({ default: m.CertificatsWidget })));
@@ -56,6 +58,8 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   contrats:           ContratsWidget,
   taches:             TachesWidget,
   projets:            ProjetsWidget,
+  tickets_recent:     TicketsRecentWidget,
+  calendrier_dsi:     CalendrierDsiWidget,
 };
 
 const Fallback = () => (
