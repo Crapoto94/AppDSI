@@ -2737,6 +2737,20 @@ async function setupPgDb() {
     try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_copieur_releves_unique ON hub_copieurs.copieur_releves(copieur_id, code_id, date_releve)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_copieurs.copieur_releves ADD COLUMN IF NOT EXISTS mainteneur TEXT`); } catch (e) {}
 
+    // Table diagnostic : compteurs bruts Canon (100-120) pour analyse
+    try {
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS hub_copieurs.snmp_raw_counters (
+                copieur_id INTEGER NOT NULL REFERENCES hub_copieurs.copieurs(id) ON DELETE CASCADE,
+                counter_id INTEGER NOT NULL,
+                libelle TEXT,
+                valeur BIGINT,
+                collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (copieur_id, counter_id)
+            )
+        `);
+    } catch (e) {}
+
     // Colonnes SNMP live (état toners, erreurs, derniers compteurs) sur le copieur
     for (const col of [
         'snmp_toner_black INTEGER', 'snmp_toner_cyan INTEGER', 'snmp_toner_magenta INTEGER',

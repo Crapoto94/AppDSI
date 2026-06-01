@@ -244,7 +244,12 @@ const Copieurs: React.FC = () => {
 
   const [snmpCollecting, setSnmpCollecting] = useState(false);
   const [snmpCollectStats, setSnmpCollectStats] = useState<any>(null);
+  const [snmpCollectProgress, setSnmpCollectProgress] = useState<{done:number,total:number}|null>(null);
   const snmpCollectDone = useRef(false);
+  const snmpPollRef = useRef<ReturnType<typeof setInterval>|null>(null);
+  const [showRawCanonModal, setShowRawCanonModal] = useState(false);
+  const [rawCanonData, setRawCanonData] = useState<any>(null);
+  const [rawCanonLoading, setRawCanonLoading] = useState(false);
 
   useEffect(() => {
     axios.get('/api/copieurs/boundary').then(r => setIvryBoundary(r.data)).catch(() => {});
@@ -268,18 +273,48 @@ const Copieurs: React.FC = () => {
 
   // Collecte SNMP automatique à l'ouverture de la page (une seule fois)
   const runSnmpCollect = useCallback(async () => {
+    if (snmpPollRef.current) { clearInterval(snmpPollRef.current); snmpPollRef.current = null; }
     setSnmpCollecting(true);
     setSnmpCollectStats(null);
+    setSnmpCollectProgress({ done: 0, total: 0 });
     try {
-      const res = await api.post('/snmp-collect');
-      setSnmpCollectStats(res.data);
-      await fetchCopieurs();
+      await api.post('/snmp-collect');
+      // Polling toutes les 600ms
+      snmpPollRef.current = setInterval(async () => {
+        try {
+          const prog = await api.get('/snmp-collect-progress');
+          const { done, total, running, stats } = prog.data;
+          setSnmpCollectProgress({ done, total });
+          if (!running) {
+            clearInterval(snmpPollRef.current!);
+            snmpPollRef.current = null;
+            setSnmpCollecting(false);
+            setSnmpCollectProgress(null);
+            if (stats) setSnmpCollectStats(stats);
+            await fetchCopieurs();
+          }
+        } catch { /* ignore */ }
+      }, 600);
     } catch (e) {
       console.error('Erreur collecte SNMP', e);
-    } finally {
       setSnmpCollecting(false);
+      setSnmpCollectProgress(null);
     }
   }, [token, fetchCopieurs]);
+
+  const runCanonRaw = useCallback(async () => {
+    setRawCanonLoading(true);
+    setShowRawCanonModal(true);
+    setRawCanonData(null);
+    try {
+      const res = await api.post('/snmp-collect-raw-canon');
+      setRawCanonData(res.data);
+    } catch (e: any) {
+      setRawCanonData({ error: e.response?.data?.message || e.message });
+    } finally {
+      setRawCanonLoading(false);
+    }
+  }, [token]);
 
   useEffect(() => {
     if (snmpCollectDone.current) return;
@@ -983,9 +1018,19 @@ const Copieurs: React.FC = () => {
               <p className="page-subtitle">Canon — Ville d'Ivry-sur-Seine</p>
             </div>
           </div>
+          {snmpCollecting && snmpCollectProgress && snmpCollectProgress.total > 0 && (
+            <div style={{ padding: '6px 24px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ flex: 1, height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden', maxWidth: 400 }}>
+                <div style={{ height: '100%', background: '#7c3aed', borderRadius: 4, transition: 'width 0.4s', width: `${Math.round(snmpCollectProgress.done / snmpCollectProgress.total * 100)}%` }} />
+              </div>
+              <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {snmpCollectProgress.done} / {snmpCollectProgress.total} copieurs
+              </span>
+            </div>
+          )}
           <div className="page-actions">
             <button className="btn btn-outline" onClick={runSnmpCollect} disabled={snmpCollecting} style={{ color: '#7c3aed', borderColor: '#c4b5fd' }} title={snmpCollectStats ? `${snmpCollectStats.ok}/${snmpCollectStats.total} OK · ${snmpCollectStats.releves} relevés · ${snmpCollectStats.erreurs} alertes · ${snmpCollectStats.injoignables} injoignables` : 'Collecter compteurs et états SNMP'}>
-              <Wifi size={16} /> {snmpCollecting ? 'Collecte SNMP...' : 'Collecte SNMP'}
+              <Wifi size={16} /> {snmpCollecting ? `Collecte... (${snmpCollectProgress?.done||0}/${snmpCollectProgress?.total||'?'})` : 'Collecte SNMP'}
             </button>
             <button className="btn btn-outline" onClick={handlePingAll} disabled={pinging}>
               <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: pinging ? '#fbbf24' : '#16a34a' }} /> {pinging ? 'Ping...' : 'Ping tout'}
@@ -1009,6 +1054,9 @@ const Copieurs: React.FC = () => {
             </button>
             <button className="btn btn-outline" onClick={openImportCompteurModal} style={{ color: '#7c3aed', borderColor: '#ddd6fe' }}>
               <BarChart2 size={16} /> Import Excel compteurs
+            </button>
+            <button className="btn btn-outline" onClick={runCanonRaw} disabled={rawCanonLoading} style={{ color: '#0891b2', borderColor: '#a5f3fc' }} title="Collecter les compteurs Canon 100-120 pour analyse">
+              🔬 {rawCanonLoading ? 'Collecte...' : 'Diagnostic Canon'}
             </button>
             <button className="btn btn-outline" onClick={() => window.location.href = '/copieurs/kpi'} style={{ color: '#7c3aed', borderColor: '#ddd6fe', fontWeight: 600 }}>
               <BarChart2 size={16} /> Tableau de bord
@@ -1242,7 +1290,7 @@ const Copieurs: React.FC = () => {
                       <td>
                         {c.snmp_last_check && c.snmp_error !== 'injoignable' && (c.snmp_toner_black != null || c.snmp_toner_cyan != null) ? (
                           <div style={{ display: 'flex', gap: 3 }}>
-                            {([['K', c.snmp_toner_black, '#1e293b'], ['C', c.snmp_toner_cyan, '#0891b2'], ['M', c.snmp_toner_magenta, '#db2777'], ['J', c.snmp_toner_yellow, '#ca8a04']] as [string, number | null | undefined, string][]).map(([lbl, val, col]) => (
+                            {([['K', c.snmp_toner_black, '#1e293b'], ['C', c.snmp_toner_cyan, '#0891b2'], ['M', c.snmp_toner_magenta, '#db2777'], ['J', c.snmp_toner_yellow, '#ca8a04']] as [string, number | null | undefined, string][]).filter(([lbl]) => lbl === 'K' || String(c.couleur || '').toLowerCase() === 'oui').map(([lbl, val, col]) => (
                               <div key={lbl} title={`${lbl}: ${val ?? '?'}%`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 18 }}>
                                 <div style={{ width: 14, height: 28, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
                                   <div style={{ height: `${Math.max(0, Math.min(100, val ?? 0))}%`, background: (val != null && val <= 10) ? '#dc2626' : col }} />
@@ -1304,11 +1352,7 @@ const Copieurs: React.FC = () => {
                                 🎨 {Number(c.snmp_total_couleur).toLocaleString('fr-FR')}
                               </span>
                             )}
-                            {c.snmp_total != null && (
-                              <span style={{ fontSize: 10, color: '#334155', fontFamily: 'monospace', fontWeight: 600 }} title="Compteur total (à vie)">
-                                Σ {Number(c.snmp_total).toLocaleString('fr-FR')}
-                              </span>
-                            )}
+                            {/* Σ total supprimé (redondant avec N&B + Couleur) */}
                             {c.last_snmp_releve_date && (
                               <span style={{ fontSize: 9, color: '#94a3b8' }}>{formatDate(c.last_snmp_releve_date)}</span>
                             )}
@@ -2258,6 +2302,68 @@ const Copieurs: React.FC = () => {
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Diagnostic Canon (compteurs 100-120) ── */}
+      {showRawCanonModal && (
+        <div className="modal-overlay" onClick={() => setShowRawCanonModal(false)}>
+          <div className="modal" style={{ maxWidth: 820, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 style={{ marginBottom: 4 }}>Diagnostic Canon — compteurs 100 à 120</h2>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Agrégat sur tous les copieurs Canon répondant. Dis-moi lesquels conserver.</p>
+              </div>
+              <button className="btn-icon" onClick={() => setShowRawCanonModal(false)}><X size={20} /></button>
+            </div>
+            <div className="modal-body" style={{ overflowY: 'auto' }}>
+              {rawCanonLoading ? (
+                <div style={{ textAlign: 'center', padding: 40 }}>
+                  <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>Collecte en cours sur tous les copieurs Canon…</div>
+                  <div style={{ height: 4, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: '#0891b2', animation: 'pulse 1s infinite', width: '40%' }} />
+                  </div>
+                </div>
+              ) : rawCanonData?.error ? (
+                <div style={{ padding: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b' }}>
+                  {rawCanonData.error}
+                </div>
+              ) : rawCanonData?.summary ? (
+                <>
+                  <div style={{ marginBottom: 12, fontSize: 13, color: '#64748b' }}>
+                    {rawCanonData.results?.filter((r: any) => !r.error).length} copieurs collectés · {rawCanonData.results?.filter((r: any) => r.error).length} injoignables
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                        {['ID compteur', 'Libellé Canon', '# copieurs', 'Min', 'Max', 'Moyenne'].map(h => (
+                          <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#475569' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rawCanonData.summary.map((row: any) => (
+                        <tr key={row.counter_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '7px 12px', fontFamily: 'monospace', fontWeight: 700, color: '#7c3aed' }}>{row.counter_id}</td>
+                          <td style={{ padding: '7px 12px', color: '#1e293b' }}>{row.libelle || <span style={{ color: '#94a3b8' }}>—</span>}</td>
+                          <td style={{ padding: '7px 12px', textAlign: 'center', color: '#64748b' }}>{row.nb_copieurs}</td>
+                          <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: '#475569' }}>{Number(row.min_val).toLocaleString('fr-FR')}</td>
+                          <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: '#475569' }}>{Number(row.max_val).toLocaleString('fr-FR')}</td>
+                          <td style={{ padding: '7px 12px', fontFamily: 'monospace', color: '#475569' }}>{Number(row.avg_val).toLocaleString('fr-FR')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              ) : null}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline" onClick={() => setShowRawCanonModal(false)}>Fermer</button>
+              <button className="btn btn-primary" onClick={runCanonRaw} disabled={rawCanonLoading}>
+                {rawCanonLoading ? 'Collecte...' : '🔄 Relancer la collecte'}
+              </button>
             </div>
           </div>
         </div>

@@ -111,6 +111,16 @@ const detectArchivedFromRow = (row, source) => {
     return false;
 };
 
+// ── État de la collecte SNMP partagé entre l'API et le cron ──────────────────
+const _collectState = {
+    running: false,
+    done: 0,
+    total: 0,
+    stats: null,
+    startedAt: null,
+    log: [],   // dernières 50 lignes
+};
+
 module.exports = {
     getAll: async (req, res) => {
         try {
@@ -2233,9 +2243,18 @@ module.exports = {
             const community = 'public';
             const today = new Date().toISOString().split('T')[0];
 
+            // Initialiser l'état de progression
+            _collectState.running = true;
+            _collectState.done = 0;
+            _collectState.total = 0;
+            _collectState.stats = null;
+            _collectState.startedAt = new Date().toISOString();
+            _collectState.log = [];
+
             const copieurs = await pgDb.all(
                 "SELECT id, ip, numero_serie, mainteneur, couleur FROM hub_copieurs.copieurs WHERE archive = false AND ip IS NOT NULL AND ip <> '' AND ip <> '42'"
             );
+            _collectState.total = copieurs.length;
 
             // Codes compteur indexés par mainteneur
             const allCodes = await pgDb.all('SELECT id, code, libelle, format, couleur, mainteneur FROM hub_copieurs.compteur_codes');
@@ -2433,25 +2452,113 @@ module.exports = {
                      WHERE id=$11`,
                     [tBlack, tCyan, tMagenta, tYellow, tWaste, consoleText, errText, lifeTotal, totalNoir, totalCouleur, cop.id]
                 );
+                // Mise à jour de la progression
+                _collectState.done++;
+                if (_collectState.log.length < 100)
+                    _collectState.log.push({ serie: cop.numero_serie, ip, status: errText ? 'alerte' : 'ok', msg: errText || null });
             };
 
-            // Exécution par lots de 8 en parallèle
+            // Exécution par lots de 10 en parallèle
             const CONCURRENCY = 10;
             for (let i = 0; i < copieurs.length; i += CONCURRENCY) {
                 await Promise.all(copieurs.slice(i, i + CONCURRENCY).map(c => collectOne(c).catch(() => {})));
             }
 
+            _collectState.stats = stats;
+            _collectState.running = false;
             return stats;
         }
     },
 
-    // Wrapper HTTP de la collecte SNMP
+    // Wrapper HTTP : démarre la collecte en arrière-plan et répond immédiatement
     snmpCollectAll: async (req, res) => {
+        if (_collectState.running) {
+            return res.json({ already_running: true, progress: _collectState });
+        }
+        // Démarre sans attendre (fire & forget)
+        module.exports.collectSnmpCore(req.user?.username || 'snmp-auto').catch(e => {
+            _collectState.running = false;
+            _collectState.stats = { error: e.message };
+            console.error('[snmp-collect]', e.message);
+        });
+        res.json({ started: true });
+    },
+
+    // Endpoint de progression (polled par le frontend)
+    getSnmpCollectProgress: (req, res) => {
+        res.json(_collectState);
+    },
+
+    // ─── Collecte diagnostique Canon : tous les compteurs 100-120 ──────────────
+    //   Stocke dans snmp_raw_counters pour que l'admin choisisse lesquels garder
+    collectCanonRaw: async (req, res) => {
         try {
-            const stats = await module.exports.collectSnmpCore(req.user?.username || 'snmp-auto');
-            res.json(stats);
+            const { pool } = require('../../shared/database');
+            const community = 'public';
+            const canons = await pgDb.all(
+                "SELECT id, ip, numero_serie FROM hub_copieurs.copieurs WHERE archive=false AND LOWER(mainteneur)='canon' AND ip IS NOT NULL AND ip<>''"
+            );
+            if (!canons.length) return res.status(400).json({ message: 'Aucun Canon actif avec IP' });
+
+            const results = [];
+            for (const cop of canons) {
+                const ip = cop.ip.trim();
+                try {
+                    // Walk la table complète des compteurs Canon nommés
+                    const { stdout } = await execPromise(
+                        `snmpwalk -v 1 -c ${community} -On -t 3 -r 0 ${ip} 1.3.6.1.4.1.1602.1.11.1.4.1`,
+                        { timeout: 20000, maxBuffer: 4 * 1024 * 1024 }
+                    );
+                    const map = {};
+                    for (const line of stdout.split('\n')) {
+                        const m = line.match(/1\.11\.1\.4\.1\.(\d)\.(\d+)\s*=\s*\w+:\s*(.*)/);
+                        if (!m) continue;
+                        const [, col, id, rawVal] = m;
+                        const val = rawVal.replace(/^"|"$/g, '').trim();
+                        if (!map[id]) map[id] = {};
+                        map[id][col] = val; // col 3 = libelle, col 4 = valeur
+                    }
+                    // Filtrer 100-120
+                    const entries = Object.entries(map)
+                        .filter(([id]) => { const n = parseInt(id); return n >= 100 && n <= 120; })
+                        .map(([id, cols]) => ({ id: parseInt(id), libelle: cols['3'] || null, valeur: cols['4'] ? parseInt(cols['4']) : null }))
+                        .filter(e => e.valeur !== null && !isNaN(e.valeur));
+
+                    // Upsert dans snmp_raw_counters
+                    for (const e of entries) {
+                        await pool.query(
+                            `INSERT INTO hub_copieurs.snmp_raw_counters (copieur_id, counter_id, libelle, valeur, collected_at)
+                             VALUES ($1,$2,$3,$4,NOW())
+                             ON CONFLICT (copieur_id, counter_id) DO UPDATE SET libelle=$3, valeur=$4, collected_at=NOW()`,
+                            [cop.id, e.id, e.libelle, e.valeur]
+                        );
+                    }
+                    results.push({ serie: cop.numero_serie, ip, counters: entries.length });
+                } catch (e) {
+                    results.push({ serie: cop.numero_serie, ip, error: e.message });
+                }
+            }
+
+            // Agrégation : pour chaque counter_id, libelle + min/max/avg/nb copieurs
+            const summary = await pool.query(`
+                SELECT rc.counter_id, rc.libelle,
+                    COUNT(DISTINCT rc.copieur_id) nb_copieurs,
+                    MIN(rc.valeur) min_val, MAX(rc.valeur) max_val,
+                    ROUND(AVG(rc.valeur)) avg_val
+                FROM hub_copieurs.snmp_raw_counters rc
+                JOIN hub_copieurs.copieurs c ON c.id=rc.copieur_id AND LOWER(c.mainteneur)='canon'
+                WHERE rc.counter_id BETWEEN 100 AND 120
+                GROUP BY rc.counter_id, rc.libelle
+                ORDER BY rc.counter_id
+            `);
+
+            res.json({
+                message: `Collecte raw Canon 100-120: ${results.filter(r => !r.error).length}/${canons.length} copieurs`,
+                results,
+                summary: summary.rows,
+            });
         } catch (error) {
-            res.status(500).json({ message: 'Erreur collecte SNMP', error: error.message });
+            res.status(500).json({ message: 'Erreur collecte raw Canon', error: error.message });
         }
     },
 };
