@@ -505,10 +505,10 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
         }
 
         // Build authorized URLs for all users
-        const urls = new Set(['/', '/request-access', '/profile', '/mes-reunions', '/portefeuille-projets', '/revue-de-projets', '/projets', '/transcriptmanager']); // Default allowed routes
+        const urls = new Set(['/', '/request-access', '/profile']); // Default allowed routes (module routes come from tile authorization)
 
         // Force l'approbation pour les admins
-        if (isAdminLike(user) || user.username.toLowerCase() === 'machevalier') {
+        if (isAdminLike(user)) {
             user.is_approved = 1;
             user.authorized_urls = ['*'];  // both admin and superadmin get full access
         } else if (source === 'sqlite' && user.id) {

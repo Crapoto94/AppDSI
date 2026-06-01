@@ -1018,13 +1018,18 @@ const Copieurs: React.FC = () => {
               <p className="page-subtitle">Canon — Ville d'Ivry-sur-Seine</p>
             </div>
           </div>
-          {snmpCollecting && snmpCollectProgress && snmpCollectProgress.total > 0 && (
+          {snmpCollecting && snmpCollectProgress && (
             <div style={{ padding: '6px 24px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ flex: 1, height: 8, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden', maxWidth: 400 }}>
-                <div style={{ height: '100%', background: '#7c3aed', borderRadius: 4, transition: 'width 0.4s', width: `${Math.round(snmpCollectProgress.done / snmpCollectProgress.total * 100)}%` }} />
+                {snmpCollectProgress.total > 0 ? (
+                  <div style={{ height: '100%', background: '#7c3aed', borderRadius: 4, transition: 'width 0.4s', width: `${Math.round(snmpCollectProgress.done / snmpCollectProgress.total * 100)}%` }} />
+                ) : (
+                  // Indéterminé tant que les copieurs ne sont pas chargés
+                  <div style={{ height: '100%', background: '#7c3aed', borderRadius: 4, width: '20%', animation: 'snmpSlide 1.2s infinite ease-in-out' }} />
+                )}
               </div>
               <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                {snmpCollectProgress.done} / {snmpCollectProgress.total} copieurs
+                {snmpCollectProgress.total > 0 ? `${snmpCollectProgress.done} / ${snmpCollectProgress.total} copieurs` : 'Initialisation…'}
               </span>
             </div>
           )}
@@ -2313,8 +2318,8 @@ const Copieurs: React.FC = () => {
           <div className="modal" style={{ maxWidth: 820, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
-                <h2 style={{ marginBottom: 4 }}>Diagnostic Canon — compteurs 100 à 120</h2>
-                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Agrégat sur tous les copieurs Canon répondant. Dis-moi lesquels conserver.</p>
+                <h2 style={{ marginBottom: 4 }}>Diagnostic Canon — compteurs 100 à 150</h2>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Tables 3 et 4 de la MIB Canon (inclut 106, 109, 122, 123…). Dis-moi lesquels conserver.</p>
               </div>
               <button className="btn-icon" onClick={() => setShowRawCanonModal(false)}><X size={20} /></button>
             </div>
@@ -3190,6 +3195,7 @@ const Copieurs: React.FC = () => {
           transition: all 0.2s ease;
         }
         .modal-compteurs { max-width: 860px; width: 100%; }
+        @keyframes snmpSlide { 0%{margin-left:0;width:20%} 50%{margin-left:40%;width:40%} 100%{margin-left:80%;width:20%} }
         .snmp-badge { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .snmp-ok { background: #dcfce7; color: #166534; }
         .snmp-warn { background: #fef9c3; color: #854d0e; }

@@ -1962,9 +1962,9 @@ module.exports = {
             const { pool } = require('../../shared/database');
             const { id } = req.params;
             const result = await pool.query(`
-                SELECT r.*,
+                SELECT r.id, r.copieur_id, r.code_id, r.valeur, r.created_by, r.created_at, r.mainteneur,
+                  to_char(r.date_releve, 'YYYY-MM-DD') AS date_releve,
                   cc.code, cc.libelle, cc.format, cc.couleur,
-                  r.mainteneur,
                   LAG(r.valeur) OVER (PARTITION BY r.code_id ORDER BY r.date_releve) AS valeur_precedente
                 FROM hub_copieurs.copieur_releves r
                 JOIN hub_copieurs.compteur_codes cc ON cc.id = r.code_id
@@ -2500,29 +2500,45 @@ module.exports = {
             );
             if (!canons.length) return res.status(400).json({ message: 'Aucun Canon actif avec IP' });
 
+            // Helper : parse un walk output en map[counterId] = {libelle, valeur}
+            const parseCanonWalk = (stdout, tableKey) => {
+                // tableKey = '3' pour .1.11.1.3.1, '4' pour .1.11.1.4.1
+                // OID pattern: ...1.11.1.<tableKey>.1.<col>.<counterId>
+                const map = {};
+                const re = new RegExp(`1\\.11\\.1\\.${tableKey}\\.1\\.(\\d+)\\.(\\d+)\\s*=\\s*\\w+:\\s*(.*)`);
+                for (const line of stdout.split('\n')) {
+                    const m = line.match(re);
+                    if (!m) continue;
+                    const [, col, counterId, rawVal] = m;
+                    const val = rawVal.replace(/^"|"$/g, '').trim();
+                    if (!map[counterId]) map[counterId] = {};
+                    map[counterId][col] = val; // col 3=libelle, col 4=valeur
+                }
+                return map;
+            };
+
             const results = [];
             for (const cop of canons) {
                 const ip = cop.ip.trim();
                 try {
-                    // Walk la table complète des compteurs Canon nommés
-                    const { stdout } = await execPromise(
-                        `snmpwalk -v 1 -c ${community} -On -t 3 -r 0 ${ip} 1.3.6.1.4.1.1602.1.11.1.4.1`,
-                        { timeout: 20000, maxBuffer: 4 * 1024 * 1024 }
-                    );
-                    const map = {};
-                    for (const line of stdout.split('\n')) {
-                        const m = line.match(/1\.11\.1\.4\.1\.(\d)\.(\d+)\s*=\s*\w+:\s*(.*)/);
-                        if (!m) continue;
-                        const [, col, id, rawVal] = m;
-                        const val = rawVal.replace(/^"|"$/g, '').trim();
-                        if (!map[id]) map[id] = {};
-                        map[id][col] = val; // col 3 = libelle, col 4 = valeur
-                    }
-                    // Filtrer 100-120
-                    const entries = Object.entries(map)
-                        .filter(([id]) => { const n = parseInt(id); return n >= 100 && n <= 120; })
-                        .map(([id, cols]) => ({ id: parseInt(id), libelle: cols['3'] || null, valeur: cols['4'] ? parseInt(cols['4']) : null }))
-                        .filter(e => e.valeur !== null && !isNaN(e.valeur));
+                    // Walk TABLE 4 (.1.11.1.4.1) : compteurs détaillés A4/A3 (101-148, 201...)
+                    // Walk TABLE 3 (.1.11.1.3.1) : compteurs affichage (contient 106, 109 absents de table 4)
+                    const [out4, out3] = await Promise.allSettled([
+                        execPromise(`snmpwalk -v 1 -c ${community} -On -t 3 -r 0 ${ip} 1.3.6.1.4.1.1602.1.11.1.4.1`, { timeout: 20000, maxBuffer: 4 * 1024 * 1024 }),
+                        execPromise(`snmpwalk -v 1 -c ${community} -On -t 3 -r 0 ${ip} 1.3.6.1.4.1.1602.1.11.1.3.1`, { timeout: 20000, maxBuffer: 4 * 1024 * 1024 }),
+                    ]);
+
+                    const map4 = out4.status === 'fulfilled' ? parseCanonWalk(out4.value.stdout, '4') : {};
+                    const map3 = out3.status === 'fulfilled' ? parseCanonWalk(out3.value.stdout, '3') : {};
+
+                    // Fusion : table 4 prioritaire (plus détaillé), table 3 en complément
+                    const merged = { ...map3, ...map4 };
+
+                    // Filtrer 100-150 (inclut 122, 123 couleur A3/A4)
+                    const entries = Object.entries(merged)
+                        .map(([cid, cols]) => ({ id: parseInt(cid), libelle: (cols as any)['3'] || null, valeur: (cols as any)['4'] ? parseInt((cols as any)['4']) : null }))
+                        .filter(e => e.id >= 100 && e.id <= 150 && e.valeur !== null && !isNaN(e.valeur as number))
+                        .sort((a, b) => a.id - b.id);
 
                     // Upsert dans snmp_raw_counters
                     for (const e of entries) {
@@ -2533,8 +2549,8 @@ module.exports = {
                             [cop.id, e.id, e.libelle, e.valeur]
                         );
                     }
-                    results.push({ serie: cop.numero_serie, ip, counters: entries.length });
-                } catch (e) {
+                    results.push({ serie: cop.numero_serie, ip, counters: entries.length, t4: Object.keys(map4).length, t3: Object.keys(map3).length });
+                } catch (e: any) {
                     results.push({ serie: cop.numero_serie, ip, error: e.message });
                 }
             }
@@ -2547,7 +2563,7 @@ module.exports = {
                     ROUND(AVG(rc.valeur)) avg_val
                 FROM hub_copieurs.snmp_raw_counters rc
                 JOIN hub_copieurs.copieurs c ON c.id=rc.copieur_id AND LOWER(c.mainteneur)='canon'
-                WHERE rc.counter_id BETWEEN 100 AND 120
+                WHERE rc.counter_id BETWEEN 100 AND 150
                 GROUP BY rc.counter_id, rc.libelle
                 ORDER BY rc.counter_id
             `);
