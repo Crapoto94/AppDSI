@@ -1094,8 +1094,9 @@ const Copieurs: React.FC = () => {
                   </th>
                   <th className="sortable" onClick={() => handleSort('last_visit_date')}>Dernière visite {sortIcon('last_visit_date')}</th>
                   <th className="sortable" onClick={() => handleSort('last_releve_date')}>Dernier relevé {sortIcon('last_releve_date')}</th>
+                  <th className="sortable" onClick={() => handleSort('last_snmp_releve_date')}>Dernier SNMP {sortIcon('last_snmp_releve_date')}</th>
                   <th className="sortable" style={{ width: 60 }} onClick={() => handleSort('interventions')}>Int. {sortIcon('interventions')}</th>
-                  <th style={{ width: 120 }}>Actions</th>
+                  <th style={{ width: 150 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1191,6 +1192,24 @@ const Copieurs: React.FC = () => {
                               </span>
                             )}
                           </div>
+                        )}
+                      </td>
+                      <td>
+                        {c.last_snmp_releve_date ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                            <span className="visit-badge visit-badge-active">
+                              {formatDate(c.last_snmp_releve_date)}
+                            </span>
+                            {c.last_snmp_releve_value && (
+                              <span style={{ fontSize: 11, color: '#0891b2', fontFamily: 'monospace', background: '#e0f2fe', padding: '0 5px', borderRadius: 3, display: 'inline-block' }}>
+                                📊 {Number(c.last_snmp_releve_value).toLocaleString('fr-FR')}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <button className="btn btn-sm" style={{ fontSize: 11, padding: '4px 8px', background: '#f0fdf4', color: '#166534', border: '1px solid #86efac' }} onClick={(e) => { e.stopPropagation(); takeSnmpReleve(c.id); }}>
+                            Relevé SNMP
+                          </button>
                         )}
                       </td>
                       <td>
