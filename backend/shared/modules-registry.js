@@ -33,6 +33,7 @@ const MODULES_REGISTRY = [
     { key: 'reseau',       title: 'Réseau Ville',          icon: 'Network',      description: 'Cartographie du réseau inter-sites (fibre, WAN, opérateurs, fourreaux).', url: '/reseau' },
     { key: 'reunions',     title: 'Réunions',              icon: 'Calendar',     description: 'Réunions et comptes-rendus.', url: '/mes-reunions' },
     { key: 'magapp',       title: 'Magasin d\'applications',icon: 'AppWindow',    description: 'Galerie d\'applications et logiciels métiers.', url: '/admin/magapp' },
+    { key: 'taches',       title: 'Mes Tâches',            icon: 'CheckSquare',  description: 'Gestion des tâches et suivis.', url: '/mes-taches' },
 ];
 
 module.exports = { MODULES_REGISTRY };
