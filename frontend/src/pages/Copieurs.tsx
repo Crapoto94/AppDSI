@@ -192,6 +192,8 @@ const Copieurs: React.FC = () => {
   const [snmpTesting, setSnmpTesting] = useState(false);
   const [snmpResults, setSnmpResults] = useState<any>(null);
   const [takingSnmpReleve, setTakingSnmpReleve] = useState(false);
+  const [snmpWalking, setSnmpWalking] = useState(false);
+  const [snmpWalkData, setSnmpWalkData] = useState<any>(null);
 
   // ── Import Excel compteurs (modal multi-étapes) ────────────────────────────
   const [showImportCompteurModal, setShowImportCompteurModal] = useState(false);
@@ -696,6 +698,7 @@ const Copieurs: React.FC = () => {
   const openSnmpModal = (c: Copieur) => {
     setSnmpTarget(c);
     setSnmpResults(null);
+    setSnmpWalkData(null);
     setShowSnmpModal(true);
     testSnmp(c.id);
   };
@@ -709,6 +712,19 @@ const Copieurs: React.FC = () => {
       setSnmpResults({ status: 'error', error: e.response?.data?.error || e.message });
     } finally {
       setSnmpTesting(false);
+    }
+  };
+
+  const runSnmpWalk = async (copieurId: number) => {
+    setSnmpWalking(true);
+    setSnmpWalkData(null);
+    try {
+      const res = await api.post(`/${copieurId}/snmp-walk`);
+      setSnmpWalkData(res.data);
+    } catch (e: any) {
+      setSnmpWalkData({ error: e.response?.data?.message || e.message });
+    } finally {
+      setSnmpWalking(false);
     }
   };
 
@@ -2033,7 +2049,7 @@ const Copieurs: React.FC = () => {
       {/* ── Modal Test SNMP ── */}
       {showSnmpModal && snmpTarget && (
         <div className="modal-overlay" onClick={() => setShowSnmpModal(false)}>
-          <div className="modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: (snmpWalkData || snmpWalking) ? 780 : 500, transition: 'max-width 0.2s' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <h2 style={{ marginBottom: 4 }}>Test SNMP</h2>
@@ -2092,10 +2108,58 @@ const Copieurs: React.FC = () => {
                   )}
                 </div>
               ) : null}
+
+              {/* ── Résultat du SNMP Walk (diagnostic) ── */}
+              {snmpWalking && (
+                <div style={{ textAlign: 'center', padding: 24, marginTop: 16 }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>SNMP Walk en cours (peut prendre jusqu'à 1 min)...</div>
+                  <div style={{ marginTop: 12, height: 4, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: '#7c3aed', animation: 'pulse 1s infinite', width: '30%' }} />
+                  </div>
+                </div>
+              )}
+              {snmpWalkData && !snmpWalking && (
+                <div style={{ marginTop: 16 }}>
+                  {snmpWalkData.error ? (
+                    <div style={{ padding: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b' }}>
+                      {snmpWalkData.error}
+                    </div>
+                  ) : (
+                    <>
+                      {(snmpWalkData.sections || []).map((sec: any, i: number) => (
+                        <div key={i} style={{ marginBottom: 16 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <strong style={{ fontSize: 13 }}>{sec.name}</strong>
+                            <span style={{ fontSize: 12, color: '#64748b' }}>{sec.count} OID{sec.count > 1 ? 's' : ''}</span>
+                          </div>
+                          {sec.error ? (
+                            <div style={{ fontSize: 12, color: '#dc2626', fontFamily: 'monospace' }}>{sec.error}</div>
+                          ) : (
+                            <pre style={{ background: '#0f172a', color: '#e2e8f0', padding: 12, borderRadius: 8, fontSize: 11, lineHeight: 1.5, maxHeight: 300, overflow: 'auto', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                              {sec.lines.join('\n') || '(vide)'}
+                            </pre>
+                          )}
+                        </div>
+                      ))}
+                      <button className="btn btn-outline btn-sm" style={{ fontSize: 12 }}
+                        onClick={() => {
+                          const txt = (snmpWalkData.sections || []).map((s: any) => `=== ${s.name} (${s.oid}) ===\n${s.lines.join('\n')}`).join('\n\n');
+                          navigator.clipboard.writeText(txt);
+                          alert('Copié dans le presse-papier');
+                        }}>
+                        📋 Copier tout
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setShowSnmpModal(false)}>Fermer</button>
               <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-outline" style={{ color: '#7c3aed', borderColor: '#c4b5fd' }} onClick={() => runSnmpWalk(snmpTarget.id)} disabled={snmpWalking || snmpTesting}>
+                  {snmpWalking ? 'Walk...' : '🔍 SNMP Walk'}
+                </button>
                 <button className="btn btn-primary" onClick={() => testSnmp(snmpTarget.id)} disabled={snmpTesting || takingSnmpReleve}>
                   {snmpTesting ? 'Test en cours...' : 'Relancer le test'}
                 </button>

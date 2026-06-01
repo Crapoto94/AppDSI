@@ -2056,6 +2056,48 @@ module.exports = {
         }
     },
 
+    snmpWalk: async (req, res) => {
+        try {
+            const copieur = await pgDb.get('SELECT id, ip, numero_serie FROM hub_copieurs.copieurs WHERE id = ?', [req.params.id]);
+            if (!copieur) return res.status(404).json({ message: 'Copieur non trouvé' });
+            if (!copieur.ip) return res.status(400).json({ message: 'IP manquante pour ce copieur' });
+
+            const community = 'public';
+            const ip = copieur.ip.trim();
+
+            // Sections SNMP à parcourir
+            const branches = [
+                { name: 'Printer-MIB (compteurs, consommables, bacs)', oid: '1.3.6.1.2.1.43' },
+                { name: 'Canon propriétaire (entreprise 1602)', oid: '1.3.6.1.4.1.1602' },
+            ];
+
+            const sections = [];
+            for (const branch of branches) {
+                try {
+                    // -On : sortie en OID numérique ; -t 3 -r 1 : timeout 3s, 1 retry
+                    const { stdout } = await execPromise(
+                        `snmpwalk -v 1 -c ${community} -On -t 3 -r 1 ${ip} ${branch.oid}`,
+                        { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }
+                    );
+                    const lines = stdout.trim().split('\n').filter(l => l.trim());
+                    sections.push({ name: branch.name, oid: branch.oid, count: lines.length, lines });
+                } catch (e) {
+                    const errMsg = String(e.stderr || e.stdout || e.message || '').split('\n')[0];
+                    sections.push({ name: branch.name, oid: branch.oid, count: 0, error: errMsg || 'Pas de réponse', lines: [] });
+                }
+            }
+
+            res.json({
+                ip,
+                numero_serie: copieur.numero_serie,
+                community,
+                sections,
+            });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur SNMP walk', error: error.message });
+        }
+    },
+
     takeSnmpReleve: async (req, res) => {
         try {
             const copieur = await pgDb.get('SELECT id, ip, numero_serie, mainteneur FROM hub_copieurs.copieurs WHERE id = ?', [req.params.id]);
