@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
 import { MapContainer, TileLayer, Marker, Popup, GeoJSON } from 'react-leaflet';
 import L from 'leaflet';
-import { Printer, Plus, Edit3, Archive, MapPin, List, Trash2, Download, Search, X, Building2, School, ArrowUpDown, ArrowUp, ArrowDown, Filter, Move, History, Gauge, ChevronDown, ChevronRight, Euro, BarChart2 } from 'lucide-react';
+import { Printer, Plus, Edit3, Archive, MapPin, List, Trash2, Download, Search, X, Building2, School, ArrowUpDown, ArrowUp, ArrowDown, Filter, Move, History, Gauge, ChevronDown, ChevronRight, Euro, BarChart2, Wifi, AlertCircle, CheckCircle } from 'lucide-react';
 import axios from 'axios';
 import 'leaflet/dist/leaflet.css';
 
@@ -183,6 +183,12 @@ const Copieurs: React.FC = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [submittingVisite, setSubmittingVisite] = useState(false);
   const [activeLightbox, setActiveLightbox] = useState<string | null>(null);
+
+  // ── Test SNMP ──────────────────────────────────────────────────────────────
+  const [showSnmpModal, setShowSnmpModal] = useState(false);
+  const [snmpTarget, setSnmpTarget] = useState<Copieur | null>(null);
+  const [snmpTesting, setSnmpTesting] = useState(false);
+  const [snmpResults, setSnmpResults] = useState<any>(null);
 
   // ── Import Excel compteurs (modal multi-étapes) ────────────────────────────
   const [showImportCompteurModal, setShowImportCompteurModal] = useState(false);
@@ -684,6 +690,25 @@ const Copieurs: React.FC = () => {
     await fetchVisites(c.id);
   };
 
+  const openSnmpModal = (c: Copieur) => {
+    setSnmpTarget(c);
+    setSnmpResults(null);
+    setShowSnmpModal(true);
+    testSnmp(c.id);
+  };
+
+  const testSnmp = async (copieurId: number) => {
+    setSnmpTesting(true);
+    try {
+      const res = await api.post(`/${copieurId}/test-snmp`);
+      setSnmpResults(res.data);
+    } catch (e: any) {
+      setSnmpResults({ status: 'error', error: e.response?.data?.error || e.message });
+    } finally {
+      setSnmpTesting(false);
+    }
+  };
+
   const fetchVisites = async (copieurId: number) => {
     setLoadingVisites(true);
     try {
@@ -1163,6 +1188,7 @@ const Copieurs: React.FC = () => {
                           <button className="btn-icon" title="Modifier" onClick={() => handleEdit(c)}><Edit3 size={15} /></button>
                           <button className="btn-icon" title={c.archive ? 'Désarchiver' : 'Archiver'} onClick={() => handleArchive(c.id)}><Archive size={15} /></button>
                           <button className="btn-icon" title="Déménager" onClick={() => openMoveModal(c)}><Move size={15} /></button>
+                          <button className="btn-icon" title="Tester SNMP" onClick={() => openSnmpModal(c)} style={{ color: '#7c3aed' }}><Wifi size={15} /></button>
                           <button className="btn-icon" title="Relevés compteurs" onClick={() => openRelevesModal(c)} style={{ color: '#0891b2' }}><Gauge size={15} /></button>
                           <button className="btn-icon btn-icon-danger" title="Supprimer" onClick={() => handleDelete(c.id)}><Trash2 size={15} /></button>
                         </div>
@@ -1963,6 +1989,81 @@ const Copieurs: React.FC = () => {
             
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setShowVisitesModal(false)}>Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Test SNMP ── */}
+      {showSnmpModal && snmpTarget && (
+        <div className="modal-overlay" onClick={() => setShowSnmpModal(false)}>
+          <div className="modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 style={{ marginBottom: 4 }}>Test SNMP</h2>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Récupération des compteurs via SNMP</p>
+              </div>
+              <button className="btn-icon" onClick={() => setShowSnmpModal(false)}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              <div style={{ marginBottom: 16, padding: 12, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+                <strong>{snmpTarget.numero_serie}</strong> ({snmpTarget.ip})
+              </div>
+
+              {snmpTesting ? (
+                <div style={{ textAlign: 'center', padding: 40 }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>Test en cours...</div>
+                  <div style={{ marginTop: 12, height: 4, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: '#0891b2', animation: 'pulse 1s infinite', width: '30%' }} />
+                  </div>
+                </div>
+              ) : snmpResults ? (
+                <div>
+                  <div style={{ marginBottom: 16 }}>
+                    {snmpResults.status === 'success' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 12, background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, color: '#166534' }}>
+                        <CheckCircle size={18} style={{ flexShrink: 0 }} />
+                        <div>
+                          <strong>{snmpResults.message}</strong>
+                          <div style={{ fontSize: 13, marginTop: 4 }}>
+                            Pages compteurs : <strong>{snmpResults.total_pages}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 12, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b' }}>
+                        <AlertCircle size={18} style={{ flexShrink: 0 }} />
+                        <div>
+                          <strong>{snmpResults.message || 'Échec du test'}</strong>
+                          {snmpResults.error && <div style={{ fontSize: 13, marginTop: 4 }}>{snmpResults.error}</div>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {snmpResults.public !== undefined && (
+                    <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>
+                      <div style={{ marginBottom: 8 }}>
+                        <strong>Résultats détaillés:</strong>
+                      </div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 }}>
+                        <div style={{ color: snmpResults.public.success ? '#16a34a' : '#dc2626', marginBottom: 8 }}>
+                          public: {snmpResults.public.success ? '✓ ' + snmpResults.public.value : '✗ ' + (snmpResults.public.error || 'Pas de réponse')}
+                        </div>
+                        <div style={{ color: snmpResults.ivry.success ? '#16a34a' : '#dc2626' }}>
+                          ivry: {snmpResults.ivry.success ? '✓ ' + snmpResults.ivry.value : '✗ ' + (snmpResults.ivry.error || 'Pas de réponse')}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-outline" onClick={() => setShowSnmpModal(false)}>Fermer</button>
+              <button className="btn btn-primary" onClick={() => testSnmp(snmpTarget.id)} disabled={snmpTesting}>
+                {snmpTesting ? 'Test en cours...' : 'Relancer le test'}
+              </button>
             </div>
           </div>
         </div>

@@ -60,4 +60,7 @@ router.get('/:id/releves',                                                authen
 router.post('/:id/releves',                                               authenticateJWT, copieursController.addCopieurReleve);
 router.delete('/:id/releves/:releveId',                                   authenticateJWT, copieursController.deleteCopieurReleve);
 
+// ─── Test SNMP ────────────────────────────────────────────────────────────────
+router.post('/:id/test-snmp',                                             authenticateJWT, copieursController.testSnmp);
+
 module.exports = router;

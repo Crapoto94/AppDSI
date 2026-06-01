@@ -1994,4 +1994,50 @@ module.exports = {
             res.status(500).json({ message: 'Erreur suppression relevé', error: error.message });
         }
     },
+
+    testSnmp: async (req, res) => {
+        try {
+            const copieur = await pgDb.get('SELECT id, ip, numero_serie FROM hub_copieurs.copieurs WHERE id = ?', [req.params.id]);
+            if (!copieur) return res.status(404).json({ message: 'Copieur non trouvé' });
+            if (!copieur.ip) return res.status(400).json({ message: 'IP manquante pour ce copieur' });
+
+            const communities = ['public', 'ivry'];
+            const results = {};
+
+            for (const community of communities) {
+                try {
+                    const { stdout, stderr } = await execPromise(
+                        `snmpget -v 1 -c ${community} ${copieur.ip.trim()} 1.3.6.1.2.1.43.10.2.1.5.1.1 2>&1`,
+                        { timeout: 5000 }
+                    );
+
+                    // Chercher la valeur dans la réponse (format "Counter64: 123456")
+                    const match = stdout.match(/:\s*(\d+)/);
+                    if (match) {
+                        results[community] = { success: true, value: match[1], raw: stdout.trim() };
+                    } else {
+                        results[community] = { success: false, error: 'Pas de réponse valide', raw: stdout.trim() };
+                    }
+                } catch (e) {
+                    results[community] = { success: false, error: e.message };
+                }
+            }
+
+            // Déterminer le statut global
+            const working = Object.entries(results).find(([_, r]) => r.success);
+            if (working) {
+                results.status = 'success';
+                results.message = `SNMP actif avec la communauté "${working[0]}"`;
+                results.working_community = working[0];
+                results.total_pages = working[1].value;
+            } else {
+                results.status = 'failed';
+                results.message = 'SNMP non actif ou pas de réponse';
+            }
+
+            res.json(results);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur test SNMP', error: error.message });
+        }
+    },
 };
