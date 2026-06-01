@@ -5406,6 +5406,7 @@ const projetsCtrl = require('./modules/projets/projets.controller');
 projetsCtrl.setSendMail(sendMail);
 
 // ─── DSI Dashboard : injection mail + cron horaire ───────────────────────────
+const dsiDashboardCtrl = require('./modules/dsi-dashboard/dsi-dashboard.controller');
 dsiDashboardCtrl.setSendMail(sendMail);
 cron.schedule('0 * * * *', () => {
     dsiDashboardCtrl.runScheduledSends().catch(e => console.error('[CRON dsi-dash]', e.message));
@@ -5465,8 +5466,7 @@ backupCtrl.setSendMail(sendMail);
 app.use('/api/backup', require('./modules/backup/backup.routes'));
 require('./modules/backup/backup.scheduler').init();
 
-// DSI Dashboard module
-const dsiDashboardCtrl = require('./modules/dsi-dashboard/dsi-dashboard.controller');
+// DSI Dashboard module (le contrôleur est déjà requis plus haut pour l'injection mail/cron)
 app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.routes'));
 
 // Public reply routes (no auth)
