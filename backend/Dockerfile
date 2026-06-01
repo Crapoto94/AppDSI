@@ -5,7 +5,8 @@ WORKDIR /app
 # Outils de build pour les modules natifs (sqlite3, etc.).
 # py3-setuptools fournit le shim "distutils" (supprimé de Python 3.12) requis
 # par node-gyp lorsque le binaire pré-compilé n'est pas dispo (fallback source).
-RUN apk add --no-cache make gcc g++ python3 py3-setuptools
+# net-snmp-tools pour les tests SNMP des copieurs
+RUN apk add --no-cache make gcc g++ python3 py3-setuptools net-snmp-tools
 
 # Copier les fichiers de package et installer les dépendances
 COPY package*.json ./
