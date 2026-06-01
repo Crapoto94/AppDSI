@@ -51,6 +51,8 @@ interface Copieur {
   last_nb_value?: number | null;
   last_coul_value?: number | null;
   has_decreasing_counter?: boolean;
+  last_snmp_releve_date?: string;
+  last_snmp_releve_value?: number;
 }
 
 interface CopieurForm {
@@ -716,7 +718,7 @@ const Copieurs: React.FC = () => {
       const res = await api.post(`/${copieurId}/snmp-releve`);
       alert(`Relevé enregistré: ${res.data.page_count} pages`);
       setShowSnmpModal(false);
-      loadCopieurs();
+      fetchCopieurs();
     } catch (e: any) {
       alert(`Erreur: ${e.response?.data?.message || e.message}`);
     } finally {
