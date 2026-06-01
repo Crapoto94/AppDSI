@@ -2109,60 +2109,85 @@ module.exports = {
 
             const { pool } = require('../../shared/database');
             const community = 'public';
+            const ip = copieur.ip.trim();
             const today = new Date().toISOString().split('T')[0];
             const username = req.user?.username || 'snmp-auto';
+            const mainteneur = (copieur.mainteneur || '').toLowerCase();
 
-            // Récupérer le compteur total à vie (prtMarkerLifeCount = .4.1.1)
-            try {
-                const { stdout } = await execPromise(
-                    `snmpget -v 1 -c ${community} ${copieur.ip.trim()} 1.3.6.1.2.1.43.10.2.1.4.1.1`,
-                    { timeout: 3000 }
-                );
-                const match = stdout.match(/:\s*(\d+)/);
-                if (!match) throw new Error('Pas de valeur');
-                const pageCount = parseInt(match[1]);
+            // Récupérer les codes compteur configurés pour ce mainteneur
+            const codesRes = await pool.query(
+                `SELECT id, code, libelle, format, couleur FROM hub_copieurs.compteur_codes WHERE LOWER(mainteneur)=LOWER($1)`,
+                [copieur.mainteneur || 'unknown']
+            );
+            const codes = codesRes.rows;
 
-                // Chercher le code compteur "total" ou "Pages Total"
-                const codeRes = await pool.query(
-                    `SELECT id FROM hub_copieurs.compteur_codes
-                     WHERE LOWER(mainteneur)=LOWER($1) AND (libelle ILIKE 'Total%' OR libelle ILIKE 'Pages Total%')
-                     LIMIT 1`,
-                    [copieur.mainteneur || 'unknown']
-                );
-
-                let codeId = codeRes.rows[0]?.id;
-
-                // Si pas de code "Total", utiliser le premier code disponible
-                if (!codeId) {
-                    const anyCodeRes = await pool.query(
-                        `SELECT id FROM hub_copieurs.compteur_codes
-                         WHERE LOWER(mainteneur)=LOWER($1) LIMIT 1`,
-                        [copieur.mainteneur || 'unknown']
-                    );
-                    codeId = anyCodeRes.rows[0]?.id;
-                }
-
-                if (!codeId) {
-                    return res.status(400).json({ message: 'Aucun code compteur défini pour ce mainteneur' });
-                }
-
-                // Insérer le relevé
-                const insertRes = await pool.query(
-                    `INSERT INTO hub_copieurs.copieur_releves
-                     (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+            const insertReleve = async (codeId, valeur) => {
+                await pool.query(
+                    `INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
                      VALUES ($1, $2, $3, $4, $5, $6)
-                     RETURNING id, date_releve, valeur`,
-                    [copieur.id, codeId, today, pageCount, copieur.mainteneur, username]
+                     ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, mainteneur=$5, created_by=$6`,
+                    [copieur.id, codeId, today, valeur, copieur.mainteneur, username]
                 );
+            };
 
-                res.json({
-                    message: 'Relevé SNMP enregistré',
-                    releve: insertRes.rows[0],
-                    page_count: pageCount
-                });
-            } catch (e) {
-                res.status(400).json({ message: 'Erreur récupération SNMP', error: e.message });
+            // ─── CANON : compteurs détaillés via MIB privée (table 1602.1.11.1.4.1) ───
+            //  Mapping par (format, couleur) → ID compteur Canon :
+            //   (A4, noir)    → 113 "Total (Black/Small)"
+            //   (A3, noir)    → 112 "Total (Black/Large)"
+            //   (A4, couleur) → 123 "Total (Full Color + Single Color/Small)"
+            //   (A3, couleur) → 122 "Total (Full Color + Single Color/Large)"
+            if (mainteneur === 'canon') {
+                const CANON_MAP = {
+                    'A4|false': '113', 'A3|false': '112',
+                    'A4|true': '123',  'A3|true': '122',
+                };
+                // Walk de la colonne valeurs : 1602.1.11.1.4.1.4.<counterId> = valeur
+                const { stdout } = await execPromise(
+                    `snmpwalk -v 1 -c ${community} -On -t 3 -r 1 ${ip} 1.3.6.1.4.1.1602.1.11.1.4.1.4`,
+                    { timeout: 15000, maxBuffer: 4 * 1024 * 1024 }
+                );
+                const counterValues = {};
+                for (const line of stdout.split('\n')) {
+                    const m = line.match(/1\.11\.1\.4\.1\.4\.(\d+)\s*=\s*\w+:\s*(\d+)/);
+                    if (m) counterValues[m[1]] = parseInt(m[2]);
+                }
+                if (Object.keys(counterValues).length === 0) {
+                    return res.status(400).json({ message: 'Aucun compteur Canon lu via SNMP' });
+                }
+
+                const inserted = [];
+                for (const c of codes) {
+                    const key = `${(c.format || '').toUpperCase()}|${c.couleur === true}`;
+                    const canonId = CANON_MAP[key];
+                    if (!canonId) continue;
+                    const valeur = counterValues[canonId];
+                    if (valeur === undefined) continue;
+                    await insertReleve(c.id, valeur);
+                    inserted.push({ code: c.code, libelle: c.libelle, format: c.format, couleur: c.couleur, canon_counter: canonId, valeur });
+                }
+
+                if (inserted.length === 0) {
+                    return res.status(400).json({ message: 'Aucun code Canon (A4/A3 × noir/couleur) n\'a pu être mappé' });
+                }
+                const total = inserted.reduce((s, r) => s + r.valeur, 0);
+                return res.json({ message: `Relevé SNMP Canon enregistré (${inserted.length} compteurs)`, releves: inserted, page_count: total });
             }
+
+            // ─── Autres mainteneurs : compteur total via Printer-MIB (prtMarkerLifeCount) ───
+            const { stdout } = await execPromise(
+                `snmpget -v 1 -c ${community} ${ip} 1.3.6.1.2.1.43.10.2.1.4.1.1`,
+                { timeout: 3000 }
+            );
+            const match = stdout.match(/:\s*(\d+)/);
+            if (!match) return res.status(400).json({ message: 'Pas de valeur SNMP' });
+            const pageCount = parseInt(match[1]);
+
+            // Code "Total" si présent, sinon le premier code disponible
+            let codeId = codes.find(c => /^total/i.test(c.libelle || ''))?.id || codes[0]?.id;
+            if (!codeId) return res.status(400).json({ message: 'Aucun code compteur défini pour ce mainteneur' });
+
+            await insertReleve(codeId, pageCount);
+            res.json({ message: 'Relevé SNMP enregistré', page_count: pageCount });
         } catch (error) {
             res.status(500).json({ message: 'Erreur enregistrement relevé', error: error.message });
         }
