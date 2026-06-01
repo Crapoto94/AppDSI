@@ -126,12 +126,12 @@ module.exports = {
         try {
             const filter = req.query.filter || 'actifs';
             let sql = `SELECT c.*,
-                (SELECT MAX(date_visite) FROM hub_copieurs.copieur_visites v WHERE v.copieur_id = c.id) as last_visit_date,
-                (SELECT MAX(date_releve) FROM hub_copieurs.copieur_releves r WHERE r.copieur_id = c.id) as last_releve_date,
+                to_char((SELECT MAX(date_visite) FROM hub_copieurs.copieur_visites v WHERE v.copieur_id = c.id), 'YYYY-MM-DD') as last_visit_date,
+                to_char((SELECT MAX(date_releve) FROM hub_copieurs.copieur_releves r WHERE r.copieur_id = c.id), 'YYYY-MM-DD') as last_releve_date,
                 (SELECT r2.valeur FROM hub_copieurs.copieur_releves r2 JOIN hub_copieurs.compteur_codes cc2 ON cc2.id = r2.code_id WHERE r2.copieur_id = c.id AND cc2.couleur = false ORDER BY r2.date_releve DESC, r2.id DESC LIMIT 1) as last_nb_value,
                 (SELECT r3.valeur FROM hub_copieurs.copieur_releves r3 JOIN hub_copieurs.compteur_codes cc3 ON cc3.id = r3.code_id WHERE r3.copieur_id = c.id AND cc3.couleur = true ORDER BY r3.date_releve DESC, r3.id DESC LIMIT 1) as last_coul_value,
-                (SELECT CAST(EXISTS (SELECT 1 FROM (SELECT valeur::bigint, LAG(valeur::bigint) OVER (PARTITION BY code_id ORDER BY date_releve) AS prev_v FROM hub_copieurs.copieur_releves WHERE copieur_id = c.id) t WHERE t.prev_v IS NOT NULL AND t.valeur < t.prev_v) AS boolean)) as has_decreasing_counter,
-                (SELECT MAX(date_releve) FROM hub_copieurs.copieur_releves r WHERE r.copieur_id = c.id AND r.created_by = 'snmp-auto') as last_snmp_releve_date,
+                (SELECT CAST(EXISTS (SELECT 1 FROM (SELECT valeur::bigint, LAG(valeur::bigint) OVER (PARTITION BY code_id ORDER BY date_releve) AS prev_v FROM hub_copieurs.copieur_releves WHERE copieur_id = c.id AND created_by = 'snmp-auto') t WHERE t.prev_v IS NOT NULL AND t.valeur < t.prev_v) AS boolean)) as has_decreasing_counter,
+                to_char((SELECT MAX(r.date_releve) FROM hub_copieurs.copieur_releves r WHERE r.copieur_id = c.id AND r.created_by = 'snmp-auto'), 'YYYY-MM-DD') as last_snmp_releve_date,
                 (SELECT r.valeur FROM hub_copieurs.copieur_releves r WHERE r.copieur_id = c.id AND r.created_by = 'snmp-auto' ORDER BY r.date_releve DESC LIMIT 1) as last_snmp_releve_value
                 FROM hub_copieurs.copieurs c`;
             if (filter === 'archives') sql += ' WHERE c.archive = true';
