@@ -2536,8 +2536,8 @@ module.exports = {
 
                     // Filtrer 100-150 (inclut 122, 123 couleur A3/A4)
                     const entries = Object.entries(merged)
-                        .map(([cid, cols]) => ({ id: parseInt(cid), libelle: (cols as any)['3'] || null, valeur: (cols as any)['4'] ? parseInt((cols as any)['4']) : null }))
-                        .filter(e => e.id >= 100 && e.id <= 150 && e.valeur !== null && !isNaN(e.valeur as number))
+                        .map(([cid, cols]) => ({ id: parseInt(cid), libelle: cols['3'] || null, valeur: cols['4'] ? parseInt(cols['4']) : null }))
+                        .filter(e => e.id >= 100 && e.id <= 150 && e.valeur !== null && !isNaN(e.valeur))
                         .sort((a, b) => a.id - b.id);
 
                     // Upsert dans snmp_raw_counters
@@ -2550,7 +2550,7 @@ module.exports = {
                         );
                     }
                     results.push({ serie: cop.numero_serie, ip, counters: entries.length, t4: Object.keys(map4).length, t3: Object.keys(map3).length });
-                } catch (e: any) {
+                } catch (e) {
                     results.push({ serie: cop.numero_serie, ip, error: e.message });
                 }
             }
