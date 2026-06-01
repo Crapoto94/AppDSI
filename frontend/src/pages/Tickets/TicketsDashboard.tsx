@@ -93,6 +93,9 @@ export default function TicketsDashboard() {
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [activeTechnician, setActiveTechnician] = useState<number | null>(null);
   const activeTechnicianRef = useRef<number | null>(null);
+  // Filtre Type : '' = tous, '1' = Incidents, '2' = Demandes
+  const [typeFilter, setTypeFilter] = useState<string>('');
+  const typeFilterRef = useRef<string>('');
   const [liveNotif, setLiveNotif] = useState<{ count: number; lastSession: any } | null>(null);
   const [liveTickerMsg, setLiveTickerMsg] = useState<string | null>(null);
   const [activeLiveFilter, setActiveLiveFilter] = useState(false);
@@ -135,6 +138,9 @@ export default function TicketsDashboard() {
     if (activeTechnician) {
       params.technician_id = String(activeTechnician);
     }
+    if (typeFilter) {
+      params.type = typeFilter;
+    }
     if (activeLiveFilter) {
       params.is_live = 'true';
       params.status_in = '1,2,3,4,5,6';
@@ -142,7 +148,7 @@ export default function TicketsDashboard() {
     params.sort = sortKey;
     params.order = sortDir;
     return params;
-  }, [activeFilter, activeUserFilter, search, activeRequesterEmail, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
+  }, [activeFilter, activeUserFilter, search, activeRequesterEmail, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
 
   const lastLoadArgsRef = useRef<any[]>([]);
   const loadData = useCallback(async (
@@ -202,6 +208,9 @@ export default function TicketsDashboard() {
       }
       if (activeTechnicianRef.current) {
         params.technician_id = String(activeTechnicianRef.current);
+      }
+      if (typeFilterRef.current) {
+        params.type = typeFilterRef.current;
       }
       const isLiveActive = isLiveOverride !== undefined ? isLiveOverride : activeLiveFilter;
       if (isLiveActive) {
@@ -334,6 +343,13 @@ export default function TicketsDashboard() {
   function handleTechnicianFilter(techId: number | null) {
     setActiveTechnician(techId);
     activeTechnicianRef.current = techId;
+    setPage(1);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, activeRequesterEmail);
+  }
+
+  function handleTypeFilter(t: string) {
+    setTypeFilter(t);
+    typeFilterRef.current = t;
     setPage(1);
     loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, activeRequesterEmail);
   }
@@ -809,6 +825,15 @@ export default function TicketsDashboard() {
           )}
           {activeTechnician && (
             <button onClick={() => handleTechnicianFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
+          )}
+          <select value={typeFilter} onChange={e => handleTypeFilter(e.target.value)}
+            style={{ padding: '7px 12px', border: `1px solid ${typeFilter ? '#4f46e5' : '#e2e8f0'}`, borderRadius: 6, background: typeFilter ? '#eef2ff' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: typeFilter ? '#4338ca' : '#64748b', outline: 'none' }}>
+            <option value="">🎫 Type : tous</option>
+            <option value="1">🛠️ Incidents</option>
+            <option value="2">📩 Demandes</option>
+          </select>
+          {typeFilter && (
+            <button onClick={() => handleTypeFilter('')} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
           )}
           <button type="submit" style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#475569' }}>🔍</button>
         </form>
