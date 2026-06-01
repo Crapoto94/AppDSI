@@ -1299,7 +1299,7 @@ const Copieurs: React.FC = () => {
                                 ⚫ {Number(c.snmp_total_noir).toLocaleString('fr-FR')}
                               </span>
                             )}
-                            {c.snmp_total_couleur != null && (
+                            {c.snmp_total_couleur != null && (String(c.couleur ?? '').toLowerCase() === 'oui' || Number(c.snmp_total_couleur) > 0) && (
                               <span style={{ fontSize: 10, color: '#0891b2', fontFamily: 'monospace', background: '#e0f2fe', padding: '0 5px', borderRadius: 4 }} title="Total couleur">
                                 🎨 {Number(c.snmp_total_couleur).toLocaleString('fr-FR')}
                               </span>

@@ -2375,12 +2375,15 @@ module.exports = {
                         const cv = (id) => { const v = parseInt(cmap[`1.3.6.1.4.1.1602.1.11.1.4.1.4.${id}`]); return isNaN(v) ? null : v; };
                         const c113 = cv('113'), c112 = cv('112'), c123 = cv('123'), c122 = cv('122');
                         if (c113 !== null || c112 !== null) totalNoir = (c113 || 0) + (c112 || 0);
-                        if (c123 !== null || c122 !== null) totalCouleur = (c123 || 0) + (c122 || 0);
+                        // Couleur seulement si le copieur est réellement couleur (sinon pas d'info couleur)
+                        const canonColor = isColor || (c123 != null && c123 > 0) || (c122 != null && c122 > 0);
+                        if (canonColor && (c123 !== null || c122 !== null)) totalCouleur = (c123 || 0) + (c122 || 0);
                         const counters = { '113': c113, '112': c112, '123': c123, '122': c122 };
                         let wrote = false;
                         for (const c of (codesByMaint['canon'] || [])) {
                             const canonId = CANON_MAP[`${(c.format || '').toUpperCase()}|${c.couleur === true}`];
                             if (!canonId || counters[canonId] == null) continue;
+                            if (c.couleur === true && !canonColor) continue; // pas de relevé couleur sur un mono
                             await upsertReleve(cop.id, c.id, counters[canonId]);
                             wrote = true;
                         }
