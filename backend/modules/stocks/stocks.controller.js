@@ -6,6 +6,8 @@ const loanService = require('./services/loan.service');
 const forecastService = require('./services/forecast.service');
 const blTemplateService = require('./services/bl-template.service');
 const eanService = require('./services/ean-lookup.service');
+const docs = require('../../shared/documents.service');
+const fs = require('fs');
 const financeController = require('../finance/finance.controller');
 const { resolveStoreRole, listAccessibleStores } = require('./middleware/store-permissions');
 const { isAdminLike } = require('../../shared/middleware');
@@ -345,6 +347,25 @@ module.exports = {
             const d = await deliveryService.getDelivery(parseInt(req.params.id, 10));
             if (!d) return res.status(404).json({ message: 'Sortie introuvable' });
             res.json(d);
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+    // Télécharge/affiche le PDF du Bon de livraison généré
+    async downloadBl(req, res) {
+        try {
+            const d = await deliveryService.getDelivery(parseInt(req.params.id, 10));
+            if (!d) return res.status(404).json({ message: 'Sortie introuvable' });
+            if (d.store_id !== req.storeId) return res.status(403).json({ message: 'Hors de ce magasin' });
+            if (!d.bl_document_id) return res.status(404).json({ message: 'Aucun bon de livraison généré (gabarit manquant ?)' });
+            const v = await docs.readVersion(d.bl_document_id);
+            let buf = null;
+            if (v?.buffer) buf = Buffer.isBuffer(v.buffer) ? v.buffer : Buffer.from(v.buffer);
+            else if (v?.absolutePath) buf = await fs.promises.readFile(v.absolutePath);
+            if (!buf) return res.status(404).json({ message: 'Fichier du bon de livraison introuvable' });
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="BL-${d.id}.pdf"`);
+            res.send(buf);
         } catch (e) {
             res.status(500).json({ message: e.message });
         }

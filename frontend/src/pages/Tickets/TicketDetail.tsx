@@ -1522,7 +1522,7 @@ export default function TicketDetail() {
                     </div>
                     {h.created_at && (
                       <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 2 }}>
-                        {h.user_name && <span>{h.user_name} · </span>}
+                        <span>{h.user_name || 'Système'} · </span>
                         {new Date(h.created_at).toLocaleString('fr-FR')}
                       </div>
                     )}

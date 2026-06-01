@@ -76,6 +76,7 @@ router.patch('/stores/:storeId/serial-items/:id', requireStoreRole('operator'), 
 router.get('/stores/:storeId/deliveries', requireStoreRole('viewer'), ctrl.listDeliveries);
 router.post('/stores/:storeId/deliveries/prepare', requireStoreRole('operator'), ctrl.prepareDelivery);
 router.post('/stores/:storeId/deliveries/:id/deliver', requireStoreRole('operator'), ctrl.deliverDelivery);
+router.get('/stores/:storeId/deliveries/:id/bl.pdf', requireStoreRole('viewer'), ctrl.downloadBl);
 router.get('/stores/:storeId/deliveries/:id', requireStoreRole('viewer'), ctrl.getDelivery);
 
 // ─── Prêts (Phase 3) ─────────────────────────────────────────

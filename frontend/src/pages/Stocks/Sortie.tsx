@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../../components/Header';
-import { Send, ArrowLeft, Plus, Trash2, Search, CheckCircle, UserCheck } from 'lucide-react';
+import { Send, ArrowLeft, Plus, Trash2, Search, CheckCircle, UserCheck, FileText, PenLine, X } from 'lucide-react';
 import SignaturePad from './SignaturePad';
-import { stocksApi, type Store, type Item, type StorageLocation } from './api';
+import { stocksApi, type Store, type Item, type StorageLocation, type BlTemplate, type Delivery } from './api';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', amber: '#f59e0b', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
@@ -17,6 +17,8 @@ export default function Sortie() {
   const [role, setRole] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [locations, setLocations] = useState<StorageLocation[]>([]);
+  const [templates, setTemplates] = useState<BlTemplate[]>([]);
+  const [templateId, setTemplateId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -29,20 +31,37 @@ export default function Sortie() {
   const [lines, setLines] = useState<Line[]>([]);
   const [pick, setPick] = useState({ item_id: '', quantity: '1', location_id: '' });
 
-  // Signature
+  // Signature du destinataire (remise immédiate)
   const [signature, setSignature] = useState<string | null>(null);
+
+  // Livraisons préparées (à remettre plus tard) + modale de remise
+  const [prepared, setPrepared] = useState<Delivery[]>([]);
+  const [deliverFor, setDeliverFor] = useState<Delivery | null>(null);
+  const [deliverSig, setDeliverSig] = useState<string | null>(null);
+  const [lastDone, setLastDone] = useState<Delivery | null>(null);
 
   const canOperate = role === 'operator' || role === 'manager';
 
   useEffect(() => {
     stocksApi.listStores().then(d => { setStores(d); if (d.length) setStoreId(d[0].id); }).catch(e => setError(e.message));
     stocksApi.listItems().then(setItems).catch(() => {});
+    stocksApi.listBlTemplates().then(ts => {
+      setTemplates(ts);
+      const def = ts.find(t => t.is_default) || ts[0];
+      if (def) setTemplateId(String(def.id));
+    }).catch(() => {});
   }, []);
+
+  const refreshPrepared = useCallback((sid: number) => {
+    stocksApi.listDeliveries(sid, 'prepared').then(setPrepared).catch(() => setPrepared([]));
+  }, []);
+
   useEffect(() => {
     if (storeId == null) return;
     stocksApi.myRole(storeId).then(r => setRole(r.role)).catch(() => {});
     stocksApi.listLocations(storeId).then(setLocations).catch(() => setLocations([]));
-  }, [storeId]);
+    refreshPrepared(storeId);
+  }, [storeId, refreshPrepared]);
 
   async function searchAd() {
     if (q.trim().length < 2) return;
@@ -60,22 +79,52 @@ export default function Sortie() {
     setPick({ item_id: '', quantity: '1', location_id: pick.location_id });
   }
 
+  function resetForm() {
+    setLines([]); setBeneficiary(null); setSignature(null); setQ(''); setResults([]);
+  }
+
+  async function viewBl(storeIdLocal: number, id: number) {
+    try {
+      const url = await stocksApi.downloadBlUrl(storeIdLocal, id);
+      window.open(url, '_blank');
+    } catch (e: any) { setError(e.response?.data?.message || 'Bon de livraison indisponible'); }
+  }
+
   async function submit() {
-    setError(null);
+    setError(null); setLastDone(null);
     if (storeId == null) return;
     if (lines.length === 0) { setError('Ajoutez au moins un article'); return; }
     if (!beneficiary) { setError('Sélectionnez un bénéficiaire'); return; }
     setSubmitting(true);
     try {
-      await stocksApi.createDelivery(storeId, {
+      // Phase 1 — préparation (décrémente le stock, génère le BL si gabarit)
+      const prep = await stocksApi.prepareDelivery(storeId, {
         beneficiary_name: beneficiary.name,
         beneficiary_username: beneficiary.username,
         beneficiary_email: beneficiary.email,
+        template_id: templateId ? Number(templateId) : null,
         lines: lines.map(l => ({ item_id: l.item_id, quantity: l.quantity, location_id: l.location_id })),
-        signature,
       });
-      alert('Sortie enregistrée' + (signature ? ' avec BL signé.' : '.'));
-      navigate('/stocks');
+      // Phase 2 — remise immédiate si le bénéficiaire signe maintenant
+      let final = prep;
+      if (signature) {
+        final = await stocksApi.deliverDelivery(storeId, prep.id, signature);
+      }
+      setLastDone(final);
+      resetForm();
+      refreshPrepared(storeId);
+    } catch (e: any) { setError(e.response?.data?.message || e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function confirmDeliver() {
+    if (!deliverFor || storeId == null) return;
+    setSubmitting(true); setError(null);
+    try {
+      const d = await stocksApi.deliverDelivery(storeId, deliverFor.id, deliverSig);
+      setDeliverFor(null); setDeliverSig(null);
+      setLastDone(d);
+      refreshPrepared(storeId);
     } catch (e: any) { setError(e.response?.data?.message || e.message); }
     finally { setSubmitting(false); }
   }
@@ -103,11 +152,31 @@ export default function Sortie() {
 
         {error && <div className="so-card" style={{ color: C.red, borderColor: '#fecaca', background: '#fef2f2' }}>{error}</div>}
 
+        {lastDone && (
+          <div className="so-card" style={{ borderColor: '#bbf7d0', background: '#f0fdf4' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: C.green, fontWeight: 600, marginBottom: 6 }}>
+              <CheckCircle size={18} /> Sortie #{lastDone.id} {lastDone.status === 'delivered' ? 'remise' : 'préparée'}
+            </div>
+            {lastDone.bl_document_id
+              ? <button className="so-btn-ghost" style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', width: 'auto' }} onClick={() => viewBl(lastDone.store_id, lastDone.id)}><FileText size={15} /> Voir le bon de livraison</button>
+              : <span style={{ fontSize: 12, color: C.slate }}>Aucun BL PDF (aucun gabarit défini).</span>}
+          </div>
+        )}
+
         <div className="so-card">
           <label className="so-label">Magasin</label>
           <select className="so-select" value={storeId ?? ''} onChange={e => setStoreId(Number(e.target.value))}>
             {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
+          {templates.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <label className="so-label">Gabarit de bon de livraison</label>
+              <select className="so-select" value={templateId} onChange={e => setTemplateId(e.target.value)}>
+                <option value="">— Aucun (pas de PDF) —</option>
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}{t.is_default ? ' (défaut)' : ''}</option>)}
+              </select>
+            </div>
+          )}
         </div>
 
         {!canOperate && storeId != null && (
@@ -170,17 +239,53 @@ export default function Sortie() {
           </div>
         </div>
 
-        {/* Signature */}
+        {/* Signature destinataire (remise immédiate) */}
         <div className="so-card">
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Signature du bénéficiaire</div>
-          <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Faites signer sur l'écran (le bon de livraison signé sera archivé).</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Signature du bénéficiaire <span style={{ fontWeight: 400, color: C.slate }}>(optionnelle)</span></div>
+          <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>S'il signe maintenant, la sortie est remise immédiatement. Sinon elle reste « préparée » et pourra être remise plus tard.</div>
           <SignaturePad onChange={setSignature} />
         </div>
 
-        <button className="so-btn" style={{ background: C.green }} onClick={submit} disabled={submitting || lines.length === 0 || !beneficiary}>
-          <CheckCircle size={18} /> {submitting ? 'Enregistrement…' : (signature ? 'Valider et signer le BL' : 'Valider la sortie')}
+        <button className="so-btn" style={{ background: C.green }} onClick={submit} disabled={submitting || lines.length === 0 || !beneficiary || !canOperate}>
+          <CheckCircle size={18} /> {submitting ? 'Enregistrement…' : (signature ? 'Préparer et remettre' : 'Préparer la sortie')}
         </button>
+
+        {/* Livraisons préparées (à remettre) */}
+        {prepared.length > 0 && (
+          <div className="so-card" style={{ marginTop: 18 }}>
+            <div style={{ fontWeight: 600, marginBottom: 10 }}>Livraisons préparées à remettre ({prepared.length})</div>
+            {prepared.map(d => (
+              <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f1f5f9', gap: 8 }}>
+                <div style={{ fontSize: 13 }}>
+                  <strong>#{d.id}</strong> · {d.beneficiary_name || '—'} · {d.line_count ?? 0} ligne(s)
+                  <div style={{ fontSize: 11, color: C.slate }}>{new Date(d.created_at).toLocaleString('fr-FR')}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {d.bl_document_id && <button className="so-btn-ghost" style={{ padding: '6px 10px', borderRadius: 8, cursor: 'pointer', width: 'auto' }} onClick={() => viewBl(d.store_id, d.id)} title="Voir le BL"><FileText size={15} /></button>}
+                  <button className="so-btn" style={{ padding: '6px 10px', borderRadius: 8, cursor: 'pointer', width: 'auto' }} onClick={() => { setDeliverFor(d); setDeliverSig(null); }}><PenLine size={15} /> Remettre</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Modale de remise (signature destinataire) */}
+      {deliverFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 12 }} onClick={() => setDeliverFor(null)}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 18, width: '100%', maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <strong>Remise — Sortie #{deliverFor.id}</strong>
+              <button onClick={() => setDeliverFor(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={20} /></button>
+            </div>
+            <div style={{ fontSize: 13, color: C.slate, marginBottom: 10 }}>{deliverFor.beneficiary_name} · faites signer le bénéficiaire :</div>
+            <SignaturePad onChange={setDeliverSig} />
+            <button className="so-btn" style={{ background: C.green, marginTop: 12 }} onClick={confirmDeliver} disabled={submitting}>
+              <CheckCircle size={18} /> {submitting ? 'Enregistrement…' : 'Confirmer la remise'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

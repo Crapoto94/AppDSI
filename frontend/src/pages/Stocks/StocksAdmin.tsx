@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../../components/Header';
-import { ArrowLeft, Store as StoreIcon, MapPin, Users, Package, Trash2, Plus, Search } from 'lucide-react';
-import { stocksApi, type Store, type StorageLocation, type Member, type Item, type MyRole } from './api';
+import { ArrowLeft, Store as StoreIcon, MapPin, Users, Package, Trash2, Plus, Search, FileText, Upload, Star } from 'lucide-react';
+import { stocksApi, type Store, type StorageLocation, type Member, type Item, type MyRole, type BlTemplate } from './api';
 
-const C = { indigo: '#6366f1', red: '#ef4444', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
+const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
-type Tab = 'stores' | 'locations' | 'members' | 'items';
+type Tab = 'stores' | 'locations' | 'members' | 'items' | 'bl';
 
 export default function StocksAdmin() {
   const navigate = useNavigate();
@@ -31,6 +31,7 @@ export default function StocksAdmin() {
     { key: 'locations', label: 'Lieux', icon: <MapPin size={16} /> },
     { key: 'members', label: 'Membres', icon: <Users size={16} /> },
     { key: 'items', label: 'Catalogue', icon: <Package size={16} /> },
+    { key: 'bl', label: 'Modèles BL', icon: <FileText size={16} /> },
   ];
 
   return (
@@ -79,6 +80,96 @@ export default function StocksAdmin() {
         {tab === 'locations' && storeId != null && <LocationsTab storeId={storeId} />}
         {tab === 'members' && storeId != null && <MembersTab storeId={storeId} />}
         {tab === 'items' && <ItemsTab />}
+        {tab === 'bl' && <BlTemplatesTab />}
+      </div>
+    </div>
+  );
+}
+
+// ─── Modèles de Bon de Livraison ────────────────────────────
+function BlTemplatesTab() {
+  const [list, setList] = useState<BlTemplate[]>([]);
+  const [name, setName] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => { stocksApi.listBlTemplates().then(setList).catch(e => setErr(e.message)); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function create() {
+    if (!name.trim()) return;
+    setBusy(true); setErr(null);
+    try { await stocksApi.createBlTemplate({ name: name.trim(), is_default: list.length === 0 }); setName(''); load(); }
+    catch (e: any) { setErr(e.response?.data?.message || e.message); }
+    finally { setBusy(false); }
+  }
+  async function setDefault(t: BlTemplate) {
+    try { await stocksApi.updateBlTemplate(t.id, { is_default: true }); load(); }
+    catch (e: any) { setErr(e.response?.data?.message || e.message); }
+  }
+  async function rename(t: BlTemplate) {
+    const n = prompt('Nouveau nom du modèle', t.name);
+    if (n && n.trim() && n !== t.name) {
+      try { await stocksApi.updateBlTemplate(t.id, { name: n.trim() }); load(); }
+      catch (e: any) { setErr(e.response?.data?.message || e.message); }
+    }
+  }
+  async function remove(t: BlTemplate) {
+    if (!confirm(`Supprimer le modèle « ${t.name} » ?`)) return;
+    try { await stocksApi.deleteBlTemplate(t.id); load(); }
+    catch (e: any) { setErr(e.response?.data?.message || e.message); }
+  }
+  async function uploadBase(t: BlTemplate, file: File) {
+    setBusy(true); setErr(null);
+    try { await stocksApi.uploadBlTemplateBase(t.id, file); load(); }
+    catch (e: any) { setErr(e.response?.data?.message || e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="sa-card">
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>Modèles de bon de livraison</div>
+      <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>
+        Chaque modèle s'appuie sur un PDF de fond (en-tête, mentions) sur lequel les champs du BL sont imprimés.
+        Le modèle « par défaut » est proposé automatiquement lors d'une sortie.
+      </div>
+      {err && <div style={{ color: C.red, marginBottom: 10, fontSize: 13 }}>{err}</div>}
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input className="sa-input" placeholder="Nom du nouveau modèle…" value={name} onChange={e => setName(e.target.value)} style={{ flex: 1 }} onKeyDown={e => e.key === 'Enter' && create()} />
+        <button className="sa-btn" onClick={create} disabled={busy || !name.trim()}><Plus size={15} /> Créer</button>
+      </div>
+
+      <div className="sa-scroll">
+        <table className="sa-table">
+          <thead>
+            <tr><th>Nom</th><th>PDF de fond</th><th>Défaut</th><th style={{ width: 220 }}>Actions</th></tr>
+          </thead>
+          <tbody>
+            {list.map(t => (
+              <tr key={t.id}>
+                <td style={{ fontWeight: 600 }}>{t.name}</td>
+                <td>{t.base_document_id
+                  ? <span style={{ color: C.green, fontSize: 12 }}>✓ chargé</span>
+                  : <span style={{ color: C.slate, fontSize: 12 }}>aucun</span>}</td>
+                <td>{t.is_default
+                  ? <span style={{ color: C.indigo, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}><Star size={13} fill={C.indigo} /> défaut</span>
+                  : <button className="sa-btn sa-btn-ghost" style={{ padding: '4px 8px' }} onClick={() => setDefault(t)}>définir</button>}</td>
+                <td>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <label className="sa-btn sa-btn-ghost" style={{ padding: '5px 9px', cursor: 'pointer' }}>
+                      <Upload size={14} /> PDF
+                      <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) uploadBase(t, f); e.currentTarget.value = ''; }} />
+                    </label>
+                    <button className="sa-btn sa-btn-ghost" style={{ padding: '5px 9px' }} onClick={() => rename(t)}>Renommer</button>
+                    <button className="sa-iconbtn" onClick={() => remove(t)} title="Supprimer"><Trash2 size={16} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {list.length === 0 && <tr><td colSpan={4} style={{ color: C.slate, textAlign: 'center', padding: 16 }}>Aucun modèle. Créez-en un puis chargez son PDF de fond.</td></tr>}
+          </tbody>
+        </table>
       </div>
     </div>
   );

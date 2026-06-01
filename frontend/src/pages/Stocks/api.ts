@@ -68,9 +68,30 @@ export const stocksApi = {
   setSerialNumber: (storeId: number, id: number, serial_number: string) => axios.patch(`/api/stocks/stores/${storeId}/serial-items/${id}`, { serial_number }, { headers: authHeaders() }).then(r => r.data),
 
   // ─── Phase 3 : sorties / prêts / prévision ─────────────────
-  listDeliveries: (storeId: number) => get<Delivery[]>(`/api/stocks/stores/${storeId}/deliveries`),
-  createDelivery: (storeId: number, b: object) => post<Delivery>(`/api/stocks/stores/${storeId}/deliveries`, b),
+  listDeliveries: (storeId: number, status?: string) => get<Delivery[]>(`/api/stocks/stores/${storeId}/deliveries`, status ? { status } : undefined),
+  // Phase 1 : préparation (décrémente le stock, signature préparateur, BL pré-signé)
+  prepareDelivery: (storeId: number, b: object) => post<Delivery>(`/api/stocks/stores/${storeId}/deliveries/prepare`, b),
+  // Phase 2 : remise (signature destinataire, BL final)
+  deliverDelivery: (storeId: number, id: number, recipient_signature?: string | null) =>
+    post<Delivery>(`/api/stocks/stores/${storeId}/deliveries/${id}/deliver`, { recipient_signature }),
   getDelivery: (storeId: number, id: number) => get<Delivery>(`/api/stocks/stores/${storeId}/deliveries/${id}`),
+  // Récupère le PDF du BL (authentifié) en blob → URL objet pour ouverture/affichage
+  downloadBlUrl: async (storeId: number, id: number) => {
+    const r = await axios.get(`/api/stocks/stores/${storeId}/deliveries/${id}/bl.pdf`, { headers: authHeaders(), responseType: 'blob' });
+    return URL.createObjectURL(r.data as Blob);
+  },
+
+  // ─── Gabarits de Bon de Livraison ──────────────────────────
+  listBlTemplates: () => get<BlTemplate[]>('/api/stocks/bl-templates'),
+  getBlTemplate: (id: number) => get<BlTemplate>(`/api/stocks/bl-templates/${id}`),
+  createBlTemplate: (b: Partial<BlTemplate>) => post<BlTemplate>('/api/stocks/bl-templates', b),
+  updateBlTemplate: (id: number, b: Partial<BlTemplate>) => put<BlTemplate>(`/api/stocks/bl-templates/${id}`, b),
+  deleteBlTemplate: (id: number) => del(`/api/stocks/bl-templates/${id}`),
+  uploadBlTemplateBase: (id: number, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return axios.post(`/api/stocks/bl-templates/${id}/base`, fd, { headers: { ...authHeaders() } }).then(r => r.data);
+  },
   listLoans: (storeId: number, status?: string) => get<Loan[]>(`/api/stocks/stores/${storeId}/loans`, status ? { status } : undefined),
   createLoan: (storeId: number, b: object) => post<Loan>(`/api/stocks/stores/${storeId}/loans`, b),
   returnLoan: (storeId: number, id: number) => post(`/api/stocks/stores/${storeId}/loans/${id}/return`),
@@ -79,9 +100,15 @@ export const stocksApi = {
 
 export interface Delivery {
   id: number; store_id: number; beneficiary_name?: string; beneficiary_username?: string; beneficiary_email?: string;
-  status: 'draft' | 'signed' | 'delivered'; signature_document_id?: number | null; signed_at?: string;
+  status: 'prepared' | 'delivered'; bl_document_id?: number | null;
+  preparer_signature_document_id?: number | null; recipient_signature_document_id?: number | null;
+  template_id?: number | null; prepared_by?: string; prepared_at?: string; signed_at?: string;
   notes?: string; delivered_by?: string; created_at: string; line_count?: number;
-  lines?: { id: number; item_id: number; item_label?: string; quantity: number; serial_number?: string }[];
+  lines?: { id: number; item_id: number; item_label?: string; item_reference?: string; quantity: number; serial_number?: string }[];
+}
+export interface BlTemplate {
+  id: number; name: string; base_document_id?: number | null; fields?: Array<Record<string, unknown>>;
+  is_default?: boolean; created_by?: string; created_at?: string; updated_at?: string;
 }
 export interface Loan {
   id: number; store_id: number; item_id: number; serial_item_id?: number | null; borrower_name?: string;
