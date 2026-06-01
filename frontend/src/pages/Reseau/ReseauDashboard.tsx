@@ -149,6 +149,13 @@ export default function ReseauDashboard() {
     (!fRedundant || l.is_redundant)
   ), [mapLinks, fType, fOperator, fLoop, fRedundant]);
 
+  // Liens effectivement traçables sur la carte : départ ET arrivée géolocalisés.
+  const hasCoords = (code: string) => { const s = sites.get(code); return !!s && s.lat != null && s.lng != null; };
+  const geoLinks = useMemo(
+    () => filteredLinks.filter(l => hasCoords(l.site_a) && hasCoords(l.site_b)),
+    [filteredLinks, sites]
+  );
+
   function onMapClick(lat: number, lng: number) {
     if (drawMode) setDrawnPoints(prev => [...prev, [lat, lng]]);
   }
@@ -356,18 +363,26 @@ export default function ReseauDashboard() {
                 </div>
               </div>
               <div style={card}>
-                <h3 style={cardTitle}>Liens ({filteredLinks.length})</h3>
+                <h3 style={cardTitle}>Liens géolocalisés ({geoLinks.length})</h3>
+                {filteredLinks.length - geoLinks.length > 0 && (
+                  <div style={{ fontSize: 11, color: '#94a3b8', margin: '-6px 0 8px' }}>
+                    {filteredLinks.length - geoLinks.length} lien(s) non tracé(s) — site sans coordonnées
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {filteredLinks.map(l => {
+                  {geoLinks.map(l => {
                     const st = linkStyle(l);
+                    const nomA = sites.get(l.site_a)?.nom || l.site_a;
+                    const nomB = sites.get(l.site_b)?.nom || l.site_b;
                     return (
                       <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: '#f8fafc', border: '1px solid #eef2f7' }}>
                         <span style={{ width: 12, height: 3, borderRadius: 2, background: st.color, flexShrink: 0 }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>{l.site_a} → {l.site_b}</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }} title={`${l.site_a} → ${l.site_b}`}>{nomA} → {nomB}</div>
                           <div style={{ fontSize: 10, color: '#94a3b8' }}>
                             {l.type}{l.operator ? ` · ${l.operator}` : ''}{l.capacity ? ` · ${l.capacity}` : ''}
                             {l.fo_pairs ? ` · ${l.fo_pairs}` : ''}{l.is_loop ? ' · boucle' : ''}
+                            {l.notes ? ` · ${l.notes}` : ''}
                           </div>
                         </div>
                         {!l.id.startsWith('sl-') && <button onClick={() => deleteLink(l.id)} style={iconBtn}><Trash2 size={13} /></button>}
