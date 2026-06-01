@@ -2010,13 +2010,16 @@ module.exports = {
             if (!copieur.ip) return res.status(400).json({ message: 'IP manquante pour ce copieur' });
 
             // OIDs à récupérer (tous les compteurs intéressants)
+            // .4.1.1 = prtMarkerLifeCount = compteur TOTAL à vie (le bon)
+            // .5.1.1 = prtMarkerPowerOnCount = compteur depuis le dernier allumage (se réinitialise)
             const oids = [
-                { name: 'Pages Total', oid: '1.3.6.1.2.1.43.10.2.1.5.1.1' },
-                { name: 'Pages B&W', oid: '1.3.6.1.2.1.43.10.2.1.4.1.1' },
+                { name: 'Compteur total (vie)', oid: '1.3.6.1.2.1.43.10.2.1.4.1.1' },
+                { name: 'Depuis allumage', oid: '1.3.6.1.2.1.43.10.2.1.5.1.1' },
                 { name: 'Toner Noir', oid: '1.3.6.1.2.1.43.11.1.1.9.1.1' },
                 { name: 'Toner Cyan', oid: '1.3.6.1.2.1.43.11.1.1.9.1.2' },
                 { name: 'Toner Magenta', oid: '1.3.6.1.2.1.43.11.1.1.9.1.3' },
                 { name: 'Toner Yellow', oid: '1.3.6.1.2.1.43.11.1.1.9.1.4' },
+                { name: 'Toner usagé', oid: '1.3.6.1.2.1.43.11.1.1.9.1.5' },
             ];
 
             const community = 'public';
@@ -2109,10 +2112,10 @@ module.exports = {
             const today = new Date().toISOString().split('T')[0];
             const username = req.user?.username || 'snmp-auto';
 
-            // Récupérer le compteur total
+            // Récupérer le compteur total à vie (prtMarkerLifeCount = .4.1.1)
             try {
                 const { stdout } = await execPromise(
-                    `snmpget -v 1 -c ${community} ${copieur.ip.trim()} 1.3.6.1.2.1.43.10.2.1.5.1.1`,
+                    `snmpget -v 1 -c ${community} ${copieur.ip.trim()} 1.3.6.1.2.1.43.10.2.1.4.1.1`,
                     { timeout: 3000 }
                 );
                 const match = stdout.match(/:\s*(\d+)/);
