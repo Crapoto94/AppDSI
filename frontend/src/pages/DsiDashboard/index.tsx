@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import CanvasGrid from './CanvasGrid';
 import type { CanvasItem } from './CanvasGrid';
-import { WidgetDef } from './widgets/registry';
+import type { WidgetDef } from './widgets/registry';
 import {
   Plus, Trash2, LayoutDashboard, Mail,
   MoreVertical, Star, Edit2, Check, X, Loader2, Play, Square, Pause, Settings,

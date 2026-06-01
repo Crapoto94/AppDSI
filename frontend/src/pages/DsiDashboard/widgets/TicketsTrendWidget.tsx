@@ -47,7 +47,7 @@ export default function TicketsTrendWidget() {
           />
           <Tooltip
             contentStyle={{ fontSize: 12 }}
-            formatter={(value: any, name: string | number) => [value, String(name)]}
+            formatter={(value: any, name: string | number | undefined) => [value, String(name ?? '')]}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />
           <Bar yAxisId="vol" dataKey="created" name="Créés" fill="#3b82f6" opacity={0.8} />
