@@ -2216,6 +2216,9 @@ app.use('/api/stocks', require('./modules/stocks/stocks.routes'));
 // Réseau Ville Module (cartographie réseau inter-sites)
 app.use('/api/network', require('./modules/reseau/reseau.routes'));
 
+// Infra Module (définitions d'API externes + synchronisations)
+app.use('/api/infra', require('./modules/infra/infra.routes'));
+
 // Finance & Tiers Module
 app.use('/api/budget', financeRouter);
 app.use('/api/finance/field-mapping', fieldMappingRouter);
@@ -5432,6 +5435,20 @@ cron.schedule('0 11 * * *', async () => {
     } catch (e) {
         console.error('[CRON snmp-copieurs]', e.message);
         logMouchard(`Collecte SNMP copieurs échouée: ${e.message}`);
+    }
+}, { timezone: 'Europe/Paris' });
+
+// ─── Infra : synchronisation quotidienne du réseau (switchs + liens) à 04h30 ──
+cron.schedule('30 4 * * *', async () => {
+    console.log('[CRON] Synchronisation réseau Infra (04h30)...');
+    try {
+        const r = await require('./modules/infra/reseau-sync').syncReseauLinks('cron');
+        const msg = `Sync réseau Infra: ${r.switches} switchs, ${r.links} liens`;
+        console.log('[CRON reseau-sync]', msg);
+        logMouchard(msg);
+    } catch (e) {
+        console.error('[CRON reseau-sync]', e.message);
+        logMouchard(`Sync réseau Infra échouée: ${e.message}`);
     }
 }, { timezone: 'Europe/Paris' });
 

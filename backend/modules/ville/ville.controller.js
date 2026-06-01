@@ -209,7 +209,7 @@ module.exports = {
       const { lat, lng, manual = false } = req.body;
       await pgDb.run(
         'UPDATE hub.sites SET lat = ?, lng = ?, geocoded_manually = ?, updated_at = NOW() WHERE id = ?',
-        [lat, lng, manual ? 1 : 0, id]
+        [lat, lng, !!manual, id]
       );
       res.json({ ok: true, geocoded_manually: !!manual });
     } catch (error) {

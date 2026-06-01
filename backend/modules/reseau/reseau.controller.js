@@ -420,22 +420,33 @@ module.exports = {
         } catch (e) { res.status(500).json({ message: e.message }); }
     },
 
+    // ─── Liens switchs (alimentés par l'API Infra) ─────────────────
+    getSwitchLinks: async (req, res) => {
+        try {
+            const rows = await pgDb.all('SELECT * FROM hub_reseau.switch_links ORDER BY local_hostname, remote_hostname');
+            res.json(rows);
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
     // ─── Stats réseau ───────────────────────────────────────────────
     getStats: async (req, res) => {
         try {
-            const [nb_liens, nb_fo, nb_wan, nb_equip, nb_vlans, nb_sites] = await Promise.all([
-                pgDb.get('SELECT COUNT(*)::int AS c FROM hub_reseau.network_links'),
-                pgDb.get("SELECT COUNT(*)::int AS c FROM hub_reseau.network_links WHERE type = 'FIBRE'"),
-                pgDb.get("SELECT COUNT(*)::int AS c FROM hub_reseau.network_links WHERE type IN ('OPERATEUR','WAN')"),
+            const [nb_switch_links, nb_intra, nb_inter, nb_equip, nb_vlans, nb_sites] = await Promise.all([
+                pgDb.get('SELECT COUNT(*)::int AS c FROM hub_reseau.switch_links'),
+                pgDb.get('SELECT COUNT(*)::int AS c FROM hub_reseau.switch_links WHERE is_intra_site = true'),
+                pgDb.get('SELECT COUNT(*)::int AS c FROM hub_reseau.switch_links WHERE is_intra_site = false'),
                 pgDb.get('SELECT COUNT(*)::int AS c FROM hub_reseau.equipements'),
                 pgDb.get('SELECT COUNT(*)::int AS c FROM hub_reseau.vlans WHERE actif = true'),
-                pgDb.get(`SELECT COUNT(DISTINCT site_a)::int AS c FROM hub_reseau.network_links
-                          UNION SELECT COUNT(DISTINCT site_b)::int FROM hub_reseau.network_links`),
+                pgDb.get(`SELECT COUNT(*)::int AS c FROM (
+                            SELECT local_site_id AS s FROM hub_reseau.switch_links WHERE local_site_id IS NOT NULL
+                            UNION
+                            SELECT remote_site_id AS s FROM hub_reseau.switch_links WHERE remote_site_id IS NOT NULL
+                          ) q`),
             ]);
             res.json({
-                liens_total: nb_liens.c,
-                liens_fo: nb_fo.c,
-                liens_wan: nb_wan.c,
+                liens_total: nb_switch_links.c,
+                liens_fo: nb_intra.c,
+                liens_wan: nb_inter.c,
                 equipements: nb_equip.c,
                 vlans_actifs: nb_vlans.c,
                 sites_connectes: (nb_sites.c || 0),

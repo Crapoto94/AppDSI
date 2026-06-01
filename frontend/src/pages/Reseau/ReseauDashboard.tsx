@@ -3,7 +3,7 @@ import axios from 'axios';
 import Header from '../../components/Header';
 import {
   Network, Map as MapIcon, Share2, Plus, Trash2,
-  Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router,
+  Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router, Link2,
 } from 'lucide-react';
 import NetworkMap from './NetworkMap';
 import type { MoveResult } from './NetworkMap';
@@ -11,7 +11,7 @@ import NetworkTopology from './NetworkTopology';
 import { linkStyle } from './utils';
 import type {
   NetworkLink, NetworkAccess, Duct, SiteRef, LinkType, Operator,
-  IrfStack, Equipement, Vlan, LiaisonFO, ReseauStats,
+  IrfStack, Equipement, Vlan, LiaisonFO, ReseauStats, SwitchLink,
 } from './types';
 
 const LINK_TYPES: LinkType[] = ['FIBRE', 'WAN', 'OPERATEUR', 'LASER'];
@@ -22,7 +22,7 @@ const emptyForm = {
   capacity: '', carries_data: true, carries_voice: false, is_loop: false, is_redundant: false,
 };
 
-type Tab = 'carte' | 'irf' | 'equipements' | 'vlans' | 'liaisons-fo' | 'stats';
+type Tab = 'carte' | 'liens-switchs' | 'irf' | 'equipements' | 'vlans' | 'liaisons-fo' | 'stats';
 
 export default function ReseauDashboard() {
   const token = localStorage.getItem('token');
@@ -38,6 +38,7 @@ export default function ReseauDashboard() {
   const [equipements, setEquipements] = useState<Equipement[]>([]);
   const [vlans, setVlans]           = useState<Vlan[]>([]);
   const [liaisonsFO, setLiaisonsFO] = useState<LiaisonFO[]>([]);
+  const [switchLinks, setSwitchLinks] = useState<SwitchLink[]>([]);
   const [stats, setStats]           = useState<ReseauStats | null>(null);
 
   const [tab, setTab]     = useState<Tab>('carte');
@@ -66,6 +67,10 @@ export default function ReseauDashboard() {
   const [fVlanSearch, setFVlanSearch] = useState('');
   const [fVlanUsage, setFVlanUsage]   = useState('');
 
+  // ── Filtres liens switchs ───────────────────────────────────────
+  const [fSlSearch, setFSlSearch]   = useState('');
+  const [fSlScope, setFSlScope]     = useState<'' | 'intra' | 'inter'>('');
+
   const sites = useMemo(() => {
     const m = new Map<string, SiteRef>();
     sitesArr.forEach(s => m.set(s.site_code, s));
@@ -75,7 +80,7 @@ export default function ReseauDashboard() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [s, l, a, d, irf, eq, vl, fo, st] = await Promise.all([
+      const [s, l, a, d, irf, eq, vl, fo, sl, st] = await Promise.all([
         axios.get('/api/network/sites',         { headers }),
         axios.get('/api/network/links',         { headers }),
         axios.get('/api/network/access',        { headers }),
@@ -84,6 +89,7 @@ export default function ReseauDashboard() {
         axios.get('/api/network/equipements',   { headers }),
         axios.get('/api/network/vlans',         { headers }),
         axios.get('/api/network/liaisons-fo',   { headers }),
+        axios.get('/api/network/switch-links',  { headers }),
         axios.get('/api/network/stats',         { headers }),
       ]);
       setSitesArr(s.data    || []);
@@ -94,6 +100,7 @@ export default function ReseauDashboard() {
       setEquipements(eq.data || []);
       setVlans(vl.data      || []);
       setLiaisonsFO(fo.data || []);
+      setSwitchLinks(sl.data || []);
       setStats(st.data);
     } catch (e: unknown) {
       const msg = (e as any)?.response?.data?.message;
@@ -111,12 +118,36 @@ export default function ReseauDashboard() {
     setDrawnPoints(a && a.lat != null && a.lng != null ? [[a.lat, a.lng]] : []);
   }, [form.site_a, drawMode, sites]);
 
-  const filteredLinks = useMemo(() => links.filter(l =>
+  // Liens inter-sites agrégés, dérivés des liens switchs (pour la carte géographique).
+  // Les liens intra-site (même site aux deux bouts) ne sont pas traçables en ligne → exclus ici
+  // (visibles dans l'onglet « Liens switchs » et dans la topologie).
+  const siteLinksFromSwitches = useMemo<NetworkLink[]>(() => {
+    const agg = new Map<string, { a: string; b: string; count: number }>();
+    for (const l of switchLinks) {
+      const a = l.local_site_id, b = l.remote_site_id;
+      if (!a || !b || a === b || a.trim().startsWith('{') || b.trim().startsWith('{')) continue;
+      const [x, y] = a < b ? [a, b] : [b, a];
+      const key = `${x}|${y}`;
+      const e = agg.get(key) || { a: x, b: y, count: 0 };
+      e.count++; agg.set(key, e);
+    }
+    return [...agg.values()].map(e => ({
+      id: `sl-${e.a}-${e.b}`, site_a: e.a, site_b: e.b, type: 'FIBRE' as LinkType,
+      capacity: e.count > 2 ? '10G' : null, operator: null,
+      carries_data: true, carries_voice: false, is_loop: false, is_redundant: e.count > 1,
+      geometry: null, notes: `${e.count} lien(s) switch inter-sites`,
+    }));
+  }, [switchLinks]);
+
+  // Carte = liens manuels (network_links) + liens inter-sites dérivés des switchs
+  const mapLinks = useMemo(() => [...links, ...siteLinksFromSwitches], [links, siteLinksFromSwitches]);
+
+  const filteredLinks = useMemo(() => mapLinks.filter(l =>
     (!fType || l.type === fType) &&
     (!fOperator || l.operator === fOperator) &&
     (!fLoop || l.is_loop) &&
     (!fRedundant || l.is_redundant)
-  ), [links, fType, fOperator, fLoop, fRedundant]);
+  ), [mapLinks, fType, fOperator, fLoop, fRedundant]);
 
   function onMapClick(lat: number, lng: number) {
     if (drawMode) setDrawnPoints(prev => [...prev, [lat, lng]]);
@@ -172,6 +203,29 @@ export default function ReseauDashboard() {
     return matchUsage && matchSearch;
   }), [vlans, fVlanSearch, fVlanUsage]);
 
+  // Certains stacks IRF ont un site_id sous forme de chaîne JSON {membre:site} → affichage lisible
+  const fmtSite = (s?: string | null): string => {
+    if (!s) return '—';
+    if (s.trim().startsWith('{')) {
+      try {
+        const vals = [...new Set(Object.values(JSON.parse(s) as Record<string, string>).map(v => String(v).replace(/^"+|"+$/g, '')))];
+        return `Multi : ${vals.join(', ')}`;
+      } catch { return s; }
+    }
+    return s;
+  };
+
+  const filteredSwitchLinks = useMemo(() => switchLinks.filter(l => {
+    const matchScope = !fSlScope || (fSlScope === 'intra' ? l.is_intra_site : !l.is_intra_site);
+    const q = fSlSearch.toLowerCase();
+    const matchSearch = !q ||
+      (l.local_hostname || '').toLowerCase().includes(q) ||
+      (l.remote_hostname || '').toLowerCase().includes(q) ||
+      (l.local_ip || '').includes(q) || (l.remote_ip || '').includes(q) ||
+      (l.local_site_id || '').toLowerCase().includes(q) || (l.remote_site_id || '').toLowerCase().includes(q);
+    return matchScope && matchSearch;
+  }), [switchLinks, fSlSearch, fSlScope]);
+
   const vlanUsages = useMemo(() => [...new Set(vlans.map(v => v.usage).filter(Boolean))], [vlans]);
   const boucles = ['COEUR', 'NORD', 'SUD', 'PRA'];
 
@@ -210,7 +264,7 @@ export default function ReseauDashboard() {
             <Network size={26} color="#2563eb" />
             <div>
               <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#0f172a' }}>Réseau Ville d'Ivry</h1>
-              <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>Infrastructure réseau — données DIP 2021 · Cœur HP5940 · Boucles IRF HP5500HI</p>
+              <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>Infrastructure réseau — switchs &amp; liens synchronisés depuis l'API Infra (live)</p>
             </div>
           </div>
           {stats && (
@@ -235,6 +289,7 @@ export default function ReseauDashboard() {
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '2px solid #f1f5f9', paddingBottom: 2 }}>
           {([
             ['carte',      <><MapIcon size={14} /> Carte & Topologie</>,    'carte'],
+            ['liens-switchs', <><Link2 size={14} /> Liens switchs</>,        'liens-switchs'],
             ['irf',        <><GitBranch size={14} /> IRF Stacks</>,          'irf'],
             ['equipements',<><Cpu size={14} /> Équipements</>,               'equipements'],
             ['vlans',      <><Tag size={14} /> VLANs</>,                     'vlans'],
@@ -315,7 +370,7 @@ export default function ReseauDashboard() {
                             {l.fo_pairs ? ` · ${l.fo_pairs}` : ''}{l.is_loop ? ' · boucle' : ''}
                           </div>
                         </div>
-                        <button onClick={() => deleteLink(l.id)} style={iconBtn}><Trash2 size={13} /></button>
+                        {!l.id.startsWith('sl-') && <button onClick={() => deleteLink(l.id)} style={iconBtn}><Trash2 size={13} /></button>}
                       </div>
                     );
                   })}
@@ -342,7 +397,7 @@ export default function ReseauDashboard() {
               </div>
               <div style={{ flex: 1, minHeight: 0 }}>
                 {view === 'map' ? (
-                  <NetworkMap sites={sites} links={links} ducts={ducts} layers={layers} drawMode={drawMode} drawnPoints={drawnPoints} onMapClick={onMapClick} highlightSites={[form.site_a, form.site_b].filter(Boolean)}
+                  <NetworkMap sites={sites} links={mapLinks} ducts={ducts} layers={layers} drawMode={drawMode} drawnPoints={drawnPoints} onMapClick={onMapClick} highlightSites={[form.site_a, form.site_b].filter(Boolean)}
                     onSiteMoved={(r: MoveResult) => {
                       setSitesArr(prev => prev.map(s =>
                         s.site_code === r.siteCode
@@ -352,9 +407,66 @@ export default function ReseauDashboard() {
                     }}
                   />
                 ) : (
-                  <NetworkTopology sites={sites} links={links} />
+                  <NetworkTopology sites={sites} switchLinks={switchLinks} />
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════ TAB LIENS SWITCHS ══════════════════ */}
+        {tab === 'liens-switchs' && (
+          <div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+              <input style={{ ...inp, width: 320 }} value={fSlSearch} onChange={e => setFSlSearch(e.target.value)} placeholder="Rechercher (hostname, IP, site)…" />
+              <select style={{ ...inp, width: 200 }} value={fSlScope} onChange={e => setFSlScope(e.target.value as '' | 'intra' | 'inter')}>
+                <option value="">Tous les liens</option>
+                <option value="intra">Intra-site</option>
+                <option value="inter">Inter-sites</option>
+              </select>
+              <div style={{ fontSize: 13, color: '#94a3b8', alignSelf: 'center' }}>{filteredSwitchLinks.length} liens</div>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                    {['Switch local', 'IP locale', 'Port', 'Switch distant', 'IP distante', 'Port', 'Site', 'Portée'].map(h => (
+                      <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredSwitchLinks.map((l, i) => (
+                    <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 ? '#fafbfc' : 'white' }}>
+                      <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Server size={13} color="#64748b" /> {l.local_hostname}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {l.local_ip && <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#1d4ed8', background: '#eff6ff', padding: '2px 6px', borderRadius: 4 }}>{l.local_ip}</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12, color: '#374151' }} title={l.local_port_description || ''}>{l.local_port}</td>
+                      <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Server size={13} color="#64748b" /> {l.remote_hostname}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {l.remote_ip && <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#6d28d9', background: '#f5f3ff', padding: '2px 6px', borderRadius: 4 }}>{l.remote_ip}</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12, color: '#374151' }} title={l.remote_port_description || ''}>{l.remote_port}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 12, color: '#64748b' }}>
+                        {l.local_site_id === l.remote_site_id ? fmtSite(l.local_site_id) : `${fmtSite(l.local_site_id)} → ${fmtSite(l.remote_site_id)}`}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <span style={{ background: l.is_intra_site ? '#e0e7ff' : '#dcfce7', color: l.is_intra_site ? '#4338ca' : '#15803d', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                          {l.is_intra_site ? 'Intra-site' : 'Inter-sites'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredSwitchLinks.length === 0 && (
+                    <tr><td colSpan={8} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>Aucun lien — lancez une synchronisation depuis Admin &gt; Infra</td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

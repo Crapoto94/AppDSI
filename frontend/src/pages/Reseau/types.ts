@@ -128,6 +128,27 @@ export interface LiaisonFO {
   notes?: string | null;
 }
 
+export interface SwitchLink {
+  id: number;
+  ext_id?: number | null;
+  local_switch_id?: number | null;
+  local_hostname?: string | null;
+  local_alias?: string | null;
+  local_site_id?: string | null;
+  local_ip?: string | null;
+  local_port?: string | null;
+  local_port_description?: string | null;
+  remote_switch_id?: number | null;
+  remote_hostname?: string | null;
+  remote_alias?: string | null;
+  remote_site_id?: string | null;
+  remote_ip?: string | null;
+  remote_port?: string | null;
+  remote_port_description?: string | null;
+  is_intra_site: boolean;
+  synced_at?: string | null;
+}
+
 export interface ReseauStats {
   liens_total: number;
   liens_fo: number;

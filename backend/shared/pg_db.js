@@ -4087,10 +4087,63 @@ async function setupPgDb() {
         )
       `);
 
+      // ── Liens switchs (alimentés par l'API Infra réseau) ──────────
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.switch_links (
+          id SERIAL PRIMARY KEY,
+          ext_id INT,
+          local_switch_id INT,
+          local_hostname TEXT,
+          local_alias TEXT,
+          local_site_id TEXT,
+          local_ip TEXT,
+          local_port TEXT,
+          local_port_description TEXT,
+          remote_switch_id INT,
+          remote_hostname TEXT,
+          remote_alias TEXT,
+          remote_site_id TEXT,
+          remote_ip TEXT,
+          remote_port TEXT,
+          remote_port_description TEXT,
+          is_intra_site BOOLEAN DEFAULT FALSE,
+          synced_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_switch_links_local_site ON hub_reseau.switch_links(local_site_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_switch_links_remote_site ON hub_reseau.switch_links(remote_site_id)`);
+
+      // ── Définitions d'API « Infra » (générique, extensible) ───────
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.infra_apis (
+          id SERIAL PRIMARY KEY,
+          key TEXT UNIQUE NOT NULL,
+          label TEXT,
+          base_url TEXT,
+          endpoint TEXT,
+          api_key TEXT,
+          header_name TEXT DEFAULT 'x-api-key',
+          enabled BOOLEAN DEFAULT TRUE,
+          last_sync_at TIMESTAMPTZ,
+          last_sync_status TEXT,
+          last_sync_count INT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name)
+        VALUES ('reseau_links', 'API Liens réseau (switchs)', 'http://10.103.130.36:8080', '/api/links',
+                'nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6', 'x-api-key')
+        ON CONFLICT (key) DO NOTHING
+      `);
+
       // ── Seed v2 (version-gated) ────────────────────────────────────
-      // On utilise irf_stacks comme garde : si la table est vide → seed complet
+      // DÉSACTIVÉ : le réseau est désormais alimenté par l'API Infra (switchs + liens),
+      // pas par le seed statique « DIP 2021 ». On conserve le bloc pour mémoire.
       const { rows: vs } = await client.query('SELECT COUNT(*)::int AS c FROM hub_reseau.irf_stacks');
-      if (vs[0].c === 0) {
+      if (false /* seed DIP 2021 retiré : alimentation via API Infra (hub.infra_apis) */) {
+        void vs;
         // Vider les tables pour repartir proprement
         await client.query('TRUNCATE hub_reseau.network_links, hub_reseau.network_access, hub_reseau.ducts CASCADE');
 
