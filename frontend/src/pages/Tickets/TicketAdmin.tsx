@@ -1204,8 +1204,49 @@ function SLADefinitions({ data, categories, onUpdate }: { data: any[], categorie
 
   const getCatName = (id: any) => categories.find((c: any) => c.id === id)?.name || '—';
 
+  // Tableau de conversion : jours ouvrés ↔ minutes (8 h/j = 480 min, Lun-Ven)
+  const CONVERSION_ROWS = [
+    { label: '1 j',         min: 480 },
+    { label: '2 j',         min: 960 },
+    { label: '3 j',         min: 1440 },
+    { label: '5 j (1 sem)', min: 2400 },
+    { label: '10 j (2 sem)',min: 4800 },
+    { label: '15 j (3 sem)',min: 7200 },
+    { label: '20 j (1 mois)',min: 9600 },
+    { label: '33 j',        min: 15840 },
+    { label: '40 j',        min: 19200 },
+    { label: '60 j (3 mois)',min: 28800 },
+  ];
+
   return (
     <div>
+      {/* Aide : tableau de conversion jours ouvrés ↔ minutes */}
+      <details style={{ marginBottom: 14 }}>
+        <summary style={{ fontSize: 12, color: '#6366f1', cursor: 'pointer', fontWeight: 600, userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          📐 Aide — Conversion jours ouvrés → minutes (8 h/j, Lun-Ven)
+        </summary>
+        <div style={{ marginTop: 8, display: 'inline-block', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: '#eef2ff' }}>
+                <th style={{ padding: '6px 14px', textAlign: 'left', color: '#4338ca', fontWeight: 700, borderBottom: '1px solid #c7d2fe' }}>Jours ouvrés</th>
+                <th style={{ padding: '6px 14px', textAlign: 'right', color: '#4338ca', fontWeight: 700, borderBottom: '1px solid #c7d2fe' }}>Minutes à saisir</th>
+                <th style={{ padding: '6px 14px', textAlign: 'right', color: '#4338ca', fontWeight: 700, borderBottom: '1px solid #c7d2fe' }}>Heures</th>
+              </tr>
+            </thead>
+            <tbody>
+              {CONVERSION_ROWS.map((r, i) => (
+                <tr key={r.min} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                  <td style={{ padding: '5px 14px', color: '#374151', fontWeight: 500 }}>{r.label}</td>
+                  <td style={{ padding: '5px 14px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#6366f1' }}>{r.min.toLocaleString('fr-FR')}</td>
+                  <td style={{ padding: '5px 14px', textAlign: 'right', color: '#64748b' }}>{(r.min / 60).toFixed(0)} h</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Définitions SLA</h3>
         <div style={{ display: 'flex', gap: 6 }}>
