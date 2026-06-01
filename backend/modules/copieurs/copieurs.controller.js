@@ -2103,7 +2103,7 @@ module.exports = {
 
     takeSnmpReleve: async (req, res) => {
         try {
-            const copieur = await pgDb.get('SELECT id, ip, numero_serie, mainteneur FROM hub_copieurs.copieurs WHERE id = ?', [req.params.id]);
+            const copieur = await pgDb.get('SELECT id, ip, numero_serie, mainteneur, couleur FROM hub_copieurs.copieurs WHERE id = ?', [req.params.id]);
             if (!copieur) return res.status(404).json({ message: 'Copieur non trouvé' });
             if (!copieur.ip) return res.status(400).json({ message: 'IP manquante pour ce copieur' });
 
@@ -2173,6 +2173,36 @@ module.exports = {
                 return res.json({ message: `Relevé SNMP Canon enregistré (${inserted.length} compteurs)`, releves: inserted, page_count: total });
             }
 
+            // ─── KOESIO : compteurs principaux 102/106/109 (table 1602.1.11.1.3.1), format-agnostique ───
+            //   Mono   → N&B = 102 ; Couleur → N&B = 109, Couleur = 106
+            if (mainteneur === 'koesio') {
+                const { stdout } = await execPromise(
+                    `snmpwalk -v 1 -c ${community} -On -t 3 -r 1 ${ip} 1.3.6.1.4.1.1602.1.11.1.3.1.4`,
+                    { timeout: 15000, maxBuffer: 4 * 1024 * 1024 }
+                );
+                const cv = {};
+                for (const line of stdout.split('\n')) {
+                    const m = line.match(/1\.11\.1\.3\.1\.4\.(\d+)\s*=\s*\w+:\s*(\d+)/);
+                    if (m) cv[m[1]] = parseInt(m[2]);
+                }
+                if (Object.keys(cv).length === 0) return res.status(400).json({ message: 'Aucun compteur Koesio lu via SNMP' });
+
+                const flagColor = String(copieur.couleur || '').toLowerCase() === 'oui';
+                const effColor = flagColor || (cv['106'] != null && cv['106'] > 0) || cv['109'] != null;
+                const nb = effColor ? (cv['109'] != null ? cv['109'] : cv['102']) : (cv['102'] != null ? cv['102'] : cv['109']);
+                const coul = effColor ? cv['106'] : null;
+
+                const inserted = [];
+                for (const c of codes) {
+                    const val = c.couleur === true ? coul : nb;
+                    if (val == null) continue;
+                    await insertReleve(c.id, val);
+                    inserted.push({ code: c.code, libelle: c.libelle, couleur: c.couleur, valeur: val });
+                }
+                if (inserted.length === 0) return res.status(400).json({ message: 'Aucun compteur Koesio mappé (vérifiez les codes N&B/Couleur)' });
+                return res.json({ message: `Relevé SNMP Koesio enregistré (${inserted.length} compteurs)`, releves: inserted, page_count: nb || 0 });
+            }
+
             // ─── Autres mainteneurs : compteur total via Printer-MIB (prtMarkerLifeCount) ───
             const { stdout } = await execPromise(
                 `snmpget -v 1 -c ${community} ${ip} 1.3.6.1.2.1.43.10.2.1.4.1.1`,
@@ -2204,7 +2234,7 @@ module.exports = {
             const today = new Date().toISOString().split('T')[0];
 
             const copieurs = await pgDb.all(
-                "SELECT id, ip, numero_serie, mainteneur FROM hub_copieurs.copieurs WHERE archive = false AND ip IS NOT NULL AND ip <> '' AND ip <> '42'"
+                "SELECT id, ip, numero_serie, mainteneur, couleur FROM hub_copieurs.copieurs WHERE archive = false AND ip IS NOT NULL AND ip <> '' AND ip <> '42'"
             );
 
             // Codes compteur indexés par mainteneur
@@ -2251,29 +2281,34 @@ module.exports = {
 
             const stats = { total: copieurs.length, ok: 0, injoignables: 0, releves: 0, erreurs: 0 };
 
+            const upsertReleve = async (copId, codeId, valeur) => {
+                await pool.query(
+                    `INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                     VALUES ($1,$2,$3,$4,$5,$6)
+                     ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, created_by=$6`,
+                    [copId, codeId, today, valeur, null, username]
+                );
+            };
+
             const collectOne = async (cop) => {
                 const ip = cop.ip.trim();
                 const maint = (cop.mainteneur || '').toLowerCase();
-                // OIDs standard : 4 toners couleur + usagé, console, erreur, total à vie
+                const flagColor = String(cop.couleur || '').toLowerCase() === 'oui';
                 const errOid = '1.3.6.1.2.1.25.3.5.1.2.1';
-                const baseOids = [
-                    '1.3.6.1.2.1.43.11.1.1.9.1.1', '1.3.6.1.2.1.43.11.1.1.9.1.2',
-                    '1.3.6.1.2.1.43.11.1.1.9.1.3', '1.3.6.1.2.1.43.11.1.1.9.1.4',
-                    '1.3.6.1.2.1.43.11.1.1.9.1.5', '1.3.6.1.2.1.43.16.5.1.2.1.1',
-                    '1.3.6.1.2.1.43.10.2.1.4.1.1',
-                ];
+                // Scalaires présents sur TOUTES les imprimantes (mono comprises) : console + total à vie
+                const scalarOids = ['1.3.6.1.2.1.43.16.5.1.2.1.1', '1.3.6.1.2.1.43.10.2.1.4.1.1'];
                 let map;
                 try {
                     const { stdout } = await execPromise(
-                        `snmpget -v 1 -c ${community} -On -t 2 -r 0 ${ip} ${[...baseOids, errOid].join(' ')}`,
+                        `snmpget -v 1 -c ${community} -On -t 2 -r 0 ${ip} ${[...scalarOids, errOid].join(' ')}`,
                         { timeout: 5000 }
                     );
                     map = parseSnmp(stdout);
                 } catch {
-                    // Retry sans l'OID erreur (certains modèles ne le supportent pas en v1)
+                    // Retry sans l'OID erreur (non supportée en v1 sur certains modèles)
                     try {
                         const { stdout } = await execPromise(
-                            `snmpget -v 1 -c ${community} -On -t 2 -r 0 ${ip} ${baseOids.join(' ')}`,
+                            `snmpget -v 1 -c ${community} -On -t 2 -r 0 ${ip} ${scalarOids.join(' ')}`,
                             { timeout: 5000 }
                         );
                         map = parseSnmp(stdout);
@@ -2288,15 +2323,38 @@ module.exports = {
                 }
 
                 const intOf = (oid) => { const v = parseInt(map[oid]); return isNaN(v) ? null : v; };
-                const tBlack = intOf('1.3.6.1.2.1.43.11.1.1.9.1.1');
-                const tCyan = intOf('1.3.6.1.2.1.43.11.1.1.9.1.2');
-                const tMagenta = intOf('1.3.6.1.2.1.43.11.1.1.9.1.3');
-                const tYellow = intOf('1.3.6.1.2.1.43.11.1.1.9.1.4');
-                const tWaste = intOf('1.3.6.1.2.1.43.11.1.1.9.1.5');
                 const consoleText = map['1.3.6.1.2.1.43.16.5.1.2.1.1'] || null;
                 const lifeTotal = intOf('1.3.6.1.2.1.43.10.2.1.4.1.1');
+
+                // ── Toners via WALK (ne plante pas sur les OID absentes des copieurs mono) ──
+                let tBlack = null, tCyan = null, tMagenta = null, tYellow = null, tWaste = null;
+                try {
+                    const { stdout } = await execPromise(
+                        `snmpwalk -v 1 -c ${community} -On -t 2 -r 0 ${ip} 1.3.6.1.2.1.43.11.1.1`,
+                        { timeout: 6000 }
+                    );
+                    const tmap = parseSnmp(stdout);
+                    const idxs = new Set();
+                    for (const k of Object.keys(tmap)) {
+                        const m = k.match(/^1\.3\.6\.1\.2\.1\.43\.11\.1\.1\.9\.1\.(\d+)$/);
+                        if (m) idxs.add(m[1]);
+                    }
+                    for (const i of idxs) {
+                        const desc = (tmap[`1.3.6.1.2.1.43.11.1.1.6.1.${i}`] || '').toLowerCase();
+                        const lvl = parseInt(tmap[`1.3.6.1.2.1.43.11.1.1.9.1.${i}`]);
+                        const max = parseInt(tmap[`1.3.6.1.2.1.43.11.1.1.8.1.${i}`]);
+                        if (isNaN(lvl)) continue;
+                        const pct = (!isNaN(max) && max > 0) ? Math.round(lvl / max * 100) : lvl;
+                        if (/waste|usag/.test(desc)) tWaste = pct;
+                        else if (/cyan/.test(desc)) tCyan = pct;
+                        else if (/magenta/.test(desc)) tMagenta = pct;
+                        else if (/yellow|jaune/.test(desc)) tYellow = pct;
+                        else if (/black|noir/.test(desc)) tBlack = pct;
+                        else if (tBlack === null) tBlack = pct; // mono : cartouche unique sans libellé couleur
+                    }
+                } catch { /* toners indisponibles */ }
+
                 let errText = decodeErrState(map[errOid]);
-                // Toner bas si une couleur <= 10 %
                 if (!errText) {
                     const low = [['N', tBlack], ['C', tCyan], ['M', tMagenta], ['Y', tYellow]]
                         .filter(([, v]) => v !== null && v <= 10).map(([k]) => k);
@@ -2304,13 +2362,13 @@ module.exports = {
                 }
 
                 let totalNoir = null, totalCouleur = null;
+                const isColor = flagColor || tCyan !== null || tMagenta !== null;
 
-                // Canon : lire les 4 compteurs détaillés
+                // ── Canon : compteurs détaillés A4/A3 (table 1602.1.11.1.4.1) ──
                 if (maint === 'canon') {
                     try {
-                        const canonOids = ['113', '112', '123', '122'].map(id => `1.3.6.1.4.1.1602.1.11.1.4.1.4.${id}`);
                         const { stdout } = await execPromise(
-                            `snmpget -v 1 -c ${community} -On -t 2 -r 0 ${ip} ${canonOids.join(' ')}`,
+                            `snmpget -v 1 -c ${community} -On -t 2 -r 0 ${ip} ${['113', '112', '123', '122'].map(id => `1.3.6.1.4.1.1602.1.11.1.4.1.4.${id}`).join(' ')}`,
                             { timeout: 5000 }
                         );
                         const cmap = parseSnmp(stdout);
@@ -2318,37 +2376,49 @@ module.exports = {
                         const c113 = cv('113'), c112 = cv('112'), c123 = cv('123'), c122 = cv('122');
                         if (c113 !== null || c112 !== null) totalNoir = (c113 || 0) + (c112 || 0);
                         if (c123 !== null || c122 !== null) totalCouleur = (c123 || 0) + (c122 || 0);
-
-                        // Relevé du jour par code (UPSERT)
                         const counters = { '113': c113, '112': c112, '123': c123, '122': c122 };
-                        const codes = codesByMaint['canon'] || [];
                         let wrote = false;
-                        for (const c of codes) {
+                        for (const c of (codesByMaint['canon'] || [])) {
                             const canonId = CANON_MAP[`${(c.format || '').toUpperCase()}|${c.couleur === true}`];
-                            if (!canonId || counters[canonId] === null || counters[canonId] === undefined) continue;
-                            await pool.query(
-                                `INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
-                                 VALUES ($1,$2,$3,$4,$5,$6)
-                                 ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, created_by=$6`,
-                                [cop.id, c.id, today, counters[canonId], cop.mainteneur, username]
-                            );
+                            if (!canonId || counters[canonId] == null) continue;
+                            await upsertReleve(cop.id, c.id, counters[canonId]);
                             wrote = true;
                         }
                         if (wrote) stats.releves++;
-                    } catch { /* compteurs Canon indisponibles, on garde les toners */ }
+                    } catch { /* indisponible */ }
+
+                // ── Koesio : compteurs principaux 102/106/109 (table 1602.1.11.1.3.1), format-agnostique ──
+                //   Mono  → N&B = 102
+                //   Couleur → N&B = 109, Couleur = 106
+                } else if (maint === 'koesio') {
+                    try {
+                        const { stdout } = await execPromise(
+                            `snmpwalk -v 1 -c ${community} -On -t 2 -r 0 ${ip} 1.3.6.1.4.1.1602.1.11.1.3.1.4`,
+                            { timeout: 6000 }
+                        );
+                        const kmap = parseSnmp(stdout);
+                        const kv = (id) => { const v = parseInt(kmap[`1.3.6.1.4.1.1602.1.11.1.3.1.4.${id}`]); return isNaN(v) ? null : v; };
+                        const c102 = kv('102'), c106 = kv('106'), c109 = kv('109');
+                        const effColor = isColor || (c106 !== null && c106 > 0) || c109 !== null;
+                        if (effColor) { totalNoir = c109 !== null ? c109 : c102; totalCouleur = c106; }
+                        else { totalNoir = c102 !== null ? c102 : c109; totalCouleur = null; }
+
+                        let wrote = false;
+                        for (const c of (codesByMaint['koesio'] || [])) {
+                            const val = c.couleur === true ? totalCouleur : totalNoir;
+                            if (val == null) continue;
+                            await upsertReleve(cop.id, c.id, val);
+                            wrote = true;
+                        }
+                        if (wrote) stats.releves++;
+                    } catch { /* indisponible */ }
+
+                // ── Autres mainteneurs : total Printer-MIB sur le code Total/premier code ──
                 } else if (lifeTotal !== null) {
                     totalNoir = lifeTotal;
                     const codes = codesByMaint[maint] || [];
                     const codeId = (codes.find(c => /^total/i.test(c.libelle || '')) || codes[0])?.id;
-                    if (codeId) {
-                        await pool.query(
-                            `INSERT INTO hub_copieurs.copieur_releves (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
-                             VALUES ($1,$2,$3,$4,$5,$6)
-                             ON CONFLICT (copieur_id, code_id, date_releve) DO UPDATE SET valeur=$4, created_by=$6`,
-                            [cop.id, codeId, today, lifeTotal, cop.mainteneur, username]
-                        );
-                        stats.releves++;
-                    }
+                    if (codeId) { await upsertReleve(cop.id, codeId, lifeTotal); stats.releves++; }
                 }
 
                 if (errText) stats.erreurs++;

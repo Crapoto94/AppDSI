@@ -320,7 +320,13 @@ const Copieurs: React.FC = () => {
       result = result.filter(isKpaxAlert);
     }
     Object.entries(colFilters).forEach(([col, val]) => {
-      if (val) result = result.filter(c => String((c as any)[col] ?? '') === val);
+      if (!val) return;
+      if (col === 'couleur') {
+        if (val === 'Oui') result = result.filter(c => String(c.couleur ?? '').toLowerCase() === 'oui');
+        else if (val === 'mono') result = result.filter(c => String(c.couleur ?? '').toLowerCase() !== 'oui');
+        return;
+      }
+      result = result.filter(c => String((c as any)[col] ?? '') === val);
     });
     if (search) {
       const q = search.toLowerCase();
@@ -1052,6 +1058,12 @@ const Copieurs: React.FC = () => {
               </button>
               <button className={`src-filter ${kpaxAlertFilter ? 'active' : ''}`} onClick={() => setKpaxAlertFilter(!kpaxAlertFilter)} style={{ color: kpaxAlertFilter ? '#dc2626' : undefined }}>
                 ⚠ Alerte KPAX <span className="badge-filter" style={kpaxAlertFilter ? { background: '#dc2626', color: '#fff' } : {}}>{kpaxAlertCount}</span>
+              </button>
+              <button className={`src-filter ${colFilters.couleur === 'mono' ? 'active' : ''}`} onClick={() => setColFilters(f => ({ ...f, couleur: f.couleur === 'mono' ? '' : 'mono' }))}>
+                ⚫ N&B <span className="badge-filter">{copieurs.filter(c => String(c.couleur ?? '').toLowerCase() !== 'oui').length}</span>
+              </button>
+              <button className={`src-filter ${colFilters.couleur === 'Oui' ? 'active' : ''}`} onClick={() => setColFilters(f => ({ ...f, couleur: f.couleur === 'Oui' ? '' : 'Oui' }))}>
+                🎨 Couleur <span className="badge-filter">{copieurs.filter(c => String(c.couleur ?? '').toLowerCase() === 'oui').length}</span>
               </button>
             </div>
             <div className="search-box">
