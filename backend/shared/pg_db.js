@@ -3945,6 +3945,7 @@ async function setupPgDb() {
       await client.query(`DO $$ BEGIN ALTER TYPE hub_reseau.network_operator ADD VALUE IF NOT EXISTS 'SFR'; EXCEPTION WHEN others THEN NULL; END $$;`);
       await client.query(`DO $$ BEGIN ALTER TYPE hub_reseau.access_type ADD VALUE IF NOT EXISTS '3G'; EXCEPTION WHEN others THEN NULL; END $$;`);
 
+      // ── Tables existantes enrichies ───────────────────────────────
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_reseau.network_links (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -3987,55 +3988,283 @@ async function setupPgDb() {
           created_at TIMESTAMP DEFAULT NOW()
         )
       `);
+      // Colonnes additionnelles v2 (non-destructif)
+      for (const col of [
+        `ALTER TABLE hub_reseau.network_links ADD COLUMN IF NOT EXISTS bag_id VARCHAR`,
+        `ALTER TABLE hub_reseau.network_links ADD COLUMN IF NOT EXISTS fo_pairs VARCHAR`,
+        `ALTER TABLE hub_reseau.network_links ADD COLUMN IF NOT EXISTS port_a VARCHAR`,
+        `ALTER TABLE hub_reseau.network_links ADD COLUMN IF NOT EXISTS port_b VARCHAR`,
+        `ALTER TABLE hub_reseau.network_links ADD COLUMN IF NOT EXISTS vlan_trunk TEXT`,
+        `ALTER TABLE hub_reseau.network_links ADD COLUMN IF NOT EXISTS notes TEXT`,
+        `ALTER TABLE hub_reseau.network_links ADD COLUMN IF NOT EXISTS irf_stack_id INT`,
+      ]) await client.query(col).catch(() => {});
+
       await client.query(`CREATE INDEX IF NOT EXISTS idx_links_site_a ON hub_reseau.network_links(site_a)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_links_site_b ON hub_reseau.network_links(site_b)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_access_site ON hub_reseau.network_access(site_code)`);
 
-      // Seed initial (idempotent : seulement si vide)
-      const { rows: lc } = await client.query('SELECT COUNT(*)::int AS c FROM hub_reseau.network_links');
-      if (lc[0].c === 0) {
-        // Backbone FIBRE — cœur + boucles Nord/Sud (is_loop)
+      // ── Nouvelles tables v2 ────────────────────────────────────────
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.irf_stacks (
+          id SERIAL PRIMARY KEY,
+          nom TEXT NOT NULL,
+          irf_domain INT,
+          ip_management TEXT,
+          vlan_management INT DEFAULT 840,
+          type_equipement TEXT,
+          description TEXT,
+          firmware TEXT,
+          actif BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.equipements (
+          id SERIAL PRIMARY KEY,
+          site_code TEXT,
+          nom TEXT NOT NULL,
+          type TEXT NOT NULL,
+          modele TEXT,
+          reference TEXT,
+          ip_management TEXT,
+          numero_serie TEXT,
+          firmware TEXT,
+          irf_stack_id INT REFERENCES hub_reseau.irf_stacks(id) ON DELETE SET NULL,
+          irf_membre_num INT,
+          boucle TEXT,
+          localisation TEXT,
+          statut TEXT DEFAULT 'PROD',
+          notes TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.vlans (
+          id SERIAL PRIMARY KEY,
+          vlan_id INT UNIQUE NOT NULL,
+          nom TEXT NOT NULL,
+          description TEXT,
+          adresse_ip TEXT,
+          adresse_ip2 TEXT,
+          dhcp_relay TEXT,
+          passerelle TEXT,
+          usage TEXT,
+          actif BOOLEAN DEFAULT TRUE
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.liaisons_fo (
+          id SERIAL PRIMARY KEY,
+          site_a TEXT NOT NULL,
+          site_b TEXT NOT NULL,
+          libelle TEXT,
+          paires TEXT,
+          boite_jonction TEXT,
+          capacite TEXT,
+          boucle TEXT,
+          statut TEXT DEFAULT 'ACTIF',
+          notes TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+
+      // ── Seed v2 (version-gated) ────────────────────────────────────
+      // On utilise irf_stacks comme garde : si la table est vide → seed complet
+      const { rows: vs } = await client.query('SELECT COUNT(*)::int AS c FROM hub_reseau.irf_stacks');
+      if (vs[0].c === 0) {
+        // Vider les tables pour repartir proprement
+        await client.query('TRUNCATE hub_reseau.network_links, hub_reseau.network_access, hub_reseau.ducts CASCADE');
+
+        // ── IRF Stacks ──
         await client.query(`
-          INSERT INTO hub_reseau.network_links (site_a, site_b, type, capacity, is_loop, is_redundant) VALUES
-          ('S001','S064','FIBRE','40G',false,true),
-          ('S001','S005','FIBRE','10G',true,false),
-          ('S005','S004','FIBRE','10G',true,false),
-          ('S004','S022','FIBRE','10G',true,false),
-          ('S022','S001C','FIBRE','10G',true,false),
-          ('S001C','S001','FIBRE','10G',true,false),
-          ('S001','S007','FIBRE','10G',true,false),
-          ('S007','S045','FIBRE','1G',true,false),
-          ('S045','S001','FIBRE','1G',true,false)
+          INSERT INTO hub_reseau.irf_stacks (id, nom, irf_domain, ip_management, vlan_management, type_equipement, description, firmware) VALUES
+          (1, 'COEUR',        2,  '10.103.135.9',  840, 'HP5940',   'Cœur de réseau IRF — Mairie + PRA (4 membres)',          '5940-CMW710-R2609'),
+          (2, 'BOUCLE-NORD',  10, '10.103.135.11', 840, 'HP5500HI', 'IRF Boucle Nord — 5 membres (Coutant, Cachin, Régie, Casanova ×2)', NULL),
+          (3, 'BOUCLE-SUD',   NULL,'10.103.135.10', 840, 'HP5500HI', 'IRF Boucle Sud — 3 membres (Neruda, JC, CAT)',          NULL)
         `);
-        // WAN LINKT (MPLS) — VRF DATA/ECOLE/TOIP ; TOIP => carries_voice
+
+        // ── Équipements ──
         await client.query(`
-          INSERT INTO hub_reseau.network_links (site_a, site_b, type, capacity, operator, carries_data, carries_voice) VALUES
-          ('S001','S045','OPERATEUR','30M','LINKT',true,true),
-          ('S001','S028','OPERATEUR','20M','LINKT',true,false)
+          INSERT INTO hub_reseau.equipements
+            (site_code, nom, type, modele, reference, ip_management, numero_serie, firmware, irf_stack_id, irf_membre_num, boucle, localisation, statut) VALUES
+          -- CŒUR Mairie (membres 1 & 2)
+          ('S001B01','COEUR-MAIRIE-M1',   'SWITCH_L3','HP 5940 48SFP+ 6QSFP28','JH684A','10.103.135.9','CN70HLC060','5940-CMW710-R2609',1,1,'COEUR','Mairie — Baie principale','PROD'),
+          ('S001B01','COEUR-MAIRIE-M2',   'SWITCH_L3','HP 5940 48SFP+ 6QSFP28','JH684A','10.103.135.9','CN70HLC05Y','5940-CMW710-R2609',1,2,'COEUR','Mairie — Baie principale','PROD'),
+          -- CŒUR PRA (membres 3 & 4)
+          ('S064B01','COEUR-PRA-M3',      'SWITCH_L3','HP 5940 48SFP+ 6QSFP28','JH684A','10.103.135.9','CN70HLC060','5940-CMW710-R2609',1,3,'COEUR','PRA Espace Robespierre — Baie 3','PROD'),
+          ('S064B01','COEUR-PRA-M4',      'SWITCH_L3','HP 5940 48SFP+ 6QSFP28','JH684A','10.103.135.9','CN70HLC06K','5940-CMW710-R2609',1,4,'COEUR','PRA Espace Robespierre — Baie 4','PROD'),
+          -- Switches Mairie distribution
+          ('S001B01','SWMAIRIE01',         'SWITCH_L2','HP 5500HI 48G','JG312A','10.3.110.61',NULL,NULL,NULL,NULL,'COEUR','Mairie — Baie 2, distribution VLAN10','PROD'),
+          ('S001B01','SWMAIRIEWIFI01',     'SWITCH_L2','HP 5500 Series',NULL,   '10.103.135.48',NULL,NULL,NULL,NULL,'COEUR','Mairie — WiFi 4ème étage','PROD'),
+          -- Switch PRA distribution
+          ('S064B01','SWROB-PRA-SERVEURS','SWITCH_L2','HP 5500HI 48G','JG312A','10.103.135.61',NULL,NULL,NULL,NULL,'COEUR','PRA — Baie 4, serveurs','PROD'),
+          ('S064B01','SWES-ROBE-DIST01',  'SWITCH_L2','HP 1910 48G',  'JG540A','10.103.135.47',NULL,NULL,NULL,NULL,'COEUR','PRA — Baie 1, distribution VLAN10','PROD'),
+          -- BOUCLE NORD
+          ('S001B02','BN-COUTANT-M1',     'SWITCH_L2','HP 5500HI 48G','JG312A','10.103.135.11',NULL,NULL,2,1,'NORD','Coutant — Annexe','PROD'),
+          ('S004B01','BN-CACHIN-M2',      'SWITCH_L2','HP 5500HI 48G','JG312A','10.103.135.11',NULL,NULL,2,2,'NORD','Cachin — 1er étage','PROD'),
+          ('S022B01','BN-REGIE-M3',       'SWITCH_L2','HP 5500HI 48G','JG312A','10.103.135.11',NULL,NULL,2,3,'NORD','Ledru Rollin — Régie 1er étage','PROD'),
+          ('S005B01','BN-CASA-M4',        'SWITCH_L2','HP 5500HI 48G','JG311A','10.103.135.11',NULL,NULL,2,4,'NORD','Casanova — Baie 3 LT','PROD'),
+          ('S005B01','BN-CASA-M5',        'SWITCH_L2','HP 5500HI 48G','JG311A','10.103.135.11',NULL,NULL,2,5,'NORD','Casanova — Baie 3 LT','PROD'),
+          -- BOUCLE SUD
+          ('S007B01','BS-NERUDA-M1',      'SWITCH_L2','HP 5500HI 48G','JG312A','10.103.135.10',NULL,NULL,3,1,'SUD','Neruda — 1er étage','PROD'),
+          ('S045B01','BS-JC-M2',          'SWITCH_L2','HP 5500HI 48G','JG312A','10.103.135.10',NULL,NULL,3,2,'SUD','JC — 1er Elem B','PROD'),
+          ('S002B01','BS-CAT-M3',         'SWITCH_L2','HP 5500HI 48G','JG311A','10.103.135.10',NULL,NULL,3,3,'SUD','Saint-Just — CAT','PROD'),
+          ('S002B01','BS-CAT-M4',         'SWITCH_L2','HP 5500HI 48G','JG311A','10.103.135.10',NULL,NULL,3,4,'SUD','Saint-Just — CAT','PROD'),
+          -- Sites dépendants JC
+          ('S045B01','SW-JC-SS',          'SWITCH_L2','SW SMC 24 ports',NULL,'10.103.148.53',NULL,NULL,NULL,NULL,'SUD','JC Sous-sol','PROD'),
+          ('S036B07','SW-GAGARINE',        'SWITCH_L2',NULL,           NULL,'10.103.135.25',NULL,NULL,NULL,NULL,'SUD','MQ Gagarine','PROD'),
+          ('S094B01','SW-PETIT-IVRY',      'SWITCH_L2',NULL,           NULL,'10.103.135.59',NULL,NULL,NULL,NULL,'SUD','MQ Petit Ivry','PROD'),
+          ('S020B01','SW-CT-RIGAUD',       'SWITCH_L2',NULL,           NULL,'10.103.135.46',NULL,NULL,NULL,NULL,'SUD','CT Rigaud','PROD'),
+          -- Équipements sécurité
+          ('S005B01','SOPHOS-XG210-CASA',  'FIREWALL','Sophos XG210',  NULL,'86.65.184.173','C23076DGWJ3J980',NULL,NULL,NULL,'NORD','Casanova — EGIDE.LOCAL','PROD'),
+          ('S001B01','SOPHOS-SG-MAIRIE',   'FIREWALL','Sophos SG',     NULL,NULL,NULL,NULL,NULL,NULL,'COEUR','Mairie — Internet/VPN RED','PROD'),
+          -- Routeurs
+          ('S005B01','ROUTEUR-SFR-CASA',   'ROUTEUR','Cisco 890',      NULL,'86.65.184.169',NULL,NULL,NULL,NULL,'NORD','Casanova — Internet SFR 30Mb','PROD'),
+          ('S001B01','ROUTEUR-VPN-LINKT',  'ROUTEUR',NULL,             NULL,'10.103.50.100', NULL,NULL,NULL,NULL,'COEUR','Mairie — VPN LINKT 200Mb VRF Ecole','PROD'),
+          ('S001B01','ROUTEUR-VPN-SIIM',   'ROUTEUR','Cisco 2600',     NULL,'10.100.101.48', NULL,NULL,NULL,NULL,'COEUR','Mairie — VPN SIIM','PROD'),
+          ('S001B01','CISCO-SIIM',         'ROUTEUR','Cisco',          NULL,'10.103.110.6',  NULL,NULL,NULL,NULL,'COEUR','Mairie — Liaison SIIM GE0/1','PROD')
         `);
-        // WAN RED (VPN + Internet via Sophos)
+
+        // ── VLANs (référentiel complet) ──
         await client.query(`
-          INSERT INTO hub_reseau.network_links (site_a, site_b, type, capacity, operator, carries_data, carries_voice, is_redundant) VALUES
-          ('S001','S064','OPERATEUR','100M','RED',true,false,true)
+          INSERT INTO hub_reseau.vlans (vlan_id, nom, description, adresse_ip, adresse_ip2, dhcp_relay, passerelle, usage, actif) VALUES
+          (2,   'VLAN2-CAT',         'Réseau CAT',                            '10.103.100.9/24','10.103.101.9/24','10.103.130.142','10.103.100.9','UTILISATEURS',true),
+          (3,   'VLAN3-CMS_LUXY',    'Réseau CMS & Luxy',                     '10.103.140.9/24',NULL,             '10.103.130.142','10.103.140.9','UTILISATEURS',true),
+          (4,   'VLAN4-MEDIA',       'Réseau Médiathèque',                    '10.103.120.9/24',NULL,             '10.103.130.142','10.103.120.9','UTILISATEURS',true),
+          (5,   'VLAN5-CASA',        'Réseau Casanova et sites dépendants',   '10.103.130.9/24','10.103.131.9/24','10.103.130.142','10.103.130.9','UTILISATEURS',true),
+          (6,   'VLAN6-CACHIN',      'Réseau Cachin',                         '10.103.164.9/24',NULL,             '10.103.130.142','10.103.164.9','UTILISATEURS',true),
+          (7,   'VLAN7-REGIE',       'Réseau Régie Ledru Rollin',             '10.103.161.9/24',NULL,             '10.103.130.142','10.103.161.9','UTILISATEURS',true),
+          (8,   'VLAN8-NERUDA',      'Réseau Neruda',                         '10.103.152.9/24',NULL,             '10.103.130.142','10.103.152.9','UTILISATEURS',true),
+          (9,   'VLAN9-JHACHETTE',   'Réseau J. Hachette / DDAC',             '10.103.115.9/24',NULL,             '10.103.130.142','10.103.115.9','UTILISATEURS',true),
+          (10,  'VLAN10-MAIRIE',     'Réseau Mairie et sites dépendants',     '10.103.110.9/24','10.103.111.9/24','10.103.130.142','10.103.110.9','UTILISATEURS',true),
+          (11,  'VLAN11-JC',         'Réseau Joliot-Curie et dépendants',     '10.103.148.9/24',NULL,             '10.103.130.142','10.103.148.9','UTILISATEURS',true),
+          (12,  'VLAN12-CAT',        'Réseau CAT secondaire',                 '10.103.147.9/24',NULL,             '10.103.130.142','10.103.147.9','UTILISATEURS',true),
+          (13,  'VLAN13-CASA',       'Réseau Casanova futur',                 '10.103.80.9/23', NULL,             '10.103.130.142','10.103.80.9', 'UTILISATEURS',true),
+          (800, 'VLAN800-SECU',      'Contrôle d''accès transverse',          '10.103.250.0/24',NULL,             NULL,            NULL,          'SECURITE',    true),
+          (810, 'VLAN810-INTVILLE',  'Internet Ville',                        '10.103.95.9/28', NULL,             NULL,            '10.103.95.9', 'INTERNET',    true),
+          (840, 'VLAN840-ADMIN',     'Administration switches',               '10.103.135.9/24',NULL,             NULL,            '10.103.135.9','INFRASTRUCTURE',true),
+          (850, 'VLAN850-INTD',      'Internet Direct GFU Sophos',            '10.103.252.0/23',NULL,             NULL,            NULL,          'INTERNET',    true),
+          (860, 'VLAN860-VIDEO',     'Vidéoprotection',                       '10.103.251.9/24',NULL,             NULL,            '10.103.251.9','SECURITE',    true),
+          (870, 'VLAN870-IvrEx',     'Réplication Exchange 2010 transverse',  NULL,             NULL,             NULL,            NULL,          'INFRASTRUCTURE',true),
+          (871, 'VLAN871-REPNAS-FTP','Réplication NAS-FTP',                   NULL,             NULL,             NULL,            NULL,          'INFRASTRUCTURE',true),
+          (872, 'VLAN872-REPNAS-VID','Réplication NAS-Vidéo',                 NULL,             NULL,             NULL,            NULL,          'INFRASTRUCTURE',true),
+          (880, 'VLAN880-IPFX',      'Équipements IP Fixe (imprimantes)',     '10.103.90.9/23', NULL,             NULL,            '10.103.90.9', 'INFRASTRUCTURE',true),
+          (890, 'VLAN890-MDT',       'Déploiement Système (MDT)',             '10.103.85.9/24', NULL,             NULL,            '10.103.85.9', 'INFRASTRUCTURE',true),
+          (900, 'VLAN900-INTER',     'Accès Internet Direct Sophos',          '10.103.210.0/24',NULL,             NULL,            NULL,          'INTERNET',    true),
+          (910, 'VLAN910-HSWIFI',    'Hotspot WiFi Sophos',                   '10.103.248.0/24',NULL,             NULL,            NULL,          'INTERNET',    true),
+          (950, 'VLAN950-GFU-ECOL',  'Réseau Util. GFU DHCP Écoles',         NULL,             NULL,             NULL,            NULL,          'ECOLES',      true),
+          (951, 'VLAN951-GFU-VPN',   'VPN Serveurs Écoles GFU',              '10.103.50.101/24',NULL,            NULL,            NULL,          'ECOLES',      true),
+          (1099,'VLAN1099-TOIP',     'VRF ToIP LINKT',                        '10.203.99.15',   NULL,             NULL,            NULL,          'VOIP',        true)
         `);
-        // Accès faibles (sites isolés)
+
+        // ── Liaisons FO (brassages optiques détaillés) ──
+        await client.query(`
+          INSERT INTO hub_reseau.liaisons_fo (site_a, site_b, libelle, paires, boite_jonction, capacite, boucle, statut) VALUES
+          -- Cœur ↔ PRA
+          ('S001B01','S064B01','MAIRIE ↔ ESP ROBESPIERRE',       'Paire 22-23',   NULL,    '40G', 'COEUR','ACTIF'),
+          -- Boucle Nord — IRF ring
+          ('S001B01','S001B02','MAIRIE ↔ COUTANT',               'Paires 7-8 (via MAIRIE), 11-12 (MAIRIE→COUTANT)',NULL,'10G','NORD','ACTIF'),
+          ('S001B02','S016B01','COUTANT ↔ LUXY',                 'Paires 3-4',    NULL,    '10G', 'NORD','ACTIF'),
+          ('S016B01','S004B01','LUXY ↔ CACHIN',                  'Paires 3-4',    NULL,    '10G', 'NORD','ACTIF'),
+          ('S004B01','S022B01','CACHIN ↔ REGIE LT 1er étage',    'Paires 3-4',    NULL,    '10G', 'NORD','ACTIF'),
+          ('S022B01','S005B01','REGIE ↔ CASANOVA (via GP)',       'Paires 3-4',    'Mater Gabriel Péri','10G','NORD','ACTIF'),
+          ('S005B01','S001B01','CASANOVA ↔ MAIRIE',               'Paires 9-10',   NULL,    '10G', 'NORD','ACTIF'),
+          -- Boucle Nord — accès dépendants
+          ('S005B01','S013B01','CASANOVA ↔ MÉDIATHÈQUE',          'Paires 1-2',    NULL,    '1G',  'NORD','ACTIF'),
+          -- Boucle Sud — IRF ring
+          ('S001B01','S007B01','MAIRIE ↔ NERUDA',                 'Paires 15-16 (FO Mairie 13-14 → Neruda paire 8)','Mairie Jarretières','10G','SUD','ACTIF'),
+          ('S007B01','S045B01','NERUDA ↔ JC (1er Elem B)',        'Paires 15-16',  'FO SS JC 11-12 (paire 6)','10G','SUD','ACTIF'),
+          ('S045B01','S002B01','JC ↔ CAT (St Just)',              'Paires 7-8',    'SS JC jarret. paires 13-14 (paire 7)','10G','SUD','ACTIF'),
+          ('S002B01','S001B01','CAT ↔ MAIRIE',                    'Paire 6 (CAT-MAIRIE) / Paire 20 (MAIRIE-ESP ROB)','Mairie Jarretières','10G','SUD','ACTIF'),
+          -- JC dépendants (Boucle Sud)
+          ('S045B01','S092B01','JC ↔ GYMNASE LÉNINE',             'LTB 2eme 17-18 (paires 7-8 JC→Lénine)',NULL,'1G','SUD','ACTIF'),
+          ('S045B01','S036B07','JC ↔ MQ GAGARINE',               'LTB 2eme 15-16 (paires 1-2 JC→MQ Gagarine)',NULL,'1G','SUD','ACTIF'),
+          ('S092B01','S049B01','LÉNINE ↔ ORME AU CHAT',           'Paires 7-8',    NULL,    '1G',  'SUD','ACTIF'),
+          ('S092B01','S094B01','LÉNINE ↔ MQ PETIT IVRY',          'Paires 3-4',    NULL,    '1G',  'SUD','ACTIF'),
+          ('S049B01','S017B01','ORME AU CHAT ↔ CHEVALERET',       'Paires 11-12',  NULL,    '1G',  'SUD','ACTIF'),
+          ('S049B01','S021B01','ORME AU CHAT ↔ CT GUILLOU',        'Paires 1-2',    NULL,    '1G',  'SUD','ACTIF'),
+          ('S017B01','S020B01','CHEVALERET ↔ CT RIGAUD',           'Paires 11-12',  NULL,    '1G',  'SUD','ACTIF'),
+          -- Lien Laser (JC → Manufacture des Œillets = CREDAC)
+          ('S045B01','S019B01','JC ↔ MANUFACTURE DES ŒILLETS (Laser)',NULL,NULL,'100M','SUD','ACTIF')
+        `);
+
+        // ── Liens réseau principaux (backbone) ──
+        await client.query(`
+          INSERT INTO hub_reseau.network_links (site_a, site_b, type, capacity, is_loop, is_redundant, bag_id, fo_pairs, port_a, port_b, vlan_trunk, notes, irf_stack_id) VALUES
+          -- Backbone cœur ↔ PRA (40G DAC)
+          ('S001B01','S064B01','FIBRE','40G',false,true,'HUND1/0/53-54','Paire 22-23','HUND1/0/53','HUND3/0/53','5,6,7,10,13,800,840,850,860,870,880,890,900,910,950','DAC 40Gb IRF cœur',1),
+          -- Boucle Nord (BAGG5 2×10G vers cœur)
+          ('S001B01','S001B02','FIBRE','10G',true,false,'BAGG5','Paires 7-8 / 11-12','Ten1/0/1','Ten1/1/1','5,6,7,10,13,800,810,840,850,860,870,880,890,900,910,950','LACP 2×10Gb Boucle Nord',2),
+          ('S001B02','S016B01','FIBRE','10G',true,false,NULL,'Paires 3-4','Ten1/0/53','Ten1/0/53',NULL,'FO COUTANT ↔ LUXY',2),
+          ('S016B01','S004B01','FIBRE','10G',true,false,NULL,'Paires 3-4','Ten2/0/53','Ten2/0/53',NULL,'FO CACHIN ↔ LUXY',2),
+          ('S004B01','S022B01','FIBRE','10G',true,false,NULL,'Paires 3-4','Ten2/0/53','Ten3/0/53',NULL,'FO REGIE ↔ CACHIN',2),
+          ('S022B01','S005B01','FIBRE','10G',true,false,NULL,'Paires 3-4','Ten3/0/53','Ten4/0/54',NULL,'FO CASANOVA ↔ REGIE (via Mater Gabriel Péri)',2),
+          ('S005B01','S001B01','FIBRE','10G',true,false,'BAGG5','Paires 9-10','Ten5/1/1','Ten3/0/1','5,6,7,10,13,800,810,840,850,860,870,880,890,900,910,950','FO CASANOVA ↔ MAIRIE (BAGG5)',2),
+          -- Dépendant Boucle Nord
+          ('S005B01','S013B01','FIBRE','1G',false,false,NULL,'Paires 1-2',NULL,NULL,'4,800,840,850,900','FO CASANOVA ↔ MEDIATHÈQUE',2),
+          -- Boucle Sud (BAG4 2×10G vers cœur)
+          ('S001B01','S007B01','FIBRE','10G',true,false,'BAG4','Paires 15-16','Ten2/0/1','Ten1/0/54','8,11,800,840,850,860,900,910,950','LACP 2×10Gb Boucle Sud – Neruda',3),
+          ('S007B01','S045B01','FIBRE','10G',true,false,NULL,'Paires 15-16',NULL,'Ten2/0/53','11,800,840,850,860,900,950','FO NERUDA ↔ JC (1er Elem B)',3),
+          ('S045B01','S002B01','FIBRE','10G',true,false,NULL,'Paires 7-8',NULL,'Ten4/1/1','2,800,840,850,860,900,910,950','FO JC ↔ CAT via SS JC paires 13-14',3),
+          ('S002B01','S001B01','FIBRE','10G',true,false,'BAG4','Paire 6','Ten4/1/1','Ten4/0/1','2,800,840,850,860,900,910,950','FO CAT ↔ MAIRIE (BAG4)',3),
+          -- Dépendants Boucle Sud (JC)
+          ('S045B01','S092B01','FIBRE','1G',false,false,NULL,'LTB 2eme 17-18',NULL,NULL,'11','JC ↔ Gymnase Lénine',3),
+          ('S045B01','S036B07','FIBRE','1G',false,false,NULL,'LTB 2eme 15-16',NULL,NULL,'11','JC ↔ MQ Gagarine',3),
+          ('S092B01','S049B01','FIBRE','1G',false,false,NULL,'Paires 7-8',NULL,NULL,'11','Lénine ↔ Orme au Chat',3),
+          ('S092B01','S094B01','FIBRE','1G',false,false,NULL,'Paires 3-4',NULL,NULL,'11','Lénine ↔ MQ Petit Ivry',3),
+          ('S049B01','S017B01','FIBRE','1G',false,false,NULL,'Paires 11-12',NULL,NULL,'11','Orme au Chat ↔ Chevaleret',3),
+          ('S049B01','S021B01','FIBRE','1G',false,false,NULL,'Paires 1-2',NULL,NULL,'10','Orme au Chat ↔ CT Guillou',3),
+          ('S017B01','S020B01','FIBRE','1G',false,false,NULL,'Paires 11-12',NULL,NULL,'11','Chevaleret ↔ CT Rigaud',3),
+          -- Lien Laser
+          ('S045B01','S019B01','LASER','100M',false,false,NULL,NULL,NULL,NULL,'11','Liaison Laser JC ↔ Manufacture des Œillets (CREDAC)',NULL)
+        `);
+
+        // ── Accès WAN sites isolés ──
         await client.query(`
           INSERT INTO hub_reseau.network_access (site_code, type, operator, mode, bandwidth, carries_voice, comment) VALUES
-          ('S045','WAN','LINKT','MPLS','30M',true,'Accès MPLS LINKT VRF TOIP'),
-          ('S028','ADSL','OTHER','INTERNET','20M',false,'Site isolé - ADSL de secours'),
-          ('S022','SDSL','OTHER','INTERNET','8M',false,'Liaison SDSL'),
-          ('S004','4G','OTHER','BACKUP','50M',false,'Backup 4G')
+          ('S028','ADSL','OTHER','INTERNET','20M',false,'Centre vacances Hery sur Ugine'),
+          ('S027','3G','OTHER','BACKUP','?',false,'Centre vacances Les Mathes – 3G/4G'),
+          ('S019B01','SDSL','OTHER','VPN','1M',false,'Manufacture des Œillets – SDSL 1M'),
+          ('S079','SDSL','OTHER','VPN','1M',false,'Multi-Accueil Ada Lovelace – SDSL 1M'),
+          ('S075','SDSL','OTHER','VPN','1M',false,'RAM Hartmann – SDSL 1M'),
+          ('S141','SDSL','OTHER','VPN','1M',false,'Multi-accueil Maria Merian – SDSL 1M'),
+          ('S038','ADSL','OTHER','VPN','?',false,'RAM Parmentier – ADSL'),
+          ('S051','SDSL','OTHER','VPN','4M',false,'École Jacques Prévert – SDSL 4M'),
+          ('S096','ADSL','OTHER','INTERNET','?',false,'Gymnase des Épinettes – ADSL'),
+          ('S040','ADSL','OTHER','INTERNET','?',false,'Halte Garderie du Moulin – ADSL'),
+          ('S104','ADSL','OTHER','INTERNET','?',false,'Stade de Gournay – ADSL'),
+          ('S105','ADSL','OTHER','INTERNET','?',false,'Stade des Lilas – ADSL'),
+          -- Écoles sur FO MPLS LINKT VRF ECOLE
+          ('S041','FIBRE','LINKT','MPLS','100M',false,'GS Rosalind Franklin – Fibre 100Mb'),
+          ('S042','FIBRE','LINKT','MPLS','100M',false,'GS Rosa Parks – Fibre 100Mb'),
+          ('S043','FIBRE','LINKT','MPLS','100M',false,'GS Barbusse – Fibre 100Mb'),
+          ('S048','FIBRE','LINKT','MPLS','100M',false,'École Dulcie September – Fibre 100Mb'),
+          ('S056','FIBRE','LINKT','MPLS','100M',false,'École Maurice Thorez – Fibre 100Mb'),
+          ('S037','FIBRE','LINKT','MPLS','100M',false,'Crèche Rosa Bonheur – Fibre 100Mb'),
+          ('S058','FIBRE','LINKT','MPLS','100M',false,'MQ Monmousseau – Fibre 100Mb'),
+          ('S094','FIBRE','LINKT','MPLS','100M',false,'Gymnase PMC – Fibre 100Mb'),
+          ('S046','FIBRE','LINKT','MPLS','100M',false,'GS Langevin VLAN194'),
+          ('S225','FIBRE','LINKT','MPLS','100M',false,'Complexe Sportif Alice Milliat – Fibre 2/100Mb'),
+          -- WAN opérateurs (accès externes)
+          ('S001B01','OPERATEUR','SFR','INTERNET','500M',false,'Internet + VPN RED – FO 500Mb Mairie + 2×ADSL 20Mb PRA'),
+          ('S005B01','OPERATEUR','SFR','INTERNET','30M',false,'Internet SFR FO 30Mb Casanova (CISCO 890 86.65.184.169)'),
+          ('S001B01','OPERATEUR','LINKT','MPLS','200M',true,'VPN MPLS LINKT FO 200Mb VRF DATA/ECOLES/TOIP')
         `);
-        // Fourreaux
+
+        // ── Fourreaux FO ──
         await client.query(`
           INSERT INTO hub_reseau.ducts (name, status, capacity, used_capacity) VALUES
-          ('FO_Boucle_Nord','OCCUPE',48,36),
-          ('FO_Boucle_Sud','OCCUPE',48,40),
-          ('FO_Extension','LIBRE',24,0)
+          ('FO_Boucle_Nord',    'OCCUPE', 48, 40),
+          ('FO_Boucle_Sud',     'OCCUPE', 48, 44),
+          ('FO_Cœur_PRA',       'OCCUPE', 24, 16),
+          ('FO_JC_Dependants',  'OCCUPE', 24, 20),
+          ('FO_Reserve_Nord',   'LIBRE',  24,  0),
+          ('FO_Reserve_Sud',    'LIBRE',  24,  0)
         `);
-        console.log('[PG DB] hub_reseau seed inséré');
+
+        console.log('[PG DB] hub_reseau seed v2 (DIP) inséré');
       }
-      console.log('[PG DB] hub_reseau schema OK');
+      console.log('[PG DB] hub_reseau schema v2 OK');
     } catch (e) {
       console.error('[PG DB] hub_reseau init error:', e.message);
     }

@@ -1,26 +1,49 @@
 const express = require('express');
 const router = express.Router();
 const ctrl = require('./reseau.controller');
-const { authenticateJWT } = require('../../shared/middleware');
+const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware');
 
-// Toutes les routes nécessitent un JWT.
 router.use(authenticateJWT);
 
-// Référentiel sites (lecture seule de hub.sites)
-router.get('/sites', ctrl.getSites);
+// ── Référentiel sites ──────────────────────────────────────────────
+router.get('/sites',   ctrl.getSites);
 
-// Liens réseau
-router.get('/links', ctrl.getLinks);
-router.post('/links', ctrl.createLink);
-router.put('/links/:id', ctrl.updateLink);
-router.delete('/links/:id', ctrl.deleteLink);
+// ── Liens réseau ───────────────────────────────────────────────────
+router.get('/links',          ctrl.getLinks);
+router.post('/links',         authenticateAdmin, ctrl.createLink);
+router.put('/links/:id',      authenticateAdmin, ctrl.updateLink);
+router.delete('/links/:id',   authenticateAdmin, ctrl.deleteLink);
 
-// Accès réseau
-router.get('/access', ctrl.getAccess);
-router.post('/access', ctrl.createAccess);
+// ── Accès réseau (WAN/opérateurs) ──────────────────────────────────
+router.get('/access',         ctrl.getAccess);
+router.post('/access',        authenticateAdmin, ctrl.createAccess);
 
-// Fourreaux
-router.get('/ducts', ctrl.getDucts);
-router.post('/ducts', ctrl.createDuct);
+// ── Fourreaux ──────────────────────────────────────────────────────
+router.get('/ducts',          ctrl.getDucts);
+router.post('/ducts',         authenticateAdmin, ctrl.createDuct);
+
+// ── IRF Stacks ─────────────────────────────────────────────────────
+router.get('/irf-stacks',       ctrl.getIrfStacks);
+router.post('/irf-stacks',      authenticateAdmin, ctrl.createIrfStack);
+router.put('/irf-stacks/:id',   authenticateAdmin, ctrl.updateIrfStack);
+
+// ── Équipements ────────────────────────────────────────────────────
+router.get('/equipements',          ctrl.getEquipements);
+router.post('/equipements',         authenticateAdmin, ctrl.createEquipement);
+router.put('/equipements/:id',      authenticateAdmin, ctrl.updateEquipement);
+router.delete('/equipements/:id',   authenticateAdmin, ctrl.deleteEquipement);
+
+// ── VLANs ──────────────────────────────────────────────────────────
+router.get('/vlans',          ctrl.getVlans);
+router.post('/vlans',         authenticateAdmin, ctrl.createVlan);
+router.put('/vlans/:id',      authenticateAdmin, ctrl.updateVlan);
+
+// ── Liaisons FO ────────────────────────────────────────────────────
+router.get('/liaisons-fo',         ctrl.getLiaisonsFO);
+router.post('/liaisons-fo',        authenticateAdmin, ctrl.createLiaisonFO);
+
+// ── Agrégat topologie ──────────────────────────────────────────────
+router.get('/topologie',      ctrl.getTopologie);
+router.get('/stats',          ctrl.getStats);
 
 module.exports = router;
