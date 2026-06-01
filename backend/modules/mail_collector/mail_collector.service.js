@@ -184,12 +184,12 @@ class MailCollectorService {
     const subject = (email.subject || 'Sans titre').substring(0, 255);
     const bodyContent = email.body?.content || email.bodyPreview || '';
 
-    // Heure de Paris (sans fuseau) pour rester cohérent avec les tickets GLPI et l'affichage.
-    // receivedDateTime (Microsoft Graph) est en UTC : on force le 'Z' s'il manque, sinon
-    // new Date() l'interpréterait en heure locale → décalage.
     let rdt = email.receivedDateTime;
-    if (typeof rdt === 'string' && rdt && !/(Z|[+-]\d{2}:?\d{2})$/.test(rdt)) rdt += 'Z';
-    const emailDate = toParisSql(rdt ? new Date(rdt) : new Date());
+    // Keep UTC as is for storage to avoid offset issues
+    const emailDate = rdt ? new Date(rdt).toISOString() : new Date().toISOString();
+
+    // Check for VIP status
+    const vipUser = await pgDb.get('SELECT is_vip FROM hub.users WHERE email = ?', [from.email]);
 
     const ticketId = await ticketRepo.create({
       title: subject,
@@ -200,7 +200,7 @@ class MailCollectorService {
       source: 'mail',
       date_creation: emailDate,
       status: 1,
-      priority: 3,
+      priority: vipUser?.is_vip ? 1 : 3, // Set high priority for VIP
       urgency: 3,
       impact: 2
     });

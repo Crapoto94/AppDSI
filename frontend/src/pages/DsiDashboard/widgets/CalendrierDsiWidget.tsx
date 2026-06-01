@@ -172,9 +172,8 @@ export default function CalendrierDsiWidget() {
     const title = [
       slot.nom,
       slot.flagged ? '⚠ Sedit + à justifier' : '',
-      `src=${slot.ev.source ?? 'null'} by=${slot.ev.created_by ?? 'null'}`,
-      `isSedit=${isSedit(slot.ev)} colour=${bg}`,
-    ].filter(Boolean).join(' | ');
+      slot.ev.description || slot.ev.titre,
+    ].filter(Boolean).join(' — ');
 
     return (
       <div title={title} style={{
