@@ -1,0 +1,226 @@
+export interface WidgetDef {
+  key: string;
+  label: string;
+  description: string;
+  module: string;
+  defaultSize: { w: number; h: number };
+  minSize: { w: number; h: number };
+}
+
+export const WIDGET_REGISTRY: WidgetDef[] = [
+  // ── Tickets ──────────────────────────────────────────────────────────────
+  {
+    key: 'tickets_kpi',
+    label: 'KPIs Tickets',
+    description: 'Ouverts, Critiques, Résolus/j, SLA violés',
+    module: 'Tickets',
+    defaultSize: { w: 6, h: 2 },
+    minSize: { w: 4, h: 2 },
+  },
+  {
+    key: 'tickets_trend',
+    label: 'Tendance tickets (90j)',
+    description: 'Créés vs résolus vs backlog sur 90 jours',
+    module: 'Tickets',
+    defaultSize: { w: 8, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    key: 'tickets_status',
+    label: 'Répartition par statut',
+    description: 'Donut : Nouveau, En cours, Résolu…',
+    module: 'Tickets',
+    defaultSize: { w: 4, h: 4 },
+    minSize: { w: 3, h: 3 },
+  },
+  {
+    key: 'tickets_categories',
+    label: 'Top 10 catégories',
+    description: 'Catégories les plus sollicitées',
+    module: 'Tickets',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    key: 'tickets_technicians',
+    label: 'Charge par technicien',
+    description: 'Tickets ouverts par technicien',
+    module: 'Tickets',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    key: 'tickets_sla',
+    label: 'Statut SLA',
+    description: 'Camembert OK / Violé / Avertissement',
+    module: 'Tickets',
+    defaultSize: { w: 4, h: 4 },
+    minSize: { w: 3, h: 3 },
+  },
+  {
+    key: 'tickets_backlog',
+    label: 'Âge du backlog',
+    description: "Distribution de l'ancienneté des tickets ouverts",
+    module: 'Tickets',
+    defaultSize: { w: 5, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    key: 'tickets_weekly',
+    label: 'Activité hebdomadaire',
+    description: 'Cette semaine vs semaine dernière',
+    module: 'Tickets',
+    defaultSize: { w: 4, h: 2 },
+    minSize: { w: 3, h: 2 },
+  },
+  {
+    key: 'tickets_perf',
+    label: 'Performance techniciens',
+    description: 'Tickets, résolus, délai moyen, taux',
+    module: 'Tickets',
+    defaultSize: { w: 8, h: 4 },
+    minSize: { w: 6, h: 3 },
+  },
+  {
+    key: 'tickets_monthly',
+    label: 'Statuts sur 12 mois',
+    description: 'Évolution des statuts sur 12 mois (area stacké)',
+    module: 'Tickets',
+    defaultSize: { w: 8, h: 4 },
+    minSize: { w: 6, h: 3 },
+  },
+  // ── Copieurs ─────────────────────────────────────────────────────────────
+  {
+    key: 'copieurs_kpi',
+    label: 'KPIs Copieurs',
+    description: 'Copies NB, Couleur, Ratio, Coût total',
+    module: 'Copieurs',
+    defaultSize: { w: 6, h: 2 },
+    minSize: { w: 4, h: 2 },
+  },
+  {
+    key: 'copieurs_evolution',
+    label: 'Évolution annuelle copies',
+    description: 'NB et couleur par année avec projection',
+    module: 'Copieurs',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    key: 'copieurs_costs',
+    label: 'Évolution des coûts',
+    description: 'Coûts NB et couleur par année',
+    module: 'Copieurs',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    key: 'copieurs_top_dir',
+    label: 'Top directions — copies',
+    description: 'Directions avec le plus de volume',
+    module: 'Copieurs',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    key: 'copieurs_alerts',
+    label: 'Alertes copieurs',
+    description: 'Copieurs sans relevé récent',
+    module: 'Copieurs',
+    defaultSize: { w: 6, h: 3 },
+    minSize: { w: 4, h: 2 },
+  },
+  // ── Budget ────────────────────────────────────────────────────────────────
+  {
+    key: 'budget_kpi',
+    label: 'KPIs Budget',
+    description: 'Budget alloué, commandé, facturé',
+    module: 'Budget',
+    defaultSize: { w: 6, h: 2 },
+    minSize: { w: 4, h: 2 },
+  },
+  {
+    key: 'budget_trend',
+    label: 'Dépenses cumulées',
+    description: 'Évolution hebdomadaire des dépenses',
+    module: 'Budget',
+    defaultSize: { w: 8, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    key: 'budget_invoices',
+    label: 'Factures à traiter',
+    description: "Factures en attente par tranche d'âge",
+    module: 'Budget',
+    defaultSize: { w: 4, h: 3 },
+    minSize: { w: 3, h: 2 },
+  },
+  // ── MagApp ────────────────────────────────────────────────────────────────
+  {
+    key: 'magapp_maintenances',
+    label: 'Maintenances applicatifs',
+    description: 'Maintenances en cours et à venir',
+    module: 'MagApp',
+    defaultSize: { w: 6, h: 3 },
+    minSize: { w: 4, h: 2 },
+  },
+  {
+    key: 'magapp_ideas',
+    label: 'Idées en attente',
+    description: "Nombre d'idées soumises non traitées",
+    module: 'MagApp',
+    defaultSize: { w: 3, h: 2 },
+    minSize: { w: 2, h: 2 },
+  },
+  {
+    key: 'magapp_clicks',
+    label: 'Top applis — clics',
+    description: 'Applications les plus utilisées',
+    module: 'MagApp',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  // ── Divers compteurs ──────────────────────────────────────────────────────
+  {
+    key: 'consommables',
+    label: 'Consommables en attente',
+    description: 'Nombre de demandes en attente de traitement',
+    module: 'Consommables',
+    defaultSize: { w: 3, h: 2 },
+    minSize: { w: 2, h: 2 },
+  },
+  {
+    key: 'certificats',
+    label: 'Certificats à renouveler',
+    description: 'Certificats expirés ou expirant bientôt',
+    module: 'Certificats',
+    defaultSize: { w: 3, h: 2 },
+    minSize: { w: 2, h: 2 },
+  },
+  {
+    key: 'contrats',
+    label: 'Contrats expirant',
+    description: 'Contrats expirés et bientôt expirés',
+    module: 'Contrats',
+    defaultSize: { w: 3, h: 2 },
+    minSize: { w: 2, h: 2 },
+  },
+  {
+    key: 'taches',
+    label: 'Tâches en cours',
+    description: 'Tâches en retard, en cours, à faire',
+    module: 'Tâches',
+    defaultSize: { w: 3, h: 2 },
+    minSize: { w: 2, h: 2 },
+  },
+  {
+    key: 'projets',
+    label: 'Projets par statut',
+    description: "Vue d'ensemble du portefeuille de projets",
+    module: 'Projets',
+    defaultSize: { w: 5, h: 3 },
+    minSize: { w: 3, h: 2 },
+  },
+];
+
+export const WIDGET_MODULES = [...new Set(WIDGET_REGISTRY.map(w => w.module))];

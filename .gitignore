@@ -36,6 +36,15 @@ backend/seed_o365.js
 backend/changelog.json
 backend/data/changelog.json
 
+# Scripts de debug jetables (non versionnés)
+backend/_*.js
+
+# Documents d'infrastructure réseau (sensibles, volumineux — hors dépôt)
+dip/
+
+# Config locale Claude
+.claude/settings.local.json
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

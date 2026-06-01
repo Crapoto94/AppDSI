@@ -323,7 +323,12 @@
       "Bash(cd C:/dev/AppDSI)",
       "Bash(cat run_all.bat)",
       "Bash(grep -rEn \"mail_scheduler|mailScheduler|startScheduler|mail_collector\" backend/server.js)",
-      "Bash(node -e \"const {toParisSql}=require\\('./shared/utils'\\); console.log\\('UTC ISO   ->', toParisSql\\('2026-05-31T20:19:06Z'\\)\\); console.log\\('Paris str ->', toParisSql\\('2026-05-31 22:19:06'\\)\\); console.log\\('Date obj  ->', toParisSql\\(new Date\\('2026-05-31T20:19:06Z'\\)\\)\\);\")"
+      "Bash(node -e \"const {toParisSql}=require\\('./shared/utils'\\); console.log\\('UTC ISO   ->', toParisSql\\('2026-05-31T20:19:06Z'\\)\\); console.log\\('Paris str ->', toParisSql\\('2026-05-31 22:19:06'\\)\\); console.log\\('Date obj  ->', toParisSql\\(new Date\\('2026-05-31T20:19:06Z'\\)\\)\\);\")",
+      "Bash(dir /s /b)",
+      "Bash(xargs grep -l \"stats\\\\|kpi\\\\|KPI\")",
+      "Bash(xargs grep -l \"Dashboard\\\\|KPI\\\\|Stats\\\\|Chart\")",
+      "Bash(xargs grep -l \"PortefeuilleProjets\\\\|RencontresBudgetaires\\\\|ConsommablesManagement\\\\|Stocks\\\\|Reseau\")",
+      "Bash(grep -E \"\\\\.\\(js|ts\\)$\")"
     ]
   }
 }

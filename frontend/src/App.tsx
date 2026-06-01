@@ -59,6 +59,7 @@ import AutoResolution from './pages/Admin/AutoResolution';
 import AutoResolutionConfirm from './pages/AutoResolutionConfirm';
 import StocksDashboard from './pages/Stocks/StocksDashboard';
 import ReseauDashboard from './pages/Reseau/ReseauDashboard';
+import DsiDashboard from './pages/DsiDashboard';
 import StocksAdmin from './pages/Stocks/StocksAdmin';
 import StocksReception from './pages/Stocks/Reception';
 import StocksSerialEntry from './pages/Stocks/SerialEntry';
@@ -204,6 +205,7 @@ function App() {
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />
+        <Route path="/dsi-dashboard" element={<PrivateRoute allowedRoles={['admin', 'superadmin']}><DsiDashboard /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>
   );

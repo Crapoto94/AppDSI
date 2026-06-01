@@ -963,6 +963,7 @@ async function setupPgDb() {
 
     try { await repairSerialTable('hub_tickets', 'ticket_assignments', ['ticket_id']); } catch (e) { console.error('[REPAIR] ticket_assignments:', e.message); }
     try { await repairSerialTable('hub_tickets', 'ticket_tag_links', ['ticket_id, tag_id']); } catch (e) { console.error('[REPAIR] ticket_tag_links:', e.message); }
+    try { await repairSerialTable('hub_tickets', 'ticket_sla', []); } catch (e) { console.error('[REPAIR] ticket_sla:', e.message); }
     try { await repairSerialTable('hub_tickets', 'sla_calendars', []); } catch (e) { console.error('[REPAIR] sla_calendars:', e.message); }
     try { await repairSerialTable('hub_tickets', 'sla_calendar_hours', ['calendar_id, day_of_week, start_time']); } catch (e) { console.error('[REPAIR] sla_calendar_hours:', e.message); }
     try { await repairSerialTable('hub_tickets', 'notification_triggers', ['event, recipient_type']); } catch (e) { console.error('[REPAIR] notification_triggers:', e.message); }
@@ -3928,17 +3929,21 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub_stocks.deliveries DROP CONSTRAINT IF EXISTS deliveries_status_check`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD CONSTRAINT deliveries_status_check CHECK (status IN ('draft','prepared','signed','delivered'))`); } catch (e) {}
 
-    // ─── Module Réseau Ville (hub_reseau) ─────────────────────────
-    // Adaptation du schema.sql fourni : géométrie en JSONB GeoJSON (PostGIS indisponible).
-    // gen_random_uuid() est natif en PG13+. Référencement des sites via site_code (= hub.sites.code_bien).
+    // ─── Module Réseau Ville (hub_reseau) — v2 DIP ────────────────
+    // Données réelles extraites des DIP (Dossiers d'Infrastructure et de Production).
+    // Géométrie en JSONB GeoJSON (PostGIS indisponible). Sites référencés via hub.sites.code_bien.
     try {
       await client.query('CREATE SCHEMA IF NOT EXISTS hub_reseau');
 
-      // ENUM idempotents
+      // ENUM idempotents — v1
       await client.query(`DO $$ BEGIN CREATE TYPE hub_reseau.network_link_type AS ENUM ('FIBRE','WAN','OPERATEUR'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
       await client.query(`DO $$ BEGIN CREATE TYPE hub_reseau.network_operator AS ENUM ('LINKT','MOJI','RED','OTHER'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
       await client.query(`DO $$ BEGIN CREATE TYPE hub_reseau.duct_status AS ENUM ('LIBRE','OCCUPE'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
       await client.query(`DO $$ BEGIN CREATE TYPE hub_reseau.access_type AS ENUM ('FIBRE','WAN','ADSL','SDSL','4G'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+      // ENUM extension v2
+      await client.query(`DO $$ BEGIN ALTER TYPE hub_reseau.network_link_type ADD VALUE IF NOT EXISTS 'LASER'; EXCEPTION WHEN others THEN NULL; END $$;`);
+      await client.query(`DO $$ BEGIN ALTER TYPE hub_reseau.network_operator ADD VALUE IF NOT EXISTS 'SFR'; EXCEPTION WHEN others THEN NULL; END $$;`);
+      await client.query(`DO $$ BEGIN ALTER TYPE hub_reseau.access_type ADD VALUE IF NOT EXISTS '3G'; EXCEPTION WHEN others THEN NULL; END $$;`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_reseau.network_links (
@@ -4034,6 +4039,42 @@ async function setupPgDb() {
     } catch (e) {
       console.error('[PG DB] hub_reseau init error:', e.message);
     }
+
+    // DSI Dashboard module
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.dsi_dashboards (
+        id SERIAL PRIMARY KEY,
+        username TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT 'Mon tableau de bord',
+        is_default BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.dsi_dashboard_widgets (
+        id SERIAL PRIMARY KEY,
+        dashboard_id INT NOT NULL REFERENCES hub.dsi_dashboards(id) ON DELETE CASCADE,
+        widget_key TEXT NOT NULL,
+        pos_x INT NOT NULL DEFAULT 0,
+        pos_y INT NOT NULL DEFAULT 0,
+        width INT NOT NULL DEFAULT 6,
+        height INT NOT NULL DEFAULT 4,
+        config_json JSONB NOT NULL DEFAULT '{}'
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.dsi_dashboard_subscriptions (
+        id SERIAL PRIMARY KEY,
+        dashboard_id INT NOT NULL REFERENCES hub.dsi_dashboards(id) ON DELETE CASCADE,
+        frequency TEXT NOT NULL DEFAULT 'weekly',
+        send_hour INT NOT NULL DEFAULT 7,
+        send_day INT NOT NULL DEFAULT 1,
+        emails TEXT NOT NULL DEFAULT '',
+        enabled BOOLEAN NOT NULL DEFAULT true,
+        last_sent_at TIMESTAMPTZ,
+        UNIQUE(dashboard_id)
+      )
+    `);
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

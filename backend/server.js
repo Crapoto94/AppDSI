@@ -5405,6 +5405,12 @@ const projetsRouter = require('./modules/projets/projets.routes');
 const projetsCtrl = require('./modules/projets/projets.controller');
 projetsCtrl.setSendMail(sendMail);
 
+// ─── DSI Dashboard : injection mail + cron horaire ───────────────────────────
+dsiDashboardCtrl.setSendMail(sendMail);
+cron.schedule('0 * * * *', () => {
+    dsiDashboardCtrl.runScheduledSends().catch(e => console.error('[CRON dsi-dash]', e.message));
+}, { timezone: 'Europe/Paris' });
+
 // ─── Tâches : injection mail + cron 8h ──────────────────────────────────────
 tasksCtrl.setSendMail(sendMail);
 // Tous les jours à 8h00
@@ -5458,6 +5464,10 @@ const backupCtrl = require('./modules/backup/backup.controller');
 backupCtrl.setSendMail(sendMail);
 app.use('/api/backup', require('./modules/backup/backup.routes'));
 require('./modules/backup/backup.scheduler').init();
+
+// DSI Dashboard module
+const dsiDashboardCtrl = require('./modules/dsi-dashboard/dsi-dashboard.controller');
+app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.routes'));
 
 // Public reply routes (no auth)
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));
