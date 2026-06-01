@@ -2006,8 +2006,8 @@ module.exports = {
 
             for (const community of communities) {
                 try {
-                    const { stdout, stderr } = await execPromise(
-                        `snmpget -v 1 -c ${community} ${copieur.ip.trim()} 1.3.6.1.2.1.43.10.2.1.5.1.1 2>&1`,
+                    const { stdout } = await execPromise(
+                        `snmpget -v 1 -c ${community} ${copieur.ip.trim()} 1.3.6.1.2.1.43.10.2.1.5.1.1`,
                         { timeout: 5000 }
                     );
 
@@ -2019,7 +2019,10 @@ module.exports = {
                         results[community] = { success: false, error: 'Pas de réponse valide', raw: stdout.trim() };
                     }
                 } catch (e) {
-                    results[community] = { success: false, error: e.message };
+                    // Capturer le message d'erreur réel de snmpget
+                    const errorMsg = String(e.stderr || e.stdout || e.message || 'Erreur inconnue');
+                    const cleanError = errorMsg.split('\n')[0]; // Première ligne d'erreur
+                    results[community] = { success: false, error: cleanError || 'Pas de réponse (timeout ou unreachable)' };
                 }
             }
 
