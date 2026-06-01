@@ -5420,6 +5420,21 @@ cron.schedule('0 8 * * *', () => {
     tasksCtrl.sendDailyAlerts().catch(e => console.error('[CRON tasks-alert]', e.message));
 }, { timezone: 'Europe/Paris' });
 
+// ─── Copieurs : collecte SNMP quotidienne à 11h00 (toners, erreurs, compteurs) ──
+const copieursCtrl = require('./modules/copieurs/copieurs.controller');
+cron.schedule('0 11 * * *', async () => {
+    console.log('[CRON] Collecte SNMP des copieurs (11h)...');
+    try {
+        const stats = await copieursCtrl.collectSnmpCore('cron-snmp');
+        const msg = `Collecte SNMP copieurs: ${stats.ok}/${stats.total} OK, ${stats.releves} relevés, ${stats.erreurs} alertes, ${stats.injoignables} injoignables`;
+        console.log('[CRON snmp-copieurs]', msg);
+        logMouchard(msg);
+    } catch (e) {
+        console.error('[CRON snmp-copieurs]', e.message);
+        logMouchard(`Collecte SNMP copieurs échouée: ${e.message}`);
+    }
+}, { timezone: 'Europe/Paris' });
+
 app.use('/api/projets', projetsRouter);
 
 // ============================================

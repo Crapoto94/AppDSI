@@ -2196,12 +2196,12 @@ module.exports = {
     // ─── Collecte SNMP de masse (toners, erreurs, compteurs) ──────────────────
     //  Appelée à l'ouverture de la page. Met à jour les colonnes "live" sur chaque
     //  copieur et insère un relevé/jour (UPSERT) par compteur.
-    snmpCollectAll: async (req, res) => {
-        try {
+    // Cœur réutilisable (appelé par l'API et par le cron quotidien)
+    collectSnmpCore: async (username = 'snmp-auto') => {
+        {
             const { pool } = require('../../shared/database');
             const community = 'public';
             const today = new Date().toISOString().split('T')[0];
-            const username = req.user?.username || 'snmp-auto';
 
             const copieurs = await pgDb.all(
                 "SELECT id, ip, numero_serie, mainteneur FROM hub_copieurs.copieurs WHERE archive = false AND ip IS NOT NULL AND ip <> '' AND ip <> '42'"
@@ -2368,6 +2368,14 @@ module.exports = {
                 await Promise.all(copieurs.slice(i, i + CONCURRENCY).map(c => collectOne(c).catch(() => {})));
             }
 
+            return stats;
+        }
+    },
+
+    // Wrapper HTTP de la collecte SNMP
+    snmpCollectAll: async (req, res) => {
+        try {
+            const stats = await module.exports.collectSnmpCore(req.user?.username || 'snmp-auto');
             res.json(stats);
         } catch (error) {
             res.status(500).json({ message: 'Erreur collecte SNMP', error: error.message });
