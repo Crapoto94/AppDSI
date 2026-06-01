@@ -404,20 +404,25 @@ router.post('/sla', authenticateAdmin, async (req, res) => {
 
 router.put('/sla/:id', authenticateAdmin, async (req, res) => {
     try {
-        const { name, description, calendar_id, first_response_min, resolution_min, escalation_min, priority, impact, type, category_id, is_active, match_operator } = req.body;
-        await pgDb.run(`
-            UPDATE hub_tickets.sla_definitions SET
-                name = COALESCE($1, name), description = COALESCE($2, description),
-                calendar_id = COALESCE($3, calendar_id),
-                first_response_min = $4, resolution_min = $5,
-                escalation_min = $6, priority = $7, impact = $8, type = $9,
-                category_id = $10, is_active = COALESCE($11, is_active),
-                match_operator = COALESCE($13, match_operator)
-            WHERE id = $12
-        `, [name, description, calendar_id, first_response_min ?? null,
-            resolution_min ?? null, escalation_min ?? null, priority ?? null,
-            impact ?? null, type ?? null, category_id ?? null,
-            is_active ?? null, req.params.id, match_operator || null]);
+        // Mise à jour DYNAMIQUE : on ne touche QUE les champs réellement présents dans le body.
+        // (Auparavant, un simple toggle is_active mettait à NULL priority/minutes/etc. → SLA vidés.)
+        const allowed = ['name', 'description', 'calendar_id', 'first_response_min', 'resolution_min',
+            'escalation_min', 'priority', 'impact', 'type', 'category_id', 'is_active', 'match_operator'];
+        const sets = [];
+        const params = [];
+        let i = 1;
+        for (const key of allowed) {
+            if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+                sets.push(`${key} = $${i++}`);
+                params.push(req.body[key]);
+            }
+        }
+        if (sets.length === 0) return res.json({ message: 'Aucun changement' });
+        params.push(req.params.id);
+        await pgDb.run(
+            `UPDATE hub_tickets.sla_definitions SET ${sets.join(', ')} WHERE id = $${i}`,
+            params
+        );
         res.json({ message: 'SLA mis à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });

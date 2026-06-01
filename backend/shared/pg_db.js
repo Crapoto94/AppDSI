@@ -527,6 +527,12 @@ async function setupPgDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_sla_def_prio ON hub_tickets.sla_definitions(priority)`);
     await client.query(`ALTER TABLE hub_tickets.sla_definitions ADD COLUMN IF NOT EXISTS impact INTEGER`);
     await client.query(`ALTER TABLE hub_tickets.sla_definitions ADD COLUMN IF NOT EXISTS match_operator VARCHAR(10) DEFAULT 'AND'`);
+    // Répare la séquence id si absente (anciennes tables : id NULL à l'insert)
+    try { await client.query(`CREATE SEQUENCE IF NOT EXISTS hub_tickets.sla_definitions_id_seq`); } catch (e) {}
+    try { await client.query(`UPDATE hub_tickets.sla_definitions SET id = nextval('hub_tickets.sla_definitions_id_seq') WHERE id IS NULL`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_tickets.sla_definitions ALTER COLUMN id SET DEFAULT nextval('hub_tickets.sla_definitions_id_seq')`); } catch (e) {}
+    try { await client.query(`ALTER SEQUENCE hub_tickets.sla_definitions_id_seq OWNED BY hub_tickets.sla_definitions.id`); } catch (e) {}
+    try { await client.query(`SELECT setval('hub_tickets.sla_definitions_id_seq', GREATEST((SELECT COALESCE(MAX(id),0) FROM hub_tickets.sla_definitions), 1))`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_sla (
