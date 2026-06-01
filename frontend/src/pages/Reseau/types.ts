@@ -151,8 +151,8 @@ export interface SwitchLink {
 
 export interface ReseauStats {
   liens_total: number;
-  liens_fo: number;
-  liens_wan: number;
+  liens_intra: number;
+  liens_inter: number;
   equipements: number;
   vlans_actifs: number;
   sites_connectes: number;

@@ -445,8 +445,8 @@ module.exports = {
             ]);
             res.json({
                 liens_total: nb_switch_links.c,
-                liens_fo: nb_intra.c,
-                liens_wan: nb_inter.c,
+                liens_intra: nb_intra.c,
+                liens_inter: nb_inter.c,
                 equipements: nb_equip.c,
                 vlans_actifs: nb_vlans.c,
                 sites_connectes: (nb_sites.c || 0),

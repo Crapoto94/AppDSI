@@ -270,9 +270,9 @@ export default function ReseauDashboard() {
           {stats && (
             <div style={{ display: 'flex', gap: 10 }}>
               {[
-                ['Liens FO', stats.liens_fo, '#2563eb'],
-                ['Équipements', stats.equipements, '#8b5cf6'],
-                ['VLANs', stats.vlans_actifs, '#16a34a'],
+                ['Liens', stats.liens_total, '#2563eb'],
+                ['Switchs', stats.equipements, '#8b5cf6'],
+                ['Sites', stats.sites_connectes, '#16a34a'],
               ].map(([lbl, val, color]) => (
                 <div key={lbl as string} style={{ textAlign: 'center', padding: '8px 14px', background: 'white', borderRadius: 10, border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: 20, fontWeight: 700, color: color as string }}>{val}</div>
@@ -663,11 +663,11 @@ export default function ReseauDashboard() {
             {/* KPIs */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
               {[
-                ['Liens total',    stats.liens_total,    '#0f172a', 'Tous les liens réseau'],
-                ['Liens FO',       stats.liens_fo,       '#2563eb', 'Liaisons fibre optique'],
-                ['Liens WAN',      stats.liens_wan,      '#f97316', 'Liens opérateurs/WAN'],
-                ['Équipements',    stats.equipements,    '#8b5cf6', 'Switches, routeurs, firewalls'],
-                ['VLANs actifs',   stats.vlans_actifs,   '#16a34a', 'VLANs configurés'],
+                ['Liens total',     stats.liens_total,     '#0f172a', 'Liens switch-à-switch'],
+                ['Intra-site',      stats.liens_intra,     '#6366f1', 'Liens entre switchs d’un même site'],
+                ['Inter-sites',     stats.liens_inter,     '#16a34a', 'Liens entre sites différents'],
+                ['Switchs',         stats.equipements,     '#8b5cf6', 'Équipements switch'],
+                ['Sites connectés', stats.sites_connectes, '#2563eb', 'Sites reliés par un lien'],
               ].map(([label, value, color, desc]) => (
                 <div key={label as string} style={{ ...card, borderTop: `3px solid ${color}`, textAlign: 'center' }}>
                   <div style={{ fontSize: 32, fontWeight: 800, color: color as string, lineHeight: 1.1 }}>{value}</div>
