@@ -189,6 +189,7 @@ const Copieurs: React.FC = () => {
   const [snmpTarget, setSnmpTarget] = useState<Copieur | null>(null);
   const [snmpTesting, setSnmpTesting] = useState(false);
   const [snmpResults, setSnmpResults] = useState<any>(null);
+  const [takingSnmpReleve, setTakingSnmpReleve] = useState(false);
 
   // ── Import Excel compteurs (modal multi-étapes) ────────────────────────────
   const [showImportCompteurModal, setShowImportCompteurModal] = useState(false);
@@ -706,6 +707,20 @@ const Copieurs: React.FC = () => {
       setSnmpResults({ status: 'error', error: e.response?.data?.error || e.message });
     } finally {
       setSnmpTesting(false);
+    }
+  };
+
+  const takeSnmpReleve = async (copieurId: number) => {
+    setTakingSnmpReleve(true);
+    try {
+      const res = await api.post(`/${copieurId}/snmp-releve`);
+      alert(`Relevé enregistré: ${res.data.page_count} pages`);
+      setShowSnmpModal(false);
+      loadCopieurs();
+    } catch (e: any) {
+      alert(`Erreur: ${e.response?.data?.message || e.message}`);
+    } finally {
+      setTakingSnmpReleve(false);
     }
   };
 
@@ -2025,9 +2040,6 @@ const Copieurs: React.FC = () => {
                         <CheckCircle size={18} style={{ flexShrink: 0 }} />
                         <div>
                           <strong>{snmpResults.message}</strong>
-                          <div style={{ fontSize: 13, marginTop: 4 }}>
-                            Pages compteurs : <strong>{snmpResults.total_pages}</strong>
-                          </div>
                         </div>
                       </div>
                     ) : (
@@ -2035,24 +2047,25 @@ const Copieurs: React.FC = () => {
                         <AlertCircle size={18} style={{ flexShrink: 0 }} />
                         <div>
                           <strong>{snmpResults.message || 'Échec du test'}</strong>
-                          {snmpResults.error && <div style={{ fontSize: 13, marginTop: 4 }}>{snmpResults.error}</div>}
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {snmpResults.public !== undefined && (
-                    <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>
-                      <div style={{ marginBottom: 8 }}>
-                        <strong>Résultats détaillés:</strong>
+                  {snmpResults.counters && (
+                    <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, fontSize: 13 }}>
+                      <div style={{ marginBottom: 10 }}>
+                        <strong>Compteurs SNMP:</strong>
                       </div>
-                      <div style={{ fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 }}>
-                        <div style={{ color: snmpResults.public.success ? '#16a34a' : '#dc2626', marginBottom: 8 }}>
-                          public: {snmpResults.public.success ? '✓ ' + snmpResults.public.value : '✗ ' + (snmpResults.public.error || 'Pas de réponse')}
-                        </div>
-                        <div style={{ color: snmpResults.ivry.success ? '#16a34a' : '#dc2626' }}>
-                          ivry: {snmpResults.ivry.success ? '✓ ' + snmpResults.ivry.value : '✗ ' + (snmpResults.ivry.error || 'Pas de réponse')}
-                        </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        {Object.entries(snmpResults.counters).map(([name, data]: [string, any]) => (
+                          <div key={name} style={{ padding: 8, background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 2 }}>{name}</div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: data.status === 'ok' ? '#16a34a' : '#dc2626' }}>
+                              {data.status === 'ok' ? data.value : (data.status === 'no_value' ? '-' : 'Erreur')}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -2061,9 +2074,16 @@ const Copieurs: React.FC = () => {
             </div>
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => setShowSnmpModal(false)}>Fermer</button>
-              <button className="btn btn-primary" onClick={() => testSnmp(snmpTarget.id)} disabled={snmpTesting}>
-                {snmpTesting ? 'Test en cours...' : 'Relancer le test'}
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary" onClick={() => testSnmp(snmpTarget.id)} disabled={snmpTesting || takingSnmpReleve}>
+                  {snmpTesting ? 'Test en cours...' : 'Relancer le test'}
+                </button>
+                {snmpResults?.status === 'success' && (
+                  <button className="btn btn-primary" style={{ background: '#16a34a' }} onClick={() => takeSnmpReleve(snmpTarget.id)} disabled={takingSnmpReleve || snmpTesting}>
+                    {takingSnmpReleve ? 'Enregistrement...' : '📊 Relevé SNMP'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

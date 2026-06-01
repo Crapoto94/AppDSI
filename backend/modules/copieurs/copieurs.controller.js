@@ -2001,46 +2001,117 @@ module.exports = {
             if (!copieur) return res.status(404).json({ message: 'Copieur non trouvé' });
             if (!copieur.ip) return res.status(400).json({ message: 'IP manquante pour ce copieur' });
 
-            const communities = ['public', 'ivry'];
-            const results = {};
+            // OIDs à récupérer (tous les compteurs intéressants)
+            const oids = [
+                { name: 'Pages Total', oid: '1.3.6.1.2.1.43.10.2.1.5.1.1' },
+                { name: 'Pages B&W', oid: '1.3.6.1.2.1.43.10.2.1.4.1.1' },
+                { name: 'Toner Noir', oid: '1.3.6.1.2.1.43.11.1.1.9.1.1' },
+                { name: 'Toner Cyan', oid: '1.3.6.1.2.1.43.11.1.1.9.1.2' },
+                { name: 'Toner Magenta', oid: '1.3.6.1.2.1.43.11.1.1.9.1.3' },
+                { name: 'Toner Yellow', oid: '1.3.6.1.2.1.43.11.1.1.9.1.4' },
+            ];
 
-            for (const community of communities) {
+            const community = 'public';
+            const counters = {};
+            let successCount = 0;
+
+            for (const { name, oid } of oids) {
                 try {
                     const { stdout } = await execPromise(
-                        `snmpget -v 1 -c ${community} ${copieur.ip.trim()} 1.3.6.1.2.1.43.10.2.1.5.1.1`,
-                        { timeout: 5000 }
+                        `snmpget -v 1 -c ${community} ${copieur.ip.trim()} ${oid}`,
+                        { timeout: 3000 }
                     );
-
-                    // Chercher la valeur dans la réponse (format "Counter64: 123456")
                     const match = stdout.match(/:\s*(\d+)/);
                     if (match) {
-                        results[community] = { success: true, value: match[1], raw: stdout.trim() };
+                        counters[name] = { value: match[1], status: 'ok' };
+                        successCount++;
                     } else {
-                        results[community] = { success: false, error: 'Pas de réponse valide', raw: stdout.trim() };
+                        counters[name] = { status: 'no_value' };
                     }
                 } catch (e) {
-                    // Capturer le message d'erreur réel de snmpget
-                    const errorMsg = String(e.stderr || e.stdout || e.message || 'Erreur inconnue');
-                    const cleanError = errorMsg.split('\n')[0]; // Première ligne d'erreur
-                    results[community] = { success: false, error: cleanError || 'Pas de réponse (timeout ou unreachable)' };
+                    counters[name] = { status: 'error', error: 'Pas de réponse' };
                 }
             }
 
-            // Déterminer le statut global
-            const working = Object.entries(results).find(([_, r]) => r.success);
-            if (working) {
-                results.status = 'success';
-                results.message = `SNMP actif avec la communauté "${working[0]}"`;
-                results.working_community = working[0];
-                results.total_pages = working[1].value;
-            } else {
-                results.status = 'failed';
-                results.message = 'SNMP non actif ou pas de réponse';
-            }
+            const result = {
+                status: successCount > 0 ? 'success' : 'failed',
+                message: successCount > 0 ? `${successCount}/${oids.length} compteurs récupérés` : 'Impossible de récupérer les compteurs',
+                community,
+                counters,
+                success_count: successCount,
+                total_count: oids.length
+            };
 
-            res.json(results);
+            res.json(result);
         } catch (error) {
             res.status(500).json({ message: 'Erreur test SNMP', error: error.message });
+        }
+    },
+
+    takeSnmpReleve: async (req, res) => {
+        try {
+            const copieur = await pgDb.get('SELECT id, ip, numero_serie, mainteneur FROM hub_copieurs.copieurs WHERE id = ?', [req.params.id]);
+            if (!copieur) return res.status(404).json({ message: 'Copieur non trouvé' });
+            if (!copieur.ip) return res.status(400).json({ message: 'IP manquante pour ce copieur' });
+
+            const { pool } = require('../../shared/database');
+            const community = 'public';
+            const today = new Date().toISOString().split('T')[0];
+            const username = req.user?.username || 'snmp-auto';
+
+            // Récupérer le compteur total
+            try {
+                const { stdout } = await execPromise(
+                    `snmpget -v 1 -c ${community} ${copieur.ip.trim()} 1.3.6.1.2.1.43.10.2.1.5.1.1`,
+                    { timeout: 3000 }
+                );
+                const match = stdout.match(/:\s*(\d+)/);
+                if (!match) throw new Error('Pas de valeur');
+                const pageCount = parseInt(match[1]);
+
+                // Chercher le code compteur "total" ou "Pages Total"
+                const codeRes = await pool.query(
+                    `SELECT id FROM hub_copieurs.compteur_codes
+                     WHERE LOWER(mainteneur)=LOWER($1) AND (libelle ILIKE 'Total%' OR libelle ILIKE 'Pages Total%')
+                     LIMIT 1`,
+                    [copieur.mainteneur || 'unknown']
+                );
+
+                let codeId = codeRes.rows[0]?.id;
+
+                // Si pas de code "Total", utiliser le premier code disponible
+                if (!codeId) {
+                    const anyCodeRes = await pool.query(
+                        `SELECT id FROM hub_copieurs.compteur_codes
+                         WHERE LOWER(mainteneur)=LOWER($1) LIMIT 1`,
+                        [copieur.mainteneur || 'unknown']
+                    );
+                    codeId = anyCodeRes.rows[0]?.id;
+                }
+
+                if (!codeId) {
+                    return res.status(400).json({ message: 'Aucun code compteur défini pour ce mainteneur' });
+                }
+
+                // Insérer le relevé
+                const insertRes = await pool.query(
+                    `INSERT INTO hub_copieurs.copieur_releves
+                     (copieur_id, code_id, date_releve, valeur, mainteneur, created_by)
+                     VALUES ($1, $2, $3, $4, $5, $6)
+                     RETURNING id, date_releve, valeur`,
+                    [copieur.id, codeId, today, pageCount, copieur.mainteneur, username]
+                );
+
+                res.json({
+                    message: 'Relevé SNMP enregistré',
+                    releve: insertRes.rows[0],
+                    page_count: pageCount
+                });
+            } catch (e) {
+                res.status(400).json({ message: 'Erreur récupération SNMP', error: e.message });
+            }
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur enregistrement relevé', error: error.message });
         }
     },
 };
