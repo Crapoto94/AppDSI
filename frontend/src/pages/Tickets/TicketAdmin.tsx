@@ -1558,24 +1558,54 @@ function SLABreaches({ data, loading, onRefresh }: { data: any[], loading: boole
     setSlaChecking(false);
   }
 
+  async function handleResetSla() {
+    if (!confirm('Réinitialiser tous les SLA ?\n\nLes statuts SLA existants seront purgés, puis recalculés uniquement pour les définitions ACTIVES.')) return;
+    setSlaChecking(true);
+    setCheckMsg(null);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post('/api/tickets/admin/sla/reset', {}, { headers: { Authorization: `Bearer ${token}` } });
+      setCheckMsg(`✅ ${res.data.message} — ${res.data.purged} purgé(s), ${res.data.breaches} dépassement(s) actif(s)`);
+      onRefresh();
+    } catch (e: any) {
+      setCheckMsg(`❌ Erreur : ${e.response?.data?.message || e.message}`);
+    }
+    setSlaChecking(false);
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Dépassements SLA actifs</h3>
-        <button
-          onClick={handleCheckSla}
-          disabled={slaChecking}
-          style={{
-            padding: '8px 16px',
-            background: slaChecking ? '#a5b4fc' : '#6366f1',
-            color: '#fff', border: 'none', borderRadius: 6,
-            cursor: 'pointer', fontWeight: 600, fontSize: 13,
-            display: 'flex', alignItems: 'center', gap: 6,
-            opacity: slaChecking ? 0.7 : 1,
-          }}
-        >
-          {slaChecking ? '⏳ Vérification…' : '🔍 Vérifier les SLA maintenant'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={handleResetSla}
+            disabled={slaChecking}
+            title="Purge les statuts SLA existants puis recalcule pour les définitions actives"
+            style={{
+              padding: '8px 16px', background: '#fff', color: '#dc2626',
+              border: '1px solid #fecaca', borderRadius: 6,
+              cursor: 'pointer', fontWeight: 600, fontSize: 13,
+              display: 'flex', alignItems: 'center', gap: 6, opacity: slaChecking ? 0.7 : 1,
+            }}
+          >
+            ♻️ Réinitialiser les SLA
+          </button>
+          <button
+            onClick={handleCheckSla}
+            disabled={slaChecking}
+            style={{
+              padding: '8px 16px',
+              background: slaChecking ? '#a5b4fc' : '#6366f1',
+              color: '#fff', border: 'none', borderRadius: 6,
+              cursor: 'pointer', fontWeight: 600, fontSize: 13,
+              display: 'flex', alignItems: 'center', gap: 6,
+              opacity: slaChecking ? 0.7 : 1,
+            }}
+          >
+            {slaChecking ? '⏳ Vérification…' : '🔍 Vérifier les SLA maintenant'}
+          </button>
+        </div>
       </div>
       {checkMsg && (
         <div style={{ marginBottom: 12, padding: '8px 12px', background: checkMsg.startsWith('✅') ? '#f0fdf4' : '#fef2f2', border: `1px solid ${checkMsg.startsWith('✅') ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, fontSize: 13, color: checkMsg.startsWith('✅') ? '#166534' : '#dc2626' }}>

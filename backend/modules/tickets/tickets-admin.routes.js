@@ -439,6 +439,20 @@ router.post('/sla/check', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
+// Réinitialise complètement l'état SLA : purge ticket_sla (+ pauses) puis recalcule
+// uniquement pour les définitions ACTIVES (via checkSLAs → applyMissingSLAs).
+router.post('/sla/reset', authenticateAdmin, async (req, res) => {
+    try {
+        const { pool } = require('../../shared/database');
+        await pool.query('DELETE FROM hub_tickets.ticket_sla_pauses');
+        const del = await pool.query('DELETE FROM hub_tickets.ticket_sla');
+        const slaService = require('./services/sla.service');
+        await slaService.checkSLAs(); // recrée pour les défs actives + tickets ouverts, puis évalue
+        const breaches = await slaService.getActiveBreaches();
+        res.json({ message: 'SLA réinitialisés', purged: del.rowCount || 0, breaches: breaches.length });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // ─── SLA Calendars ─────────────────────────────────────────────
 router.get('/sla/calendars', authenticateJWT, async (req, res) => {
     try {
