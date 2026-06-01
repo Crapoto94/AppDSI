@@ -859,6 +859,41 @@ async function setupDb() {
         }
     } catch (e) {}
 
+    // Ajout de la colonne is_module pour les tuiles module
+    try {
+        const result = await db.all("PRAGMA table_info(tiles)");
+        const hasIsModule = result.some(col => col.name === 'is_module');
+        if (!hasIsModule) {
+            await db.exec('ALTER TABLE tiles ADD COLUMN is_module INTEGER DEFAULT 0');
+        }
+        const hasModuleKey = result.some(col => col.name === 'module_key');
+        if (!hasModuleKey) {
+            await db.exec('ALTER TABLE tiles ADD COLUMN module_key TEXT');
+        }
+    } catch (e) {}
+
+    // Seed des tuiles module depuis le registre
+    try {
+        const { MODULES_REGISTRY } = require('./modules-registry');
+        for (const mod of MODULES_REGISTRY) {
+            const existing = await db.get('SELECT id FROM tiles WHERE module_key = ?', [mod.key]);
+            if (!existing) {
+                const maxOrder = await db.get('SELECT MAX(sort_order) as m FROM tiles');
+                const result = await db.run(
+                    'INSERT INTO tiles (title, icon, description, status, sort_order, is_public, is_module, module_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    [mod.title, mod.icon, mod.description, 'active', (maxOrder?.m || 0) + 1, 0, 1, mod.key]
+                );
+                await db.run(
+                    'INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)',
+                    [result.lastID, 'Ouvrir', mod.url, 1]
+                );
+                console.log(`[DB Migration] Tuile module créée: ${mod.key}`);
+            }
+        }
+    } catch (e) {
+        console.warn('[DB Migration] Erreur seed tuiles module:', e.message);
+    }
+
     // Migrations table certificates
     try { await db.run("ALTER TABLE certificates ADD COLUMN sedit_number TEXT DEFAULT ''"); } catch (e) {}
     try { await db.run("ALTER TABLE certificates ADD COLUMN observations TEXT DEFAULT ''"); } catch (e) {}

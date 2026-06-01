@@ -30,6 +30,8 @@ interface TileData {
   status: 'active' | 'maintenance' | 'soon' | 'inactive';
   sort_order: number;
   is_public?: number;
+  is_module?: number;
+  module_key?: string;
 }
 
 interface UserData {
@@ -1570,6 +1572,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   };
 
   const handleDeleteTile = async (id: number) => {
+    const tile = tiles.find(t => t.id === id);
+    if (tile?.is_module) { alert('Les tuiles module ne peuvent pas être supprimées.'); return; }
     if (window.confirm('Supprimer cette tuile ?')) {
       await fetch(`/api/tiles/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
       fetchTiles();
@@ -1691,12 +1695,14 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const { role, is_approved, service_code, service_complement } = editingUser;
       const updatePayload: Record<string, any> = { role, is_approved, service_code, service_complement };
       if (editingUserPassword.trim()) updatePayload.password = editingUserPassword.trim();
+      console.log('[DEBUG ADMIN] Saving user tiles:', JSON.stringify(editingUser.authorized_tiles));
       await axios.put(`/api/users/${editingUser.id}`, updatePayload, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      await axios.put(`/api/users/${editingUser.id}/tiles`, { tiles: editingUser.authorized_tiles || [] }, {
+      const tilesRes = await axios.put(`/api/users/${editingUser.id}/tiles`, { tiles: editingUser.authorized_tiles || [] }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log('[DEBUG ADMIN] Tiles save response:', tilesRes.data);
       setEditingUser(null);
       setEditingUserPassword('');
       fetchUsers();
@@ -2246,14 +2252,17 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                     onChange={(e) => {
                                       if (!editingUser) return;
                                       const currentTiles = editingUser.authorized_tiles || [];
+                                      console.log('[DEBUG ADMIN] Tile toggle:', tile.id, tile.title, 'checked:', e.target.checked, 'currentTiles:', JSON.stringify(currentTiles));
                                       if (e.target.checked) {
                                         setEditingUser({...editingUser, authorized_tiles: [...currentTiles, tile.id]});
                                       } else {
-                                        setEditingUser({...editingUser, authorized_tiles: currentTiles.filter(id => id !== tile.id)});
+                                        const newTiles = currentTiles.filter(id => id !== tile.id);
+                                        console.log('[DEBUG ADMIN] New authorized_tiles:', JSON.stringify(newTiles));
+                                        setEditingUser({...editingUser, authorized_tiles: newTiles});
                                       }
                                     }}
                                   />
-                                  <span className="tile-checkbox-title">{tile.title}</span>
+                                  <span className="tile-checkbox-title">{tile.title}{tile.is_module ? <span style={{marginLeft:4,fontSize:9,fontWeight:600,padding:'1px 4px',borderRadius:3,background:'#f0f0ff',color:'#6366f1',border:'1px solid #c7d2fe'}}>module</span> : ''}</span>
                                   <span className="tile-checkbox-icon">{isAuth ? '✓' : ''}</span>
                                 </label>
                               )
@@ -4666,7 +4675,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 </td>
                                 <td><div className="avatar bg-gray-100">{(() => { const n = tile.icon?.charAt(0).toUpperCase() + tile.icon?.slice(1); const Ic = LucideIcons[n as keyof typeof LucideIcons]; // @ts-expect-error Lucide icons dynamically loaded
                                   return React.createElement(Ic || LucideIcons.Box, { size: 18 }); })()}</div></td>
-                                <td><span className="font-bold text-gray-900">{tile.title}</span></td>
+                                <td><span className="font-bold text-gray-900">{tile.title}{tile.is_module ? <span style={{marginLeft:6,fontSize:10,fontWeight:600,padding:'1px 6px',borderRadius:4,background:'#f0f0ff',color:'#6366f1',border:'1px solid #c7d2fe'}}>module</span> : ''}{tile.is_public ? <span style={{marginLeft:4,fontSize:10,fontWeight:600,padding:'1px 6px',borderRadius:4,background:'#f0fdf4',color:'#16a34a',border:'1px solid #bbf7d0'}}>public</span> : ''}</span></td>
                                 <td><span className="text-sm text-gray-500 line-clamp-1">{tile.description}</span></td>
                                 <td>
                                   {tile.links && tile.links.length > 0 ? (
@@ -4690,7 +4699,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <td><span className={`status-tag ${tile.status}`}>{tile.status}</span></td>
                                 <td className="actions">
                                     <button className="icon-btn edit" onClick={() => { setEditingTile(tile); setEditingLinks(tile.links || []); setOriginalLinks(tile.links || []); setNewLink({ label: '', url: '', is_internal: 0 }); setShowTileModal(true); }}><Edit2 size={16} /></button>
-                                    <button className="icon-btn delete" onClick={() => handleDeleteTile(tile.id)}><Trash2 size={16} /></button>
+                                    {!tile.is_module && <button className="icon-btn delete" onClick={() => handleDeleteTile(tile.id)}><Trash2 size={16} /></button>}
                                 </td>
                             </tr>
                         ))}

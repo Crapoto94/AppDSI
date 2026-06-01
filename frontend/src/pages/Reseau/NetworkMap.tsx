@@ -4,7 +4,7 @@ import {
   Tooltip, LayerGroup, useMapEvents,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { NetworkLink, Duct, SiteRef } from './types';
+import type { NetworkLink, SiteRef } from './types';
 import { linkStyle } from './utils';
 
 // ── Constantes ──────────────────────────────────────────────────────
@@ -49,13 +49,6 @@ function linkLatLngs(link: NetworkLink, sites: Map<string, SiteRef>): [number, n
   return null;
 }
 
-function ductLatLngs(duct: Duct): [number, number][] | null {
-  const coords = duct.geometry?.coordinates;
-  if (coords && coords.length >= 2)
-    return (coords as number[][]).map(c => [c[1], c[0]]);
-  return null;
-}
-
 // ── Légende ──────────────────────────────────────────────────────────
 const Legend: React.FC = () => (
   <div style={{
@@ -65,35 +58,22 @@ const Legend: React.FC = () => (
     backdropFilter: 'blur(4px)',
   }}>
     <div style={{ fontWeight: 700, marginBottom: 8, color: '#0f172a' }}>Légende</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+      <span style={{ width: 28, height: 3, background: '#16a34a', borderRadius: 2 }} />
+      <span style={{ color: '#374151' }}>Lien inter-sites</span>
+    </div>
     {([
-      ['─────', '#0f172a', 7, 'Fibre 40G (DAC Cœur)'],
-      ['─────', '#16a34a', 4, 'Fibre 10G (Boucles IRF)'],
-      ['─────', '#16a34a', 2, 'Fibre 1G'],
-      ['- - -', '#f97316', 3, 'Opérateur LINKT'],
-      ['- - -', '#ef4444', 3, 'Opérateur RED/SFR'],
-      ['· · ·', '#f59e0b', 2, 'Laser 100Mb'],
-      ['- · -', '#3b82f6', 3, 'WAN'],
-    ] as [string, string, number, string][]).map(([dash, color,, label]) => (
+      ['#0f172a', 'Site cœur'],
+      ['#2563eb', 'Site de boucle'],
+      ['#64748b', 'Autre site'],
+    ] as [string, string][]).map(([color, label]) => (
       <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-        <span style={{ color, fontFamily: 'monospace', fontWeight: 700, width: 36, fontSize: 13 }}>{dash}</span>
+        <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
         <span style={{ color: '#374151' }}>{label}</span>
       </div>
     ))}
-    <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 6, paddingTop: 6 }}>
-      {([
-        ['●', '#0f172a', 'Cœur (HP5940 IRF)'],
-        ['●', '#2563eb', 'Boucle Nord (HP5500HI)'],
-        ['●', '#16a34a', 'Boucle Sud (HP5500HI)'],
-        ['○', '#64748b', 'Site dépendant'],
-      ] as [string, string, string][]).map(([sym, color, label]) => (
-        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-          <span style={{ color, fontSize: 16, width: 14, textAlign: 'center' }}>{sym}</span>
-          <span style={{ color: '#374151' }}>{label}</span>
-        </div>
-      ))}
-    </div>
     <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 6, paddingTop: 6, fontSize: 11, color: '#64748b' }}>
-      💡 Clic sur un site pour le déplacer
+      💡 Clic sur un lien pour le mettre en évidence · clic sur un site pour le déplacer
     </div>
   </div>
 );
@@ -126,19 +106,20 @@ export interface MoveResult { siteId: number; siteCode: string; lat: number; lng
 interface Props {
   sites:          Map<string, SiteRef>;
   links:          NetworkLink[];
-  ducts:          Duct[];
-  layers:         { fibre: boolean; wan: boolean; operator: boolean; ducts: boolean; sites: boolean };
+  layers:         { links: boolean; sites: boolean };
   drawMode:       boolean;
   drawnPoints:    [number, number][];
   onMapClick:     (lat: number, lng: number) => void;
   highlightSites?: string[];
   onSiteMoved?:  (result: MoveResult) => void;
+  selectedLinkId?: string | null;
+  onSelectLink?:  (id: string | null) => void;
 }
 
 // ── Composant principal ───────────────────────────────────────────────
 const NetworkMap: React.FC<Props> = ({
-  sites, links, ducts, layers, drawMode, drawnPoints, onMapClick,
-  highlightSites = [], onSiteMoved,
+  sites, links, layers, drawMode, drawnPoints, onMapClick,
+  highlightSites = [], onSiteMoved, selectedLinkId = null, onSelectLink,
 }) => {
   const [drawCursor, setDrawCursor] = useState<[number, number] | null>(null);
 
@@ -191,11 +172,7 @@ const NetworkMap: React.FC<Props> = ({
     ? Array.from(sites.values()).filter(s => s.lat != null && s.lng != null)
     : Array.from(referenced).map(c => sites.get(c)).filter((s): s is SiteRef => !!s && s.lat != null && s.lng != null);
 
-  const layerOn = (link: NetworkLink) =>
-    (link.type === 'FIBRE'     && layers.fibre)    ||
-    (link.type === 'LASER'     && layers.fibre)     ||
-    (link.type === 'WAN'       && layers.wan)        ||
-    (link.type === 'OPERATEUR' && layers.operator);
+  const layerOn = (_link: NetworkLink) => layers.links;
 
   const drawAnchor = drawnPoints.length > 0 ? drawnPoints[drawnPoints.length - 1] : null;
   const isMoving = !!movingSite;
@@ -228,8 +205,9 @@ const NetworkMap: React.FC<Props> = ({
         scrollWheelZoom
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          opacity={0.75}
         />
         <MapClickHandler
           drawMode={drawMode}
@@ -240,24 +218,6 @@ const NetworkMap: React.FC<Props> = ({
           onMoveMove={(la, ln) => setMoveCursor([la, ln])}
         />
 
-        {/* ── Fourreaux ── */}
-        {layers.ducts && (
-          <LayerGroup>
-            {ducts.map(duct => {
-              const pts = ductLatLngs(duct);
-              if (!pts) return null;
-              return (
-                <Polyline key={duct.id} positions={pts}
-                  pathOptions={{ color: '#92400e', weight: 6, dashArray: '2 8', opacity: 0.5 }}>
-                  <Tooltip sticky>
-                    <strong>Fourreau :</strong> {duct.name} · {duct.status} · {duct.used_capacity}/{duct.capacity}
-                  </Tooltip>
-                </Polyline>
-              );
-            })}
-          </LayerGroup>
-        )}
-
         {/* ── Liens réseau ── */}
         <LayerGroup>
           {links.filter(layerOn).map(link => {
@@ -266,9 +226,16 @@ const NetworkMap: React.FC<Props> = ({
             const st = linkStyle(link);
             const siteA = sites.get(link.site_a);
             const siteB = sites.get(link.site_b);
+            const isSelected = selectedLinkId === link.id;
             return (
               <Polyline key={link.id} positions={pts}
-                pathOptions={{ color: st.color, weight: st.weight, dashArray: st.dashArray, opacity: 0.9 }}>
+                eventHandlers={{ click: () => onSelectLink?.(isSelected ? null : link.id) }}
+                pathOptions={{
+                  color: isSelected ? '#dc2626' : st.color,
+                  weight: isSelected ? st.weight + 4 : st.weight,
+                  dashArray: st.dashArray,
+                  opacity: isSelected ? 1 : (selectedLinkId ? 0.35 : 0.9),
+                }}>
                 <Tooltip sticky>
                   <div style={{ fontFamily: 'Arial, sans-serif', fontSize: 13, lineHeight: 1.5 }}>
                     <strong style={{ color: st.color }}>

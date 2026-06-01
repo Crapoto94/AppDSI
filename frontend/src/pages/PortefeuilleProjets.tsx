@@ -61,6 +61,7 @@ const PortefeuilleProjets: React.FC = () => {
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [showPmoModal, setShowPmoModal] = useState(false);
   const [pmoView, setPmoView] = useState<'' | 'mine' | 'agents'>('');
+  const [groupMode, setGroupMode] = useState<'implication' | 'chef_projet'>('implication');
   const [showAgentsModal, setShowAgentsModal] = useState(false);
   const isPMO = user?.est_pmo || isAdminLike(user);
 
@@ -311,6 +312,16 @@ const PortefeuilleProjets: React.FC = () => {
               ))}
             </div>
           )}
+          {/* Toggle regroupement */}
+          <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '3px', gap: '2px' }}>
+            {([['implication', '📊 Par implication'], ['chef_projet', '👨‍💼 Par chef de projet']] as [string, string][]).map(([val, label]) => (
+              <button key={val} onClick={() => setGroupMode(val as 'implication' | 'chef_projet')} style={{
+                padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600',
+                background: groupMode === val ? 'white' : 'transparent', color: groupMode === val ? '#2563eb' : '#64748b',
+                boxShadow: groupMode === val ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+              }}>{label}</button>
+            ))}
+          </div>
         </div>
 
         {loading ? (
@@ -319,6 +330,37 @@ const PortefeuilleProjets: React.FC = () => {
           <div style={{ textAlign: 'center', padding: '80px 20px', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <FolderOpen size={48} color="#cbd5e1" style={{ marginBottom: '16px' }} />
             <p style={{ color: '#94a3b8', fontSize: '16px' }}>Aucun projet trouvé.</p>
+          </div>
+        ) : groupMode === 'chef_projet' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {(() => {
+              const grouped: Record<string, Projet[]> = {};
+              for (const p of projetsTries) {
+                const key = p.chef_projet_display_name || p.chef_projet_username || '__none__';
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push(p);
+              }
+              const keys = Object.keys(grouped).sort((a, b) => {
+                if (a === '__none__') return 1;
+                if (b === '__none__') return -1;
+                return a.localeCompare(b);
+              });
+              return keys.map(key => {
+                const projets = grouped[key];
+                const items = projets.map(p => ({ projet: p, isChild: false }));
+                const chefLabel = key === '__none__' ? '— Non assigné' : key;
+                return (
+                  <div key={key}>
+                    <div style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', borderRadius: '8px 8px 0 0' }}>
+                      👨‍💼 {chefLabel} ({items.length})
+                    </div>
+                    <div style={{ background: 'white', borderRadius: '0 0 8px 8px', overflow: 'hidden', border: '1px solid #e2e8f0', borderTop: 'none' }}>
+                      <ProjetTable items={items} favoris={favoris} projetMap={projetMap} projetParentTitles={projetParentTitles} childrenMap={childrenMap} thStyle={thStyle} SortIcon={SortIcon} handleSort={handleSort} navigate={navigate} toggleFavori={toggleFavori} />
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -344,82 +386,7 @@ const PortefeuilleProjets: React.FC = () => {
                     {label} ({items.length})
                   </div>
                   <div style={{ background: 'white', borderRadius: niveau > 0 ? '0 0 8px 8px' : '0', overflow: 'hidden', border: '1px solid #e2e8f0', borderTop: 'none' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                      <thead>
-                        <tr style={{ background: '#f8fafc' }}>
-                          <th style={thStyle('titre')} onClick={() => handleSort('titre')}>Projet<SortIcon column="titre" /></th>
-                          <th style={thStyle('chef_projet')} onClick={() => handleSort('chef_projet')}>Chef de projet<SortIcon column="chef_projet" /></th>
-                          <th style={thStyle('meteo')} onClick={() => handleSort('meteo')}>Météo<SortIcon column="meteo" /></th>
-                          <th style={thStyle('statut')} onClick={() => handleSort('statut')}>Statut<SortIcon column="statut" /></th>
-                          <th style={thStyle('service_pilote')} onClick={() => handleSort('service_pilote')}>Service<SortIcon column="service_pilote" /></th>
-                          <th style={thStyle('priorite')} onClick={() => handleSort('priorite')}>Priorité<SortIcon column="priorite" /></th>
-                          <th style={thStyle('score')} onClick={() => handleSort('score')}>Score<SortIcon column="score" /></th>
-                          <th style={thStyle('avancement')} onClick={() => handleSort('avancement')}>Avancement<SortIcon column="avancement" /></th>
-                          <th style={thStyle('alertes')} onClick={() => handleSort('alertes')}>⚠️<SortIcon column="alertes" /></th>
-                          <th style={{ ...thStyle(''), cursor: 'default', width: '40px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>⭐</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.map(({ projet: p, isChild }) => (
-                          <tr key={p.id} onClick={() => navigate(`/projets/${p.id}`)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: favoris.includes(p.id) ? '#fffbeb' : 'transparent' }}
-                            onMouseEnter={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fef3c7' : '#f8fafc')}
-                            onMouseLeave={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fffbeb' : 'transparent')}>
-                            <td style={{ padding: '12px 16px' }}>
-                              <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', paddingLeft: isChild ? '20px' : '0', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                                {isChild && <span style={{ marginRight: '6px', color: '#94a3b8' }}>↳</span>}
-                                {p.titre}
-                                {p.is_mini_projet && (
-                                  <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0' }}>mini</span>
-                                )}
-                              </div>
-                              <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}{!isChild && p.projet_parent_id && projetParentTitles[p.id] ? ` · parent: ${projetParentTitles[p.id]}` : ''}</div>
-                              {p.app_names && <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>📱 {p.app_names}</div>}
-                            </td>
-                            <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px' }}>{p.chef_projet_display_name || p.chef_projet_username || '—'}</td>
-                            <td style={{ padding: '12px 16px', textAlign: 'center', fontSize: '18px' }}>
-                              {p.meteo === 'soleil' ? '☀️' : p.meteo === 'nuageux' ? '⛅' : p.meteo === 'orage' ? '⛈️' : '➖'}
-                            </td>
-                            <td style={{ padding: '12px 16px' }}>
-                              <span style={{ padding: '2px 8px', borderRadius: '5px', fontSize: '11px', fontWeight: '600', background: `${STATUT_COLORS[p.statut] || '#94a3b8'}20`, color: STATUT_COLORS[p.statut] || '#94a3b8' }}>
-                                {STATUT_LABELS[p.statut] || p.statut}
-                              </span>
-                            </td>
-                            <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px' }}>{p.service_pilote}</td>
-                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              {p.priorite > 0 ? (
-                                <span style={{ fontWeight: '700', color: p.priorite >= 4 ? '#dc2626' : p.priorite >= 3 ? '#d97706' : '#16a34a', fontSize: '13px' }}>
-                                  {'★'.repeat(Math.max(1, Math.min(p.priorite, 5)))}{'☆'.repeat(Math.max(0, 5 - Math.max(1, Math.min(p.priorite, 5))))}
-                                </span>
-                              ) : <span style={{ color: '#cbd5e1' }}>—</span>}
-                            </td>
-                            <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: '700', color: p.score_total >= 50 ? '#16a34a' : p.score_total >= 30 ? '#d97706' : '#dc2626', fontSize: '13px' }}>{p.score_total}</td>
-                            <td style={{ padding: '12px 16px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <div style={{ flex: 1, height: '5px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
-                                  <div style={{ width: `${p.avancement}%`, height: '100%', background: p.avancement >= 80 ? '#22c55e' : p.avancement >= 40 ? '#3b82f6' : '#f59e0b', borderRadius: '3px' }} />
-                                </div>
-                                <span style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', minWidth: '30px' }}>{p.avancement}%</span>
-                              </div>
-                            </td>
-                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              {(p.nb_taches_en_retard > 0 || p.nb_jalons_en_retard > 0) ? (
-                                <span style={{ fontSize: '14px', cursor: 'pointer' }} title={
-                                  (p.nb_taches_en_retard > 0 ? `${p.nb_taches_en_retard} tâche(s)` : '') +
-                                  (p.nb_taches_en_retard > 0 && p.nb_jalons_en_retard > 0 ? ' et ' : '') +
-                                  (p.nb_jalons_en_retard > 0 ? `${p.nb_jalons_en_retard} jalon(s)` : '') +
-                                  ' en retard'
-                                }>⚠️</span>
-                              ) : <span style={{ color: '#e2e8f0' }}>—</span>}
-                            </td>
-                            <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                              <span onClick={e => { e.stopPropagation(); toggleFavori(p.id, favoris.includes(p.id)); }} style={{ cursor: 'pointer', fontSize: '16px' }}>
-                                {favoris.includes(p.id) ? '⭐' : '☆'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    <ProjetTable items={items} favoris={favoris} projetMap={projetMap} projetParentTitles={projetParentTitles} childrenMap={childrenMap} thStyle={thStyle} SortIcon={SortIcon} handleSort={handleSort} navigate={navigate} toggleFavori={toggleFavori} />
                   </div>
                 </div>
               );
@@ -451,6 +418,97 @@ const PortefeuilleProjets: React.FC = () => {
     </div>
   );
 };
+
+interface ProjetTableProps {
+  items: { projet: Projet; isChild: boolean }[];
+  favoris: number[];
+  projetMap: Record<number, Projet>;
+  projetParentTitles: Record<number, string>;
+  childrenMap: Record<number, Projet[]>;
+  thStyle: (col: string) => React.CSSProperties;
+  SortIcon: React.FC<{ column: string }>;
+  handleSort: (column: string) => void;
+  navigate: (path: string) => void;
+  toggleFavori: (projetId: number, estFavori: boolean) => void;
+}
+const ProjetTable: React.FC<ProjetTableProps> = ({ items, favoris, navigate, toggleFavori }) => (
+  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+    <thead>
+      <tr style={{ background: '#f8fafc' }}>
+        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Projet</th>
+        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Chef de projet</th>
+        <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Météo</th>
+        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Statut</th>
+        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Service</th>
+        <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Priorité</th>
+        <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Score</th>
+        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Avancement</th>
+        <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>⚠️</th>
+        <th style={{ padding: '10px 16px', textAlign: 'center', cursor: 'default', width: '40px', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>⭐</th>
+      </tr>
+    </thead>
+    <tbody>
+      {items.map(({ projet: p, isChild }) => (
+        <tr key={p.id} onClick={() => navigate(`/projets/${p.id}`)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer', background: favoris.includes(p.id) ? '#fffbeb' : 'transparent' }}
+          onMouseEnter={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fef3c7' : '#f8fafc')}
+          onMouseLeave={e => (e.currentTarget.style.background = favoris.includes(p.id) ? '#fffbeb' : 'transparent')}>
+          <td style={{ padding: '12px 16px' }}>
+            <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', paddingLeft: isChild ? '20px' : '0', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+              {isChild && <span style={{ marginRight: '6px', color: '#94a3b8' }}>↳</span>}
+              {p.titre}
+              {p.is_mini_projet && (
+                <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0' }}>mini</span>
+              )}
+            </div>
+            <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}</div>
+            {p.app_names && <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>📱 {p.app_names}</div>}
+          </td>
+          <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px' }}>{p.chef_projet_display_name || p.chef_projet_username || '—'}</td>
+          <td style={{ padding: '12px 16px', textAlign: 'center', fontSize: '18px' }}>
+            {p.meteo === 'soleil' ? '☀️' : p.meteo === 'nuageux' ? '⛅' : p.meteo === 'orage' ? '⛈️' : '➖'}
+          </td>
+          <td style={{ padding: '12px 16px' }}>
+            <span style={{ padding: '2px 8px', borderRadius: '5px', fontSize: '11px', fontWeight: '600', background: `${STATUT_COLORS[p.statut] || '#94a3b8'}20`, color: STATUT_COLORS[p.statut] || '#94a3b8' }}>
+              {STATUT_LABELS[p.statut] || p.statut}
+            </span>
+          </td>
+          <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px' }}>{p.service_pilote}</td>
+          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+            {p.priorite > 0 ? (
+              <span style={{ fontWeight: '700', color: p.priorite >= 4 ? '#dc2626' : p.priorite >= 3 ? '#d97706' : '#16a34a', fontSize: '13px' }}>
+                {'★'.repeat(Math.max(1, Math.min(p.priorite, 5)))}{'☆'.repeat(Math.max(0, 5 - Math.max(1, Math.min(p.priorite, 5))))}
+              </span>
+            ) : <span style={{ color: '#cbd5e1' }}>—</span>}
+          </td>
+          <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: '700', color: p.score_total >= 50 ? '#16a34a' : p.score_total >= 30 ? '#d97706' : '#dc2626', fontSize: '13px' }}>{p.score_total}</td>
+          <td style={{ padding: '12px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ flex: 1, height: '5px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' }}>
+                <div style={{ width: `${p.avancement}%`, height: '100%', background: p.avancement >= 80 ? '#22c55e' : p.avancement >= 40 ? '#3b82f6' : '#f59e0b', borderRadius: '3px' }} />
+              </div>
+              <span style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', minWidth: '30px' }}>{p.avancement}%</span>
+            </div>
+          </td>
+          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+            {(p.nb_taches_en_retard > 0 || p.nb_jalons_en_retard > 0) ? (
+              <span style={{ fontSize: '14px', cursor: 'pointer' }} title={
+                (p.nb_taches_en_retard > 0 ? `${p.nb_taches_en_retard} tâche(s)` : '') +
+                (p.nb_taches_en_retard > 0 && p.nb_jalons_en_retard > 0 ? ' et ' : '') +
+                (p.nb_jalons_en_retard > 0 ? `${p.nb_jalons_en_retard} jalon(s)` : '') +
+                ' en retard'
+              }>⚠️</span>
+            ) : <span style={{ color: '#e2e8f0' }}>—</span>}
+          </td>
+          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+            <span onClick={e => { e.stopPropagation(); toggleFavori(p.id, favoris.includes(p.id)); }} style={{ cursor: 'pointer', fontSize: '16px' }}>
+              {favoris.includes(p.id) ? '⭐' : '☆'}
+            </span>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
 
 interface AdminModalProps { token: string | null; onClose: () => void; }
 const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {

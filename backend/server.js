@@ -4022,8 +4022,8 @@ app.put('/api/admin/modules/:key', authenticateAdmin, async (req, res) => {
 
 app.get('/api/tiles', async (req, res) => {
     try {
-        const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
-        
+        let tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
+
         // Optional: Check authorization if token is provided
         let authorizedTileIds = new Set();
         let user = null;
@@ -4037,71 +4037,35 @@ app.get('/api/tiles', async (req, res) => {
         }
 
         if (user) {
-            console.log(`[DEBUG TILES] Identified user: ${user.username} (ID: ${user.id}, Role: ${user.role})`);
-            if (isAdminLike(user)) {
-                tiles.forEach(t => authorizedTileIds.add(t.id));
-                console.log('[DEBUG TILES] User is ADMIN/SUPERADMIN, all tiles authorized');
-            } else {
-                const userTiles = await db.all('SELECT tile_id FROM user_tiles WHERE user_id = ?', [user.id]);
-                console.log(`[DEBUG TILES] Found ${userTiles.length} authorized tiles for ${user.username} (IDs: ${userTiles.map(ut => ut.tile_id).join(',')})`);
-                userTiles.forEach(ut => authorizedTileIds.add(ut.tile_id));
-            }
-        } else {
-            console.log('[DEBUG TILES] No user identified from token');
+            const userTiles = await db.all('SELECT tile_id FROM user_tiles WHERE user_id = ?', [user.id]);
+            userTiles.forEach(ut => authorizedTileIds.add(ut.tile_id));
         }
 
         for (const tile of tiles) {
-            // A tile is authorized if it's public AND user is logged in, OR if user has explicit access, OR if user is admin
             tile.is_authorized = false;
             if (user) {
-                if (isAdminLike(user)) {
-                    tile.is_authorized = true;
-                } else if (tile.is_public) {
+                if (tile.is_public) {
                     tile.is_authorized = true;
                 } else if (authorizedTileIds.has(tile.id)) {
                     tile.is_authorized = true;
+                } else if (isAdminLike(user)) {
+                    tile.is_authorized = true;
                 }
-            } else {
-                // For non-authenticated users, nothing is authorized unless it's a truly public dashboard (which we don't have here)
-                tile.is_authorized = false;
             }
-            
-            console.log(`[DEBUG TILES] Checking tile ${tile.id} (${tile.title}): is_authorized = ${tile.is_authorized}`);
-            
-            // Load links
             tile.links = await db.all('SELECT * FROM tile_links WHERE tile_id = ?', [tile.id]);
         }
 
-        // ─── Tuiles-module (registre + visibilité) ───────────────────
-        // Un module est affiché si l'utilisateur est admin OU si le module est visible.
-        // Les admins voient tous les modules quel que soit le réglage.
+        // ─── Tuiles-module : filtrage par visibilité globale ────────
         try {
             const visRows = await pgDb.all('SELECT module_key, is_visible FROM hub.module_settings');
             const visByKey = {};
             visRows.forEach(r => { visByKey[r.module_key] = r.is_visible; });
             const admin = user && isAdminLike(user);
-
-            MODULES_REGISTRY.forEach((m, index) => {
-                const visible = visByKey[m.key] !== false; // défaut : visible
-                if (!admin && !visible) return; // non-admin : masquer si non visible
-                if (!user) return;              // non connecté : rien
-
-                const moduleId = -(index + 1); // id négatif → pas de collision avec les tuiles SQLite
-                tiles.push({
-                    id: moduleId,
-                    title: m.title,
-                    icon: m.icon,
-                    description: m.description,
-                    status: 'active',
-                    sort_order: 100000 + index,
-                    is_public: 0,
-                    is_authorized: true,
-                    is_module: true,
-                    links: [{ id: moduleId, label: 'Ouvrir', url: m.url, is_internal: 1 }],
-                });
-            });
+            if (!admin) {
+                tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
+            }
         } catch (e) {
-            console.error('[TILES] Injection des tuiles-module échouée:', e.message);
+            console.error('[TILES] Filtrage des tuiles-module échoué:', e.message);
         }
 
         res.json(tiles);
@@ -4113,15 +4077,11 @@ app.get('/api/tiles', async (req, res) => {
 // Authenticated endpoint for admin to get authorized tiles
 app.get('/api/tiles-auth', authenticateJWT, async (req, res) => {
     try {
-        const tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
+        let tiles = await db.all('SELECT * FROM tiles ORDER BY sort_order');
 
         let authorizedTileIds = new Set();
-        if (isAdminLike(req.user)) {
-            tiles.forEach(t => authorizedTileIds.add(t.id));
-        } else {
-            const userTiles = await db.all('SELECT tile_id FROM user_tiles WHERE user_id = ?', [req.user.id]);
-            userTiles.forEach(ut => authorizedTileIds.add(ut.tile_id));
-        }
+        const userTiles = await db.all('SELECT tile_id FROM user_tiles WHERE user_id = ?', [req.user.id]);
+        userTiles.forEach(ut => authorizedTileIds.add(ut.tile_id));
 
         for (const tile of tiles) {
             tile.is_authorized = (tile.is_public || authorizedTileIds.has(tile.id));
@@ -4131,6 +4091,20 @@ app.get('/api/tiles-auth', authenticateJWT, async (req, res) => {
                 tile.links = []; // Hide links if not authorized
             }
         }
+
+        // ─── Filtrage par visibilité globale ────────
+        try {
+            const visRows = await pgDb.all('SELECT module_key, is_visible FROM hub.module_settings');
+            const visByKey = {};
+            visRows.forEach(r => { visByKey[r.module_key] = r.is_visible; });
+            const admin = isAdminLike(req.user);
+            if (!admin) {
+                tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
+            }
+        } catch (e) {
+            console.error('[TILES-AUTH] Filtrage des tuiles-module échoué:', e.message);
+        }
+
         res.json(tiles);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la récupération des tuiles', error: error.message });
@@ -4315,8 +4289,10 @@ app.put('/api/users/:id', authenticateAdmin, async (req, res) => {
 
 app.put('/api/users/:id/tiles', authenticateAdmin, async (req, res) => {
     const { tiles } = req.body;
+    console.log(`[SAVE TILES] user=${req.params.id} tiles=${JSON.stringify(tiles)}`);
     try {
         await db.run('DELETE FROM user_tiles WHERE user_id = ?', [req.params.id]);
+        console.log(`[SAVE TILES] Deleted existing tiles for user ${req.params.id}`);
 
         if (Array.isArray(tiles) && tiles.length > 0) {
             for (const tileId of tiles) {

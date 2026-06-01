@@ -31,6 +31,8 @@ const MODULES_REGISTRY = [
     { key: 'budget',       title: 'Budget',                icon: 'DollarSign',   description: 'Gestion budgétaire.', url: '/budget' },
     { key: 'doctrines',    title: 'Notes & doctrines',     icon: 'Book',         description: 'Notes de service et doctrines.', url: '/doctrines' },
     { key: 'reseau',       title: 'Réseau Ville',          icon: 'Network',      description: 'Cartographie du réseau inter-sites (fibre, WAN, opérateurs, fourreaux).', url: '/reseau' },
+    { key: 'reunions',     title: 'Réunions',              icon: 'Calendar',     description: 'Réunions et comptes-rendus.', url: '/mes-reunions' },
+    { key: 'magapp',       title: 'Magasin d\'applications',icon: 'AppWindow',    description: 'Galerie d\'applications et logiciels métiers.', url: '/admin/magapp' },
 ];
 
 module.exports = { MODULES_REGISTRY };

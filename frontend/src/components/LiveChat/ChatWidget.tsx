@@ -4,8 +4,9 @@ import axios from 'axios';
 import EmojiPicker from './EmojiPicker';
 import AddTaskModal from '../AddTaskModal';
 import CreateTicketModal from '../tickets/CreateTicketModal';
+import AjouterJournalModal from '../projets/AjouterJournalModal';
 import { useAuth } from '../../contexts/AuthContext';
-import { Ticket, CheckCircle, MessageSquare, X, Send, Mic, Paperclip } from 'lucide-react';
+import { Ticket, CheckCircle, MessageSquare, BookOpen, X, Send, Mic, Paperclip } from 'lucide-react';
 
 type ChatState = 'idle' | 'open' | 'connecting' | 'waiting' | 'active' | 'renaming' | 'rating' | 'ended';
 
@@ -56,6 +57,7 @@ export default function ChatWidget() {
 
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showTicketModal, setShowTicketModal] = useState(false);
+  const [showJournalModal, setShowJournalModal] = useState(false);
   const [activeSessionsCount, setActiveSessionsCount] = useState(0);
 
   const token = localStorage.getItem('token');
@@ -426,6 +428,23 @@ export default function ChatWidget() {
         <Ticket size={24} />
       </button>
 
+      {/* Journal Bubble */}
+      <button
+        onClick={() => setShowJournalModal(true)}
+        title="Ajouter un événement au journal de projet"
+        style={{
+          width: 56, height: 56, borderRadius: '50%',
+          background: '#fff', border: '1px solid #e2e8f0', cursor: 'pointer',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#6366f1', transition: 'transform 0.2s'
+        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.1)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
+      >
+        <BookOpen size={24} />
+      </button>
+
       {/* Chat Bubble (Standard or Admin) */}
       {isAdmin ? (
         <button
@@ -535,6 +554,10 @@ export default function ChatWidget() {
 
       {showTicketModal && (
         <CreateTicketModal onClose={() => setShowTicketModal(false)} />
+      )}
+
+      {showJournalModal && (
+        <AjouterJournalModal token={token || ''} onClose={() => setShowJournalModal(false)} onCreated={() => setShowJournalModal(false)} />
       )}
 
       {state !== 'idle' && (

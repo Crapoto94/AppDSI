@@ -51,7 +51,8 @@ export default function ReseauDashboard() {
   const [fOperator, setFOperator] = useState<'' | Operator>('');
   const [fLoop, setFLoop]         = useState(false);
   const [fRedundant, setFRedundant] = useState(false);
-  const [layers, setLayers]       = useState({ fibre: true, wan: true, operator: true, ducts: true, sites: true });
+  const [layers, setLayers]       = useState({ links: true, sites: true });
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
 
   // ── Création lien ───────────────────────────────────────────────
   const [form, setForm]           = useState({ ...emptyForm });
@@ -317,78 +318,38 @@ export default function ReseauDashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 16, height: 'calc(100vh - 250px)' }}>
             {/* panneau gauche */}
             <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <form onSubmit={createLink} style={card}>
-                <h3 style={cardTitle}><Plus size={16} /> Créer un lien</h3>
-                <label style={lbl}>Site A</label>
-                <input list="sites-dl" style={inp} value={form.site_a} onChange={e => setForm({ ...form, site_a: e.target.value.trim().toUpperCase() })} placeholder="ex: S001B01" />
-                <label style={lbl}>Site B</label>
-                <input list="sites-dl" style={inp} value={form.site_b} onChange={e => setForm({ ...form, site_b: e.target.value.trim().toUpperCase() })} placeholder="ex: S007B01" />
-                <datalist id="sites-dl">{sitesArr.map(s => <option key={s.site_code} value={s.site_code}>{s.nom}</option>)}</datalist>
-                <label style={lbl}>Type</label>
-                <select style={inp} value={form.type} onChange={e => setForm({ ...form, type: e.target.value as LinkType })}>
-                  {LINK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                {form.type === 'OPERATEUR' && (
-                  <><label style={lbl}>Opérateur</label>
-                  <select style={inp} value={form.operator} onChange={e => setForm({ ...form, operator: e.target.value as Operator })}>
-                    <option value="">—</option>{OPERATORS.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select></>
-                )}
-                <label style={lbl}>Capacité</label>
-                <input style={inp} value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} placeholder="ex: 10G, 100M" />
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, margin: '8px 0' }}>
-                  {[['carries_data','Data'],['carries_voice','Voix'],['is_loop','Boucle'],['is_redundant','Redondant']].map(([k,l]) => (
-                    <label key={k} style={chk}><input type="checkbox" checked={(form as any)[k]} onChange={e => setForm({ ...form, [k]: e.target.checked })} /> {l}</label>
-                  ))}
-                </div>
-                <label style={chk}>
-                  <input type="checkbox" checked={drawMode} onChange={e => { setDrawMode(e.target.checked); if (!e.target.checked) setDrawnPoints([]); }} />
-                  Tracé manuel {drawMode && <span style={{ color: '#0ea5e9' }}>({drawnPoints.length} pt)</span>}
-                </label>
-                <button type="submit" disabled={saving} style={{ ...btnPrimary, marginTop: 10 }}>{saving ? '…' : 'Créer le lien'}</button>
-              </form>
               <div style={card}>
-                <h3 style={cardTitle}>Filtres</h3>
-                <label style={lbl}>Type</label>
-                <select style={inp} value={fType} onChange={e => setFType(e.target.value as any)}>
-                  <option value="">Tous</option>{LINK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <label style={lbl}>Opérateur</label>
-                <select style={inp} value={fOperator} onChange={e => setFOperator(e.target.value as any)}>
-                  <option value="">Tous</option>{OPERATORS.map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
-                <div style={{ display: 'flex', gap: 14, marginTop: 8 }}>
-                  <label style={chk}><input type="checkbox" checked={fLoop} onChange={e => setFLoop(e.target.checked)} /> Boucle</label>
-                  <label style={chk}><input type="checkbox" checked={fRedundant} onChange={e => setFRedundant(e.target.checked)} /> Redondant</label>
+                <h3 style={cardTitle}><Link2 size={16} /> Liens inter-sites géolocalisés ({geoLinks.length})</h3>
+                <div style={{ fontSize: 11, color: '#94a3b8', margin: '-6px 0 10px' }}>
+                  Cliquez un lien pour le mettre en évidence sur la carte.
+                  {filteredLinks.length - geoLinks.length > 0 && ` · ${filteredLinks.length - geoLinks.length} non tracé(s) (site sans coordonnées)`}
                 </div>
-              </div>
-              <div style={card}>
-                <h3 style={cardTitle}>Liens géolocalisés ({geoLinks.length})</h3>
-                {filteredLinks.length - geoLinks.length > 0 && (
-                  <div style={{ fontSize: 11, color: '#94a3b8', margin: '-6px 0 8px' }}>
-                    {filteredLinks.length - geoLinks.length} lien(s) non tracé(s) — site sans coordonnées
-                  </div>
-                )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {geoLinks.map(l => {
                     const st = linkStyle(l);
                     const nomA = sites.get(l.site_a)?.nom || l.site_a;
                     const nomB = sites.get(l.site_b)?.nom || l.site_b;
+                    const sel = selectedLinkId === l.id;
                     return (
-                      <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: '#f8fafc', border: '1px solid #eef2f7' }}>
-                        <span style={{ width: 12, height: 3, borderRadius: 2, background: st.color, flexShrink: 0 }} />
+                      <div key={l.id}
+                        onClick={() => setSelectedLinkId(sel ? null : l.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
+                          background: sel ? '#fef2f2' : '#f8fafc',
+                          border: `1px solid ${sel ? '#fecaca' : '#eef2f7'}`,
+                        }}>
+                        <span style={{ width: 12, height: 3, borderRadius: 2, background: sel ? '#dc2626' : st.color, flexShrink: 0 }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }} title={`${l.site_a} → ${l.site_b}`}>{nomA} → {nomB}</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: sel ? '#b91c1c' : '#1e293b' }} title={`${l.site_a} → ${l.site_b}`}>{nomA} → {nomB}</div>
                           <div style={{ fontSize: 10, color: '#94a3b8' }}>
-                            {l.type}{l.operator ? ` · ${l.operator}` : ''}{l.capacity ? ` · ${l.capacity}` : ''}
-                            {l.fo_pairs ? ` · ${l.fo_pairs}` : ''}{l.is_loop ? ' · boucle' : ''}
-                            {l.notes ? ` · ${l.notes}` : ''}
+                            {l.notes || l.type}{l.capacity ? ` · ${l.capacity}` : ''}
                           </div>
                         </div>
-                        {!l.id.startsWith('sl-') && <button onClick={() => deleteLink(l.id)} style={iconBtn}><Trash2 size={13} /></button>}
+                        {!l.id.startsWith('sl-') && <button onClick={e => { e.stopPropagation(); deleteLink(l.id); }} style={iconBtn}><Trash2 size={13} /></button>}
                       </div>
                     );
                   })}
+                  {geoLinks.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucun lien géolocalisé.</div>}
                 </div>
               </div>
             </div>
@@ -400,19 +361,27 @@ export default function ReseauDashboard() {
                   <button onClick={() => setView('topology')} style={view === 'topology' ? tabActive : tabBtn}><Share2 size={14} /> Topologie</button>
                 </div>
                 {view === 'map' && (
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
-                    {([['fibre','Fibre','#16a34a'],['wan','WAN','#3b82f6'],['operator','Opérateurs','#f97316'],['ducts','Fourreaux','#92400e'],['sites','Sites','#2563eb']] as const).map(([k,lbl,c]) => (
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
+                    {([['links','Liens inter-sites','#16a34a'],['sites','Sites','#2563eb']] as const).map(([k,lbl,c]) => (
                       <label key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#475569', fontWeight: 600 }}>
                         <input type="checkbox" checked={layers[k]} onChange={e => setLayers({ ...layers, [k]: e.target.checked })} />
                         <span style={{ width: 8, height: 8, borderRadius: 2, background: c }} /> {lbl}
                       </label>
                     ))}
+                    {selectedLinkId && (
+                      <button onClick={() => setSelectedLinkId(null)} style={{ border: '1px solid #fecaca', background: '#fff', color: '#b91c1c', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontWeight: 600 }}>
+                        ✕ Désélectionner
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
               <div style={{ flex: 1, minHeight: 0 }}>
                 {view === 'map' ? (
-                  <NetworkMap sites={sites} links={mapLinks} ducts={ducts} layers={layers} drawMode={drawMode} drawnPoints={drawnPoints} onMapClick={onMapClick} highlightSites={[form.site_a, form.site_b].filter(Boolean)}
+                  <NetworkMap sites={sites} links={mapLinks} layers={layers} drawMode={false} drawnPoints={[]} onMapClick={() => {}}
+                    selectedLinkId={selectedLinkId}
+                    onSelectLink={setSelectedLinkId}
+                    highlightSites={(() => { const l = mapLinks.find(x => x.id === selectedLinkId); return l ? [l.site_a, l.site_b] : []; })()}
                     onSiteMoved={(r: MoveResult) => {
                       setSitesArr(prev => prev.map(s =>
                         s.site_code === r.siteCode

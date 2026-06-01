@@ -328,7 +328,23 @@
       "Bash(xargs grep -l \"stats\\\\|kpi\\\\|KPI\")",
       "Bash(xargs grep -l \"Dashboard\\\\|KPI\\\\|Stats\\\\|Chart\")",
       "Bash(xargs grep -l \"PortefeuilleProjets\\\\|RencontresBudgetaires\\\\|ConsommablesManagement\\\\|Stocks\\\\|Reseau\")",
-      "Bash(grep -E \"\\\\.\\(js|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(js|ts\\)$\")",
+      "Bash(snmpget -V)",
+      "Bash(npm ls *)",
+      "Bash(node test_snmp_canon.js)",
+      "Bash(ping -c 1 10.103.130.237)",
+      "PowerShell(Test-NetConnection -ComputerName 10.103.130.237 -Port 161 -InformationLevel Detailed 2>&1)",
+      "Bash(curl -k -s -m 3 https://10.103.130.237/)",
+      "Bash(timeout 15 node -e ' *)",
+      "Bash(node -c modules/copieurs/copieurs.controller.js)",
+      "Bash(node -c backend/modules/copieurs/copieurs.controller.js)",
+      "Bash(node -c backend/server.js)",
+      "Bash(timeout 20 node -e ' *)",
+      "Bash(timeout 30 node -e ' *)",
+      "Bash(curl.exe -H \"X-API-Key: nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6\" http://10.103.130.36:8080/api/links)",
+      "Bash(curl.exe -s -H \"X-API-Key: nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6\" http://10.103.130.36:8080/api/links --max-time 5)",
+      "Bash(curl.exe -v -H \"X-API-Key: nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6\" http://10.103.130.36:8080/api/links --max-time 10)",
+      "Bash(curl.exe -w \"\\\\nHTTP Status: %{http_code}\\\\n\" -s -H \"x-api-key: nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6\" http://10.103.130.36:8080/api/links)"
     ]
   }
 }
