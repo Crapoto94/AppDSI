@@ -19,9 +19,11 @@ module.exports = {
             AND (type IS NULL OR type = $1)
             AND (category_id IS NULL OR category_id = $2)
             AND (
+                -- OR : seuls les critères RENSEIGNÉS comptent (un critère vide n'auto-matche pas tout)
                 (COALESCE(match_operator, 'AND') = 'OR'
-                    AND ((priority IS NULL AND impact IS NULL) OR (priority IS NULL OR $3 IS NULL OR priority = $3) OR (impact IS NULL OR $4 IS NULL OR impact = $4)))
+                    AND ((priority IS NOT NULL AND priority = $3) OR (impact IS NOT NULL AND impact = $4)))
                 OR
+                -- AND : tout critère renseigné doit correspondre ; un critère vide = "tout"
                 (COALESCE(match_operator, 'AND') = 'AND'
                     AND (priority IS NULL OR $3 IS NULL OR priority = $3)
                     AND (impact IS NULL OR $4 IS NULL OR impact = $4))
