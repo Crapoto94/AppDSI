@@ -5,7 +5,8 @@ import {
   Network, Map as MapIcon, Share2, Plus, Trash2,
   Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router,
 } from 'lucide-react';
-import NetworkMap, { MoveResult } from './NetworkMap';
+import NetworkMap from './NetworkMap';
+import type { MoveResult } from './NetworkMap';
 import NetworkTopology from './NetworkTopology';
 import { linkStyle } from './utils';
 import type {
