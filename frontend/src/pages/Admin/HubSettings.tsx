@@ -61,7 +61,7 @@ const HubSettings: React.FC = () => {
     <div className="hub-settings">
       <div className="hub-settings-head">
         <h1 className="hub-settings-title">Paramétrage Hub</h1>
-        <p className="hub-settings-subtitle">Utilisateurs, configuration des briques, paramètres généraux et demandes d'accès</p>
+        <p className="hub-settings-subtitle">Utilisateurs, configuration des tuiles, paramètres généraux et demandes d'accès</p>
       </div>
 
       <div className="hub-tabs" role="tablist">

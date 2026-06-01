@@ -46,7 +46,7 @@ const AccessRequestPage: React.FC = () => {
 
     const handleSubmit = async () => {
         if (selected.length === 0) {
-            alert('Veuillez sélectionner au moins une brique.');
+            alert('Veuillez sélectionner au moins une tuile.');
             return;
         }
         if (!username) {

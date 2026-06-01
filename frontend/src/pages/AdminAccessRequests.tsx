@@ -90,7 +90,7 @@ const AdminAccessRequests: React.FC = () => {
                     </div>
                     <h2 className="text-3xl font-black text-gray-900 tracking-tight">Demandes d'Accès</h2>
                 </div>
-                <p className="text-gray-500 font-medium text-lg">Gérez les autorisations et l'accès aux briques applicatives du Hub.</p>
+                <p className="text-gray-500 font-medium text-lg">Gérez les autorisations et l'accès aux tuiles applicatives du Hub.</p>
             </div>
 
             {requests.length === 0 ? (

@@ -2160,7 +2160,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               <div className="users-toolbar">
                 <div className="users-title-block">
                   <h2 className="users-title">Gestion des utilisateurs</h2>
-                  <p className="users-subtitle">Comptes, rôles et accès aux briques applicatives</p>
+                  <p className="users-subtitle">Comptes, rôles et accès aux tuiles applicatives</p>
                 </div>
                 <div className="users-toolbar-actions">
                   <div className="search-bar">
@@ -2288,7 +2288,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       <th>Utilisateur</th>
                       <th>Rôle</th>
                       <th>Statut</th>
-                      <th>Accès aux briques</th>
+                      <th>Accès aux tuiles</th>
                       <th>Dernière activité</th>
                       <th className="actions">Actions</th>
                     </tr>
@@ -4172,10 +4172,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             <div className="section-header">
               <div className="flex flex-col">
                 <h3 className="text-xl font-black">Configuration du Hub</h3>
-                <p className="text-sm text-gray-500">Gérez les briques de services et leur ordre d'affichage.</p>
+                <p className="text-sm text-gray-500">Gérez les tuiles de services et leur ordre d'affichage.</p>
               </div>
               <button className="btn btn-primary" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(true); }}>
-                <Plus size={18} /> Ajouter une brique
+                <Plus size={18} /> Ajouter une tuile
               </button>
             </div>
 
@@ -4220,8 +4220,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                     <div className="modal-header-info">
                       <div className="modal-icon-box blue"><Box size={24} /></div>
                       <div>
-                        <h3 className="modal-title">{editingTile ? 'Éditer la brique' : 'Créer une brique'}</h3>
-                        <p className="modal-subtitle">{editingTile?.title || 'Nouvelle brique'}</p>
+                        <h3 className="modal-title">{editingTile ? 'Éditer la tuile' : 'Créer une tuile'}</h3>
+                        <p className="modal-subtitle">{editingTile?.title || 'Nouvelle tuile'}</p>
                       </div>
                     </div>
                     <button onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(false); }} className="icon-btn" style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer' }}>
@@ -4235,7 +4235,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
                         {/* Colonne 1: Titre */}
                         <div>
-                          <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Titre de la brique</label>
+                          <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '8px' }}>Titre de la tuile</label>
                           <input
                             type="text"
                             value={editingTile?.title || newTile.title}
@@ -4397,7 +4397,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             style={{ width: '20px', height: '20px' }}
                           />
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: '0.95rem', fontWeight: '700', color: '#0c4a6e' }}>Brique Publique</span>
+                            <span style={{ fontSize: '0.95rem', fontWeight: '700', color: '#0c4a6e' }}>Tuile publique</span>
                             <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Accessible Ã  tous les utilisateurs identifiés (pas besoin d'autorisation individuelle)</span>
                           </div>
                         </label>
@@ -4437,7 +4437,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                             e.target.style.borderColor = '#7dd3fc';
                             e.target.style.boxShadow = 'none';
                           }}
-                          placeholder="Description courte de la brique (ex: Suivi des budgets et engagements)"
+                          placeholder="Description courte de la tuile (ex: Suivi des budgets et engagements)"
                           rows={3}
                         />
                       </div>
@@ -4840,7 +4840,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         .status-pill.approved { color: #15803d; background: #dcfce7; }
         .status-pill.pending { color: #c2410c; background: #ffedd5; }
 
-        /* Accès aux briques */
+        /* Accès aux tuiles */
         .access-full { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; background: #f5f3ff; color: #7c3aed; border: 1px solid #ede9fe; }
         .access-none { font-size: 0.8rem; color: #cbd5e1; font-style: italic; }
         .access-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; max-width: 320px; }
