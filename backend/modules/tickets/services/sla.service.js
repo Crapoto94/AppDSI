@@ -106,6 +106,7 @@ module.exports = {
             SELECT ts.*, t.glpi_id, t.status, t.priority, t.title
             FROM hub_tickets.ticket_sla ts
             JOIN hub_tickets.tickets t ON ts.ticket_id = t.glpi_id
+            JOIN hub_tickets.sla_definitions sd ON ts.sla_definition_id = sd.id AND sd.is_active = true
             WHERE ts.sla_status IN ('ok', 'warning')
               AND t.status NOT IN (4, 5, 6, 7)
         `);

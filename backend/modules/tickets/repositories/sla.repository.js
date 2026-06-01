@@ -68,6 +68,7 @@ module.exports = {
             JOIN hub_tickets.sla_definitions sd ON ts.sla_definition_id = sd.id
             LEFT JOIN hub_tickets.ticket_status s ON t.status = s.id
             WHERE ts.sla_status IN ('warning', 'breached')
+              AND sd.is_active = true
               AND t.status NOT IN (7)
             ORDER BY
                 CASE ts.sla_status WHEN 'breached' THEN 0 ELSE 1 END,

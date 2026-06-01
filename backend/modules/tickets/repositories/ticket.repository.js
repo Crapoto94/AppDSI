@@ -82,7 +82,12 @@ SELECT t.*,
      LEFT JOIN magapp.apps ma ON t.software_id = ma.id
      LEFT JOIN hub_tickets.ticket_categories tc ON t.category_id = tc.id
      LEFT JOIN hub_tickets.ticket_categories tsc ON t.subcategory_id = tsc.id
-     LEFT JOIN (SELECT DISTINCT ON (ticket_id) ticket_id, sla_status FROM hub_tickets.ticket_sla ORDER BY ticket_id) tsla ON tsla.ticket_id = t.glpi_id
+     LEFT JOIN (
+         SELECT DISTINCT ON (ts2.ticket_id) ts2.ticket_id, ts2.sla_status
+         FROM hub_tickets.ticket_sla ts2
+         JOIN hub_tickets.sla_definitions sd2 ON ts2.sla_definition_id = sd2.id AND sd2.is_active = true
+         ORDER BY ts2.ticket_id
+     ) tsla ON tsla.ticket_id = t.glpi_id
 `;
 
 module.exports = {
@@ -344,8 +349,8 @@ module.exports = {
                 COUNT(*) FILTER (WHERE status = 5 AND type::text = '2') as resolved_request,
                 COUNT(*) FILTER (WHERE is_vip = true) as vip_total,
                 COUNT(*) FILTER (WHERE type::text = '3' AND status IN (1,2,3,4,5)) as problems,
-                COUNT(*) FILTER (WHERE tsla.sla_status = 'breached') as sla_breached,
-                COUNT(*) FILTER (WHERE tsla.sla_status = 'warning') as sla_warning
+                COUNT(*) FILTER (WHERE tsla.sla_status = 'breached' AND tsla.sla_definition_id IN (SELECT id FROM hub_tickets.sla_definitions WHERE is_active = true)) as sla_breached,
+                COUNT(*) FILTER (WHERE tsla.sla_status = 'warning' AND tsla.sla_definition_id IN (SELECT id FROM hub_tickets.sla_definitions WHERE is_active = true)) as sla_warning
             FROM hub_tickets.tickets t
             LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
             ${whereClause}
@@ -847,6 +852,7 @@ module.exports = {
                 COUNT(*)::int as value
             FROM hub_tickets.tickets t
             LEFT JOIN hub_tickets.ticket_sla ts ON ts.ticket_id = t.glpi_id
+                AND ts.sla_definition_id IN (SELECT id FROM hub_tickets.sla_definitions WHERE is_active = true)
             WHERE t.status IN ('1','2','3','4','5')${dcAnd}
             GROUP BY ts.sla_status ORDER BY value DESC
         `);
@@ -861,7 +867,7 @@ module.exports = {
                 COUNT(*) FILTER (WHERE t.status = '4')::int as waiting,
                 COUNT(*) FILTER (WHERE t.priority = '5' AND t.status IN ('1','2','3'))::int as critical_open,
                 COUNT(*) FILTER (WHERE t.is_vip = true AND t.status IN ('1','2','3','4','5'))::int as vip_open,
-                COUNT(*) FILTER (WHERE ts.sla_status = 'breached')::int as sla_breached,
+                COUNT(*) FILTER (WHERE ts.sla_status = 'breached' AND ts.sla_definition_id IN (SELECT id FROM hub_tickets.sla_definitions WHERE is_active = true))::int as sla_breached,
                 COUNT(*) FILTER (WHERE t.type::text = '1')::int as total_incidents,
                 COUNT(*) FILTER (WHERE t.type::text = '2')::int as total_requests,
                 COUNT(*) FILTER (WHERE t.type::text = '3' AND t.status IN ('1','2','3','4','5'))::int as open_problems
