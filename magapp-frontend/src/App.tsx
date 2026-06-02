@@ -229,11 +229,12 @@ function App() {
     try {
       setLoading(true);
       
+      // timeout 15s : une requête lente ne doit jamais figer la page indéfiniment
       const fetchSafe = async (url: string, defaultValue: any) => {
         try {
           const token = localStorage.getItem('token');
           const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-          const res = await axios.get(url, { headers });
+          const res = await axios.get(url, { headers, timeout: 15000 });
           return res.data;
         } catch (e) {
           console.error(`Erreur lors du fetch de ${url}:`, e);
@@ -241,26 +242,33 @@ function App() {
         }
       };
 
-      const [cats, appsData, favs, subs, tickets, settingsData, tilesData] = await Promise.all([
+      // 1) Données ESSENTIELLES (bloquantes) : on affiche dès qu'elles sont là
+      const [cats, appsData, favs, settingsData, tilesData] = await Promise.all([
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
-        email ? fetchSafe(`${apiBase}/magapp/user-subscriptions?email=${email}`, []) : Promise.resolve([]),
-        email ? fetchSafe(`${apiBase}/tickets/?requester_email=${encodeURIComponent(email)}&limit=200`, []) : Promise.resolve([]),
         fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
-      setCategories(cats.sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
-      setApps(appsData.sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
+      setCategories((cats || []).sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
+      setApps((appsData || []).sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
-      setSubscriptions(subs);
-      setTicketCount(tickets?.data?.filter((t: Ticket) => !['6','7','8'].includes(String(t.status.id)))?.length || 0);
-      setUserTickets(tickets?.data || []);
       setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
-      setTiles(tilesData.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
+      setTiles((tilesData || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
+
+      // 2) Données SECONDAIRES (tickets, abonnements) : en arrière-plan, sans bloquer l'affichage
+      if (email) {
+        fetchSafe(`${apiBase}/tickets/?requester_email=${encodeURIComponent(email)}&limit=200`, [])
+          .then((tickets: any) => {
+            setTicketCount(tickets?.data?.filter((t: Ticket) => !['6','7','8'].includes(String(t.status.id)))?.length || 0);
+            setUserTickets(tickets?.data || []);
+          });
+        fetchSafe(`${apiBase}/magapp/user-subscriptions?email=${email}`, [])
+          .then((subs: any) => setSubscriptions(subs || []));
+      }
     } catch (error) {
       console.error("Erreur globale de chargement des données", error);
     } finally {
