@@ -89,6 +89,7 @@ export default function TicketDetail() {
   // Documents (base de connaissance / doc logiciel) à envoyer en pièce jointe
   const [pendingDocs, setPendingDocs] = useState<{ source: 'kb' | 'magapp'; id: number; name: string }[]>([]);
   const [sendingToUser, setSendingToUser] = useState(false);
+  const [solutionning, setSolutionning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<any[]>([]);
   // Groupe de tickets
@@ -554,6 +555,30 @@ export default function TicketDetail() {
     }
   }
 
+  // Valide le commentaire comme SOLUTION : le poste, le définit comme solution
+  // du ticket (affichage distinct) et passe le statut à Résolu.
+  async function handleSolutionner() {
+    if (isCommentEmpty(newComment)) return;
+    setSolutionning(true);
+    try {
+      const token = localStorage.getItem('token');
+      const h = { headers: { Authorization: `Bearer ${token}` } };
+      const attachment_ids = await buildAttachmentIds();
+      // 1) Poster le commentaire (public)
+      await axios.post(`/api/tickets/${id}/comments`, { content: newComment, is_private: 0, attachment_ids }, h);
+      // 2) Le définir comme solution → statut Résolu (5) + date_solved (côté backend)
+      await axios.post(`/api/tickets/${id}/solution`, { solution: newComment }, h);
+      setNewComment('');
+      setCommentFile(null);
+      setPendingDocs([]);
+      await loadTicket();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Erreur lors de la résolution');
+    } finally {
+      setSolutionning(false);
+    }
+  }
+
   async function handleSendToUser() {
     if (nothingToSend) return;
     setSendingToUser(true);
@@ -982,10 +1007,12 @@ export default function TicketDetail() {
                   ].filter(Boolean).map((e: string) => e.toLowerCase());
                   const isFromRequester = c.author_email && requesterEmails.includes(c.author_email.toLowerCase());
                   const isSentToUser = c.sent_to_user === 1 || c.sent_to_user === true;
+                  // Commentaire retenu comme solution du ticket (fond distinct)
+                  const isSolution = !!ticket?.solution && !!c.content && c.content === ticket.solution;
 
-                  // Sent-to-user: blue tint; requester reply: green tint; private: yellow; normal: grey
-                  const bgColor = (isSentToUser || isFromRequester) ? '#f0fdf4' : c.is_private ? '#fffbeb' : '#f9f9fb';
-                  const borderColor = (isSentToUser || isFromRequester) ? '#bbf7d0' : c.is_private ? '#fde68a' : '#f4f4f5';
+                  // Solution: vert émeraude marqué; sent-to-user/requester: vert clair; privé: jaune; normal: gris
+                  const bgColor = isSolution ? '#dcfce7' : (isSentToUser || isFromRequester) ? '#f0fdf4' : c.is_private ? '#fffbeb' : '#f9f9fb';
+                  const borderColor = isSolution ? '#16a34a' : (isSentToUser || isFromRequester) ? '#bbf7d0' : c.is_private ? '#fde68a' : '#f4f4f5';
 
                   return (
                     <div key={c.id || i} style={{ display: 'flex', gap: 10, marginLeft: isFromRequester ? 20 : 0 }}>
@@ -1001,6 +1028,7 @@ export default function TicketDetail() {
                           {isSentToUser && <span style={{ fontSize: 10, color: '#1d4ed8', background: '#dbeafe', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>✉️ Envoyé</span>}
                           {isFromRequester && <span style={{ fontSize: 10, color: '#15803d', background: '#dcfce7', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>↩ Réponse</span>}
                           {!!c.is_private && <span style={{ fontSize: 10, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: 8, fontWeight: 600 }}>🔒 Interne</span>}
+                          {isSolution && <span style={{ fontSize: 10, color: '#15803d', background: '#bbf7d0', padding: '1px 6px', borderRadius: 8, fontWeight: 700 }}>✅ Solution</span>}
                           <span style={{ fontSize: 11, color: '#a1a1aa', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
                             {formatDateTime(c.date_creation)}
                           </span>
@@ -1144,6 +1172,11 @@ export default function TicketDetail() {
                 <button onClick={handleAddComment} disabled={nothingToSend}
                   style={{ padding: '6px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: nothingToSend ? 0.5 : 1 }}>
                   Enregistrer
+                </button>
+                <button onClick={handleSolutionner} disabled={isCommentEmpty(newComment) || solutionning}
+                  title="Valider ce commentaire comme solution et passer le ticket à Résolu"
+                  style={{ padding: '6px 16px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: (isCommentEmpty(newComment) || solutionning) ? 0.5 : 1 }}>
+                  {solutionning ? 'Résolution…' : '✅ Solutionner'}
                 </button>
               </div>
             </div>
