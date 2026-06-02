@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware');
+const { authenticateJWT } = require('../../shared/middleware');
+const { authenticateTicketAdmin } = require('./middleware/ticket-permissions');
 const { pgDb, getSqlite } = require('../../shared/database');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
 const technicianRepo = require('./repositories/technician.repository');
@@ -36,7 +37,7 @@ router.get('/categories', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/categories', authenticateAdmin, async (req, res) => {
+router.post('/categories', authenticateTicketAdmin, async (req, res) => {
     try {
         const { name, parent_id, sort_order, icon } = req.body;
         const result = await pgDb.run(`
@@ -55,7 +56,7 @@ router.post('/categories', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/categories/:id', authenticateAdmin, async (req, res) => {
+router.put('/categories/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('UPDATE hub_tickets.ticket_categories SET name = $1, sort_order = $2, icon = $3 WHERE id = $4',
             [req.body.name, req.body.sort_order || 0, req.body.icon || null, req.params.id]);
@@ -63,7 +64,7 @@ router.put('/categories/:id', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.delete('/categories/:id', authenticateAdmin, async (req, res) => {
+router.delete('/categories/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('UPDATE hub_tickets.ticket_categories SET is_active = false WHERE id = $1', [req.params.id]);
         res.json({ message: 'Catégorie désactivée' });
@@ -77,7 +78,7 @@ function normalizeCat(s) {
 }
 
 // Anciennes catégories texte UTILISÉES + nb de tickets + mapping actuel + suggestion auto.
-router.get('/category-mapping/used', authenticateAdmin, async (req, res) => {
+router.get('/category-mapping/used', authenticateTicketAdmin, async (req, res) => {
     try {
         const used = await pgDb.all(`
             SELECT category AS old_category, COUNT(*)::int AS ticket_count
@@ -149,7 +150,7 @@ router.get('/category-mapping/used', authenticateAdmin, async (req, res) => {
 });
 
 // Enregistre/Met à jour une correspondance.
-router.put('/category-mapping', authenticateAdmin, async (req, res) => {
+router.put('/category-mapping', authenticateTicketAdmin, async (req, res) => {
     try {
         const { old_category, category_id } = req.body;
         if (!old_category) return res.status(400).json({ message: 'old_category requis' });
@@ -192,7 +193,7 @@ async function ensureMetierCategory() {
 }
 
 // Bouton "logiciel métier" : affecte un logiciel (app magapp) + catégorie Logiciels / Métier.
-router.post('/category-mapping/assign-metier', authenticateAdmin, async (req, res) => {
+router.post('/category-mapping/assign-metier', authenticateTicketAdmin, async (req, res) => {
     try {
         const { old_category, software_id } = req.body;
         if (!old_category) return res.status(400).json({ message: 'old_category requis' });
@@ -207,7 +208,7 @@ router.post('/category-mapping/assign-metier', authenticateAdmin, async (req, re
 });
 
 // Applique toutes les correspondances : renseigne tickets.category_id (+ software_id) pour les stats.
-router.post('/category-mapping/apply', authenticateAdmin, async (req, res) => {
+router.post('/category-mapping/apply', authenticateTicketAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(`
             UPDATE hub_tickets.tickets t
@@ -221,7 +222,7 @@ router.post('/category-mapping/apply', authenticateAdmin, async (req, res) => {
 });
 
 // ─── Transposition des groupes GLPI → groupes APP ──────────────────────────
-router.get('/group-mapping/used', authenticateAdmin, async (req, res) => {
+router.get('/group-mapping/used', authenticateTicketAdmin, async (req, res) => {
     try {
         const used = await pgDb.all(`
             SELECT gg.id AS group_id, COALESCE(gg.name, ('Groupe #' || gg.id)) as group_name, COUNT(ga.ticket_id)::int AS ticket_count
@@ -247,7 +248,7 @@ router.get('/group-mapping/used', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.put('/group-mapping', authenticateAdmin, async (req, res) => {
+router.put('/group-mapping', authenticateTicketAdmin, async (req, res) => {
     try {
         const { glpi_group_id, app_group_id } = req.body;
         if (!glpi_group_id) return res.status(400).json({ message: 'glpi_group_id requis' });
@@ -260,7 +261,7 @@ router.put('/group-mapping', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.post('/group-mapping/apply', authenticateAdmin, async (req, res) => {
+router.post('/group-mapping/apply', authenticateTicketAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.ticket_assignments (ticket_id, group_id, is_primary)
@@ -287,7 +288,7 @@ router.get('/tags', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/tags', authenticateAdmin, async (req, res) => {
+router.post('/tags', authenticateTicketAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(
             'INSERT INTO hub_tickets.ticket_tags (name, color) VALUES ($1, $2)',
@@ -296,7 +297,7 @@ router.post('/tags', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/tags/:id', authenticateAdmin, async (req, res) => {
+router.put('/tags/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('UPDATE hub_tickets.ticket_tags SET name = $1, color = $2 WHERE id = $3',
             [req.body.name, req.body.color, req.params.id]);
@@ -304,7 +305,7 @@ router.put('/tags/:id', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.delete('/tags/:id', authenticateAdmin, async (req, res) => {
+router.delete('/tags/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('UPDATE hub_tickets.ticket_tags SET is_active = false WHERE id = $1', [req.params.id]);
         res.json({ message: 'Tag désactivé' });
@@ -329,7 +330,7 @@ router.get('/groups', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/groups', authenticateAdmin, async (req, res) => {
+router.post('/groups', authenticateTicketAdmin, async (req, res) => {
     try {
         const { name, description, is_default } = req.body;
         if (is_default) {
@@ -342,7 +343,7 @@ router.post('/groups', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/groups/:id', authenticateAdmin, async (req, res) => {
+router.put('/groups/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         const { name, description, is_default } = req.body;
         if (is_default) {
@@ -354,14 +355,14 @@ router.put('/groups/:id', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.delete('/groups/:id', authenticateAdmin, async (req, res) => {
+router.delete('/groups/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('UPDATE hub_tickets.technician_groups SET is_active = false WHERE id = $1', [req.params.id]);
         res.json({ message: 'Groupe désactivé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.post('/groups/:id/set-default', authenticateAdmin, async (req, res) => {
+router.post('/groups/:id/set-default', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('UPDATE hub_tickets.technician_groups SET is_default = false WHERE is_default = true');
         await pgDb.run('UPDATE hub_tickets.technician_groups SET is_default = true WHERE id = $1', [req.params.id]);
@@ -369,7 +370,7 @@ router.post('/groups/:id/set-default', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.post('/groups/:id/members', authenticateAdmin, async (req, res) => {
+router.post('/groups/:id/members', authenticateTicketAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(
             'INSERT INTO hub_tickets.technician_group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
@@ -379,7 +380,7 @@ router.post('/groups/:id/members', authenticateAdmin, async (req, res) => {
     } catch (e) { console.log('[DEBUG] addMember ERROR:', e.message); res.status(400).json({ message: e.message }); }
 });
 
-router.delete('/groups/:id/members/:mid', authenticateAdmin, async (req, res) => {
+router.delete('/groups/:id/members/:mid', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('DELETE FROM hub_tickets.technician_group_members WHERE id = $1', [req.params.mid]);
         res.json({ message: 'Membre retiré' });
@@ -396,7 +397,7 @@ router.get('/sla', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/sla', authenticateAdmin, async (req, res) => {
+router.post('/sla', authenticateTicketAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.sla_definitions
@@ -410,7 +411,7 @@ router.post('/sla', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/sla/:id', authenticateAdmin, async (req, res) => {
+router.put('/sla/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         // Mise à jour DYNAMIQUE : on ne touche QUE les champs réellement présents dans le body.
         // (Auparavant, un simple toggle is_active mettait à NULL priority/minutes/etc. → SLA vidés.)
@@ -435,7 +436,7 @@ router.put('/sla/:id', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.delete('/sla/:id', authenticateAdmin, async (req, res) => {
+router.delete('/sla/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('UPDATE hub_tickets.sla_definitions SET is_active = false WHERE id = $1', [req.params.id]);
         res.json({ message: 'SLA désactivé' });
@@ -443,7 +444,7 @@ router.delete('/sla/:id', authenticateAdmin, async (req, res) => {
 });
 
 // ─── SLA Check (déclenchement manuel) ──────────────────────────
-router.post('/sla/check', authenticateAdmin, async (req, res) => {
+router.post('/sla/check', authenticateTicketAdmin, async (req, res) => {
     try {
         const slaService = require('./services/sla.service');
         await slaService.checkSLAs();
@@ -454,7 +455,7 @@ router.post('/sla/check', authenticateAdmin, async (req, res) => {
 
 // Réinitialise complètement l'état SLA : purge ticket_sla (+ pauses) puis recalcule
 // uniquement pour les définitions ACTIVES (via checkSLAs → applyMissingSLAs).
-router.post('/sla/reset', authenticateAdmin, async (req, res) => {
+router.post('/sla/reset', authenticateTicketAdmin, async (req, res) => {
     try {
         const { pool } = require('../../shared/database');
         await pool.query('DELETE FROM hub_tickets.ticket_sla_pauses');
@@ -482,7 +483,7 @@ router.get('/sla/calendars', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/sla/calendars', authenticateAdmin, async (req, res) => {
+router.post('/sla/calendars', authenticateTicketAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(
             'INSERT INTO hub_tickets.sla_calendars (name, description, timezone) VALUES ($1, $2, $3)',
@@ -491,7 +492,7 @@ router.post('/sla/calendars', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/sla/calendars/:id', authenticateAdmin, async (req, res) => {
+router.put('/sla/calendars/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run(
             'UPDATE hub_tickets.sla_calendars SET name = $1, description = $2, timezone = $3 WHERE id = $4',
@@ -500,14 +501,14 @@ router.put('/sla/calendars/:id', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.delete('/sla/calendars/:id/hours/:hourId', authenticateAdmin, async (req, res) => {
+router.delete('/sla/calendars/:id/hours/:hourId', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('DELETE FROM hub_tickets.sla_calendar_hours WHERE id = $1', [req.params.hourId]);
         res.json({ message: 'Plage horaire supprimée' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.post('/sla/calendars/:id/hours', authenticateAdmin, async (req, res) => {
+router.post('/sla/calendars/:id/hours', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run(
             'INSERT INTO hub_tickets.sla_calendar_hours (calendar_id, day_of_week, start_time, end_time) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
@@ -524,7 +525,7 @@ router.get('/assignment-rules', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/assignment-rules', authenticateAdmin, async (req, res) => {
+router.post('/assignment-rules', authenticateTicketAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.assignment_rules
@@ -536,7 +537,7 @@ router.post('/assignment-rules', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/assignment-rules/:id', authenticateAdmin, async (req, res) => {
+router.put('/assignment-rules/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run(`
             UPDATE hub_tickets.assignment_rules SET
@@ -550,7 +551,7 @@ router.put('/assignment-rules/:id', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.delete('/assignment-rules/:id', authenticateAdmin, async (req, res) => {
+router.delete('/assignment-rules/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('DELETE FROM hub_tickets.assignment_rules WHERE id = $1', [req.params.id]);
         res.json({ message: 'Règle supprimée' });
@@ -581,7 +582,7 @@ router.get('/vip-users', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/vip-users', authenticateAdmin, async (req, res) => {
+router.post('/vip-users', authenticateTicketAdmin, async (req, res) => {
     try {
         const { user_id, username, display_name, email } = req.body;
         if (!username?.trim()) return res.status(400).json({ message: 'Username requis' });
@@ -595,7 +596,7 @@ router.post('/vip-users', authenticateAdmin, async (req, res) => {
 
 // Applique le caractère VIP à tous les tickets dont le demandeur est VIP/élu.
 // Utile après une "récupération GLPI" qui réimporte les tickets sans le flag is_vip.
-router.post('/vip-users/apply-all', authenticateAdmin, async (req, res) => {
+router.post('/vip-users/apply-all', authenticateTicketAdmin, async (req, res) => {
     try {
         await syncElusToVip(); // rafraîchit la liste des élus d'abord
         const normName = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -621,7 +622,7 @@ router.post('/vip-users/apply-all', authenticateAdmin, async (req, res) => {
     }
 });
 
-router.delete('/vip-users/:id', authenticateAdmin, async (req, res) => {
+router.delete('/vip-users/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         const vip = await pgDb.get('SELECT is_elu FROM hub_tickets.vip_users WHERE id = $1', [req.params.id]);
         if (!vip) return res.status(404).json({ message: 'VIP non trouvé' });
@@ -639,7 +640,7 @@ router.get('/notification-templates', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/notification-templates', authenticateAdmin, async (req, res) => {
+router.post('/notification-templates', authenticateTicketAdmin, async (req, res) => {
     try {
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html)
@@ -649,7 +650,7 @@ router.post('/notification-templates', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/notification-templates/:id', authenticateAdmin, async (req, res) => {
+router.put('/notification-templates/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         // Support both id and slug as parameter
         const whereClause = isNaN(req.params.id) ? 'slug = $4' : 'id = $4';
@@ -661,7 +662,7 @@ router.put('/notification-templates/:id', authenticateAdmin, async (req, res) =>
 });
 
 // ─── Triggers ──────────────────────────────────────────────────
-router.get('/notification-triggers', authenticateAdmin, async (req, res) => {
+router.get('/notification-triggers', authenticateTicketAdmin, async (req, res) => {
     try {
         const triggers = await pgDb.all(`
             SELECT ntr.*, nt.label as template_label
@@ -673,7 +674,7 @@ router.get('/notification-triggers', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/notification-triggers', authenticateAdmin, async (req, res) => {
+router.post('/notification-triggers', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run(`
             INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type)
@@ -683,7 +684,7 @@ router.post('/notification-triggers', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/notification-triggers/:id', authenticateAdmin, async (req, res) => {
+router.put('/notification-triggers/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         const { is_active } = req.body;
         await pgDb.run('UPDATE hub_tickets.notification_triggers SET is_active = $1 WHERE id = $2', [is_active, req.params.id]);
@@ -691,7 +692,7 @@ router.put('/notification-triggers/:id', authenticateAdmin, async (req, res) => 
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.delete('/notification-triggers/:id', authenticateAdmin, async (req, res) => {
+router.delete('/notification-triggers/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run('DELETE FROM hub_tickets.notification_triggers WHERE id = $1', [req.params.id]);
         res.json({ message: 'Déclencheur supprimé' });
@@ -712,7 +713,7 @@ router.get('/sla/escalations', authenticateJWT, async (req, res) => {
 });
 
 // ─── Technicians ────────────────────────────────────────────────
-router.get('/technicians', authenticateAdmin, async (req, res) => {
+router.get('/technicians', authenticateTicketAdmin, async (req, res) => {
     try {
         const list = await technicianRepo.findAll(req.query.status || null);
         // Enrich with service data from SQLite (hub.users doesn't store service_code)
@@ -737,7 +738,7 @@ router.get('/technicians', authenticateAdmin, async (req, res) => {
 
 // Rejoue la transposition des assignés GLPI → hub_tickets.ticket_assignments
 // (login GLPI → hub.users.id). N'écrase pas les assignations existantes.
-router.post('/technicians/reapply-assignments', authenticateAdmin, async (req, res) => {
+router.post('/technicians/reapply-assignments', authenticateTicketAdmin, async (req, res) => {
     try {
         // Diagnostic : combien d'assignés, combien résolvables par login
         const diag = await pgDb.get(`
@@ -782,7 +783,7 @@ router.get('/technicians/available', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.get('/technicians/ad-search', authenticateAdmin, async (req, res) => {
+router.get('/technicians/ad-search', authenticateTicketAdmin, async (req, res) => {
     try {
         const q = (req.query.q || '').trim();
         if (!q || q.length < 2) return res.json([]);
@@ -796,7 +797,7 @@ router.get('/technicians/ad-search', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/technicians', authenticateAdmin, async (req, res) => {
+router.post('/technicians', authenticateTicketAdmin, async (req, res) => {
     try {
         const { user_id, username, displayName, email } = req.body;
         const db = getSqlite();
@@ -834,7 +835,7 @@ router.post('/technicians', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/technicians/:id/status', authenticateAdmin, async (req, res) => {
+router.put('/technicians/:id/status', authenticateTicketAdmin, async (req, res) => {
     try {
         const { status, paused_until, notes } = req.body;
         const validStatuses = ['active', 'paused', 'inactive'];
@@ -846,7 +847,7 @@ router.put('/technicians/:id/status', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.put('/technicians/:id', authenticateAdmin, async (req, res) => {
+router.put('/technicians/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         const { notes, mobile_phone, is_emergency_contact } = req.body;
         const sets = ['updated_at = CURRENT_TIMESTAMP'];
@@ -864,21 +865,21 @@ router.put('/technicians/:id', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.delete('/technicians/:id', authenticateAdmin, async (req, res) => {
+router.delete('/technicians/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await technicianRepo.delete(parseInt(req.params.id));
         res.json({ message: 'Technicien désactivé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.get('/technicians/:id/tickets', authenticateAdmin, async (req, res) => {
+router.get('/technicians/:id/tickets', authenticateTicketAdmin, async (req, res) => {
     try {
         const tickets = await technicianRepo.getTicketsByTechnician(parseInt(req.params.id));
         res.json(tickets);
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/technicians/:id/reassign', authenticateAdmin, async (req, res) => {
+router.post('/technicians/:id/reassign', authenticateTicketAdmin, async (req, res) => {
     try {
         const { mode, target_id } = req.body;
         if (!['single', 'group', 'dispatch', 'unassign'].includes(mode)) {
@@ -894,7 +895,7 @@ router.post('/technicians/:id/reassign', authenticateAdmin, async (req, res) => 
 
 // ─── Escalade ────────────────────────────────────────────────────
 
-router.get('/escalade', authenticateAdmin, async (req, res) => {
+router.get('/escalade', authenticateTicketAdmin, async (req, res) => {
     try {
         const support = await pgDb.all(`SELECT * FROM hub_tickets.escalade_config WHERE type = 'support_agent' ORDER BY display_name`);
         const targets = await pgDb.all(`SELECT * FROM hub_tickets.escalade_config WHERE type = 'escalade_target' ORDER BY display_name, service_label`);
@@ -902,7 +903,7 @@ router.get('/escalade', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.get('/escalade/agent-service', authenticateAdmin, async (req, res) => {
+router.get('/escalade/agent-service', authenticateTicketAdmin, async (req, res) => {
     try {
         const username = (req.query.username || '').trim();
         if (!username) return res.json({ service: null });
@@ -922,7 +923,7 @@ router.get('/escalade/agent-service', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.get('/escalade/groups', authenticateAdmin, async (req, res) => {
+router.get('/escalade/groups', authenticateTicketAdmin, async (req, res) => {
     try {
         const groups = await pgDb.all(`
             SELECT g.id, g.name, g.description, g.is_default,
@@ -939,7 +940,7 @@ router.get('/escalade/groups', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/escalade/support-agent', authenticateAdmin, async (req, res) => {
+router.post('/escalade/support-agent', authenticateTicketAdmin, async (req, res) => {
     try {
         const { user_id, username, display_name, email } = req.body;
         const existing = await pgDb.get(`SELECT id FROM hub_tickets.escalade_config WHERE type = 'support_agent' AND user_id = $1`, [user_id]);
@@ -949,14 +950,14 @@ router.post('/escalade/support-agent', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.delete('/escalade/support-agent/:id', authenticateAdmin, async (req, res) => {
+router.delete('/escalade/support-agent/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run(`DELETE FROM hub_tickets.escalade_config WHERE id = $1 AND type = 'support_agent'`, [req.params.id]);
         res.json({ message: 'Agent retiré' });
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.post('/escalade/target', authenticateAdmin, async (req, res) => {
+router.post('/escalade/target', authenticateTicketAdmin, async (req, res) => {
     try {
         const { target_type, user_id, username, display_name, email, service_code, service_label } = req.body;
         await pgDb.run(
@@ -967,7 +968,7 @@ router.post('/escalade/target', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.delete('/escalade/target/:id', authenticateAdmin, async (req, res) => {
+router.delete('/escalade/target/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run(`DELETE FROM hub_tickets.escalade_config WHERE id = $1 AND type = 'escalade_target'`, [req.params.id]);
         res.json({ message: 'Cible retirée' });
@@ -984,21 +985,21 @@ router.get('/glpi-url', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.get('/config/:key', authenticateAdmin, async (req, res) => {
+router.get('/config/:key', authenticateTicketAdmin, async (req, res) => {
     try {
         const val = await technicianRepo.getConfig(req.params.key);
         res.json({ key: req.params.key, value: val });
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.put('/config/:key', authenticateAdmin, async (req, res) => {
+router.put('/config/:key', authenticateTicketAdmin, async (req, res) => {
     try {
         await technicianRepo.setConfig(req.params.key, req.body.value);
         res.json({ message: 'Configuration mise à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
-router.get('/config-all', authenticateAdmin, async (req, res) => {
+router.get('/config-all', authenticateTicketAdmin, async (req, res) => {
     try {
         const rows = await pgDb.all('SELECT key, value FROM hub_tickets.module_config');
         const config = {};
@@ -1007,7 +1008,7 @@ router.get('/config-all', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.put('/config-bulk', authenticateAdmin, async (req, res) => {
+router.put('/config-bulk', authenticateTicketAdmin, async (req, res) => {
     try {
         const updates = req.body;
         if (typeof updates !== 'object' || Array.isArray(updates)) return res.status(400).json({ message: 'Object key/value expected' });
@@ -1019,7 +1020,7 @@ router.put('/config-bulk', authenticateAdmin, async (req, res) => {
 });
 
 // ─── Journal (ticket history) ─────────────────────────────────────
-router.get('/journal', authenticateAdmin, async (req, res) => {
+router.get('/journal', authenticateTicketAdmin, async (req, res) => {
     try {
         const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
         const offset = parseInt(req.query.offset) || 0;
@@ -1040,7 +1041,7 @@ router.get('/journal', authenticateAdmin, async (req, res) => {
 });
 
 // ─── Rôle d'un membre de l'équipe ────────────────────────────────
-router.put('/technicians/:id/role', authenticateAdmin, async (req, res) => {
+router.put('/technicians/:id/role', authenticateTicketAdmin, async (req, res) => {
     try {
         const { role } = req.body;
         const validRoles = ['technician', 'supervisor', 'admin'];
@@ -1073,7 +1074,7 @@ router.put('/technicians/:id/role', authenticateAdmin, async (req, res) => {
 });
 
 // ─── Matrice de permissions par rôle ─────────────────────────────
-router.get('/role-permissions', authenticateAdmin, async (req, res) => {
+router.get('/role-permissions', authenticateTicketAdmin, async (req, res) => {
     try {
         const rows = await pgDb.all('SELECT role, permission FROM hub_tickets.role_permissions ORDER BY permission, role');
         const result = {};
@@ -1085,7 +1086,7 @@ router.get('/role-permissions', authenticateAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-router.put('/role-permissions', authenticateAdmin, async (req, res) => {
+router.put('/role-permissions', authenticateTicketAdmin, async (req, res) => {
     try {
         const { permissions } = req.body;
         if (!permissions || typeof permissions !== 'object') {
@@ -1366,7 +1367,7 @@ router.post('/sync-glpi', authenticateJWT, async (req, res) => {
  *  ═══════════════════════════════════════════════════════════════════════════════ */
 const { pool } = require('../../shared/database');
 
-router.get('/notification-queue', authenticateAdmin, async (req, res) => {
+router.get('/notification-queue', authenticateTicketAdmin, async (req, res) => {
     try {
         const { limit, status } = req.query;
         let sql = `SELECT * FROM hub_tickets.notification_queue`;
@@ -1385,7 +1386,7 @@ router.get('/notification-queue', authenticateAdmin, async (req, res) => {
     }
 });
 
-router.delete('/notification-queue/:id', authenticateAdmin, async (req, res) => {
+router.delete('/notification-queue/:id', authenticateTicketAdmin, async (req, res) => {
     try {
         await pool.query(`DELETE FROM hub_tickets.notification_queue WHERE id = $1`, [req.params.id]);
         res.json({ message: 'Supprimé' });
@@ -1395,7 +1396,7 @@ router.delete('/notification-queue/:id', authenticateAdmin, async (req, res) => 
     }
 });
 
-router.delete('/notification-queue', authenticateAdmin, async (req, res) => {
+router.delete('/notification-queue', authenticateTicketAdmin, async (req, res) => {
     try {
         const { status } = req.query;
         if (status) {
@@ -1412,7 +1413,7 @@ router.delete('/notification-queue', authenticateAdmin, async (req, res) => {
 });
 
 // ─── Reinitialize notification templates and triggers ─────────────
-router.post('/reinit-notifications', authenticateAdmin, async (req, res) => {
+router.post('/reinit-notifications', authenticateTicketAdmin, async (req, res) => {
     let client;
     try {
         const { pool: pgPool } = require('../../shared/database');
@@ -1539,7 +1540,7 @@ router.get('/response-templates', authenticateJWT, async (req, res) => {
 });
 
 // POST /api/tickets/admin/response-templates
-router.post('/response-templates', authenticateJWT, authenticateAdmin, async (req, res) => {
+router.post('/response-templates', authenticateJWT, authenticateTicketAdmin, async (req, res) => {
     try {
         const { name, description, message, category_id, subcategory_id } = req.body;
         if (!name || !message) return res.status(400).json({ message: 'name et message requis' });
@@ -1553,7 +1554,7 @@ router.post('/response-templates', authenticateJWT, authenticateAdmin, async (re
 });
 
 // PUT /api/tickets/admin/response-templates/:id
-router.put('/response-templates/:id', authenticateJWT, authenticateAdmin, async (req, res) => {
+router.put('/response-templates/:id', authenticateJWT, authenticateTicketAdmin, async (req, res) => {
     try {
         const { name, description, message, category_id, subcategory_id } = req.body;
         const row = await pgDb.get(
@@ -1568,7 +1569,7 @@ router.put('/response-templates/:id', authenticateJWT, authenticateAdmin, async 
 });
 
 // DELETE /api/tickets/admin/response-templates/:id
-router.delete('/response-templates/:id', authenticateJWT, authenticateAdmin, async (req, res) => {
+router.delete('/response-templates/:id', authenticateJWT, authenticateTicketAdmin, async (req, res) => {
     try {
         await pgDb.run(`DELETE FROM hub_tickets.response_templates WHERE id=$1`, [req.params.id]);
         res.json({ ok: true });
@@ -1602,7 +1603,7 @@ router.get('/knowledge-documents', authenticateJWT, async (req, res) => {
 });
 
 // POST /api/tickets/admin/knowledge-documents (multipart : file + name + description + category_id)
-router.post('/knowledge-documents', authenticateJWT, authenticateAdmin, kbUpload.single('file'), async (req, res) => {
+router.post('/knowledge-documents', authenticateJWT, authenticateTicketAdmin, kbUpload.single('file'), async (req, res) => {
     try {
         const { name, description, category_id, app_id } = req.body;
         if (!req.file) return res.status(400).json({ message: 'Fichier requis' });
@@ -1631,7 +1632,7 @@ router.post('/knowledge-documents', authenticateJWT, authenticateAdmin, kbUpload
 });
 
 // PUT /api/tickets/admin/knowledge-documents/:id (métadonnées seulement)
-router.put('/knowledge-documents/:id', authenticateJWT, authenticateAdmin, async (req, res) => {
+router.put('/knowledge-documents/:id', authenticateJWT, authenticateTicketAdmin, async (req, res) => {
     try {
         const { name, description, category_id, app_id } = req.body;
         const row = await pgDb.get(
@@ -1712,7 +1713,7 @@ router.get('/magapp-doc-link/:docId', authenticateJWT, async (req, res) => {
 });
 
 // DELETE /api/tickets/admin/knowledge-documents/:id
-router.delete('/knowledge-documents/:id', authenticateJWT, authenticateAdmin, async (req, res) => {
+router.delete('/knowledge-documents/:id', authenticateJWT, authenticateTicketAdmin, async (req, res) => {
     try {
         const doc = await pgDb.get(`SELECT file_path FROM hub_tickets.knowledge_documents WHERE id=$1`, [req.params.id]);
         if (doc) {

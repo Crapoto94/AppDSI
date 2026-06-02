@@ -1,4 +1,10 @@
 const { pgDb } = require('../../../shared/database');
+const { authenticateJWT } = require('../../../shared/middleware');
+
+// Rôles habilités à administrer le module tickets (paramètres) : superviseurs + admins.
+// resolveTicketRole renvoie 'admin'/'superadmin' pour les admins globaux, et 'supervisor'
+// pour un utilisateur dont le module_role est superviseur.
+const TICKET_ADMIN_ROLES = ['supervisor', 'admin', 'superadmin'];
 
 const DEFAULT_PERMISSIONS = {
     'ticket:read':            ['readonly', 'user', 'technician', 'supervisor', 'admin', 'superadmin'],
@@ -107,8 +113,23 @@ async function resolveTicketRole(user) {
     return role;
 }
 
+// Middleware : accès admin tickets (superviseurs + admins). Authentifie le JWT puis
+// vérifie le rôle de module résolu. Remplace authenticateAdmin (superadmin uniquement).
+function authenticateTicketAdmin(req, res, next) {
+    authenticateJWT(req, res, async () => {
+        try {
+            const role = await resolveTicketRole(req.user);
+            if (TICKET_ADMIN_ROLES.includes(role)) return next();
+            return res.status(403).json({ message: 'Accès refusé : superviseur ou administrateur tickets requis' });
+        } catch (e) {
+            return res.status(500).json({ message: 'Erreur de vérification des permissions' });
+        }
+    });
+}
+
 module.exports = {
     loadPermissionsFromDb,
+    authenticateTicketAdmin,
 
     requireTicketPermission(action) {
         return async (req, res, next) => {
