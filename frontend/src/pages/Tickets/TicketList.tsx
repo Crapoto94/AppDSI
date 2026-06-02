@@ -1,6 +1,7 @@
 import React, { useState, Fragment } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatDate as formatDateParis } from '../../utils/datetime';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
@@ -678,7 +679,7 @@ export default function TicketList({
 
                     {/* Date */}
                     <td style={{ ...tdStyle, fontSize: isChild ? 11 : 12, color: '#64748b' }}>
-                      {data.date_creation ? new Date(data.date_creation).toLocaleDateString('fr-FR') : ''}
+                      {data.date_creation ? formatDateParis(data.date_creation) : ''}
                     </td>
                   </tr>
                   {/* Espacement après un groupe */}

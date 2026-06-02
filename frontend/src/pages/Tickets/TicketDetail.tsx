@@ -11,6 +11,7 @@ import AssociateProblemModal from './AssociateProblemModal';
 import ProblemModal from './ProblemModal';
 import ResponseSuggestions from './ResponseSuggestions';
 import DocumentSuggestions from './DocumentSuggestions';
+import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 
 function decodeHtml(str: string) {
   const txt = document.createElement('textarea');
@@ -937,7 +938,7 @@ export default function TicketDetail() {
                         {task.username && <span style={{ fontSize: 11, color: '#a1a1aa', flexShrink: 0 }}>{task.username}</span>}
                         {task.echeance && (
                           <span style={{ fontSize: 11, color: new Date(task.echeance) < new Date() && !done ? '#ef4444' : '#a1a1aa', flexShrink: 0 }}>
-                            📅 {new Date(task.echeance).toLocaleDateString('fr-FR')}
+                            📅 {formatDateParis(task.echeance)}
                           </span>
                         )}
                       </div>
@@ -985,7 +986,7 @@ export default function TicketDetail() {
                           {isFromRequester && <span style={{ fontSize: 10, color: '#15803d', background: '#dcfce7', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>↩ Réponse</span>}
                           {c.is_private && <span style={{ fontSize: 10, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: 8, fontWeight: 600 }}>🔒 Interne</span>}
                           <span style={{ fontSize: 11, color: '#a1a1aa', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
-                            {c.date_creation ? new Date(c.date_creation).toLocaleString('fr-FR') : ''}
+                            {formatDateTime(c.date_creation)}
                           </span>
                         </div>
                         <div style={{
@@ -1400,7 +1401,7 @@ export default function TicketDetail() {
             {/* CRÉÉ LE */}
             <div style={SF}>
               <span style={SL}>Créé le</span>
-              <span style={SV}>{ticket.date_creation ? new Date(ticket.date_creation).toLocaleString('fr-FR') : '—'}</span>
+              <span style={SV}>{ticket.date_creation ? formatDateTime(ticket.date_creation) : '—'}</span>
               {ticket.active_days != null && (
                 <span style={{ fontSize: 11, fontWeight: 600, color: ticket.active_days > 7 ? '#dc2626' : ticket.active_days > 3 ? '#f59e0b' : '#16a34a', marginLeft: 'auto' }}>
                   {ticket.active_days > 1 ? `${Math.round(ticket.active_days)}j` : ticket.active_days === 1 ? '1j' : '<1j'}
@@ -1543,7 +1544,7 @@ export default function TicketDetail() {
                     {h.created_at && (
                       <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 2 }}>
                         <span>{h.user_name || 'Système'} · </span>
-                        {new Date(h.created_at).toLocaleString('fr-FR')}
+                        {formatDateTime(h.created_at)}
                       </div>
                     )}
                     {h.comment && h.action === 'status_changed' && h.new_value === '4' ? (
