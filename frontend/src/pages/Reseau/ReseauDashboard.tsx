@@ -168,10 +168,10 @@ export default function ReseauDashboard() {
       const chain = aSites.length <= 1 && bSites.length <= 1
         ? (aSites.length === 1 && bSites.length === 1 && aSites[0] !== bSites[0] ? [aSites[0], bSites[0]] : [])
         : aSites.length === 1 && bSites.length > 1
-          ? [aSites[0], ...bSites]
+          ? [aSites[0], ...bSites.slice().reverse()]
           : bSites.length === 1 && aSites.length > 1
-            ? [bSites[0], ...aSites]
-            : [...aSites, ...bSites];
+            ? [bSites[0], ...aSites.slice().reverse()]
+            : [...aSites.slice().reverse(), ...bSites.slice().reverse()];
       const pairs: { a: string; b: string }[] = [];
       for (let i = 0; i < chain.length - 1; i++) {
         if (chain[i] !== chain[i + 1]) pairs.push({ a: chain[i], b: chain[i + 1] });
