@@ -2222,6 +2222,9 @@ app.use('/api/stocks', require('./modules/stocks/stocks.routes'));
 // Réseau Ville Module (cartographie réseau inter-sites)
 app.use('/api/network', require('./modules/reseau/reseau.routes'));
 
+// DXF Plans Module (import de plans CAO)
+app.use('/api/maps/dxf', require('./modules/dxf/dxf.routes'));
+
 // Infra Module (définitions d'API externes + synchronisations)
 app.use('/api/infra', require('./modules/infra/infra.routes'));
 

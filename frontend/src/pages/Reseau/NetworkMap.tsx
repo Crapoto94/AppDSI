@@ -1,10 +1,10 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   MapContainer, TileLayer, Polyline, CircleMarker,
-  Tooltip, LayerGroup, useMapEvents, useMap,
+  Tooltip, LayerGroup, useMapEvents, useMap, GeoJSON,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { NetworkLink, SiteRef, Equipement } from './types';
+import type { NetworkLink, SiteRef, Equipement, DxfEntite } from './types';
 import { linkStyle } from './utils';
 
 // ── Constantes ──────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ export interface MoveResult { siteId: number; siteCode: string; lat: number; lng
 interface Props {
   sites:          Map<string, SiteRef>;
   links:          NetworkLink[];
-  layers:         { links: boolean; sites: boolean; coeur: boolean };
+  layers:         { links: boolean; sites: boolean; coeur: boolean; dxf: boolean };
   drawMode:       boolean;
   drawnPoints:    [number, number][];
   onMapClick:     (lat: number, lng: number) => void;
@@ -120,13 +120,14 @@ interface Props {
   selectedLinkId?: string | null;
   onSelectLink?:  (id: string | null) => void;
   equipementsBySite?: Map<string, Equipement[]>;
+  dxfEntities?:   DxfEntite[];
 }
 
 // ── Composant principal ───────────────────────────────────────────────
 const NetworkMap: React.FC<Props> = ({
   sites, links, layers, drawMode, drawnPoints, onMapClick,
   highlightSites = [], onSiteMoved, selectedLinkId = null, onSelectLink,
-  equipementsBySite,
+  equipementsBySite, dxfEntities,
 }) => {
   const [drawCursor, setDrawCursor] = useState<[number, number] | null>(null);
 
@@ -240,6 +241,23 @@ const NetworkMap: React.FC<Props> = ({
         />
         {selectedLinkId && (
           <MapFitBounds links={links} sites={sites} selectedLinkId={selectedLinkId} />
+        )}
+
+        {/* ── Plans DXF ── */}
+        {layers.dxf && dxfEntities && dxfEntities.length > 0 && (
+          <LayerGroup>
+            {dxfEntities.map(ent => {
+              const style: any = { color: ent.couleur || '#3388ff', weight: ent.epaisseur || 1 };
+              if (ent.type === 'CIRCLE' || ent.geojson.geometry.type === 'Point') {
+                style.radius = ent.geojson.properties?.radius ? Math.min(ent.geojson.properties.radius * 2, 8) : 4;
+                style.fillColor = ent.couleur || '#3388ff';
+                style.fillOpacity = 0.4;
+              }
+              return (
+                <GeoJSON key={ent.id} data={ent.geojson as any} style={style} />
+              );
+            })}
+          </LayerGroup>
         )}
 
         {/* ── Liens réseau ── */}

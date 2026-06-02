@@ -157,3 +157,27 @@ export interface ReseauStats {
   vlans_actifs: number;
   sites_connectes: number;
 }
+
+export interface DxfCalque {
+  nom: string;
+  nb_entites: number;
+  types: string[];
+}
+
+export interface DxfEntite {
+  id: number;
+  calque: string;
+  type: string;
+  geojson: GeoJSON.Feature;
+  couleur: string;
+  epaisseur: number;
+}
+
+export interface DxfDocument {
+  id: number;
+  nom_fichier: string;
+  calques: string[];
+  bounds: { minLat: number; minLng: number; maxLat: number; maxLng: number } | null;
+  cree_le: string;
+  entites: DxfEntite[];
+}

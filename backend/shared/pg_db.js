@@ -4134,6 +4134,31 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_switch_links_local_site ON hub_reseau.switch_links(local_site_id)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_switch_links_remote_site ON hub_reseau.switch_links(remote_site_id)`);
 
+      // ── Documents DXF (plans réseaux) ──────────────────────────────
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.dxf_documents (
+          id SERIAL PRIMARY KEY,
+          nom_fichier TEXT NOT NULL,
+          calques JSONB DEFAULT '[]',
+          points_calage JSONB DEFAULT '[]',
+          bounds JSONB,
+          cree_le TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.dxf_entites (
+          id SERIAL PRIMARY KEY,
+          document_id INT NOT NULL REFERENCES hub_reseau.dxf_documents(id) ON DELETE CASCADE,
+          calque TEXT NOT NULL,
+          type_entite TEXT NOT NULL,
+          geojson JSONB NOT NULL,
+          couleur TEXT,
+          epaisseur INT,
+          cree_le TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_dxf_entites_doc ON hub_reseau.dxf_entites(document_id)`);
+
       // ── Définitions d'API « Infra » (générique, extensible) ───────
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub.infra_apis (

@@ -3,15 +3,17 @@ import axios from 'axios';
 import Header from '../../components/Header';
 import {
   Network, Map as MapIcon, MapPin, Share2, Plus, Trash2,
-  Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router, Link2,
+  Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router, Link2, File,
 } from 'lucide-react';
 import NetworkMap from './NetworkMap';
 import type { MoveResult } from './NetworkMap';
+import DxfImportDialog from './DxfImportDialog';
 import NetworkTopology from './NetworkTopology';
 import { linkStyle } from './utils';
 import type {
   NetworkLink, NetworkAccess, Duct, SiteRef, LinkType, Operator,
   IrfStack, Equipement, Vlan, LiaisonFO, ReseauStats, SwitchLink,
+  DxfCalque, DxfEntite, DxfDocument,
 } from './types';
 
 const LINK_TYPES: LinkType[] = ['FIBRE', 'WAN', 'OPERATEUR', 'LASER'];
@@ -46,9 +48,13 @@ export default function ReseauDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
-  const [layers, setLayers]       = useState({ links: true, sites: true, coeur: true });
+  const [layers, setLayers]       = useState({ links: true, sites: true, coeur: true, dxf: true });
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
   const [detailLink, setDetailLink] = useState<SwitchLink | null>(null);
+
+  // ── Plans DXF ────────────────────────────────────────────────────
+  const [dxfDocuments, setDxfDocuments] = useState<DxfDocument[]>([]);
+  const [dxfOpen, setDxfOpen] = useState(false);
 
   // ── Création lien ───────────────────────────────────────────────
   const [form, setForm]           = useState({ ...emptyForm });
@@ -77,7 +83,7 @@ export default function ReseauDashboard() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [s, l, a, d, irf, eq, vl, fo, sl, st] = await Promise.all([
+      const [s, l, a, d, irf, eq, vl, fo, sl, st, dxfRes] = await Promise.all([
         axios.get('/api/network/sites',         { headers }),
         axios.get('/api/network/links',         { headers }),
         axios.get('/api/network/access',        { headers }),
@@ -88,6 +94,7 @@ export default function ReseauDashboard() {
         axios.get('/api/network/liaisons-fo',   { headers }),
         axios.get('/api/network/switch-links',  { headers }),
         axios.get('/api/network/stats',         { headers }),
+        axios.get('/api/maps/dxf/layers',       { headers }).catch(() => ({ data: [] })),
       ]);
       setSitesArr(s.data    || []);
       setLinks(l.data       || []);
@@ -99,6 +106,7 @@ export default function ReseauDashboard() {
       setLiaisonsFO(fo.data || []);
       setSwitchLinks(sl.data || []);
       setStats(st.data);
+      setDxfDocuments(dxfRes.data || []);
     } catch (e: unknown) {
       const msg = (e as any)?.response?.data?.message;
       setError(msg || 'Erreur de chargement');
@@ -192,6 +200,11 @@ export default function ReseauDashboard() {
 
   // Carte = liens manuels (network_links) + tous les liens switchs inter-sites individuels
   const mapLinks = useMemo(() => [...links, ...individualSwitchMapLinks], [links, individualSwitchMapLinks]);
+
+  // Entités DXF aplaties (tous les documents)
+  const dxfEntities = useMemo(() => {
+    return dxfDocuments.flatMap(d => d.entites || []);
+  }, [dxfDocuments]);
 
   // Équipements groupés par site_code
   const equipementsBySite = useMemo(() => {
@@ -533,6 +546,31 @@ export default function ReseauDashboard() {
                   {sitesArr.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucun site.</div>}
                 </div>
               </div>
+
+              {/* ── Plans DXF ── */}
+              <div style={card}>
+                <h3 style={cardTitle}><File size={16} /> Plans DXF ({dxfDocuments.length})</h3>
+                <button onClick={() => setDxfOpen(true)}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px dashed #c4b5fd', borderRadius: 8, background: '#f5f3ff', color: '#7c3aed', fontWeight: 600, fontSize: 12, cursor: 'pointer', marginBottom: 8 }}>
+                  + Importer un DXF
+                </button>
+                {dxfDocuments.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucun plan importé.</div>}
+                {dxfDocuments.map(doc => (
+                  <div key={doc.id} style={{ fontSize: 12, marginBottom: 4, padding: '6px 8px', background: '#f8fafc', borderRadius: 6, border: '1px solid #eef2f7' }}>
+                    <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: 2 }}>{doc.nom_fichier}</div>
+                    <div style={{ fontSize: 10, color: '#64748b', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {(doc.calques || []).map((c: any) => (
+                        <span key={typeof c === 'string' ? c : c.nom} style={{ background: '#ede9fe', color: '#6d28d9', padding: '1px 6px', borderRadius: 4 }}>
+                          {typeof c === 'string' ? c : c.nom}
+                        </span>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                      {doc.entites?.length || 0} entités · {new Date(doc.cree_le).toLocaleDateString('fr-FR')}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
             {/* panneau carte */}
             <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden', background: '#fff' }}>
@@ -543,7 +581,7 @@ export default function ReseauDashboard() {
                 </div>
                 {view === 'map' && (
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
-                    {([['links','Liens','#16a34a'],['coeur','Cœur','#0f172a'],['sites','Sites','#2563eb']] as const).map(([k,lbl,c]) => (
+                    {([['links','Liens','#16a34a'],['coeur','Cœur','#0f172a'],['sites','Sites','#2563eb'],['dxf','DXF','#8b5cf6']] as const).map(([k,lbl,c]) => (
                       <label key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#475569', fontWeight: 600 }}>
                         <input type="checkbox" checked={layers[k]} onChange={e => setLayers({ ...layers, [k]: e.target.checked })} />
                         <span style={{ width: 8, height: 8, borderRadius: 2, background: c }} /> {lbl}
@@ -563,6 +601,7 @@ export default function ReseauDashboard() {
                     selectedLinkId={selectedLinkId}
                     onSelectLink={setSelectedLinkId}
                     equipementsBySite={equipementsBySite}
+                    dxfEntities={dxfEntities}
                     highlightSites={(() => {
                       const l = selectedLinkId?.startsWith('sl-')
                         ? mapLinks.find(x => x.id.startsWith(selectedLinkId + '-'))
@@ -1002,6 +1041,16 @@ export default function ReseauDashboard() {
           </div>
         );
       })()}
+
+      {dxfOpen && (
+        <DxfImportDialog
+          onClose={() => setDxfOpen(false)}
+          onImported={(doc) => {
+            setDxfDocuments(prev => [doc, ...prev]);
+            setDxfOpen(false);
+          }}
+        />
+      )}
     </>
   );
 }
