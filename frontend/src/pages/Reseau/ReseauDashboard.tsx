@@ -13,7 +13,7 @@ import { linkStyle } from './utils';
 import type {
   NetworkLink, NetworkAccess, Duct, SiteRef, LinkType, Operator,
   IrfStack, Equipement, Vlan, LiaisonFO, ReseauStats, SwitchLink,
-  DxfCalque, DxfEntite, DxfDocument,
+  DxfCalque, DxfEntite, DxfDocument, DxfLayerStyle,
 } from './types';
 
 const LINK_TYPES: LinkType[] = ['FIBRE', 'WAN', 'OPERATEUR', 'LASER'];
@@ -55,6 +55,8 @@ export default function ReseauDashboard() {
   // ── Plans DXF ────────────────────────────────────────────────────
   const [dxfDocuments, setDxfDocuments] = useState<DxfDocument[]>([]);
   const [dxfOpen, setDxfOpen] = useState(false);
+  // Styles d'affichage par calque (visibilité + couleur), persistés côté serveur
+  const [dxfLayerSettings, setDxfLayerSettings] = useState<Record<string, { visible: boolean; color?: string | null }>>({});
 
   // ── Création lien ───────────────────────────────────────────────
   const [form, setForm]           = useState({ ...emptyForm });
@@ -83,7 +85,7 @@ export default function ReseauDashboard() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [s, l, a, d, irf, eq, vl, fo, sl, st, dxfRes] = await Promise.all([
+      const [s, l, a, d, irf, eq, vl, fo, sl, st, dxfRes, dxfStyles] = await Promise.all([
         axios.get('/api/network/sites',         { headers }),
         axios.get('/api/network/links',         { headers }),
         axios.get('/api/network/access',        { headers }),
@@ -95,6 +97,7 @@ export default function ReseauDashboard() {
         axios.get('/api/network/switch-links',  { headers }),
         axios.get('/api/network/stats',         { headers }),
         axios.get('/api/maps/dxf/layers',       { headers }).catch(() => ({ data: [] })),
+        axios.get('/api/maps/dxf/layer-styles', { headers }).catch(() => ({ data: [] })),
       ]);
       setSitesArr(s.data    || []);
       setLinks(l.data       || []);
@@ -107,6 +110,11 @@ export default function ReseauDashboard() {
       setSwitchLinks(sl.data || []);
       setStats(st.data);
       setDxfDocuments(dxfRes.data || []);
+      const styleMap: Record<string, { visible: boolean; color?: string | null }> = {};
+      (dxfStyles.data as DxfLayerStyle[] || []).forEach(st2 => {
+        styleMap[st2.calque] = { visible: st2.visible !== false, color: st2.couleur ?? null };
+      });
+      setDxfLayerSettings(styleMap);
     } catch (e: unknown) {
       const msg = (e as any)?.response?.data?.message;
       setError(msg || 'Erreur de chargement');
@@ -205,6 +213,56 @@ export default function ReseauDashboard() {
   const dxfEntities = useMemo(() => {
     return dxfDocuments.flatMap(d => d.entites || []);
   }, [dxfDocuments]);
+
+  // Calques uniques (nb d'entités + couleur dominante du DXF) pour la légende
+  const dxfCalques = useMemo(() => {
+    const counts = new Map<string, number>();
+    const colors = new Map<string, Map<string, number>>();
+    for (const e of dxfEntities) {
+      counts.set(e.calque, (counts.get(e.calque) || 0) + 1);
+      const col = e.couleur || '#3388ff';
+      if (!colors.has(e.calque)) colors.set(e.calque, new Map());
+      const cm = colors.get(e.calque)!;
+      cm.set(col, (cm.get(col) || 0) + 1);
+    }
+    const dominant = (cm?: Map<string, number>) => {
+      if (!cm) return '#8b5cf6';
+      let best = '#8b5cf6', n = -1;
+      for (const [col, c] of cm) if (c > n) { best = col; n = c; }
+      return best;
+    };
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([nom, nb]) => ({ nom, nb, defaultColor: dominant(colors.get(nom)) }));
+  }, [dxfEntities]);
+
+  const dxfDefaultColor = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const c of dxfCalques) m[c.nom] = c.defaultColor;
+    return m;
+  }, [dxfCalques]);
+
+  const layerVisible = (calque: string) => dxfLayerSettings[calque]?.visible !== false;
+  const layerColor = (calque: string) => dxfLayerSettings[calque]?.color || dxfDefaultColor[calque] || '#8b5cf6';
+
+  const saveLayerStyle = useCallback((calque: string, patch: { visible?: boolean; color?: string }) => {
+    setDxfLayerSettings(prev => ({
+      ...prev,
+      [calque]: { visible: patch.visible ?? prev[calque]?.visible ?? true, color: patch.color ?? prev[calque]?.color ?? null },
+    }));
+    axios.put('/api/maps/dxf/layer-styles',
+      { calque, couleur: patch.color, visible: patch.visible },
+      { headers }).catch(() => {});
+  }, [headers]);
+
+  const deleteDxf = useCallback(async (doc: DxfDocument) => {
+    if (!window.confirm(`Supprimer le plan « ${doc.nom_fichier} » ?\nLe géoréférencement sera conservé pour un éventuel ré-import.`)) return;
+    try {
+      await axios.delete(`/api/maps/dxf/${doc.id}`, { headers });
+      setDxfDocuments(prev => prev.filter(d => d.id !== doc.id));
+    } catch {
+      setError('Suppression du plan DXF impossible.');
+    }
+  }, [headers]);
 
   // Équipements groupés par site_code
   const equipementsBySite = useMemo(() => {
@@ -557,19 +615,43 @@ export default function ReseauDashboard() {
                 {dxfDocuments.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucun plan importé.</div>}
                 {dxfDocuments.map(doc => (
                   <div key={doc.id} style={{ fontSize: 12, marginBottom: 4, padding: '6px 8px', background: '#f8fafc', borderRadius: 6, border: '1px solid #eef2f7' }}>
-                    <div style={{ fontWeight: 600, color: '#1e293b', marginBottom: 2 }}>{doc.nom_fichier}</div>
-                    <div style={{ fontSize: 10, color: '#64748b', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {(doc.calques || []).map((c: any) => (
-                        <span key={typeof c === 'string' ? c : c.nom} style={{ background: '#ede9fe', color: '#6d28d9', padding: '1px 6px', borderRadius: 4 }}>
-                          {typeof c === 'string' ? c : c.nom}
-                        </span>
-                      ))}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ fontWeight: 600, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.nom_fichier}</div>
+                      <button onClick={() => deleteDxf(doc)} title="Supprimer le plan (le géoréférencement est conservé)"
+                        style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 2, display: 'flex' }}>
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                     <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
                       {doc.entites?.length || 0} entités · {new Date(doc.cree_le).toLocaleDateString('fr-FR')}
                     </div>
                   </div>
                 ))}
+
+                {/* Légende des calques : visibilité + couleur */}
+                {dxfCalques.length > 0 && (
+                  <div style={{ marginTop: 10, borderTop: '1px solid #eef2f7', paddingTop: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 6 }}>
+                      Calques ({dxfCalques.length})
+                    </div>
+                    {dxfCalques.map(c => (
+                      <div key={c.nom} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 0', fontSize: 12 }}>
+                        <input type="checkbox" checked={layerVisible(c.nom)}
+                          onChange={e => saveLayerStyle(c.nom, { visible: e.target.checked })} />
+                        <input type="color" value={layerColor(c.nom)}
+                          onChange={e => saveLayerStyle(c.nom, { color: e.target.value })}
+                          title="Couleur d'affichage du calque"
+                          style={{ width: 22, height: 18, padding: 0, border: '1px solid #e2e8f0', borderRadius: 4, cursor: 'pointer', background: 'none', flexShrink: 0 }} />
+                        <span title={c.nom} style={{ flex: 1, minWidth: 0, color: layerVisible(c.nom) ? '#1e293b' : '#94a3b8', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nom}</span>
+                        <input key={layerColor(c.nom)} defaultValue={layerColor(c.nom)}
+                          onChange={e => { const v = e.target.value.trim(); if (/^#[0-9a-fA-F]{6}$/.test(v)) saveLayerStyle(c.nom, { color: v }); }}
+                          title="Code couleur (hex), ex. #1e90ff"
+                          style={{ width: 70, padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 10, fontFamily: 'monospace', flexShrink: 0 }} />
+                        <span style={{ color: '#94a3b8', fontSize: 10, width: 28, textAlign: 'right', flexShrink: 0 }}>{c.nb}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             {/* panneau carte */}
@@ -602,6 +684,7 @@ export default function ReseauDashboard() {
                     onSelectLink={setSelectedLinkId}
                     equipementsBySite={equipementsBySite}
                     dxfEntities={dxfEntities}
+                    dxfLayerSettings={dxfLayerSettings}
                     highlightSites={(() => {
                       const l = selectedLinkId?.startsWith('sl-')
                         ? mapLinks.find(x => x.id.startsWith(selectedLinkId + '-'))

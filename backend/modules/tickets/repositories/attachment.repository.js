@@ -22,10 +22,11 @@ module.exports = {
         if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
         const saved = await storage.saveFile(MODULE, ticketId, file);
 
-        const result = await pgDb.run(`
+        const inserted = await pgDb.get(`
             INSERT INTO hub_tickets.ticket_attachments
                 (ticket_id, filename, original_name, mimetype, file_size, file_path, is_image, uploaded_by)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
         `, [
             ticketId, saved.filename, file.originalname,
             file.mimetype, file.size, saved.dbPath,
@@ -51,7 +52,7 @@ module.exports = {
             });
         } catch (e) { console.warn('[DOCS] register failed:', e.message); }
 
-        return pgDb.get('SELECT * FROM hub_tickets.ticket_attachments WHERE id = $1', [result.lastID]);
+        return inserted;
     },
 
     async delete(id, user) {

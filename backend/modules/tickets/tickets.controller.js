@@ -32,6 +32,97 @@ function emitTicketEvent(event, payload) {
     } catch (_) { /* socket optionnel */ }
 }
 
+// ─── Résolution d'un document (base de connaissance / doc logiciel magapp)
+//     en fichier joignable { originalname, mimetype, size, buffer }. ───────────
+const MAX_ATTACH_BYTES = 15 * 1024 * 1024; // 15 Mo / pièce
+
+async function readKbDocFile(id) {
+    const doc = await pgDb.get('SELECT * FROM hub_tickets.knowledge_documents WHERE id=$1', [id]);
+    if (!doc) return null;
+    let buffer = null;
+    if (storage.isStoragePath(doc.file_path)) {
+        const f = await storage.getFileForServe(doc.file_path);
+        if (f) buffer = f.buffer || (f.absolutePath ? fs.readFileSync(f.absolutePath) : null);
+    } else if (doc.file_path && fs.existsSync(doc.file_path)) {
+        buffer = fs.readFileSync(doc.file_path);
+    }
+    if (!buffer) return null;
+    return {
+        originalname: doc.original_name || doc.name || `document-${id}`,
+        mimetype: doc.mimetype || 'application/octet-stream',
+        size: buffer.length, buffer,
+    };
+}
+
+async function readMagappDocFile(id) {
+    const doc = await pgDb.get('SELECT id, title, url FROM magapp.app_docs WHERE id=$1', [id]);
+    if (!doc) return null;
+    let url = (doc.url || '').trim();
+    if (!url) return null;
+    if (!/^https?:\/\//i.test(url)) {
+        const base = (await getAppBaseUrl()).replace(/\/$/, '');
+        url = base + (url.startsWith('/') ? url : '/' + url);
+    }
+    const resp = await axios.get(url, { responseType: 'arraybuffer', timeout: 20000, maxContentLength: MAX_ATTACH_BYTES, maxBodyLength: MAX_ATTACH_BYTES });
+    const buffer = Buffer.from(resp.data);
+    const cleanUrl = url.split('?')[0];
+    let name = doc.title || path.basename(cleanUrl) || `document-${id}`;
+    const ext = path.extname(cleanUrl);
+    if (ext && !name.toLowerCase().endsWith(ext.toLowerCase())) name += ext;
+    return {
+        originalname: name,
+        mimetype: resp.headers['content-type'] || 'application/octet-stream',
+        size: buffer.length, buffer,
+    };
+}
+
+// Rattache des pièces jointes (déjà créées) au commentaire/suivi qui les porte.
+async function linkAttachmentsToComment(attachmentIds, followupId, ticketId) {
+    const ids = (Array.isArray(attachmentIds) ? attachmentIds : [])
+        .map(n => parseInt(n)).filter(n => Number.isInteger(n));
+    if (!ids.length || !followupId) return;
+    try {
+        await pool.query(
+            `UPDATE hub_tickets.ticket_attachments SET followup_id = $1
+             WHERE ticket_id = $2 AND id = ANY($3::int[])`,
+            [followupId, ticketId, ids]
+        );
+    } catch (e) { console.error('[ATTACH] liaison PJ↔commentaire échouée:', e.message); }
+}
+
+// Lit une pièce jointe de ticket déjà enregistrée (pour la rejoindre à l'email).
+async function readTicketAttachmentFile(aid) {
+    const att = await attachmentRepo.findById(parseInt(aid));
+    if (!att) return null;
+    let buffer = null;
+    if (storage.isStoragePath(att.file_path)) {
+        const f = await storage.getFileForServe(att.file_path);
+        if (f) buffer = f.buffer || (f.absolutePath ? fs.readFileSync(f.absolutePath) : null);
+    } else if (att.file_path && fs.existsSync(att.file_path)) {
+        buffer = fs.readFileSync(att.file_path);
+    }
+    if (!buffer || buffer.length > MAX_ATTACH_BYTES) return null;
+    return { originalname: att.original_name || att.filename, mimetype: att.mimetype || 'application/octet-stream', size: buffer.length, buffer };
+}
+
+// Résout une liste de descripteurs { source:'kb'|'magapp', id } en fichiers.
+async function resolveDocFiles(list) {
+    const out = [];
+    for (const d of Array.isArray(list) ? list : []) {
+        if (!d || d.id == null) continue;
+        try {
+            const f = d.source === 'magapp'
+                ? await readMagappDocFile(parseInt(d.id))
+                : await readKbDocFile(parseInt(d.id));
+            if (f && f.buffer && f.size > 0 && f.size <= MAX_ATTACH_BYTES) out.push(f);
+            else if (f && f.size > MAX_ATTACH_BYTES) console.warn(`[ATTACH] doc ${d.source}#${d.id} ignoré (>${MAX_ATTACH_BYTES} o)`);
+        } catch (e) {
+            console.error(`[ATTACH] résolution doc ${d?.source}#${d?.id} échouée:`, e.message);
+        }
+    }
+    return out;
+}
+
 let _sendMail = null;
 
 async function getAppBaseUrl() {
@@ -404,6 +495,10 @@ async assign(req, res) {
             const { content, is_private = 0 } = req.body;
             const ticketId = parseInt(req.params.id);
             const comment = await commentRepo.create(ticketId, { content, is_private }, req.user);
+
+            // Rattache au message les pièces jointes (fichier manuel + docs KB/logiciel)
+            await linkAttachmentsToComment(req.body.attachment_ids, comment.id, ticketId);
+
             try {
                 await historyRepo.log(ticketId, req.user.id, 'comment_added', null, null, null,
                     `Commentaire ${is_private ? 'interne ' : ''}ajouté par ${req.user.displayName || req.user.username}`, req.user.username);
@@ -442,6 +537,23 @@ async assign(req, res) {
             if (!requesterEmail) return res.status(400).json({ message: 'Aucun email demandeur trouvé' });
 
             const comment = await commentRepo.create(ticketId, { content, is_private: is_private ? 1 : 0, sent_to_user: 1 }, req.user);
+
+            // Documents joints (base de connaissance / doc logiciel) : rattachés au
+            // ticket et envoyés en pièce jointe de l'email (pas de lien inline).
+            // Rattache au message les pièces jointes pour l'affichage sous le commentaire
+            await linkAttachmentsToComment(req.body.attachment_ids, comment.id, ticketId);
+
+            // Pièces jointes du ticket (fichier manuel + docs KB/logiciel déjà attachés
+            // au ticket côté client) → renvoyées en pièces jointes de l'email.
+            const idFiles = [];
+            for (const aid of (Array.isArray(req.body.attachment_ids) ? req.body.attachment_ids : [])) {
+                try { const f = await readTicketAttachmentFile(aid); if (f) idFiles.push(f); }
+                catch (e) { console.error('[ATTACH] lecture PJ ticket échouée:', e.message); }
+            }
+            const mailAttachments = idFiles.map(f => ({
+                filename: f.originalname,
+                content: f.buffer.toString('base64'),
+            }));
 
             // Première réponse SLA (un envoi au demandeur compte comme réponse)
             await slaRepo.setFirstResponse(ticketId);
@@ -503,28 +615,37 @@ async assign(req, res) {
                         <p>Cordialement,<br>${authorName}</p>`;
                 }
 
-                try {
-                    const dup = await pgDb.get(`
-                        SELECT id FROM hub_tickets.notification_queue
-                        WHERE ticket_id = $1 AND recipient_email = $2 AND subject = $3 AND status = 'pending'
-                    `, [ticketId, requesterEmail, subject]);
-                    if (!dup) {
-                        await pgDb.run(`
-                            INSERT INTO hub_tickets.notification_queue
-                                (ticket_id, recipient_email, recipient_name, subject, body_html, status)
-                            VALUES ($1, $2, $3, $4, $5, 'pending')
-                        `, [ticketId, requesterEmail, ticket.requester?.name || '', subject, body]);
+                if (mailAttachments.length > 0) {
+                    // La file d'attente ne transporte pas les pièces jointes : envoi direct.
+                    try {
+                        await _sendMail(requesterEmail, subject, body, mailAttachments);
+                    } catch (mErr) {
+                        console.error('[NOTIFICATION] Envoi direct avec PJ échoué:', mErr.message);
                     }
-                } catch (qErr) {
-                    console.error('[NOTIFICATION] Queue insert failed, sending directly:', qErr.message);
-                    await _sendMail(requesterEmail, subject, body);
+                } else {
+                    try {
+                        const dup = await pgDb.get(`
+                            SELECT id FROM hub_tickets.notification_queue
+                            WHERE ticket_id = $1 AND recipient_email = $2 AND subject = $3 AND status = 'pending'
+                        `, [ticketId, requesterEmail, subject]);
+                        if (!dup) {
+                            await pgDb.run(`
+                                INSERT INTO hub_tickets.notification_queue
+                                    (ticket_id, recipient_email, recipient_name, subject, body_html, status)
+                                VALUES ($1, $2, $3, $4, $5, 'pending')
+                            `, [ticketId, requesterEmail, ticket.requester?.name || '', subject, body]);
+                        }
+                    } catch (qErr) {
+                        console.error('[NOTIFICATION] Queue insert failed, sending directly:', qErr.message);
+                        await _sendMail(requesterEmail, subject, body);
+                    }
                 }
 
                 if (cc_observers) {
                     const obs = await observerRepo.findByTicket(ticketId);
                     for (const o of obs) {
                         if (o.email && o.email !== requesterEmail) {
-                            try { await _sendMail(o.email, `[CC] ${subject}`, body); } catch { /**/ }
+                            try { await _sendMail(o.email, `[CC] ${subject}`, body, mailAttachments); } catch { /**/ }
                         }
                     }
                 }
@@ -582,6 +703,20 @@ async assign(req, res) {
             if (!req.file) return res.status(400).json({ message: 'Fichier requis' });
             const attachment = await attachmentRepo.create(parseInt(req.params.id), req.file, req.user);
             res.status(201).json(attachment);
+        } catch (error) {
+            res.status(400).json({ message: error.message });
+        }
+    },
+
+    // Attache au ticket un document de la base de connaissance ou un document
+    // logiciel magapp (résolu en fichier côté serveur). Renvoie la pièce jointe créée.
+    async attachDoc(req, res) {
+        try {
+            const { source, id } = req.body;
+            const files = await resolveDocFiles([{ source, id }]);
+            if (!files.length) return res.status(404).json({ message: 'Document introuvable ou non joignable' });
+            const att = await attachmentRepo.create(parseInt(req.params.id), files[0], req.user);
+            res.status(201).json(att);
         } catch (error) {
             res.status(400).json({ message: error.message });
         }

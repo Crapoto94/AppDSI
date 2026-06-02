@@ -344,7 +344,24 @@
       "Bash(curl.exe -H \"X-API-Key: nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6\" http://10.103.130.36:8080/api/links)",
       "Bash(curl.exe -s -H \"X-API-Key: nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6\" http://10.103.130.36:8080/api/links --max-time 5)",
       "Bash(curl.exe -v -H \"X-API-Key: nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6\" http://10.103.130.36:8080/api/links --max-time 10)",
-      "Bash(curl.exe -w \"\\\\nHTTP Status: %{http_code}\\\\n\" -s -H \"x-api-key: nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6\" http://10.103.130.36:8080/api/links)"
+      "Bash(curl.exe -w \"\\\\nHTTP Status: %{http_code}\\\\n\" -s -H \"x-api-key: nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6\" http://10.103.130.36:8080/api/links)",
+      "Bash(timeout 25 node -e ' *)",
+      "Bash(npx eslint *)",
+      "Bash(node -c modules/dxf/dxf.controller.js)",
+      "Bash(node -c modules/dxf/dxf.routes.js)",
+      "Bash(cd /c/dev/AppDSI/backend && grep -nE \"entity\\\\.[a-zA-Z]+ =|case [0-9]+:|ForEntityName\" node_modules/dxf-parser/dist/entities/insert.js | head -40 && echo \"=== blocks handler ===\" && grep -rn \"blocks\" node_modules/dxf-parser/dist/DxfParser.js | head)",
+      "Bash(node -e \"const t='NDQwNDV8bWFjaGV2YWxpZXJAaXZyeTk0LmZyfDE3ODA0MDYzNzA3MDF8OGU4NjRkYTUyMDI3NWM1MzRkNjUzYWYxNzBlNmIwYjQ1ZTJjZDQ0ZjJmNWI4ZTllYjM0ZWVhOGZjMTUxN2VjMw'; const d=Buffer.from\\(t,'base64url'\\).toString\\('utf8'\\); const p=d.split\\('|'\\); console.log\\('decoded:',d\\); console.log\\('parts:',p.length\\); console.log\\('sigLen:',\\(p[3]||''\\).length\\); const ts=Number\\(p[2]\\); console.log\\('ts date:', new Date\\(ts\\).toISOString\\(\\)\\);\")",
+      "Bash(node -c modules/tickets/tickets.controller.js)",
+      "Bash(node -c modules/tickets/repositories/attachment.repository.js)",
+      "Bash(node -c backend/shared/sqlite_db.js)",
+      "Bash(timeout 60 node -e ' *)",
+      "Bash(node -c backend/shared/pg_db.js)",
+      "Bash(node -c modules/calendrier-dsi/calendrier-dsi.controller.js)",
+      "Bash(sed -i \"s|            if \\(m\\) { return new Date\\(d\\).toISOString\\(\\).split\\('T'\\)\\\\[0\\\\]; }|            if \\(m \\\\&\\\\& JS_MONTHS[m[2]]\\) { return \\\\`\\\\${m[4]}-\\\\${JS_MONTHS[m[2]]}-\\\\${String\\(m[3]\\).padStart\\(2,'0'\\)}\\\\`; }|g\" backend/modules/calendrier-dsi/calendrier-dsi.controller.js)",
+      "Bash(node -c backend/modules/calendrier-dsi/calendrier-dsi.controller.js)",
+      "Bash(timeout 40 node -e ' *)",
+      "Bash(node -c backend/modules/parc/parc.controller.js)",
+      "Bash(node -c backend/modules/parc/parc.routes.js)"
     ]
   }
 }

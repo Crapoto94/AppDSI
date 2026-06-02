@@ -68,6 +68,7 @@ router.delete('/:id/comments/:cid', authenticateJWT, (req, res) => controller.de
 // ─── Attachments ──────────────────────────────────────────────────
 router.get('/:id/attachments', authenticateJWT, (req, res) => controller.getAttachments(req, res));
 router.post('/:id/attachments', authenticateJWT, controller.uploadMiddleware, (req, res) => controller.addAttachment(req, res));
+router.post('/:id/attach-doc', authenticateJWT, (req, res) => controller.attachDoc(req, res));
 router.get('/:id/attachments/:aid', authenticateJWT, (req, res) => controller.downloadAttachment(req, res));
 router.delete('/:id/attachments/:aid', authenticateJWT, (req, res) => controller.deleteAttachment(req, res));
 

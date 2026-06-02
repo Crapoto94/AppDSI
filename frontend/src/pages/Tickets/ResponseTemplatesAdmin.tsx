@@ -211,7 +211,7 @@ export default function ResponseTemplatesAdmin() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {grouped['none']?.length > 0 && (
-            <CatGroup label="Toutes catégories" icon="🌐" items={grouped['none']}
+            <CatGroup label="Réponses communes" icon="🌐" items={grouped['none']}
               expanded={expandedCats.has('none')} onToggle={() => toggleCat('none')} onEdit={openEdit} onDelete={del} />
           )}
           {rootCats.filter(c => grouped[String(c.id)]?.length > 0).map(cat => (
@@ -248,7 +248,7 @@ export default function ResponseTemplatesAdmin() {
               <div>
                 <label style={s.label}>Catégorie</label>
                 <select style={s.input} value={form.category_id} onChange={e => setForm(p => ({ ...p, category_id: e.target.value, subcategory_id: '' }))}>
-                  <option value="">— Toutes catégories —</option>
+                  <option value="">— Réponses communes —</option>
                   {rootCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>

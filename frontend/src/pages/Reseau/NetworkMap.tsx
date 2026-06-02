@@ -1,14 +1,20 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   MapContainer, TileLayer, Polyline, CircleMarker,
-  Tooltip, LayerGroup, useMapEvents, useMap, GeoJSON,
+  Tooltip, LayerGroup, useMapEvents, useMap, GeoJSON, Marker,
 } from 'react-leaflet';
+import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { NetworkLink, SiteRef, Equipement, DxfEntite } from './types';
 import { linkStyle } from './utils';
 
 // ── Constantes ──────────────────────────────────────────────────────
 const CITY_CENTER: [number, number] = [48.8130, 2.3890];
+
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, ch =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
+}
 
 const CORE_SITES  = new Set(['S001', 'S001B01', 'S064', 'S064B01']);
 const IRF_NORD    = new Set(['S001B02','S004B01','S005B01','S022B01']);
@@ -121,13 +127,15 @@ interface Props {
   onSelectLink?:  (id: string | null) => void;
   equipementsBySite?: Map<string, Equipement[]>;
   dxfEntities?:   DxfEntite[];
+  /** Visibilité + couleur d'affichage par calque DXF. */
+  dxfLayerSettings?: Record<string, { visible: boolean; color?: string | null }>;
 }
 
 // ── Composant principal ───────────────────────────────────────────────
 const NetworkMap: React.FC<Props> = ({
   sites, links, layers, drawMode, drawnPoints, onMapClick,
   highlightSites = [], onSiteMoved, selectedLinkId = null, onSelectLink,
-  equipementsBySite, dxfEntities,
+  equipementsBySite, dxfEntities, dxfLayerSettings,
 }) => {
   const [drawCursor, setDrawCursor] = useState<[number, number] | null>(null);
 
@@ -247,15 +255,34 @@ const NetworkMap: React.FC<Props> = ({
         {layers.dxf && dxfEntities && dxfEntities.length > 0 && (
           <LayerGroup>
             {dxfEntities.map(ent => {
-              const style: any = { color: ent.couleur || '#3388ff', weight: ent.epaisseur || 1 };
+              const setting = dxfLayerSettings?.[ent.calque];
+              if (setting && setting.visible === false) return null;
+              const color = setting?.color || ent.couleur || '#3388ff';
+              const props: any = ent.geojson.properties || {};
+
+              // Libellés texte (TEXT / MTEXT)
+              if (props.type === 'text') {
+                const c = ent.geojson.geometry.type === 'Point'
+                  ? (ent.geojson.geometry as any).coordinates : null;
+                if (!c || !props.text) return null;
+                // La couleur DXF des textes est souvent blanche (fond noir CAO) → illisible
+                // sur fond clair. On force une couleur foncée lisible, sauf override de calque.
+                const txtColor = setting?.color || '#0f172a';
+                const icon = L.divIcon({
+                  className: 'dxf-text-label',
+                  html: `<span style="color:${txtColor};font-size:11px;font-weight:600;white-space:nowrap;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff;transform:rotate(${-(props.rotation || 0)}deg);display:inline-block;">${escapeHtml(props.text)}</span>`,
+                  iconSize: [0, 0], iconAnchor: [0, 0],
+                });
+                return <Marker key={ent.id} position={[c[1], c[0]]} icon={icon} interactive={false} />;
+              }
+
+              const style: any = { color, weight: ent.epaisseur || 1 };
               if (ent.type === 'CIRCLE' || ent.geojson.geometry.type === 'Point') {
-                style.radius = ent.geojson.properties?.radius ? Math.min(ent.geojson.properties.radius * 2, 8) : 4;
-                style.fillColor = ent.couleur || '#3388ff';
+                style.radius = props.radius ? Math.min(props.radius * 2, 8) : 4;
+                style.fillColor = color;
                 style.fillOpacity = 0.4;
               }
-              return (
-                <GeoJSON key={ent.id} data={ent.geojson as any} style={style} />
-              );
+              return <GeoJSON key={ent.id} data={ent.geojson as any} style={style} />;
             })}
           </LayerGroup>
         )}

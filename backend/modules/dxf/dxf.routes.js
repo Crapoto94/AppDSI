@@ -10,6 +10,9 @@ router.use(authenticateJWT);
 
 router.post('/parse', uploadMemory.single('file'), ctrl.parse);
 router.post('/georef', ctrl.georef);
+router.get('/calibration', ctrl.getCalibration);
+router.get('/layer-styles', ctrl.getLayerStyles);
+router.put('/layer-styles', ctrl.saveLayerStyle);
 router.get('/layers', ctrl.getLayers);
 router.delete('/:id', ctrl.remove);
 

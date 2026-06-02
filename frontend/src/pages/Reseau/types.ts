@@ -173,6 +173,12 @@ export interface DxfEntite {
   epaisseur: number;
 }
 
+export interface DxfLayerStyle {
+  calque: string;
+  couleur?: string | null;
+  visible?: boolean;
+}
+
 export interface DxfDocument {
   id: number;
   nom_fichier: string;
