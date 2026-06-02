@@ -223,10 +223,15 @@ const NetworkMap: React.FC<Props> = ({
             const st = linkStyle(link);
             const siteA = resolveSiteRef(link.site_a, sites);
             const siteB = resolveSiteRef(link.site_b, sites);
-            const isSelected = selectedLinkId === link.id;
+            const isSelected = selectedLinkId
+              ? (link.id.startsWith('sl-') ? link.id.startsWith(selectedLinkId + '-') : selectedLinkId === link.id)
+              : false;
+            const selectId = link.id.startsWith('sl-')
+              ? link.id.split('-').slice(0, 2).join('-')
+              : link.id;
             return (
               <Polyline key={link.id} positions={pts}
-                eventHandlers={{ click: () => onSelectLink?.(isSelected ? null : link.id) }}
+                eventHandlers={{ click: () => onSelectLink?.(isSelected ? null : selectId) }}
                 pathOptions={{
                   color: isSelected ? '#dc2626' : st.color,
                   weight: isSelected ? st.weight + 4 : st.weight,

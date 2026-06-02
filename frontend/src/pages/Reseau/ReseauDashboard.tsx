@@ -48,6 +48,7 @@ export default function ReseauDashboard() {
 
   const [layers, setLayers]       = useState({ links: true, sites: true, coeur: true });
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
+  const [detailLink, setDetailLink] = useState<SwitchLink | null>(null);
 
   // ── Création lien ───────────────────────────────────────────────
   const [form, setForm]           = useState({ ...emptyForm });
@@ -115,30 +116,60 @@ export default function ReseauDashboard() {
   }, [form.site_a, drawMode, sites]);
 
   const intersiteSwitchLinks = useMemo(
-    () => switchLinks.filter(l => !l.is_intra_site),
+    () => switchLinks.filter(l => {
+      // Toujours inclure les liens marqués inter-sites
+      if (!l.is_intra_site) return true;
+      // Pour les liens intra-site avec site_id JSON (IRF stack multi-sites),
+      // on les inclut aussi — expandSiteCodes déterminera si les sites diffèrent.
+      if ((l.local_site_id && l.local_site_id.startsWith('{')) ||
+          (l.remote_site_id && l.remote_site_id.startsWith('{'))) return true;
+      return false;
+    }),
     [switchLinks]
   );
+
+  // Résout un code de site en code parent si le sous-site (S007B01) n'est pas
+  // dans hub.sites avec ses propres coordonnées.
+  const siteCode = useCallback((code: string | null | undefined): string | null => {
+    if (!code) return null;
+    if (sites.has(code)) return code;
+    const parent = code.replace(/(B|L|EXT|ESP).*$/, '');
+    return parent !== code && sites.has(parent) ? parent : code;
+  }, [sites]);
+
+  // Décode un site_id JSON (IRF stack multi-sites → [S001, S064])
+  // ou retourne [siteCode(code)] pour un code normal.
+  const expandSiteCodes = useCallback((code: string | null | undefined): string[] => {
+    if (!code) return [];
+    if (code.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(code) as Record<string, string>;
+        return [...new Set(Object.values(parsed).map(v => siteCode(v)))].filter(Boolean) as string[];
+      } catch { return []; }
+    }
+    const sc = siteCode(code);
+    return sc ? [sc] : [];
+  }, [siteCode]);
 
   // Liens switchs inter-sites individuels (un par entrée, pour la carte).
   // Chaque lien est tracé entre les coordonnées des deux sites.
   // Si un sous-site (S007B01) n'existe pas dans hub.sites, on utilise le parent (S007).
+  // Les site_id JSON (IRF stacks multi-sites) sont expansés en plusieurs liens,
+  // un par paire de sites distincts entre local et remote.
   const individualSwitchMapLinks = useMemo<NetworkLink[]>(() => {
-    const siteCode = (code: string | null | undefined): string | null => {
-      if (!code) return null;
-      if (sites.has(code)) return code;
-      const parent = code.replace(/(B|L|EXT|ESP).*$/, '');
-      return parent !== code && sites.has(parent) ? parent : code;
-    };
-    return intersiteSwitchLinks
-      .filter(l => {
-        const a = siteCode(l.local_site_id);
-        const b = siteCode(l.remote_site_id);
-        return a && b && a !== b;
-      })
-      .map(l => ({
-        id: `sl-${l.id}`,
-        site_a: siteCode(l.local_site_id)!,
-        site_b: siteCode(l.remote_site_id)!,
+    return intersiteSwitchLinks.flatMap(l => {
+      const aSites = expandSiteCodes(l.local_site_id);
+      const bSites = expandSiteCodes(l.remote_site_id);
+      const pairs: { a: string; b: string }[] = [];
+      for (const a of aSites) {
+        for (const b of bSites) {
+          if (a !== b) pairs.push({ a, b });
+        }
+      }
+      return pairs.map(p => ({
+        id: `sl-${l.id}-${p.a}-${p.b}`,
+        site_a: p.a,
+        site_b: p.b,
         type: 'FIBRE' as LinkType,
         capacity: null, operator: null,
         carries_data: true, carries_voice: false,
@@ -146,7 +177,8 @@ export default function ReseauDashboard() {
         geometry: null,
         notes: `${l.local_hostname || '?'}:${l.local_port || '?'} → ${l.remote_hostname || '?'}:${l.remote_port || '?'}`,
       }));
-  }, [intersiteSwitchLinks, sites]);
+    });
+  }, [intersiteSwitchLinks, sites, expandSiteCodes]);
 
   // Carte = liens manuels (network_links) + tous les liens switchs inter-sites individuels
   const mapLinks = useMemo(() => [...links, ...individualSwitchMapLinks], [links, individualSwitchMapLinks]);
@@ -166,6 +198,14 @@ export default function ReseauDashboard() {
   // Résout un code_bien (S007B01 → S007) en cherchant d'abord l'entrée exacte,
   // puis en héritant du site parent si le sous-site n'existe pas dans hub.sites.
   const resolveSite = useCallback((code: string): SiteRef | undefined => {
+    // JSON multi-site → prendre le premier site résolu
+    if (code.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(code) as Record<string, string>;
+        const first = Object.values(parsed)[0];
+        if (first) return resolveSite(first);
+      } catch { return undefined; }
+    }
     const direct = sites.get(code);
     if (direct) return direct;
     const parentCode = code.replace(/(B|L|EXT|ESP).*$/, '');
@@ -442,6 +482,10 @@ export default function ReseauDashboard() {
                             {sa}{coordsA ? '' : ' (?)'} · {l.local_hostname || '?'}:{l.local_port || '?'} → {l.remote_hostname || '?'}:{l.remote_port || '?'}
                           </div>
                         </div>
+                        <button onClick={e => { e.stopPropagation(); setDetailLink(l); }}
+                          style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 4, padding: '2px 6px', fontSize: 10, color: '#64748b', cursor: 'pointer', flexShrink: 0 }}>
+                          Détail
+                        </button>
                       </div>
                     );
                   })}
@@ -507,7 +551,12 @@ export default function ReseauDashboard() {
                     selectedLinkId={selectedLinkId}
                     onSelectLink={setSelectedLinkId}
                     equipementsBySite={equipementsBySite}
-                    highlightSites={(() => { const l = mapLinks.find(x => x.id === selectedLinkId); return l ? [l.site_a, l.site_b] : []; })()}
+                    highlightSites={(() => {
+                      const l = selectedLinkId?.startsWith('sl-')
+                        ? mapLinks.find(x => x.id.startsWith(selectedLinkId + '-'))
+                        : mapLinks.find(x => x.id === selectedLinkId);
+                      return l ? [l.site_a, l.site_b] : [];
+                    })()}
                     onSiteMoved={(r: MoveResult) => {
                       setSitesArr(prev => prev.map(s =>
                         s.site_code === r.siteCode
@@ -859,6 +908,70 @@ export default function ReseauDashboard() {
           </div>
         )}
       </div>
+
+      {/* ── Modale détail lien switch ── */}
+      {detailLink && (() => {
+        const l = detailLink;
+        const renderField = (label: string, val: string | number | null | undefined) => (
+          val != null && val !== '' ? (
+            <div style={{ display: 'flex', gap: 8, fontSize: 13, padding: '4px 0', borderBottom: '1px solid #f1f5f9' }}>
+              <span style={{ width: 150, fontWeight: 600, color: '#64748b', flexShrink: 0 }}>{label}</span>
+              <span style={{ color: '#0f172a', wordBreak: 'break-all' }}>{String(val)}</span>
+            </div>
+          ) : null
+        );
+        const siteAFmt = l.local_site_id?.startsWith('{')
+          ? `Multi-sites (${expandSiteCodes(l.local_site_id).join(', ')})`
+          : `${l.local_site_id}${resolveSite(l.local_site_id || '')?.nom ? ' — ' + resolveSite(l.local_site_id || '')!.nom : ''}`;
+        const siteBFmt = l.remote_site_id?.startsWith('{')
+          ? `Multi-sites (${expandSiteCodes(l.remote_site_id).join(', ')})`
+          : `${l.remote_site_id}${resolveSite(l.remote_site_id || '')?.nom ? ' — ' + resolveSite(l.remote_site_id || '')!.nom : ''}`;
+        return (
+          <div onClick={() => setDetailLink(null)}
+            style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: '#fff', borderRadius: 14, maxWidth: 600, width: '90%', maxHeight: '85vh', overflow: 'auto', padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>Détail du lien switch</h2>
+                <button onClick={() => setDetailLink(null)}
+                  style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Sites</div>
+                <div style={{ fontSize: 13, color: '#0f172a' }}>
+                  <span style={{ color: '#16a34a' }}>⬤</span> {siteAFmt}
+                </div>
+                <div style={{ fontSize: 13, color: '#0f172a' }}>
+                  <span style={{ color: '#dc2626' }}>⬤</span> {siteBFmt}
+                </div>
+              </div>
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Équipement local</div>
+              {renderField('Hostname', l.local_hostname)}
+              {renderField('Alias', l.local_alias)}
+              {renderField('IP', l.local_ip)}
+              {renderField('Port', l.local_port)}
+              {renderField('Description port', l.local_port_description)}
+              {renderField('Switch ID', l.local_switch_id)}
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', margin: '8px 0 4px' }}>Équipement distant</div>
+              {renderField('Hostname', l.remote_hostname)}
+              {renderField('Alias', l.remote_alias)}
+              {renderField('IP', l.remote_ip)}
+              {renderField('Port', l.remote_port)}
+              {renderField('Description port', l.remote_port_description)}
+              {renderField('Switch ID', l.remote_switch_id)}
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', margin: '8px 0 4px' }}>Informations générales</div>
+              {renderField('ID', l.id)}
+              {renderField('ID externe', l.ext_id)}
+              {renderField('Portée', l.is_intra_site ? 'Intra-site' : 'Inter-sites')}
+              {renderField('Synchronisé le', l.synced_at ? new Date(l.synced_at).toLocaleString('fr-FR') : null)}
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }

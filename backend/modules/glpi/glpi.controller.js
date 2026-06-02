@@ -166,10 +166,14 @@ const glpiController = {
         res.json({ success: true });
     },
 
+    // Profil de connexion GLPI : 'glpi10' → id 2, sinon GLPI historique → id 1
+    _profileId: (p) => (String(p || '').toLowerCase() === 'glpi10' ? 2 : 1),
+
     getSettings: async (req, res) => {
         try {
             const db = getSqlite();
-            const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+            const id = module.exports._profileId(req.query.profile);
+            const settings = await db.get('SELECT * FROM glpi_settings WHERE id = ?', [id]);
             res.json(settings || { url: '', app_token: '', user_token: '', is_enabled: 0 });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lecture paramètres GLPI' });
@@ -177,19 +181,20 @@ const glpiController = {
     },
 
     saveSettings: async (req, res) => {
-        const { url, app_token, user_token, login, password, is_enabled } = req.body;
+        const { url, app_token, user_token, login, password, is_enabled, profile } = req.body;
         try {
             const db = getSqlite();
-            const exists = await db.get('SELECT id FROM glpi_settings WHERE id = 1');
+            const id = module.exports._profileId(profile);
+            const exists = await db.get('SELECT id FROM glpi_settings WHERE id = ?', [id]);
             if (exists) {
                 await db.run(
-                    'UPDATE glpi_settings SET url = ?, app_token = ?, user_token = ?, login = ?, password = ?, is_enabled = ? WHERE id = 1',
-                    [url, app_token, user_token, login, password, is_enabled ? 1 : 0]
+                    'UPDATE glpi_settings SET url = ?, app_token = ?, user_token = ?, login = ?, password = ?, is_enabled = ? WHERE id = ?',
+                    [url, app_token, user_token, login, password, is_enabled ? 1 : 0, id]
                 );
             } else {
                 await db.run(
-                    'INSERT INTO glpi_settings (id, url, app_token, user_token, login, password, is_enabled) VALUES (1, ?, ?, ?, ?, ?, ?)',
-                    [url, app_token, user_token, login, password, is_enabled ? 1 : 0]
+                    'INSERT INTO glpi_settings (id, url, app_token, user_token, login, password, is_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [id, url, app_token, user_token, login, password, is_enabled ? 1 : 0]
                 );
             }
             res.json({ message: 'Paramètres GLPI enregistrés' });
