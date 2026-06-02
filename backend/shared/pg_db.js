@@ -436,9 +436,40 @@ async function setupPgDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    // Lien optionnel d'une pièce jointe vers le commentaire/suivi qui la porte
+    // (affichage de la PJ directement sous le message concerné).
+    try { await client.query(`ALTER TABLE hub_tickets.ticket_attachments ADD COLUMN IF NOT EXISTS followup_id INTEGER`); } catch (e) {}
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_file_ticket ON hub_tickets.ticket_attachments(ticket_id)`);
     // Stockage partagé : flag "fichier perdu" (migration vers storage/<module>/<id>/<f>)
     try { await client.query(`ALTER TABLE hub_tickets.ticket_attachments ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
+
+    // ─── Réparation idempotente : colonnes id sans séquence (tables migrées de GLPI
+    //     où le SERIAL n'a jamais été appliqué → id NULL à chaque INSERT). On ne
+    //     répare QUE si la colonne id n'a pas de default (sinon no-op au démarrage). ──
+    const repairSerialId = async (table, orderCol) => {
+        try {
+            const def = await client.query(
+                `SELECT column_default FROM information_schema.columns
+                 WHERE table_schema='hub_tickets' AND table_name=$1 AND column_name='id'`, [table]);
+            if (!def.rows.length || def.rows[0].column_default) return; // déjà OK (SERIAL/identity)
+            const seq = `hub_tickets.${table}_id_seq`;
+            await client.query(`CREATE SEQUENCE IF NOT EXISTS ${seq}`);
+            await client.query(
+                `WITH ordered AS (
+                    SELECT ctid, row_number() OVER (ORDER BY ${orderCol} NULLS FIRST, ctid) AS rn
+                    FROM hub_tickets.${table} WHERE id IS NULL
+                 )
+                 UPDATE hub_tickets.${table} t SET id = o.rn FROM ordered o WHERE t.ctid = o.ctid`);
+            await client.query(`SELECT setval('${seq}', GREATEST((SELECT COALESCE(MAX(id),0) FROM hub_tickets.${table}),1))`);
+            await client.query(`ALTER TABLE hub_tickets.${table} ALTER COLUMN id SET DEFAULT nextval('${seq}')`);
+            await client.query(`ALTER SEQUENCE ${seq} OWNED BY hub_tickets.${table}.id`);
+            await client.query(`ALTER TABLE hub_tickets.${table} ALTER COLUMN id SET NOT NULL`);
+            try { await client.query(`ALTER TABLE hub_tickets.${table} ADD PRIMARY KEY (id)`); } catch (e) {}
+            console.log(`[MIGRATION] Réparation séquence id sur hub_tickets.${table} effectuée`);
+        } catch (e) { console.error(`[MIGRATION] repairSerialId ${table}:`, e.message); }
+    };
+    await repairSerialId('ticket_followups', 'date_creation');
+    await repairSerialId('ticket_attachments', 'created_at');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_links (
@@ -4158,6 +4189,29 @@ async function setupPgDb() {
         )
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_dxf_entites_doc ON hub_reseau.dxf_entites(document_id)`);
+      // Paramètres de géoréférencement persistés (rappelés au ré-import du même fichier)
+      await client.query(`ALTER TABLE hub_reseau.dxf_documents ADD COLUMN IF NOT EXISTS ajustement JSONB`);
+      await client.query(`ALTER TABLE hub_reseau.dxf_documents ADD COLUMN IF NOT EXISTS transform JSONB`);
+      // Géoréférencement conservé indépendamment du document : la suppression d'un DXF
+      // n'efface pas son calage (rappelé au ré-import du même nom de fichier).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.dxf_calibrations (
+          nom_fichier TEXT PRIMARY KEY,
+          points_calage JSONB DEFAULT '[]',
+          ajustement JSONB,
+          transform JSONB,
+          maj_le TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      // Styles d'affichage par calque (visibilité + couleur), partagés entre documents.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.dxf_layer_styles (
+          calque TEXT PRIMARY KEY,
+          couleur TEXT,
+          visible BOOLEAN DEFAULT TRUE,
+          maj_le TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
 
       // ── Définitions d'API « Infra » (générique, extensible) ───────
       await client.query(`
