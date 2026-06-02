@@ -935,14 +935,18 @@ export default function ReseauDashboard() {
           <div style={{ fontSize: 13, color: '#0f172a', marginBottom: 6 }}>
             <span style={{ color: bulletColor }}>⬤</span>
             {json ? (
-              <>
-                {' '}Multi-sites{' '}
-                <span style={{ fontSize: 11, color: '#64748b' }}>({json.join(', ')})</span>
+              <><span style={{ fontWeight: 600 }}> Multi-sites</span>
+                {json.map(s => {
+                  const ref = resolveSite(s);
+                  return (
+                    <div key={s} style={{ paddingLeft: 20, fontSize: 12, color: '#334155', marginTop: 2 }}>
+                      {s}{ref?.nom ? ' — ' + ref.nom : ''}
+                    </div>
+                  );
+                })}
               </>
             ) : (
-              <>
-                {' '}{code}{resolveSite(code || '')?.nom ? ' — ' + resolveSite(code || '')!.nom : ''}
-              </>
+              <>{' '}{code}{resolveSite(code || '')?.nom ? ' — ' + resolveSite(code || '')!.nom : ''}</>
             )}
           </div>
         );
