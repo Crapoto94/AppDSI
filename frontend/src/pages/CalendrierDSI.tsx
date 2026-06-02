@@ -748,19 +748,24 @@ export default function CalendrierDSI() {
     setFormTitre(agent.displayName);
   };
 
-  const openCreateModal = (date?: string) => {
+  const openCreateModal = (date?: string, presetCat?: Categorie, agent?: { username: string; displayName: string; email: string } | null) => {
     setReadonly(false);
     setEditingEvent(null);
     setFormDate(date || formatDate(currentDate));
-    setFormCategorie('absence');
-    setFormTitre('');
+    setFormCategorie(presetCat || 'deplacement');
+    // Agent pré-rempli (vue service) : titre = nom de l'agent, sinon libellé de la catégorie
+    setFormTitre(agent ? agent.displayName : '');
     setFormDescription('');
     setFormPeriode('');
-    setSelectedAgent(null);
+    setSelectedAgent(agent || null);
     ad.setQuery('');
     ad.clearResults();
     setShowModal(true);
   };
+
+  // Catégories créables manuellement via la modale (les absences/télétravail/hotline
+  // sont alimentées automatiquement : SEDIT, sync, overrides).
+  const CREATABLE_CATEGORIES: Categorie[] = ['deplacement', 'deploiement', 'hotline'];
 
   const openEditModal = (evt: Evenement) => {
     const readOnly = (evt.generated && evt.categorie !== 'hotline') || evt.source === 'maintenance-table' || evt.source === 'o365' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
@@ -1733,10 +1738,12 @@ const renderPastille = (evt: Evenement) => {
                     </div>
                   );
                 };
+                // Lignes alimentées automatiquement (absence/télétravail/hotline) : non cliquables
+                const rowClickable = cat !== 'absence' && cat !== 'teletravail' && cat !== 'hotline';
                 return (
-                  <div key={ds} className={`cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`} style={d.getDay() === 0 || d.getDay() === 6 ? { background: '#f1f5f9' } : {}} onClick={() => { if (d.getDay() !== 0 && d.getDay() !== 6 && (cat === 'teletravail' || cat === 'absence')) { openAgentSelect(ds, cat); } else if (d.getDay() !== 0 && d.getDay() !== 6) { openCreateModal(ds); } }}>
+                  <div key={ds} className={`cell${formatDate(d) === formatDate(new Date()) ? ' today' : ''}`} style={{ ...(d.getDay() === 0 || d.getDay() === 6 ? { background: '#f1f5f9' } : {}), cursor: rowClickable && d.getDay() !== 0 && d.getDay() !== 6 ? 'pointer' : 'default' }} onClick={() => { if (!rowClickable || d.getDay() === 0 || d.getDay() === 6) return; openCreateModal(ds, (cat === 'deplacement' || cat === 'deploiement') ? cat : 'deplacement'); }}>
                     {!hasAny ? (
-                      <div className="empty-cell">+</div>
+                      <div className="empty-cell">{rowClickable ? '+' : ''}</div>
                     ) : (
                       <>
                         {amEvts.length > 0 && (
@@ -2013,6 +2020,8 @@ const renderDot = (evt: Evenement) => {
         const cellColor = (evt: Evenement) => {
           if (isSedit(evt)) return evt.pending || evt.created_by === 'auto-rh-pending' ? '#a78bfa' : '#7c3aed';
           if (evt.categorie === 'teletravail') return '#003366';
+          if (evt.categorie === 'deplacement') return '#0891b2';
+          if (evt.categorie === 'deploiement') return '#4CAF50';
           const t = (evt.titre || '').toLowerCase();
           if (t.includes('asa')) return '#8b5cf6';
           if (t.includes('congé prévisionnel') || t.includes('conge_previsionnel')) return '#f59e0b';
@@ -2058,9 +2067,10 @@ const renderDot = (evt: Evenement) => {
                       const ds = formatDate(d);
                       const feria = isFerie(ds);
                       const allEvts = agentEvts(ds);
-                      const amAbs = firstEvt(allEvts.filter(e => e.periode === 'matin' && (e.categorie === 'absence' || e.categorie === 'teletravail')));
-                      const pmAbs = firstEvt(allEvts.filter(e => e.periode === 'apres-midi' && (e.categorie === 'absence' || e.categorie === 'teletravail')));
-                      const fullAbs = firstEvt(allEvts.filter(e => (e.periode === '' || !e.periode) && (e.categorie === 'absence' || e.categorie === 'teletravail')));
+                      const DISP = (e: Evenement) => e.categorie === 'absence' || e.categorie === 'teletravail' || e.categorie === 'deplacement' || e.categorie === 'deploiement';
+                      const amAbs = firstEvt(allEvts.filter(e => e.periode === 'matin' && DISP(e)));
+                      const pmAbs = firstEvt(allEvts.filter(e => e.periode === 'apres-midi' && DISP(e)));
+                      const fullAbs = firstEvt(allEvts.filter(e => (e.periode === '' || !e.periode) && DISP(e)));
                       const amHl = allEvts.filter(e => e.periode === 'matin' && e.categorie === 'hotline')[0];
                       const pmHl = allEvts.filter(e => e.periode === 'apres-midi' && e.categorie === 'hotline')[0];
                       const fullHl = allEvts.filter(e => (e.periode === '' || !e.periode) && e.categorie === 'hotline')[0];
@@ -2090,8 +2100,20 @@ const renderDot = (evt: Evenement) => {
                       } else if (pmHL) {
                         pmBg = '#22c55e';
                       }
+                      // Création/édition d'un déplacement pour l'agent de la ligne
+                      const primary = fullAbs || amAbs || pmAbs;
+                      const manualMove = primary && primary.id > 0 && (primary.categorie === 'deplacement' || primary.categorie === 'deploiement') && !isSedit(primary);
+                      const clickable = !isWeekend && !feria;
                       return (
-                        <div key={ds} className={`cell${isToday ? ' today' : ''}`} style={{ minHeight: 20, padding: 0, position: 'relative', background: isWeekend || feria ? '#f1f5f9' : `linear-gradient(to right, ${amBg} 50%, ${pmBg} 50%)` }} />
+                        <div key={ds} className={`cell${isToday ? ' today' : ''}`}
+                          style={{ minHeight: 20, padding: 0, position: 'relative', cursor: clickable ? 'pointer' : 'default', background: isWeekend || feria ? '#f1f5f9' : `linear-gradient(to right, ${amBg} 50%, ${pmBg} 50%)` }}
+                          title={manualMove ? (primary.titre || 'Déplacement') : (clickable && !primary ? 'Ajouter un déplacement' : '')}
+                          onClick={() => {
+                            if (!clickable) return;
+                            if (manualMove) { openEditModal(primary); return; }
+                            if (primary) return; // cellule occupée par une absence/SEDIT/hotline → non éditable ici
+                            openCreateModal(ds, 'deplacement', { username: agent.username, displayName: agent.nom, email: agent.email || '' });
+                          }} />
                       );
                     })}
                   </React.Fragment>
@@ -2130,28 +2152,14 @@ const renderDot = (evt: Evenement) => {
             <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} disabled={readonly} />
 
             <label>Catégorie</label>
-            <select value={formCategorie} onChange={e => { const cat = e.target.value as Categorie; setFormCategorie(cat); if (cat !== 'absence' && cat !== 'teletravail') { setSelectedAgent(null); ad.setQuery(''); } }} disabled={readonly}>
-              {CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+            <select value={formCategorie} onChange={e => setFormCategorie(e.target.value as Categorie)} disabled={readonly}>
+              {/* En création : seulement les catégories créables manuellement.
+                  En édition : toutes (pour ne pas dénaturer l'événement existant). */}
+              {(editingEvent ? CATEGORIES : CREATABLE_CATEGORIES).map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
             </select>
 
-            <label>Agent / Service</label>
-            <div className="ad-search-wrapper">
-              <input
-                type="text" placeholder="Rechercher un agent (min 2 caractères)..."
-                value={ad.query} onChange={e => ad.setQuery(e.target.value)} disabled={readonly}
-              />
-              {ad.results.length > 0 && (
-                <div className="ad-results">
-                  {ad.results.map(u => (
-                    <div key={u.username} className="ad-result-item" onClick={() => selectAgent(u)}>
-                      <div className="ad-name">{u.displayName}</div>
-                      <div className="ad-detail">{u.email} {u.service ? `- ${u.service}` : ''}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {ad.searching && <div style={{ fontSize: '0.8rem', color: '#888', marginTop: 2 }}>Recherche...</div>}
-            </div>
+            {/* Recherche AD retirée de la modale : on ne crée pas d'agent ici
+                (les absences/télétravail sont gérées séparément). */}
             {selectedAgent && (
               <div className="ad-selected">
                 <strong>{selectedAgent.displayName}</strong>
