@@ -900,9 +900,61 @@ const glpiController = {
             const ticketsRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${startOffset}-${totalAvailable - 1}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
 
             let count = 0;
+            let ids = [];
             if (ticketsRes.data && Array.isArray(ticketsRes.data.data)) {
                 await glpiController.saveTicketsToPg(ticketsRes.data.data);
                 count = ticketsRes.data.data.length;
+                ids = ticketsRes.data.data.map(t => parseInt(t['2'], 10)).filter(n => !isNaN(n) && n > 0);
+            }
+
+            // ── Descriptions + commentaires des 50 tickets récents ──────────────
+            // La recherche GLPI ne renvoie pas le contenu complet ni les suivis :
+            // on les récupère par GET /Ticket/:id et /Ticket/:id/ITILFollowup.
+            if (ids.length > 0) {
+                // 1) Descriptions (content)
+                const descRes = await Promise.allSettled(
+                    ids.map(id => axios.get(`${url}/Ticket/${id}?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 10000 }))
+                );
+                const toUpdate = descRes
+                    .map((r, j) => (r.status === 'fulfilled' && r.value.data?.content)
+                        ? { glpi_id: ids[j], content: r.value.data.content } : null)
+                    .filter(Boolean);
+                if (toUpdate.length > 0) {
+                    const valuesSql = toUpdate.map((_, k) => `($${k * 2 + 1}::integer, $${k * 2 + 2}::text)`).join(', ');
+                    const params = toUpdate.flatMap(r => [r.glpi_id, r.content]);
+                    await pool.query(
+                        `UPDATE glpi.tickets SET content = v.content, last_sync = CURRENT_TIMESTAMP
+                         FROM (VALUES ${valuesSql}) AS v(glpi_id, content) WHERE glpi.tickets.glpi_id = v.glpi_id`, params);
+                    await pool.query(
+                        `UPDATE hub_tickets.tickets SET content = v.content
+                         FROM (VALUES ${valuesSql}) AS v(glpi_id, content) WHERE hub_tickets.tickets.glpi_id = v.glpi_id`, params);
+                }
+
+                // 2) Commentaires (suivis)
+                const fuRes = await Promise.allSettled(
+                    ids.map(id => axios.get(`${url}/Ticket/${id}/ITILFollowup?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 8000 }))
+                );
+                const followupsToInsert = [];
+                fuRes.forEach((r, idx) => {
+                    if (r.status === 'fulfilled') {
+                        const fus = Array.isArray(r.value.data) ? r.value.data : [];
+                        fus.forEach(fu => {
+                            if (fu.content) {
+                                followupsToInsert.push({
+                                    ticket_id: ids[idx],
+                                    content: fu.content,
+                                    author_name: fu.users_id?.name || fu.users_id?.toString() || '',
+                                    author_email: fu.users_id?.email || '',
+                                    is_private: fu.is_private || 0,
+                                    date_creation: fu.date || null,
+                                });
+                            }
+                        });
+                    }
+                });
+                if (followupsToInsert.length > 0) {
+                    await glpiController.saveFollowupsToPg(followupsToInsert);
+                }
             }
 
             if (syncLogId) {
