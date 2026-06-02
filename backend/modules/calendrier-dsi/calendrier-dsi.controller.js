@@ -87,6 +87,9 @@ const CATEGORY_COLORS = {
   hotline: '#22c55e'
 };
 
+// Mois pour parser les dates SEDIT au format "Wed Jun 03 2026 ..." sans fuseau
+const JS_MONTHS = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06', Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
+
 let genIdCounter = -1;
 
 function nextGenId() {
@@ -110,14 +113,20 @@ async function getDemabsEventsForRange(debut, fin) {
         AND (d."TPS_DMDA_SUPPR" IS NULL OR TRIM(d."TPS_DMDA_SUPPR") = '0')
     `);
 
+    const MONTHS = { Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06', Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12' };
     const parseJsDate = (d) => {
       if (!d) return null;
       if (d instanceof Date) {
         return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       }
       if (typeof d === 'string') {
+        // Format "Wed Jun 03 2026 00:00:00 GMT+0200 (...)" → on parse les composants
+        // directement (PAS via new Date().toISOString() qui décale d'un jour en
+        // fuseau positif : minuit CEST → 22h UTC la veille).
         const m = d.match(/(\w{3}) (\w{3}) (\d{1,2}) (\d{4})/);
-        if (m) { return new Date(d).toISOString().split('T')[0]; }
+        if (m && MONTHS[m[2]]) {
+          return `${m[4]}-${MONTHS[m[2]]}-${String(m[3]).padStart(2, '0')}`;
+        }
         return d.split('T')[0];
       }
       return null;
@@ -581,7 +590,7 @@ module.exports = {
           }
           if (typeof d === 'string') {
             const m = d.match(/(\w{3}) (\w{3}) (\d{1,2}) (\d{4})/);
-            if (m) { return new Date(d).toISOString().split('T')[0]; }
+            if (m && JS_MONTHS[m[2]]) { return `${m[4]}-${JS_MONTHS[m[2]]}-${String(m[3]).padStart(2,'0')}`; }
             return d.split('T')[0];
           }
           return null;
@@ -832,7 +841,7 @@ module.exports = {
       if (!date || !categorie || !titre) {
         return res.status(400).json({ message: 'Champs requis : date, categorie, titre' });
       }
-      const validCategories = ['absence', 'teletravail', 'deploiement', 'maintenance', 'reunion', 'absence_justifier', 'conge_previsionnel', 'asa'];
+      const validCategories = ['absence', 'teletravail', 'deplacement', 'deploiement', 'hotline', 'maintenance', 'reunion', 'absence_justifier', 'conge_previsionnel', 'asa'];
       if (!validCategories.includes(categorie)) {
         return res.status(400).json({ message: 'Catégorie invalide' });
       }
@@ -1111,7 +1120,7 @@ module.exports = {
           }
           if (typeof d === 'string') {
             const m = d.match(/(\w{3}) (\w{3}) (\d{1,2}) (\d{4})/);
-            if (m) { return new Date(d).toISOString().split('T')[0]; }
+            if (m && JS_MONTHS[m[2]]) { return `${m[4]}-${JS_MONTHS[m[2]]}-${String(m[3]).padStart(2,'0')}`; }
             return d.split('T')[0];
           }
           return null;
