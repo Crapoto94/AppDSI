@@ -524,7 +524,7 @@ export default function ParamVille() {
   useEffect(() => {
     if (!sitesLoaded) return;
     const fromDB = sites
-      .filter(s => s.code_bien && /^S\d{3}$/.test(s.code_bien) && s.lat != null && s.lng != null)
+      .filter(s => s.code_bien && s.lat != null && s.lng != null)
       .map(s => ({ code: s.code_bien!, nom: s.nom, lat: s.lat!, lng: s.lng!, adresse: s.adresse || '', categorie: s.categorie }));
     setGeocodedSites(fromDB);
   }, [sitesLoaded]);
@@ -696,17 +696,13 @@ export default function ParamVille() {
     return count(treeRoots) + treeOrphans.length;
   }, [treeRoots, treeOrphans]);
 
-  const sitesSXXX = useMemo(() =>
-    sites.filter(s => s.code_bien && /^S\d{3}$/.test(s.code_bien) && (showInactifsCarte || s.is_active))
+  const allSitesSorted = useMemo(() =>
+    sites.filter(s => s.code_bien && (showInactifsCarte || s.is_active))
       .sort((a, b) => (a.code_bien || '').localeCompare(b.code_bien || '', undefined, { numeric: true })),
     [sites, showInactifsCarte]);
 
   const carteCategories = useMemo(() =>
-    [...new Set(sitesSXXX.map(s => s.categorie).filter(Boolean) as string[])].sort(), [sitesSXXX]);
-
-  const sitesSXXXFiltered = useMemo(() =>
-    carteFilterCategorie ? sitesSXXX.filter(s => s.categorie === carteFilterCategorie) : sitesSXXX,
-    [sitesSXXX, carteFilterCategorie]);
+    [...new Set(allSitesSorted.map(s => s.categorie).filter(Boolean) as string[])].sort(), [allSitesSorted]);
 
   const geocodedSitesFiltered = useMemo(() =>
     carteFilterCategorie ? geocodedSites.filter(s => s.categorie === carteFilterCategorie) : geocodedSites,
@@ -720,35 +716,53 @@ export default function ParamVille() {
     geocodingStopRef.current = false;
     setGeocodingProgress(0); setIsGeocoding(true);
     const city = config.nom || 'Ivry-sur-Seine';
-    const toGeocode = sitesSXXX.filter(s => !s.lat || !s.lng);
+    const siteMap = new Map(sites.filter(s => s.code_bien).map(s => [s.code_bien!, s]));
+    const toGeocode = sites
+      .filter(s => !s.lat || !s.lng)
+      .sort((a, b) => (a.code_bien || '').length - (b.code_bien || '').length);
     setGeocodingTotal(toGeocode.length);
 
     for (let i = 0; i < toGeocode.length; i++) {
       if (geocodingStopRef.current) break;
       const site = toGeocode[i];
       setGeocodingProgress(i + 1);
+
+      let lat: number | null = null;
+      let lng: number | null = null;
+
       if (site.adresse) {
         try {
           const cleanAddr = parseAddress(site.adresse);
-          const cityPart = isCentreDeVacances(site) ? '' : `, ${city}`;
-          const query = `${cleanAddr}${cityPart}, France`;
+          const query = isCentreDeVacances(site) || site.adresse.includes(city)
+            ? `${cleanAddr}, France`
+            : `${cleanAddr}, ${city}, France`;
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
-            { headers: { 'User-Agent': 'AppDSI-Ville/1.0' } }
+            `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(query)}&limit=1`
           );
           const data = await res.json();
-          if (data[0]) {
-            const lat = parseFloat(data[0].lat);
-            const lng = parseFloat(data[0].lon);
-            const entry: GeocodedSite = { code: site.code_bien!, nom: site.nom, lat, lng, adresse: site.adresse || '', categorie: site.categorie };
-            setGeocodedSites(prev => [...prev.filter(g => g.code !== site.code_bien), entry]);
-            setSites(prev => prev.map(s => s.id === site.id ? { ...s, lat, lng } : s));
-            if (site.id) {
-              axios.patch(`/api/ville/sites/${site.id}/geocode`, { lat, lng }, { headers: getHeaders() })
-                .catch(err => console.warn(`[Géocodage] Échec ${site.code_bien}:`, err.message));
-            }
+          if (data.features && data.features[0]) {
+            const coords = data.features[0].geometry.coordinates;
+            lat = coords[1]; lng = coords[0];
           }
         } catch { /* skip */ }
+      }
+
+      if (lat == null && site.code_bien) {
+        const parsed = parseSiteCode(site.code_bien);
+        if (parsed.parentCode) {
+          const parent = siteMap.get(parsed.parentCode);
+          if (parent?.lat && parent?.lng) { lat = parent.lat; lng = parent.lng; }
+        }
+      }
+
+      if (lat != null && lng != null) {
+        const entry: GeocodedSite = { code: site.code_bien!, nom: site.nom, lat, lng, adresse: site.adresse || '', categorie: site.categorie };
+        setGeocodedSites(prev => [...prev.filter(g => g.code !== site.code_bien), entry]);
+        setSites(prev => prev.map(s => s.id === site.id ? { ...s, lat, lng } : s));
+        if (site.id) {
+          await axios.patch(`/api/ville/sites/${site.id}/geocode`, { lat, lng }, { headers: getHeaders() })
+            .catch(err => console.warn(`[Géocodage] Échec ${site.code_bien}:`, err.message));
+        }
       }
       await new Promise(r => setTimeout(r, 1100));
     }
@@ -1100,7 +1114,7 @@ export default function ParamVille() {
                               )}
                             </span>
                           ) : (
-                            <span style={{ color: '#d1d5db' }}>—</span>
+                            <span title="Non localisé" style={{ color: '#d1d5db', cursor: 'help' }}>📍</span>
                           )}
                         </td>
                         <td style={{ ...s.td }}>
@@ -1274,7 +1288,7 @@ export default function ParamVille() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <MapPin size={15} color="#0ea5e9" />
               <strong style={{ fontSize: '13px', color: '#1e293b' }}>
-                Sites principaux (SXXX) — {sitesSXXX.length}{!showInactifsCarte ? ' actifs' : ''}
+                Tous les sites — {allSitesSorted.length}{!showInactifsCarte ? ' actifs' : ''}
               </strong>
             </div>
 
@@ -1304,10 +1318,10 @@ export default function ParamVille() {
                 <>
                   <span style={{ fontSize: '12px', color: '#10b981', fontWeight: '600' }}>
                     ✓ {geocodedSites.length} localisés
-                    {sitesSXXX.filter(s => !s.lat).length > 0 && <span style={{ color: '#f59e0b', marginLeft: '6px' }}>({sitesSXXX.filter(s => !s.lat).length} restants)</span>}
+                    {sites.filter(s => !s.lat).length > 0 && <span style={{ color: '#f59e0b', marginLeft: '6px' }}>({sites.filter(s => !s.lat).length} restants)</span>}
                   </span>
                   <button style={s.btn('warning')} onClick={startGeocoding}>
-                    {sitesSXXX.filter(s => !s.lat).length > 0 ? 'Continuer' : 'Relancer'}
+                    {sites.filter(s => !s.lat).length > 0 ? 'Continuer' : 'Relancer'}
                   </button>
                 </>
               )}
@@ -1323,15 +1337,15 @@ export default function ParamVille() {
                   value={carteFilterCategorie}
                   onChange={e => setCarteFilterCategorie(e.target.value)}
                 >
-                  <option value="">Toutes catégories ({sitesSXXX.length})</option>
+                  <option value="">Toutes catégories ({allSitesSorted.length})</option>
                   {carteCategories.map(c => (
-                    <option key={c} value={c}>{getCategoryEmoji(c)} {c} ({sitesSXXX.filter(s => s.categorie === c).length})</option>
+                    <option key={c} value={c}>{getCategoryEmoji(c)} {c} ({allSitesSorted.filter(s => s.categorie === c).length})</option>
                   ))}
                 </select>
               </div>
 
               <div style={{ overflowY: 'auto', flex: 1 }}>
-                {sitesSXXXFiltered.map(site => {
+                {allSitesSorted.filter(s => !carteFilterCategorie || s.categorie === carteFilterCategorie).map(site => {
                   const geocoded = geocodedSites.find(g => g.code === site.code_bien);
                   const isSelected = selectedMapSite === site.code_bien;
                   return (
@@ -1341,9 +1355,7 @@ export default function ParamVille() {
                         <span style={{ fontSize: '15px', lineHeight: 1 }}>{getCategoryEmoji(site.categorie)}</span>
                         <code style={{ fontSize: '11px', background: '#f1f5f9', padding: '1px 5px', borderRadius: '3px', fontWeight: '700', color: '#334155' }}>{site.code_bien}</code>
                         {!site.is_active && <span style={{ fontSize: '10px', color: '#ef4444' }}>inactif</span>}
-                        {geocoded
-                          ? <span style={{ marginLeft: 'auto', fontSize: '10px', color: '#10b981', fontWeight: '600' }}>📍</span>
-                          : <span style={{ marginLeft: 'auto', fontSize: '10px', color: '#cbd5e1' }}>—</span>}
+                        <span style={{ marginLeft: 'auto', fontSize: '10px', color: geocoded ? '#10b981' : '#d1d5db', fontWeight: geocoded ? '600' : '400' }}>📍</span>
                       </div>
                       <div style={{ fontSize: '12px', color: '#374151', lineHeight: 1.3 }}>{site.nom}</div>
                       {site.adresse && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{site.adresse}</div>}

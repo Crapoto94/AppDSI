@@ -4,7 +4,7 @@ import {
   Tooltip, LayerGroup, useMapEvents,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import type { NetworkLink, SiteRef } from './types';
+import type { NetworkLink, SiteRef, Equipement } from './types';
 import { linkStyle } from './utils';
 
 // ── Constantes ──────────────────────────────────────────────────────
@@ -75,6 +75,7 @@ const Legend: React.FC = () => (
     <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 6, paddingTop: 6, fontSize: 11, color: '#64748b' }}>
       💡 Clic sur un lien pour le mettre en évidence · clic sur un site pour le déplacer
     </div>
+    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>Sites avec équipements uniquement</div>
   </div>
 );
 
@@ -106,7 +107,7 @@ export interface MoveResult { siteId: number; siteCode: string; lat: number; lng
 interface Props {
   sites:          Map<string, SiteRef>;
   links:          NetworkLink[];
-  layers:         { links: boolean; sites: boolean };
+  layers:         { links: boolean; sites: boolean; coeur: boolean };
   drawMode:       boolean;
   drawnPoints:    [number, number][];
   onMapClick:     (lat: number, lng: number) => void;
@@ -114,12 +115,14 @@ interface Props {
   onSiteMoved?:  (result: MoveResult) => void;
   selectedLinkId?: string | null;
   onSelectLink?:  (id: string | null) => void;
+  equipementsBySite?: Map<string, Equipement[]>;
 }
 
 // ── Composant principal ───────────────────────────────────────────────
 const NetworkMap: React.FC<Props> = ({
   sites, links, layers, drawMode, drawnPoints, onMapClick,
   highlightSites = [], onSiteMoved, selectedLinkId = null, onSelectLink,
+  equipementsBySite,
 }) => {
   const [drawCursor, setDrawCursor] = useState<[number, number] | null>(null);
 
@@ -168,9 +171,23 @@ const NetworkMap: React.FC<Props> = ({
   links.forEach(l => { referenced.add(l.site_a); referenced.add(l.site_b); });
   highlightSites.forEach(s => { if (s) referenced.add(s); });
 
-  const siteEntries = layers.sites
-    ? Array.from(sites.values()).filter(s => s.lat != null && s.lng != null)
-    : Array.from(referenced).map(c => sites.get(c)).filter((s): s is SiteRef => !!s && s.lat != null && s.lng != null);
+  const hasEquip = (code: string) => !equipementsBySite || equipementsBySite.has(code);
+  const isImportantSite = (code: string) => CORE_SITES.has(code) || IRF_NORD.has(code) || IRF_SUD.has(code);
+
+  let siteEntries: SiteRef[];
+  if (layers.coeur) {
+    siteEntries = Array.from(sites.values())
+      .filter(s => s.lat != null && s.lng != null && isImportantSite(s.site_code) && hasEquip(s.site_code));
+  } else if (layers.sites) {
+    siteEntries = Array.from(sites.values())
+      .filter(s => s.lat != null && s.lng != null && hasEquip(s.site_code));
+  } else {
+    // Aucune couche active → seuls les sites en surbrillance (lien sélectionné) ou en déplacement
+    siteEntries = highlightSites
+      .filter(c => sites.has(c))
+      .map(c => sites.get(c)!)
+      .filter((s): s is SiteRef => s.lat != null && s.lng != null && hasEquip(s.site_code));
+  }
 
   const layerOn = (_link: NetworkLink) => layers.links;
 
@@ -280,8 +297,6 @@ const NetworkMap: React.FC<Props> = ({
             const c        = siteColor(s.site_code, isHl, isMov);
             const r        = siteRadius(s.site_code, isMov);
 
-            if (!isRef && !layers.sites && !isMov) return null;
-
             return (
               <CircleMarker
                 key={s.site_code}
@@ -304,6 +319,32 @@ const NetworkMap: React.FC<Props> = ({
                     {IRF_SUD.has(s.site_code)  && <><br /><span style={{ color: '#16a34a' }}>⬢ Boucle Sud</span></>}
                     {s.geocoded_manually && <><br /><span style={{ color: '#f59e0b' }}>📍 Position manuelle</span></>}
                     {!s.geocoded_manually && s.lat_own == null && <><br /><span style={{ color: '#94a3b8', fontSize: 11 }}>📍 Hérité du site parent</span></>}
+                    {(() => {
+                      const eqs = equipementsBySite?.get(s.site_code);
+                      if (!eqs || eqs.length === 0) return null;
+                      const groups = new Map<string, Equipement[]>();
+                      for (const eq of eqs) {
+                        const loc = eq.localisation || '—';
+                        if (!groups.has(loc)) groups.set(loc, []);
+                        groups.get(loc)!.push(eq);
+                      }
+                      const entries = [...groups.entries()];
+                      return (
+                        <>
+                          <br /><span style={{ color: '#0ea5e9', fontWeight: 700, fontSize: 11 }}>▸ Équipements ({eqs.length})</span>
+                          {entries.map(([loc, list]) => (
+                            <React.Fragment key={loc}>
+                              <br /><span style={{ color: '#64748b', fontSize: 10, fontStyle: 'italic' }}>  {loc}</span>
+                              {list.map(eq => (
+                                <span key={eq.id} style={{ display: 'block', fontSize: 11, color: '#1e293b', paddingLeft: 14 }}>
+                                  {eq.type === 'SWITCH_L3' ? '🖧' : eq.type === 'SWITCH_L2' ? '🖄' : eq.type === 'ROUTEUR' ? '📡' : eq.type === 'FIREWALL' ? '🛡' : '🔌'} {eq.nom}
+                                </span>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </>
+                      );
+                    })()}
                     <br /><span style={{ color: '#64748b', fontSize: 11 }}>Clic pour déplacer</span>
                   </div>
                 </Tooltip>

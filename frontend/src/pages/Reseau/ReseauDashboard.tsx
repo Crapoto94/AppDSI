@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import Header from '../../components/Header';
 import {
-  Network, Map as MapIcon, Share2, Plus, Trash2,
+  Network, Map as MapIcon, MapPin, Share2, Plus, Trash2,
   Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router, Link2,
 } from 'lucide-react';
 import NetworkMap from './NetworkMap';
@@ -46,12 +46,7 @@ export default function ReseauDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
-  // ── Filtres carte ───────────────────────────────────────────────
-  const [fType, setFType]         = useState<'' | LinkType>('');
-  const [fOperator, setFOperator] = useState<'' | Operator>('');
-  const [fLoop, setFLoop]         = useState(false);
-  const [fRedundant, setFRedundant] = useState(false);
-  const [layers, setLayers]       = useState({ links: true, sites: true });
+  const [layers, setLayers]       = useState({ links: true, sites: true, coeur: true });
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
 
   // ── Création lien ───────────────────────────────────────────────
@@ -119,43 +114,43 @@ export default function ReseauDashboard() {
     setDrawnPoints(a && a.lat != null && a.lng != null ? [[a.lat, a.lng]] : []);
   }, [form.site_a, drawMode, sites]);
 
-  // Liens inter-sites agrégés, dérivés des liens switchs (pour la carte géographique).
-  // Les liens intra-site (même site aux deux bouts) ne sont pas traçables en ligne → exclus ici
-  // (visibles dans l'onglet « Liens switchs » et dans la topologie).
-  const siteLinksFromSwitches = useMemo<NetworkLink[]>(() => {
-    const agg = new Map<string, { a: string; b: string; count: number }>();
-    for (const l of switchLinks) {
-      const a = l.local_site_id, b = l.remote_site_id;
-      if (!a || !b || a === b || a.trim().startsWith('{') || b.trim().startsWith('{')) continue;
-      const [x, y] = a < b ? [a, b] : [b, a];
-      const key = `${x}|${y}`;
-      const e = agg.get(key) || { a: x, b: y, count: 0 };
-      e.count++; agg.set(key, e);
-    }
-    return [...agg.values()].map(e => ({
-      id: `sl-${e.a}-${e.b}`, site_a: e.a, site_b: e.b, type: 'FIBRE' as LinkType,
-      capacity: e.count > 2 ? '10G' : null, operator: null,
-      carries_data: true, carries_voice: false, is_loop: false, is_redundant: e.count > 1,
-      geometry: null, notes: `${e.count} lien(s) switch inter-sites`,
-    }));
-  }, [switchLinks]);
-
-  // Carte = liens manuels (network_links) + liens inter-sites dérivés des switchs
-  const mapLinks = useMemo(() => [...links, ...siteLinksFromSwitches], [links, siteLinksFromSwitches]);
-
-  const filteredLinks = useMemo(() => mapLinks.filter(l =>
-    (!fType || l.type === fType) &&
-    (!fOperator || l.operator === fOperator) &&
-    (!fLoop || l.is_loop) &&
-    (!fRedundant || l.is_redundant)
-  ), [mapLinks, fType, fOperator, fLoop, fRedundant]);
-
-  // Liens effectivement traçables sur la carte : départ ET arrivée géolocalisés.
-  const hasCoords = (code: string) => { const s = sites.get(code); return !!s && s.lat != null && s.lng != null; };
-  const geoLinks = useMemo(
-    () => filteredLinks.filter(l => hasCoords(l.site_a) && hasCoords(l.site_b)),
-    [filteredLinks, sites]
+  const intersiteSwitchLinks = useMemo(
+    () => switchLinks.filter(l => !l.is_intra_site),
+    [switchLinks]
   );
+
+  // Liens switchs inter-sites individuels (un par entrée, pour la carte).
+  // Chaque lien est tracé entre les coordonnées des deux sites.
+  const individualSwitchMapLinks = useMemo<NetworkLink[]>(() => {
+    return intersiteSwitchLinks.map(l => ({
+      id: `sl-${l.id}`,
+      site_a: l.local_site_id!,
+      site_b: l.remote_site_id!,
+      type: 'FIBRE' as LinkType,
+      capacity: null, operator: null,
+      carries_data: true, carries_voice: false,
+      is_loop: false, is_redundant: false,
+      geometry: null,
+      notes: `${l.local_hostname || '?'}:${l.local_port || '?'} → ${l.remote_hostname || '?'}:${l.remote_port || '?'}`,
+    }));
+  }, [intersiteSwitchLinks]);
+
+  // Carte = liens manuels (network_links) + tous les liens switchs inter-sites individuels
+  const mapLinks = useMemo(() => [...links, ...individualSwitchMapLinks], [links, individualSwitchMapLinks]);
+
+  // Équipements groupés par site_code
+  const equipementsBySite = useMemo(() => {
+    const m = new Map<string, typeof equipements>();
+    for (const eq of equipements) {
+      const sc = eq.site_code || '';
+      if (!sc) continue;
+      if (!m.has(sc)) m.set(sc, []);
+      m.get(sc)!.push(eq);
+    }
+    return m;
+  }, [equipements]);
+
+  const hasCoords = (code: string) => { const s = sites.get(code); return !!s && s.lat != null && s.lng != null; };
 
   function onMapClick(lat: number, lng: number) {
     if (drawMode) setDrawnPoints(prev => [...prev, [lat, lng]]);
@@ -252,6 +247,12 @@ export default function ReseauDashboard() {
     INTERNET: '#f59e0b', ECOLES: '#22c55e', VOIP: '#06b6d4',
   };
   const STATUT_COLOR = (s: string) => s === 'PROD' ? '#22c55e' : s === 'BACKUP' ? '#f59e0b' : '#ef4444';
+  const resolveEquipLocation = (e: Equipement) => {
+    if (e.localisation) return { label: e.localisation, precise: true };
+    if (e.site_nom)     return { label: e.site_nom, precise: false };
+    if (e.site_code)    return { label: e.site_code, precise: false };
+    return { label: '—', precise: false };
+  };
 
   if (loading) return (
     <>
@@ -318,18 +319,25 @@ export default function ReseauDashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 16, height: 'calc(100vh - 250px)' }}>
             {/* panneau gauche */}
             <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* ── Liens réseau manuels ── */}
               <div style={card}>
-                <h3 style={cardTitle}><Link2 size={16} /> Liens inter-sites géolocalisés ({geoLinks.length})</h3>
-                <div style={{ fontSize: 11, color: '#94a3b8', margin: '-6px 0 10px' }}>
-                  Cliquez un lien pour le mettre en évidence sur la carte.
-                  {filteredLinks.length - geoLinks.length > 0 && ` · ${filteredLinks.length - geoLinks.length} non tracé(s) (site sans coordonnées)`}
+                <h3 style={cardTitle}><MapPin size={16} /> Liens réseau ({links.length})</h3>
+                <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <span><MapPin size={10} style={{ verticalAlign: 'middle', color: '#2563eb' }} fill="#2563eb" /> Cartographié</span>
+                  <span><MapPin size={10} style={{ verticalAlign: 'middle', color: '#94a3b8' }} fill="none" /> Non cartographié</span>
+                  <span style={{ color: '#16a34a' }}>⬤ Site géolocalisé</span>
+                  <span style={{ color: '#ef4444' }}>⬤ Site non géolocalisé</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {geoLinks.map(l => {
+                  {links.map(l => {
                     const st = linkStyle(l);
                     const nomA = sites.get(l.site_a)?.nom || l.site_a;
                     const nomB = sites.get(l.site_b)?.nom || l.site_b;
                     const sel = selectedLinkId === l.id;
+                    const coordsA = hasCoords(l.site_a);
+                    const coordsB = hasCoords(l.site_b);
+                    const hasGeometry = !!l.geometry;
+                    const traceable = coordsA && coordsB;
                     return (
                       <div key={l.id}
                         onClick={() => setSelectedLinkId(sel ? null : l.id)}
@@ -337,19 +345,108 @@ export default function ReseauDashboard() {
                           display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
                           background: sel ? '#fef2f2' : '#f8fafc',
                           border: `1px solid ${sel ? '#fecaca' : '#eef2f7'}`,
+                          opacity: traceable ? 1 : 0.6,
                         }}>
                         <span style={{ width: 12, height: 3, borderRadius: 2, background: sel ? '#dc2626' : st.color, flexShrink: 0 }} />
+                        <MapPin size={14}
+                          style={{ flexShrink: 0 }}
+                          fill={hasGeometry ? '#2563eb' : 'none'}
+                          color={hasGeometry ? '#2563eb' : '#94a3b8'}
+                        />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: sel ? '#b91c1c' : '#1e293b' }} title={`${l.site_a} → ${l.site_b}`}>{nomA} → {nomB}</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: sel ? '#b91c1c' : '#1e293b' }} title={`${l.site_a} → ${l.site_b}`}>
+                            <span style={{ color: coordsA ? '#16a34a' : '#ef4444' }}>{nomA}</span>
+                            {' → '}
+                            <span style={{ color: coordsB ? '#16a34a' : '#ef4444' }}>{nomB}</span>
+                          </div>
                           <div style={{ fontSize: 10, color: '#94a3b8' }}>
-                            {l.notes || l.type}{l.capacity ? ` · ${l.capacity}` : ''}
+                            {l.type}{l.capacity ? ` · ${l.capacity}` : ''}{l.operator ? ` · ${l.operator}` : ''}
+                            {!traceable && <span style={{ color: '#ef4444' }}> · Site(s) non géolocalisé(s)</span>}
+                          </div>
+                          <div style={{ fontSize: 9, color: '#64748b', marginTop: 1 }}>
+                            <span style={{ color: coordsA ? '#16a34a' : '#ef4444' }}>⬤</span> {l.site_a}{coordsA ? '' : ' (non géolocalisé)'}
+                            {' '}
+                            <span style={{ color: coordsB ? '#16a34a' : '#ef4444' }}>⬤</span> {l.site_b}{coordsB ? '' : ' (non géolocalisé)'}
                           </div>
                         </div>
-                        {!l.id.startsWith('sl-') && <button onClick={e => { e.stopPropagation(); deleteLink(l.id); }} style={iconBtn}><Trash2 size={13} /></button>}
+                        <button onClick={e => { e.stopPropagation(); deleteLink(l.id); }} style={iconBtn}><Trash2 size={13} /></button>
                       </div>
                     );
                   })}
-                  {geoLinks.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucun lien géolocalisé.</div>}
+                  {links.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucun lien réseau.</div>}
+                </div>
+              </div>
+
+              {/* ── Connexions switch inter-sites (tous les liens individuels) ── */}
+              <div style={card}>
+                <h3 style={cardTitle}><Server size={16} /> Connexions switch inter-sites ({intersiteSwitchLinks.length})</h3>
+                <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <span style={{ color: '#16a34a' }}>⬤ Site géolocalisé</span>
+                  <span style={{ color: '#ef4444' }}>⬤ Site non géolocalisé</span>
+                  <span style={{ color: '#64748b' }}>Cliquez pour mettre en évidence sur la carte</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 500, overflowY: 'auto' }}>
+                  {intersiteSwitchLinks.map(l => {
+                    const linkId = `sl-${l.id}`;
+                    const sel = selectedLinkId === linkId;
+                    const sa = l.local_site_id || '?';
+                    const sb = l.remote_site_id || '?';
+                    const nomA = sites.get(sa)?.nom || sa;
+                    const nomB = sites.get(sb)?.nom || sb;
+                    const coordsA = hasCoords(sa);
+                    const coordsB = hasCoords(sb);
+                    return (
+                      <div key={linkId}
+                        onClick={() => setSelectedLinkId(sel ? null : linkId)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
+                          background: sel ? '#fef2f2' : '#f8fafc',
+                          border: `1px solid ${sel ? '#fecaca' : '#eef2f7'}`,
+                        }}>
+                        <span style={{ width: 10, height: 3, borderRadius: 2, background: sel ? '#dc2626' : '#16a34a', flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: sel ? '#b91c1c' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: coordsA ? '#16a34a' : '#ef4444' }}>{nomA}</span>
+                            {' → '}
+                            <span style={{ color: coordsB ? '#16a34a' : '#ef4444' }}>{nomB}</span>
+                          </div>
+                          <div style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {sa}{coordsA ? '' : ' (?)'} · {l.local_hostname || '?'}:{l.local_port || '?'} → {l.remote_hostname || '?'}:{l.remote_port || '?'}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {intersiteSwitchLinks.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucune connexion inter-sites.</div>}
+                </div>
+              </div>
+
+              {/* ── Sites ── */}
+              <div style={card}>
+                <h3 style={cardTitle}><MapIcon size={16} /> Sites ({sitesArr.length})</h3>
+                <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <span style={{ color: '#16a34a' }}>⬤ Coordonnées OK ({sitesArr.filter(s => s.lat != null && s.lng != null).length})</span>
+                  <span style={{ color: '#ef4444' }}>⬤ Non géolocalisé ({sitesArr.filter(s => s.lat == null || s.lng == null).length})</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, maxHeight: 400, overflowY: 'auto' }}>
+                  {sitesArr.map(s => {
+                    const hasCoord = s.lat != null && s.lng != null;
+                    return (
+                      <div key={s.site_code} style={{
+                        display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 6,
+                        background: '#f8fafc', border: '1px solid #eef2f7',
+                      }}>
+                        <span style={{
+                          width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                          background: hasCoord ? '#16a34a' : '#ef4444',
+                        }} />
+                        <span style={{ fontWeight: 700, color: '#1e293b', fontFamily: 'monospace', fontSize: 11 }}>{s.site_code}</span>
+                        <span style={{ color: '#64748b', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{s.nom}</span>
+                        {!hasCoord && <span style={{ fontSize: 10, color: '#ef4444', flexShrink: 0 }}>non géolocalisé</span>}
+                      </div>
+                    );
+                  })}
+                  {sitesArr.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucun site.</div>}
                 </div>
               </div>
             </div>
@@ -362,7 +459,7 @@ export default function ReseauDashboard() {
                 </div>
                 {view === 'map' && (
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
-                    {([['links','Liens inter-sites','#16a34a'],['sites','Sites','#2563eb']] as const).map(([k,lbl,c]) => (
+                    {([['links','Liens','#16a34a'],['coeur','Cœur','#0f172a'],['sites','Tous','#2563eb']] as const).map(([k,lbl,c]) => (
                       <label key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#475569', fontWeight: 600 }}>
                         <input type="checkbox" checked={layers[k]} onChange={e => setLayers({ ...layers, [k]: e.target.checked })} />
                         <span style={{ width: 8, height: 8, borderRadius: 2, background: c }} /> {lbl}
@@ -381,6 +478,7 @@ export default function ReseauDashboard() {
                   <NetworkMap sites={sites} links={mapLinks} layers={layers} drawMode={false} drawnPoints={[]} onMapClick={() => {}}
                     selectedLinkId={selectedLinkId}
                     onSelectLink={setSelectedLinkId}
+                    equipementsBySite={equipementsBySite}
                     highlightSites={(() => { const l = mapLinks.find(x => x.id === selectedLinkId); return l ? [l.site_a, l.site_b] : []; })()}
                     onSiteMoved={(r: MoveResult) => {
                       setSitesArr(prev => prev.map(s =>
@@ -515,6 +613,10 @@ export default function ReseauDashboard() {
               </select>
               <div style={{ fontSize: 13, color: '#94a3b8', alignSelf: 'center' }}>{filteredEquipements.length} équipements</div>
             </div>
+            <div style={{ fontSize: 10, color: '#64748b', marginBottom: 8, display: 'flex', gap: 16 }}>
+              <span><MapPin size={10} style={{ verticalAlign: 'middle', color: '#2563eb' }} fill="#2563eb" /> Localisation précise</span>
+              <span><MapPin size={10} style={{ verticalAlign: 'middle', color: '#94a3b8' }} fill="none" /> Localisation héritée du site</span>
+            </div>
             {/* Tableau */}
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -526,7 +628,9 @@ export default function ReseauDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEquipements.map((e, i) => (
+                  {filteredEquipements.map((e, i) => {
+                    const loc = resolveEquipLocation(e);
+                    return (
                     <tr key={e.id} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 ? '#fafbfc' : 'white' }}>
                       <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
                         {EQUIP_ICON(e.type)} {e.nom}
@@ -543,12 +647,22 @@ export default function ReseauDashboard() {
                       <td style={{ padding: '8px 12px', fontSize: 12, color: '#374151' }}>
                         {e.irf_stack_id ? <span>Stack #{e.irf_stack_id} — M{e.irf_membre_num}</span> : '—'}
                       </td>
-                      <td style={{ padding: '8px 12px', fontSize: 12, color: '#64748b' }}>{e.localisation}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 12 }}>
+                        <MapPin size={12}
+                          style={{ verticalAlign: 'middle', marginRight: 4 }}
+                          fill={loc.precise ? '#2563eb' : 'none'}
+                          color={loc.precise ? '#2563eb' : '#94a3b8'}
+                        />
+                        <span style={{ color: loc.precise ? '#0f172a' : '#64748b', fontWeight: loc.precise ? 600 : 400 }}>
+                          {loc.label}
+                        </span>
+                      </td>
                       <td style={{ padding: '8px 12px' }}>
                         <span style={{ background: STATUT_COLOR(e.statut) + '20', color: STATUT_COLOR(e.statut), padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600 }}>{e.statut}</span>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {filteredEquipements.length === 0 && (
                     <tr><td colSpan={9} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>Aucun équipement</td></tr>
                   )}
