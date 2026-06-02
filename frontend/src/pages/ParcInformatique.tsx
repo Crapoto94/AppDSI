@@ -504,6 +504,8 @@ const ParcInformatique: React.FC = () => {
                                   ? <span title="Calculé depuis la date de mise en service"><CalendarCheck2 size={13} color={C.green} /></span>
                                   : r.age_source === 'buy_date'
                                   ? <span title="Calculé depuis la date d'achat (mise en service inconnue)"><CalendarDays size={13} color={C.amber} /></span>
+                                  : r.age_source === 'warranty'
+                                  ? <span title="Estimé depuis la garantie (fin − durée) — aucune date d'achat saisie"><CalendarDays size={13} color="#94a3b8" /></span>
                                   : null}
                                 {r.age_years} an{r.age_years >= 2 ? 's' : ''}
                               </span>

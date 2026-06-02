@@ -107,9 +107,63 @@ async function upsertUsager(u) {
   );
 }
 
+// ── Synchro ciblée : uniquement la colonne infocom (garantie, achat, valeur) ──────────
+// Beaucoup plus rapide qu'une synchro complète (quelques secondes).
+// Corrige les âges manquants sans relancer tout le parc.
+async function syncInfocomsOnly(req, res) {
+  let sess;
+  try {
+    sess = await glpi.openSession();
+    // expand:false → items_id reste numérique (clé de jointure correcte)
+    const infocoms = await glpi.fetchAll(sess, 'Infocom', { expand: false });
+    await glpi.closeSession(sess);
+
+    // Index par itemtype-items_id
+    const icMap = new Map();
+    for (const ic of infocoms) {
+      icMap.set(`${ic.itemtype}-${ic.items_id}`, ic);
+    }
+
+    // Récupère tous les items du parc (glpi_id + itemtype)
+    const items = await pool.query(`SELECT itemtype, glpi_id FROM hub_parc.items`);
+    let updated = 0, skipped = 0;
+
+    // Mise à jour par lots de 100
+    const BATCH = 100;
+    const rows = items.rows;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch = rows.slice(i, i + BATCH);
+      await Promise.all(batch.map(async (row) => {
+        const ic = icMap.get(`${row.itemtype}-${row.glpi_id}`);
+        if (!ic) { skipped++; return; }
+        try {
+          await pool.query(
+            `UPDATE hub_parc.items SET infocom = $1::jsonb WHERE itemtype = $2 AND glpi_id = $3`,
+            [JSON.stringify(ic), row.itemtype, row.glpi_id]
+          );
+          updated++;
+        } catch (e) { /* ignore */ }
+      }));
+    }
+
+    // Vide le cache HUB pour forcer le recalcul des âges
+    const { clearHubCache } = require('./parc.hub.controller');
+    clearHubCache();
+
+    res.json({
+      message: `Infocoms mis à jour : ${updated} équipements (${skipped} sans infocom GLPI)`,
+      updated, skipped, total: infocoms.length,
+    });
+  } catch (error) {
+    if (sess) await glpi.closeSession(sess).catch(() => {});
+    res.status(500).json({ message: error.message });
+  }
+}
+
 module.exports = {
   getParcSyncProgress: (req, res) => res.json(_parcSync),
   getUsagerSyncProgress: (req, res) => res.json(_usagerSync),
+  syncInfocomsOnly,
 
   // ── Proxy de téléchargement d'un document GLPI (images de modèles, pièces jointes) ──
   // Supporte ?token= pour les balises <img src>. Partagé par les modes live et hub.

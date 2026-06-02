@@ -7,6 +7,7 @@ const { authenticateJWT, authenticateGLPIControl } = require('../../shared/middl
 
 // ── Synchronisation depuis GLPI 10 (réservée au contrôle GLPI/admin) ──────────
 router.post('/sync', authenticateGLPIControl, ctrl.syncParc);
+router.post('/sync-infocoms', authenticateGLPIControl, ctrl.syncInfocomsOnly);
 router.get('/sync-progress', authenticateGLPIControl, ctrl.getParcSyncProgress);
 router.post('/sync-usagers', authenticateGLPIControl, ctrl.syncUsagers);
 router.get('/sync-usagers-progress', authenticateGLPIControl, ctrl.getUsagerSyncProgress);

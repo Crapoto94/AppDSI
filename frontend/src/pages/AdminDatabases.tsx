@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Database, Globe, Euro, Server, Eye, EyeOff, Save, CheckCircle, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import Admin from './Admin';
@@ -483,8 +483,30 @@ const Glpi10Config: React.FC = () => {
   const [stats, setStats] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
+  const [progress, setProgress] = useState<any>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Synchro usagers (e-mails AD)
+  const [infocomSyncing, setInfocomSyncing] = useState(false);
+  const [infocomResult, setInfocomResult] = useState<any>(null);
+  const [usagerSyncing, setUsagerSyncing] = useState(false);
+  const [usagerResult, setUsagerResult] = useState<any>(null);
+  const [usagerProgress, setUsagerProgress] = useState<any>(null);
+  const usagerPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadStats = () => { axios.get('/api/parc/stats', { headers }).then(r => setStats(r.data)).catch(() => {}); };
+
+  const stopPolling = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  const fetchProgress = async () => {
+    try { const r = await axios.get('/api/parc/sync-progress', { headers }); setProgress(r.data); }
+    catch { /* on ignore les erreurs ponctuelles de polling */ }
+  };
+  const stopUsagerPolling = () => { if (usagerPollRef.current) { clearInterval(usagerPollRef.current); usagerPollRef.current = null; } };
+  const fetchUsagerProgress = async () => {
+    try { const r = await axios.get('/api/parc/sync-usagers-progress', { headers }); setUsagerProgress(r.data); }
+    catch { /* ignore */ }
+  };
+  // Nettoyage du polling au démontage
+  useEffect(() => () => { stopPolling(); stopUsagerPolling(); }, []);
 
   useEffect(() => {
     axios.get('/api/glpi/settings?profile=glpi10', { headers })
@@ -522,14 +544,49 @@ const Glpi10Config: React.FC = () => {
   };
 
   const syncParc = async () => {
-    setSyncing(true); setSyncResult(null);
+    setSyncing(true); setSyncResult(null); setProgress(null);
+    // Polling de la progression (barre + compteurs par type, à la volée)
+    stopPolling();
+    fetchProgress();
+    pollRef.current = setInterval(fetchProgress, 1000);
     try {
       const res = await axios.post('/api/parc/sync', {}, { headers });
       setSyncResult({ ok: true, ...res.data });
       loadStats();
     } catch (e: any) {
       setSyncResult({ ok: false, message: e.response?.data?.message || 'Erreur lors de la synchronisation' });
-    } finally { setSyncing(false); }
+    } finally {
+      setSyncing(false);
+      stopPolling();
+      fetchProgress(); // dernier état (terminé / erreur)
+    }
+  };
+
+  const syncInfocoms = async () => {
+    setInfocomSyncing(true); setInfocomResult(null);
+    try {
+      const res = await axios.post('/api/parc/sync-infocoms', {}, { headers });
+      setInfocomResult({ ok: true, ...res.data });
+    } catch (e: any) {
+      setInfocomResult({ ok: false, message: e.response?.data?.message || 'Erreur' });
+    } finally { setInfocomSyncing(false); }
+  };
+
+  const syncUsagers = async () => {
+    setUsagerSyncing(true); setUsagerResult(null); setUsagerProgress(null);
+    stopUsagerPolling();
+    fetchUsagerProgress();
+    usagerPollRef.current = setInterval(fetchUsagerProgress, 1000);
+    try {
+      const res = await axios.post('/api/parc/sync-usagers', {}, { headers });
+      setUsagerResult({ ok: true, ...res.data });
+    } catch (e: any) {
+      setUsagerResult({ ok: false, message: e.response?.data?.message || 'Erreur lors de la synchronisation des usagers' });
+    } finally {
+      setUsagerSyncing(false);
+      stopUsagerPolling();
+      fetchUsagerProgress();
+    }
   };
 
   if (loading) return <div style={{ padding: 24, color: '#64748b', fontSize: '0.875rem' }}>Chargement...</div>;
@@ -612,10 +669,17 @@ const Glpi10Config: React.FC = () => {
               <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 1 }}>Ordinateurs, moniteurs, périphériques, imprimantes → schéma hub_parc</div>
             </div>
           </div>
-          <button onClick={syncParc} disabled={syncing}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: syncing ? '#94a3b8' : '#0f766e', color: 'white', border: 'none', borderRadius: 6, fontSize: '0.8125rem', fontWeight: 600, cursor: syncing ? 'not-allowed' : 'pointer' }}>
-            <Database size={13} /> {syncing ? 'Synchronisation…' : 'Synchroniser maintenant'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button onClick={syncInfocoms} disabled={infocomSyncing || syncing}
+              title="Recalcule les dates de garantie/achat uniquement — rapide (quelques secondes)"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: infocomSyncing ? '#94a3b8' : '#7c3aed', color: 'white', border: 'none', borderRadius: 6, fontSize: '0.8125rem', fontWeight: 600, cursor: infocomSyncing ? 'not-allowed' : 'pointer' }}>
+              <Database size={13} /> {infocomSyncing ? 'Mise à jour…' : '↻ Garanties / Âges'}
+            </button>
+            <button onClick={syncParc} disabled={syncing}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: syncing ? '#94a3b8' : '#0f766e', color: 'white', border: 'none', borderRadius: 6, fontSize: '0.8125rem', fontWeight: 600, cursor: syncing ? 'not-allowed' : 'pointer' }}>
+              <Database size={13} /> {syncing ? 'Synchronisation…' : 'Synchroniser maintenant'}
+            </button>
+          </div>
         </div>
         <div style={{ padding: 20 }}>
           {/* Compteurs */}
@@ -634,20 +698,87 @@ const Glpi10Config: React.FC = () => {
               {stats.lastSync.triggered_by && ` · par ${stats.lastSync.triggered_by}`}
             </div>
           )}
-          {syncing && <div style={{ marginTop: 10, fontSize: '0.8rem', color: '#0f766e' }}>Synchronisation en cours (peut prendre quelques minutes selon le volume)…</div>}
+          {syncing && progress && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: '#0f766e', fontWeight: 600, marginBottom: 6 }}>
+                <span>{progress.phase || 'Synchronisation…'}{progress.current ? ` — ${progress.current}` : ''}</span>
+                <span>{(progress.done || 0).toLocaleString('fr-FR')} / {progress.total ? progress.total.toLocaleString('fr-FR') : '…'}</span>
+              </div>
+              <div style={{ height: 8, background: '#e2e8f0', borderRadius: 5, overflow: 'hidden' }}>
+                <div style={{ width: `${progress.total ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0}%`, height: '100%', background: '#0f766e', borderRadius: 5, transition: 'width .3s ease' }} />
+              </div>
+              {Array.isArray(progress.types) && progress.types.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, marginTop: 10 }}>
+                  {progress.types.map((t: any) => (
+                    <div key={t.key} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', background: '#f8fafc' }}>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{t.label}</div>
+                      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: t.erreur ? '#dc2626' : '#0f766e' }}>
+                        {t.erreur ? '⚠ Erreur' : `${(t.enregistre || 0).toLocaleString('fr-FR')} / ${(t.recupere || 0).toLocaleString('fr-FR')}`}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {infocomResult && (
+            <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: infocomResult.ok ? '#faf5ff' : '#fef2f2', border: `1px solid ${infocomResult.ok ? '#d8b4fe' : '#fecaca'}`, color: infocomResult.ok ? '#6b21a8' : '#991b1b', fontSize: '0.8rem' }}>
+              {infocomResult.ok
+                ? <span>✓ {infocomResult.message}</span>
+                : <span>✕ {infocomResult.message}</span>}
+            </div>
+          )}
           {syncResult && (
             <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: syncResult.ok ? '#f0fdf4' : '#fef2f2', border: `1px solid ${syncResult.ok ? '#86efac' : '#fecaca'}`, color: syncResult.ok ? '#166534' : '#991b1b', fontSize: '0.8rem' }}>
               {syncResult.ok ? (
                 <>
                   <div style={{ fontWeight: 700, marginBottom: 6 }}>✓ {syncResult.message}</div>
                   {(syncResult.types || []).map((t: any) => (
-                    <div key={t.table}>{t.type} : {t.enregistre} / {t.recupere} récupérés</div>
+                    <div key={t.type}>{t.type} : {t.enregistre} / {t.recupere} récupérés{t.erreur ? ` — ⚠ ${t.erreur}` : ''}</div>
                   ))}
                 </>
               ) : (
                 <div>✕ {syncResult.message}</div>
               )}
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Carte synchronisation des usagers (e-mails AD) */}
+      <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Globe size={15} color="#0f766e" />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#1e293b' }}>Synchronisation des usagers</div>
+              <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 1 }}>Résout l'adresse e-mail des usagers du parc via l'Active Directory</div>
+            </div>
+          </div>
+          <button onClick={syncUsagers} disabled={usagerSyncing}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: usagerSyncing ? '#94a3b8' : '#0f766e', color: 'white', border: 'none', borderRadius: 6, fontSize: '0.8125rem', fontWeight: 600, cursor: usagerSyncing ? 'not-allowed' : 'pointer' }}>
+            <Server size={13} /> {usagerSyncing ? 'Synchronisation…' : 'Synchroniser les usagers'}
+          </button>
+        </div>
+        <div style={{ padding: 20 }}>
+          {usagerSyncing && usagerProgress && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', color: '#0f766e', fontWeight: 600, marginBottom: 6 }}>
+                <span>{usagerProgress.current ? `Résolution AD : ${usagerProgress.current}` : 'Résolution AD…'}</span>
+                <span>{(usagerProgress.done || 0).toLocaleString('fr-FR')} / {usagerProgress.total ? usagerProgress.total.toLocaleString('fr-FR') : '…'} · {(usagerProgress.found || 0).toLocaleString('fr-FR')} e-mails</span>
+              </div>
+              <div style={{ height: 8, background: '#e2e8f0', borderRadius: 5, overflow: 'hidden' }}>
+                <div style={{ width: `${usagerProgress.total ? Math.min(100, Math.round((usagerProgress.done / usagerProgress.total) * 100)) : 0}%`, height: '100%', background: '#0f766e', borderRadius: 5, transition: 'width .3s ease' }} />
+              </div>
+            </div>
+          )}
+          {usagerResult && (
+            <div style={{ marginTop: usagerSyncing ? 12 : 0, padding: 12, borderRadius: 8, background: usagerResult.ok ? '#f0fdf4' : '#fef2f2', border: `1px solid ${usagerResult.ok ? '#86efac' : '#fecaca'}`, color: usagerResult.ok ? '#166534' : '#991b1b', fontSize: '0.8rem' }}>
+              {usagerResult.ok ? `✓ ${usagerResult.message}` : `✕ ${usagerResult.message}`}
+            </div>
+          )}
+          {!usagerSyncing && !usagerResult && (
+            <div style={{ fontSize: '0.73rem', color: '#94a3b8' }}>Nécessite une configuration AD (Admin → AD) et un parc déjà synchronisé.</div>
           )}
         </div>
       </div>
