@@ -134,7 +134,11 @@ export default function ReseauDashboard() {
     if (!code) return null;
     if (sites.has(code)) return code;
     const parent = code.replace(/(B|L|EXT|ESP).*$/, '');
-    return parent !== code && sites.has(parent) ? parent : code;
+    if (parent !== code && sites.has(parent)) return parent;
+    // Fallback : retirer un zéro superflu (ex: S0022B01 → S022)
+    const alt = parent.replace(/^([A-Z]+)0(\d+)$/, '$1$2');
+    if (alt !== parent && sites.has(alt)) return alt;
+    return code;
   }, [sites]);
 
   // Décode un site_id JSON (IRF stack multi-sites → [S001, S064])
@@ -160,11 +164,17 @@ export default function ReseauDashboard() {
     return intersiteSwitchLinks.flatMap(l => {
       const aSites = expandSiteCodes(l.local_site_id);
       const bSites = expandSiteCodes(l.remote_site_id);
+      // Chaîne : on enchaîne les sites dans l'ordre du paramétrage
+      const chain = aSites.length <= 1 && bSites.length <= 1
+        ? (aSites.length === 1 && bSites.length === 1 && aSites[0] !== bSites[0] ? [aSites[0], bSites[0]] : [])
+        : aSites.length === 1 && bSites.length > 1
+          ? [aSites[0], ...bSites]
+          : bSites.length === 1 && aSites.length > 1
+            ? [bSites[0], ...aSites]
+            : [...aSites, ...bSites];
       const pairs: { a: string; b: string }[] = [];
-      for (const a of aSites) {
-        for (const b of bSites) {
-          if (a !== b) pairs.push({ a, b });
-        }
+      for (let i = 0; i < chain.length - 1; i++) {
+        if (chain[i] !== chain[i + 1]) pairs.push({ a: chain[i], b: chain[i + 1] });
       }
       return pairs.map(p => ({
         id: `sl-${l.id}-${p.a}-${p.b}`,
