@@ -246,6 +246,39 @@ const glpiController = {
         }
     },
 
+    // Test best-effort de la nouvelle API GLPI 10 (token unique / Bearer).
+    // Le schéma d'auth exact restant à confirmer, on sonde l'URL avec un Bearer
+    // et on rapporte honnêtement le résultat HTTP (joignabilité + code).
+    testConnectionGlpi10: async (req, res) => {
+        let { url, token } = req.body;
+        try {
+            url = (url || '').trim().replace(/\/$/, '');
+            token = (token || '').trim();
+            if (!url) return res.status(400).json({ success: false, message: 'URL requise' });
+
+            const response = await axios.get(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/json',
+                },
+                timeout: 10000,
+                validateStatus: () => true, // on veut le code, pas une exception
+            });
+
+            const s = response.status;
+            if (s >= 200 && s < 300) {
+                res.json({ success: true, message: `Serveur joignable, réponse ${s} OK.` });
+            } else if (s === 401 || s === 403) {
+                res.json({ success: false, message: `Serveur joignable (HTTP ${s}) mais authentification refusée — vérifiez le token / le schéma d'auth.` });
+            } else {
+                res.json({ success: false, message: `Serveur joignable mais réponse HTTP ${s}. Vérifiez l'URL de l'API (endpoint api.php ?).` });
+            }
+        } catch (error) {
+            const msg = error.code === 'ECONNABORTED' ? 'Délai dépassé (timeout)' : (error.message || 'injoignable');
+            res.status(500).json({ success: false, message: `Serveur injoignable : ${msg}` });
+        }
+    },
+
     // Ticket Operations
     getTicketsCount: async (req, res) => {
         try {

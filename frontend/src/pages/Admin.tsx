@@ -161,15 +161,6 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     is_enabled: false
   });
   const [glpiTestResult, setGlpiTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [glpiProfile, setGlpiProfile] = useState<'default' | 'glpi10'>('default');
-  const [glpi10Config, setGlpi10Config] = useState({
-    url: '',
-    app_token: '',
-    user_token: '',
-    login: '',
-    password: '',
-    is_enabled: false
-  });
   const [ticketsCount, setTicketsCount] = useState<number | null>(null);
   const [isLoadingTickets, setIsLoadingTickets] = useState(false);
   const [isSyncingAll, setIsSyncingAll] = useState(false);
@@ -547,13 +538,6 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         setGlpiConfig({ ...data, is_enabled: !!data.is_enabled });
       }
     } catch (e) {}
-    try {
-      const res2 = await fetch('/api/glpi/settings?profile=glpi10', { headers: { 'Authorization': `Bearer ${token}` } });
-      if (res2.ok) {
-        const data2 = await res2.json();
-        setGlpi10Config({ url: data2.url || '', app_token: data2.app_token || '', user_token: data2.user_token || '', login: data2.login || '', password: data2.password || '', is_enabled: !!data2.is_enabled });
-      }
-    } catch (e) {}
   };
 
   const fetchTranscriptSettings = async () => {
@@ -804,12 +788,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   const handleSaveGLPI = async () => {
     setIsSaving(true);
-    const cfg = glpiProfile === 'glpi10' ? glpi10Config : glpiConfig;
     try {
-      await axios.post('/api/glpi/settings', { ...cfg, profile: glpiProfile }, {
+      await axios.post('/api/glpi/settings', glpiConfig, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(glpiProfile === 'glpi10' ? 'Paramètres GLPI10 enregistrés' : 'Paramètres GLPI enregistrés');
+      alert('paramètres GLPI enregistrés');
     } catch (error) {
       alert('Erreur lors de l\'enregistrement');
     } finally {
@@ -820,14 +803,13 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const handleTestGLPI = async () => {
     setIsTesting(true);
     setGlpiTestResult(null);
-    const cfg = glpiProfile === 'glpi10' ? glpi10Config : glpiConfig;
     try {
       const response = await axios.post('/api/glpi/test-connection', {
-        url: cfg.url,
-        app_token: cfg.app_token,
-        user_token: cfg.user_token,
-        login: cfg.login,
-        password: cfg.password
+        url: glpiConfig.url,
+        app_token: glpiConfig.app_token,
+        user_token: glpiConfig.user_token,
+        login: glpiConfig.login,
+        password: glpiConfig.password
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -839,10 +821,6 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       setIsTesting(false);
     }
   };
-
-  // Profil de configuration GLPI actif (onglet) : 'default' (GLPI actuel) ou 'glpi10'
-  const glpiActiveCfg = glpiProfile === 'glpi10' ? glpi10Config : glpiConfig;
-  const setGlpiActiveCfg = glpiProfile === 'glpi10' ? setGlpi10Config : setGlpiConfig;
 
   const handleCountTickets = async () => {
     setIsLoadingTickets(true);
@@ -3616,49 +3594,34 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
         {section === 'glpi' && (
           <div className="admin-glpi-container">
-            {/* Onglets de profil de connexion GLPI */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid #e4e4e7' }}>
-              {([['default', 'GLPI (actuel)'], ['glpi10', 'GLPI10']] as const).map(([key, label]) => (
-                <button key={key} onClick={() => { setGlpiProfile(key); setGlpiTestResult(null); }}
-                  style={{
-                    padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer',
-                    fontSize: 14, fontWeight: 600,
-                    color: glpiProfile === key ? '#6366f1' : '#71717a',
-                    borderBottom: glpiProfile === key ? '2px solid #6366f1' : '2px solid transparent',
-                    marginBottom: -1,
-                  }}>
-                  {label}
-                </button>
-              ))}
-            </div>
             <div className="glpi-layout-grid">
                 <div className="glpi-main-column">
                     <div className="admin-card glpi-config-card">
                         <div className="card-banner">
                             <div className="banner-info">
-                                <h3 className="banner-title">{glpiProfile === 'glpi10' ? 'Configuration GLPI10 (nouveau serveur)' : 'Configuration GLPI'}</h3>
-                                <p className="banner-subtitle">{glpiProfile === 'glpi10' ? 'Connexion au nouveau serveur GLPI 10 (credentials, URL/IP).' : "Liaison temps réel avec l'écosystème de tickets DSI."}</p>
+                                <h3 className="banner-title">Configuration GLPI</h3>
+                                <p className="banner-subtitle">Liaison temps réel avec l'écosystème de tickets DSI.</p>
                             </div>
                             <div className="banner-controls">
-                                <span className={`status-pill ${glpiActiveCfg.is_enabled ? 'active' : 'inactive'}`}>
-                                    {glpiActiveCfg.is_enabled ? 'Activé' : 'Désactivé'}
+                                <span className={`status-pill ${glpiConfig.is_enabled ? 'active' : 'inactive'}`}>
+                                    {glpiConfig.is_enabled ? 'Activé' : 'Désactivé'}
                                 </span>
                                 <label className="switch">
-                                    <input type="checkbox" checked={glpiActiveCfg.is_enabled} onChange={e => setGlpiActiveCfg({...glpiActiveCfg, is_enabled: e.target.checked})} />
+                                    <input type="checkbox" checked={glpiConfig.is_enabled} onChange={e => setGlpiConfig({...glpiConfig, is_enabled: e.target.checked})} />
                                     <span className="slider round"></span>
                                 </label>
                             </div>
                         </div>
 
-                        <div className={`card-content ${!glpiActiveCfg.is_enabled ? 'is-disabled' : ''}`}>
+                        <div className={`card-content ${!glpiConfig.is_enabled ? 'is-disabled' : ''}`}>
                             <div className="form-responsive-grid">
                                 <div className="form-field full-width">
                                     <label className="field-label"><Globe size={14} /> URL de l'API GLPI</label>
                                     <input 
                                         className="admin-input"
-                                        value={glpiActiveCfg.url}
-                                        onChange={e => setGlpiActiveCfg({...glpiActiveCfg, url: e.target.value})}
-                                        placeholder="https://glpi10.../apirest.php (ou http://IP/glpi/apirest.php)"
+                                        value={glpiConfig.url}
+                                        onChange={e => setGlpiConfig({...glpiConfig, url: e.target.value})}
+                                        placeholder="https://glpi-prod.../apirest.php"
                                     />
                                     <span className="field-tip">Conseil : privilégiez le HTTPS pour une session stable.</span>
                                 </div>
@@ -3666,8 +3629,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                     <label className="field-label"><Key size={14} /> App-Token</label>
                                     <input 
                                         className="admin-input font-mono"
-                                        value={glpiActiveCfg.app_token}
-                                        onChange={e => setGlpiActiveCfg({...glpiActiveCfg, app_token: e.target.value})}
+                                        value={glpiConfig.app_token}
+                                        onChange={e => setGlpiConfig({...glpiConfig, app_token: e.target.value})}
                                         placeholder="Token application"
                                     />
                                 </div>
@@ -3676,8 +3639,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                     <input 
                                         type="password"
                                         className="admin-input font-mono"
-                                        value={glpiActiveCfg.user_token}
-                                        onChange={e => setGlpiActiveCfg({...glpiActiveCfg, user_token: e.target.value})}
+                                        value={glpiConfig.user_token}
+                                        onChange={e => setGlpiConfig({...glpiConfig, user_token: e.target.value})}
                                         placeholder="••••••••••••"
                                     />
                                 </div>
@@ -3688,15 +3651,15 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <div className="box-fields">
                                     <input 
                                         className="admin-input small"
-                                        value={glpiActiveCfg.login}
-                                        onChange={e => setGlpiActiveCfg({...glpiActiveCfg, login: e.target.value})}
+                                        value={glpiConfig.login}
+                                        onChange={e => setGlpiConfig({...glpiConfig, login: e.target.value})}
                                         placeholder="Identifiant"
                                     />
                                     <input 
                                         type="password"
                                         className="admin-input small"
-                                        value={glpiActiveCfg.password}
-                                        onChange={e => setGlpiActiveCfg({...glpiActiveCfg, password: e.target.value})}
+                                        value={glpiConfig.password}
+                                        onChange={e => setGlpiConfig({...glpiConfig, password: e.target.value})}
                                         placeholder="Mot de passe"
                                     />
                                 </div>

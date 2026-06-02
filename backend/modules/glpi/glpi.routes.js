@@ -7,6 +7,7 @@ const { authenticateAdmin, authenticateJWT, authenticateInternalOrAdmin, authent
 router.get('/settings', authenticateGLPIControl, glpiController.getSettings);
 router.post('/settings', authenticateGLPIControl, glpiController.saveSettings);
 router.post('/test-connection', authenticateGLPIControl, glpiController.testConnection);
+router.post('/test-connection-glpi10', authenticateGLPIControl, glpiController.testConnectionGlpi10);
 
 // Status & Progress
 router.get('/sync-status', authenticateGLPIControl, glpiController.getSyncStatus);
