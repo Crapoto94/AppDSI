@@ -922,12 +922,30 @@ export default function ReseauDashboard() {
             </div>
           ) : null
         );
-        const siteAFmt = l.local_site_id?.startsWith('{')
-          ? `Multi-sites (${expandSiteCodes(l.local_site_id).join(', ')})`
-          : `${l.local_site_id}${resolveSite(l.local_site_id || '')?.nom ? ' — ' + resolveSite(l.local_site_id || '')!.nom : ''}`;
-        const siteBFmt = l.remote_site_id?.startsWith('{')
-          ? `Multi-sites (${expandSiteCodes(l.remote_site_id).join(', ')})`
-          : `${l.remote_site_id}${resolveSite(l.remote_site_id || '')?.nom ? ' — ' + resolveSite(l.remote_site_id || '')!.nom : ''}`;
+        const jsonSites = (code: string | null | undefined): string[] | null => {
+          if (!code || !code.trim().startsWith('{')) return null;
+          try {
+            const parsed = JSON.parse(code) as Record<string, string>;
+            return [...new Set(Object.values(parsed))];
+          } catch { return null; }
+        };
+        const jsonLocal = jsonSites(l.local_site_id);
+        const jsonRemote = jsonSites(l.remote_site_id);
+        const renderSiteBlock = (label: string, code: string | null | undefined, json: string[] | null, bulletColor: string) => (
+          <div style={{ fontSize: 13, color: '#0f172a', marginBottom: 6 }}>
+            <span style={{ color: bulletColor }}>⬤</span>
+            {json ? (
+              <>
+                {' '}Multi-sites{' '}
+                <span style={{ fontSize: 11, color: '#64748b' }}>({json.join(', ')})</span>
+              </>
+            ) : (
+              <>
+                {' '}{code}{resolveSite(code || '')?.nom ? ' — ' + resolveSite(code || '')!.nom : ''}
+              </>
+            )}
+          </div>
+        );
         return (
           <div onClick={() => setDetailLink(null)}
             style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -941,12 +959,8 @@ export default function ReseauDashboard() {
 
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Sites</div>
-                <div style={{ fontSize: 13, color: '#0f172a' }}>
-                  <span style={{ color: '#16a34a' }}>⬤</span> {siteAFmt}
-                </div>
-                <div style={{ fontSize: 13, color: '#0f172a' }}>
-                  <span style={{ color: '#dc2626' }}>⬤</span> {siteBFmt}
-                </div>
+                {renderSiteBlock('Local', l.local_site_id, jsonLocal, '#16a34a')}
+                {renderSiteBlock('Distant', l.remote_site_id, jsonRemote, '#dc2626')}
               </div>
 
               <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Équipement local</div>
