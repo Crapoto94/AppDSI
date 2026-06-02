@@ -175,7 +175,8 @@ module.exports = {
             params.push(user.id);
         }
         if (filters.sla_breached) {
-            conditions.push(`tsla.sla_status IN ('warning', 'breached')`);
+            // Sous-requête autonome : le CTE n'a pas besoin du LEFT JOIN tsla complexe.
+            conditions.push(`t.glpi_id IN (SELECT ts2.ticket_id FROM hub_tickets.ticket_sla ts2 JOIN hub_tickets.sla_definitions sd2 ON ts2.sla_definition_id = sd2.id AND sd2.is_active = true WHERE ts2.sla_status IN ('warning', 'breached'))`);
         }
         if (filters.date_from) {
             conditions.push(`t.date_creation >= $${idx++}`);
@@ -197,20 +198,24 @@ module.exports = {
             ? pagination.sort : 'date_creation';
         const sortDir = pagination.order === 'asc' ? 'ASC' : 'DESC';
 
-        // Les filtres tech/groupe/non-assigné utilisent des sous-requêtes sur t.glpi_id :
-        // plus besoin de joindre ticket_assignments ici (qui dupliquait les lignes).
-        const countSql = `
-            SELECT COUNT(DISTINCT t.glpi_id) as total
-            FROM hub_tickets.tickets t
-            LEFT JOIN hub_tickets.ticket_sla tsla ON tsla.ticket_id = t.glpi_id
-            ${where}
-        `;
+        // COUNT : requête légère sur hub_tickets.tickets uniquement (indexes seuls).
+        // Le LEFT JOIN tsla n'est plus nécessaire car sla_breached est désormais une sous-requête.
+        const countSql = `SELECT COUNT(*) as total FROM hub_tickets.tickets t ${where}`;
         const totalResult = await pgDb.get(countSql, params);
         const total = parseInt(totalResult?.total || 0);
 
         const offset = (pagination.page - 1) * pagination.limit;
-        const sql = `${BASE_SELECT} ${where} ORDER BY t.${sortCol} ${sortDir} LIMIT $${idx++} OFFSET $${idx++}`;
+        // CTE two-pass : 1) récupère les N IDs avec indexes (rapide),
+        // 2) enrichit seulement ces N lignes avec BASE_SELECT (sous-requêtes × 25 au lieu de × total).
+        const cte = `WITH page_ids AS (
+          SELECT t.glpi_id FROM hub_tickets.tickets t
+          ${where}
+          ORDER BY t.${sortCol} ${sortDir}
+          LIMIT $${idx++} OFFSET $${idx++}
+        )`;
         params.push(pagination.limit, offset);
+        const idWhere = `WHERE t.glpi_id IN (SELECT glpi_id FROM page_ids)`;
+        const sql = `${cte} ${BASE_SELECT} ${idWhere} ORDER BY t.${sortCol} ${sortDir}`;
 
         const rows = await pgDb.all(sql, params);
 

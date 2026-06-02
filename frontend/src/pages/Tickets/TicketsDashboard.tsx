@@ -150,6 +150,10 @@ export default function TicketsDashboard() {
     return params;
   }, [activeFilter, activeUserFilter, search, activeRequesterEmail, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
 
+  // ── Cache mémoire : évite un round-trip réseau si le même filtre a été chargé < 45 s ──
+  const resultCache = useRef<Map<string, { tickets: any[]; total: number; totalPages: number; stats: any; ts: number }>>(new Map());
+  const CACHE_TTL = 45_000;
+
   const lastLoadArgsRef = useRef<any[]>([]);
   const loadData = useCallback(async (
     filter?: string | null,
@@ -226,14 +230,41 @@ export default function TicketsDashboard() {
         if (params[k]) statsParams[k] = params[k];
       });
       const statsQs = new URLSearchParams(statsParams).toString();
+      const cacheKey = qs + '|' + statsQs;
+
+      // Serve depuis le cache si disponible et récent, puis rafraîchit en arrière-plan.
+      const cached = resultCache.current.get(cacheKey);
+      if (!silent && cached && Date.now() - cached.ts < CACHE_TTL) {
+        setTickets(cached.tickets);
+        setTotal(cached.total);
+        setTotalPages(cached.totalPages);
+        setStats(cached.stats);
+        setLoading(false);
+        // Rafraîchissement silencieux en arrière-plan pour garder la fraîcheur.
+        (async () => {
+          try {
+            const [tr, sr] = await Promise.all([
+              axios.get(`/api/tickets?${qs}`, { headers: { Authorization: `Bearer ${token}` } }),
+              axios.get(`/api/tickets/dashboard/stats${statsQs ? '?' + statsQs : ''}`, { headers: { Authorization: `Bearer ${token}` } }),
+            ]);
+            const fresh = { tickets: tr.data.data || [], total: tr.data.pagination?.total || 0, totalPages: tr.data.pagination?.totalPages || 1, stats: sr.data, ts: Date.now() };
+            resultCache.current.set(cacheKey, fresh);
+            setTickets(fresh.tickets); setTotal(fresh.total); setTotalPages(fresh.totalPages); setStats(fresh.stats);
+          } catch { /* ignore background errors */ }
+        })();
+        return;
+      }
+
       const [ticketsRes, statsRes] = await Promise.all([
         axios.get(`/api/tickets?${qs}`, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`/api/tickets/dashboard/stats${statsQs ? '?' + statsQs : ''}`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
-      setTickets(ticketsRes.data.data || []);
-      setTotal(ticketsRes.data.pagination?.total || 0);
-      setTotalPages(ticketsRes.data.pagination?.totalPages || 1);
-      setStats(statsRes.data);
+      const fresh = { tickets: ticketsRes.data.data || [], total: ticketsRes.data.pagination?.total || 0, totalPages: ticketsRes.data.pagination?.totalPages || 1, stats: statsRes.data, ts: Date.now() };
+      resultCache.current.set(cacheKey, fresh);
+      setTickets(fresh.tickets);
+      setTotal(fresh.total);
+      setTotalPages(fresh.totalPages);
+      setStats(fresh.stats);
     } catch (e: any) {
       console.error('Failed to load tickets:', e);
       if (e.response?.data?.message) alert('Erreur serveur: ' + e.response.data.message);
@@ -245,12 +276,6 @@ export default function TicketsDashboard() {
   const loadDataRef = useRef(loadData);
   useEffect(() => { loadDataRef.current = loadData; }, [loadData]);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadDataRef.current(activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory, activeSoftware);
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory, activeSoftware]);
 
   useEffect(() => { loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware); }, []);
 
@@ -452,7 +477,7 @@ export default function TicketsDashboard() {
       setLiveTickerMsg(`🎫 Nouveau ticket #${payload?.glpi_id ?? ''} : ${payload?.title || ''}`.trim());
       silentReload();
     });
-    socket.on('ticket_updated', () => { silentReload(); });
+    socket.on('ticket_updated', () => { resultCache.current.clear(); silentReload(); });
     return () => { socket.disconnect(); };
   }, []);
 
@@ -637,6 +662,12 @@ export default function TicketsDashboard() {
               }}>
               {resetRunning ? '⏳' : '🔄'} Récupérer GLPI
             </button>
+          )}
+          {['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+            <a href="/tickets/admin" title="Paramètres du module Tickets"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', color: '#475569', fontWeight: 600, fontSize: 14, textDecoration: 'none', cursor: 'pointer' }}>
+              ⚙️ Paramètres
+            </a>
           )}
         </div>
       </div>

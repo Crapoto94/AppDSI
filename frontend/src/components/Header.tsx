@@ -355,6 +355,9 @@ const Header: React.FC<HeaderProps> = () => {
                         <Link to="/admin/glpi" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
                           🔄 GLPI
                         </Link>
+                        <Link to="/parc" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🖥️ Parc informatique
+                        </Link>
                         <Link to="/admin/param-ville" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
                           🏛️ Param Ville
                         </Link>

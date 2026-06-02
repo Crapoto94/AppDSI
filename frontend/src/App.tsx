@@ -48,6 +48,7 @@ import TicketsDashboard from './pages/Tickets/TicketsDashboard';
 import TicketDetail from './pages/Tickets/TicketDetail';
 import TicketCreate from './pages/Tickets/TicketCreate';
 import TicketAdmin from './pages/Tickets/TicketAdmin';
+import TicketAdminPage from './pages/Tickets/TicketAdminPage';
 import TicketsStats from './pages/Tickets/TicketsStats';
 import ChatEcole from './pages/Tickets/ChatEcole';
 import AdminGED from './pages/AdminGED';
@@ -66,6 +67,7 @@ import StocksReception from './pages/Stocks/Reception';
 import StocksSerialEntry from './pages/Stocks/SerialEntry';
 import StocksSortie from './pages/Stocks/Sortie';
 import StocksPrets from './pages/Stocks/Prets';
+import ParcInformatique from './pages/ParcInformatique';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
@@ -150,6 +152,7 @@ function App() {
         <Route path="/copieurs" element={<PrivateRoute path="/copieurs"><Copieurs /></PrivateRoute>} />
         <Route path="/consommables" element={<PrivateRoute path="/consommables"><ConsommablesManagement /></PrivateRoute>} />
         <Route path="/reseau" element={<PrivateRoute path="/reseau"><ReseauDashboard /></PrivateRoute>} />
+        <Route path="/parc" element={<PrivateRoute path="/parc"><ParcInformatique /></PrivateRoute>} />
         <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
         <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
 
@@ -164,6 +167,7 @@ function App() {
         {/* Tickets Routes */}
         <Route path="/tickets" element={<PrivateRoute path="/tickets"><TicketsDashboard /></PrivateRoute>} />
         <Route path="/tickets/stats" element={<PrivateRoute path="/tickets"><TicketsStats /></PrivateRoute>} />
+        <Route path="/tickets/admin" element={<PrivateRoute path="/tickets"><TicketAdminPage /></PrivateRoute>} />
         <Route path="/tickets/new" element={<PrivateRoute path="/tickets"><TicketCreate /></PrivateRoute>} />
         <Route path="/tickets/:id" element={<PrivateRoute path="/tickets"><TicketDetail /></PrivateRoute>} />
         <Route path="/chatecole" element={<PrivateRoute path="/tickets"><ChatEcole /></PrivateRoute>} />

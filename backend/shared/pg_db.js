@@ -499,6 +499,21 @@ async function setupPgDb() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_ticket ON hub_tickets.ticket_history(ticket_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_created ON hub_tickets.ticket_history(created_at DESC)`);
+    // ── Index critiques pour la performance de la liste tickets ────────────────
+    // ticket_followups.ticket_id : AUCUN index → full scan 42MB × 25 lignes par page.
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tf_ticket_id ON hub_tickets.ticket_followups(ticket_id)`);
+    // observers.ticket_id : seule la clé composite (ticket_id, user_id) existait.
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_obs_ticket_id ON hub_tickets.observers(ticket_id) WHERE is_active = 1`);
+    // ticket_assignments.ticket_id pour les sous-requêtes de filtrage tech/groupe.
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ta_ticket_id ON hub_tickets.ticket_assignments(ticket_id)`);
+    // Composite (status, date_creation) et (status, date_mod) pour les tris courants.
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tickets_status_date ON hub_tickets.tickets(status, date_creation DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tickets_status_mod ON hub_tickets.tickets(status, date_mod DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tickets_date_mod ON hub_tickets.tickets(date_mod DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tickets_priority_status ON hub_tickets.tickets(priority, status)`);
+    // Trigrams pour la recherche ILIKE (nécessite l'extension pg_trgm).
+    try { await client.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_tickets_title_trgm ON hub_tickets.tickets USING gin(title gin_trgm_ops)`); } catch (e) {}
     // Auteur de l'action stocké par USERNAME (l'id du JWT vient de SQLite et ne correspond
     // PAS à hub.users.id en PostgreSQL → un id-join affiche le mauvais utilisateur).
     try { await client.query(`ALTER TABLE hub_tickets.ticket_history ADD COLUMN IF NOT EXISTS username VARCHAR(255)`); } catch (e) {}
@@ -2962,6 +2977,45 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_${tbl}_serial ON hub_parc.${tbl}(serial)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_${tbl}_name ON hub_parc.${tbl}(name)`);
     }
+    // Table unifiée : tous les types d'équipements + sous-éléments (infocom/os/réseau)
+    // Permet au mode HUB de reproduire à l'identique listes, KPIs et fiches du mode LIVE.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_parc.items (
+        itemtype TEXT NOT NULL,
+        glpi_id INTEGER NOT NULL,
+        type_key TEXT,
+        name TEXT,
+        serial TEXT,
+        otherserial TEXT,
+        is_deleted BOOLEAN DEFAULT FALSE,
+        raw JSONB,
+        infocom JSONB,
+        os JSONB,
+        network JSONB,
+        documents JSONB,
+        software_count INTEGER DEFAULT 0,
+        last_sync TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (itemtype, glpi_id)
+      )
+    `);
+    await client.query(`ALTER TABLE hub_parc.items ADD COLUMN IF NOT EXISTS documents JSONB`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_parc_items_typekey ON hub_parc.items(type_key)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_parc_items_serial ON hub_parc.items(serial)`);
+
+    // Usagers du parc enrichis depuis l'AD (e-mail). Alimenté par la synchro usagers.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_parc.usagers (
+        key TEXT PRIMARY KEY,
+        source_name TEXT,
+        ad_username TEXT,
+        display_name TEXT,
+        email TEXT,
+        service TEXT,
+        found BOOLEAN DEFAULT FALSE,
+        last_sync TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
     // Journal des synchros parc
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_parc.sync_logs (

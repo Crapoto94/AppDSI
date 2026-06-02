@@ -81,6 +81,9 @@ export default function TicketDetail() {
   const [loading, setLoading] = useState(true);
   const [requesterTickets, setRequesterTickets] = useState<any>(null);
   const [showRequesterTickets, setShowRequesterTickets] = useState(false);
+  const [requesterEquip, setRequesterEquip] = useState<{ total: number; contact: string | null; rows: any[] } | null>(null);
+  const [showRequesterEquip, setShowRequesterEquip] = useState(false);
+  const [equipDetail, setEquipDetail] = useState<{ item: any; loading: boolean } | null>(null);
   const [glpiTicketUrl, setGlpiTicketUrl] = useState<string | null>(null);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -222,6 +225,29 @@ export default function TicketDetail() {
     } catch (e) { console.error('Failed to load sites:', e); }
   }
 
+  async function loadRequesterEquip(email: string) {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`/api/parc/hub/by-email?email=${encodeURIComponent(email)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setRequesterEquip(res.data);
+    } catch (e) { /* silencieux : le parc peut ne pas être synchronisé */ }
+  }
+
+  async function loadEquipDetail(typeKey: string, id: number) {
+    setEquipDetail({ item: null, loading: true });
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`/api/parc/hub/${typeKey}/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setEquipDetail({ item: res.data, loading: false });
+    } catch (e: any) {
+      setEquipDetail({ item: { error: e?.response?.data?.message || 'Erreur' }, loading: false });
+    }
+  }
+
   async function loadRequesterTickets(email: string) {
     try {
       const token = localStorage.getItem('token');
@@ -264,6 +290,7 @@ export default function TicketDetail() {
       setAttachments(attachmentsRes.data || []);
       if (t.requester?.email) {
         loadRequesterTickets(t.requester.email);
+        loadRequesterEquip(t.requester.email);
       }
       if (String(t.type) === '3') {
         await fetchLinkedTickets();
@@ -1401,6 +1428,31 @@ export default function TicketDetail() {
                   )}
                 </div>
               )}
+              {/* Équipements du demandeur (hub_parc) */}
+              {requesterEquip !== null && requesterEquip.total >= 0 && (
+                <div style={{ marginTop: 5 }}>
+                  <span onClick={() => setShowRequesterEquip(v => !v)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: requesterEquip.total > 0 ? 'pointer' : 'default', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600, background: requesterEquip.total > 0 ? '#eff6ff' : '#f0fdf4', color: requesterEquip.total > 0 ? '#2563eb' : '#16a34a', userSelect: 'none' }}>
+                    🖥️ {requesterEquip.total} équipement{requesterEquip.total > 1 ? 's' : ''} parc
+                    {requesterEquip.total > 0 && <span style={{ fontSize: 10 }}>{showRequesterEquip ? ' ▲' : ' ▼'}</span>}
+                  </span>
+                  {showRequesterEquip && requesterEquip.rows.length > 0 && (
+                    <div style={{ marginTop: 5, border: '1px solid #e0f2fe', borderRadius: 6, overflow: 'hidden' }}>
+                      {requesterEquip.rows.map((eq: any) => (
+                        <div key={`${eq.type_key}-${eq.id}`}
+                          onClick={() => loadEquipDetail(eq.type_key || 'ordinateurs', eq.id)}
+                          style={{ padding: '5px 8px', cursor: 'pointer', borderBottom: '1px solid #f0f9ff', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f0f9ff')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                          <span style={{ fontSize: 10, background: '#dbeafe', color: '#1d4ed8', padding: '1px 5px', borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>{eq.itemtype_label || 'PC'}</span>
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, color: '#18181b' }}>{eq.name || `#${eq.id}`}</span>
+                          {eq.location && <span style={{ color: '#64748b', fontSize: 10, flexShrink: 0 }}>📍{eq.location}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* SOURCE */}
@@ -2039,6 +2091,125 @@ export default function TicketDetail() {
           </div>
         </div>
       )}
+
+      {/* ── Modale détail équipement parc ── */}
+      {equipDetail && (() => {
+        const s = equipDetail.item?.summary || {};
+        // Styles alignés sur le module /tickets
+        const mSF: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid #f4f4f5', padding: '6px 0' };
+        const mSL: React.CSSProperties = { fontSize: 10, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', minWidth: 130, flexShrink: 0 };
+        const mSV: React.CSSProperties = { fontSize: 12, color: '#18181b', fontWeight: 600 };
+        const rows: [string, any, boolean?][] = [
+          ['Usager',              s.contact],
+          ['E-mail usager',       s.contact_email, true],
+          ['Utilisateur GLPI',    s.user !== '0' ? s.user : null],
+          ['Groupe',              s.group],
+          ['Lieu',                s.location],
+          ['Entité',              s.entity],
+          ['Fabricant',           s.manufacturer],
+          ['Modèle',              s.model],
+          ['Type',                s.type],
+          ['Statut',              s.state],
+          ['N° de série',         s.serial],
+          ["N° d'inventaire",     s.otherserial],
+          ["Date d'achat",        s.buy_date],
+          ['Fin de garantie',     s.warranty_end],
+          ['Fournisseur',         s.supplier !== '0' ? s.supplier : null],
+          ['Valeur',              s.value != null && s.value !== 0 ? `${s.value} €` : null],
+          ['OS',                  s.os ? `${s.os}${s.os_version ? ` — ${s.os_version}` : ''}` : null],
+          ['Dernière modif.',     s.date_mod],
+        ];
+        return (
+          <div onClick={() => setEquipDetail(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(24,24,27,.35)', zIndex: 3000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '48px 16px', overflowY: 'auto' }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: '#fafaf9', borderRadius: 12, width: '100%', maxWidth: 560, boxShadow: '0 8px 32px rgba(0,0,0,.12)', border: '1px solid #e4e4e7', overflow: 'hidden' }}>
+
+              {/* En-tête sobre — style barre ticket */}
+              <div style={{ background: '#fff', borderBottom: '1px solid #f4f4f5', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#71717a', background: '#f4f4f5', padding: '2px 8px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>
+                  {equipDetail.item?.label || 'Équipement'}
+                </span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#18181b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {s.name || '…'}
+                </span>
+                {s.state && (
+                  <span style={{ fontSize: 10, fontWeight: 600, color: '#16a34a', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 8px', borderRadius: 4, flexShrink: 0 }}>
+                    {s.state}
+                  </span>
+                )}
+                <button onClick={() => setEquipDetail(null)}
+                  style={{ background: 'none', border: '1px solid #e4e4e7', color: '#71717a', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', fontSize: 13, flexShrink: 0 }}>✕</button>
+              </div>
+
+              {/* Corps */}
+              <div style={{ padding: '4px 16px 16px' }}>
+                {equipDetail.loading && (
+                  <div style={{ textAlign: 'center', padding: '24px 0', color: '#a1a1aa', fontSize: 13 }}>Chargement…</div>
+                )}
+                {equipDetail.item?.error && (
+                  <div style={{ color: '#b91c1c', padding: '10px 12px', background: '#fef2f2', borderRadius: 6, fontSize: 12, marginTop: 12 }}>{equipDetail.item.error}</div>
+                )}
+                {!equipDetail.loading && s.name && (
+                  <>
+                    {rows.filter(([, v]) => v !== null && v !== undefined && v !== '').map(([label, val, isEmail]) => (
+                      <div key={label} style={mSF}>
+                        <span style={mSL}>{label}</span>
+                        <span style={mSV}>
+                          {isEmail
+                            ? <a href={`mailto:${val}`} style={{ color: '#6366f1', textDecoration: 'none' }}>{String(val)}</a>
+                            : String(val)}
+                        </span>
+                      </div>
+                    ))}
+
+                    {/* Réseau */}
+                    {equipDetail.item?.network?.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '10px 0 4px' }}>Réseau</div>
+                        {equipDetail.item.network.map((n: any, i: number) => (
+                          <div key={i} style={mSF}>
+                            <span style={{ ...mSL, color: '#71717a' }}>{n.name || `Port ${i + 1}`}</span>
+                            <span style={{ ...mSV, fontFamily: 'monospace', fontSize: 11 }}>
+                              {[n.mac, n.ip].filter(Boolean).join(' · ') || '—'}
+                            </span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Documents */}
+                    {equipDetail.item?.documents?.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '10px 0 4px' }}>
+                          Documents · {equipDetail.item.documents.length}
+                        </div>
+                        {equipDetail.item.documents.map((d: any) => (
+                          <a key={d.id}
+                            href={`/api/parc/file/document/${d.id}?token=${localStorage.getItem('token') || ''}`}
+                            target="_blank" rel="noreferrer"
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid #f4f4f5', textDecoration: 'none' }}>
+                            <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>📎 {d.name}</span>
+                            {d.mime && <span style={{ fontSize: 10, color: '#a1a1aa' }}>{d.mime}</span>}
+                          </a>
+                        ))}
+                      </>
+                    )}
+
+                    {/* Pied */}
+                    <div style={{ paddingTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+                      <a href="/parc" target="_blank" rel="noreferrer"
+                        style={{ fontSize: 12, color: '#6366f1', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', border: '1px solid #e0e7ff', borderRadius: 6, background: '#eef2ff' }}>
+                        Ouvrir dans le parc →
+                      </a>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }

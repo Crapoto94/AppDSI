@@ -7,7 +7,7 @@ interface Template {
   name: string;
   description: string | null;
   message: string;
-  category_id: number | null;
+  category_id: number | null;   // null = réponse commune (sans catégorie)
   subcategory_id: number | null;
   category_name: string | null;
   subcategory_name: string | null;
@@ -66,8 +66,10 @@ export default function ResponseSuggestions({ categoryId, subcategoryId, ticket,
         (!subcategoryId || !t.subcategory_id || t.subcategory_id === subcategoryId))
     : [];
   const catIds = new Set(catTemplates.map(t => t.id));
-  // Le reste = "toutes catégories"
-  const otherTemplates = allTemplates.filter(t => !catIds.has(t.id));
+  // "Réponses communes" = templates sans catégorie (category_id null)
+  const otherTemplates = allTemplates.filter(t =>
+    !catIds.has(t.id) && t.category_id === null
+  );
   const otherFiltered = search.trim()
     ? otherTemplates.filter(t =>
         (t.name + ' ' + (t.category_name || '') + ' ' + (t.description || '')).toLowerCase().includes(search.toLowerCase()))
@@ -165,7 +167,7 @@ export default function ResponseSuggestions({ categoryId, subcategoryId, ticket,
           >
             <MessageSquare size={13} color="#818cf8" />
             <span style={{ fontSize: 12, fontWeight: 600, color: '#6366f1', flex: 1 }}>
-              {otherTemplates.length} réponse{otherTemplates.length > 1 ? 's' : ''} — toutes catégories
+              {otherTemplates.length} réponse{otherTemplates.length > 1 ? 's' : ''} — 🌐 Réponses communes
             </span>
             {openAll ? <ChevronUp size={13} color="#818cf8" /> : <ChevronDown size={13} color="#818cf8" />}
           </button>
