@@ -206,6 +206,14 @@ async function setupDb() {
             is_enabled INTEGER DEFAULT 0
         );
 
+        -- GLPI 10 : nouveau serveur, nouvelle API à token unique (inventaire/stock/documents)
+        CREATE TABLE IF NOT EXISTS glpi10_settings (
+            id INTEGER PRIMARY KEY,
+            url TEXT,
+            token TEXT,
+            is_enabled INTEGER DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS glpi_observers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ticket_id INTEGER NOT NULL,
