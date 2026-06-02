@@ -1,4 +1,5 @@
 const axios = require('axios');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const ldap = require('ldapjs');
@@ -174,10 +175,10 @@ const glpiController = {
             // GLPI 10 = table dédiée (nouvelle API à token unique)
             if (module.exports._isGlpi10(req.query.profile)) {
                 const r = await db.get('SELECT * FROM glpi10_settings WHERE id = 1');
-                // On expose le token sous app_token pour compat avec le frontend
+                // App-Token exposé sous app_token, + user_token (apirest GLPI10)
                 return res.json(r
-                    ? { url: r.url || '', app_token: r.token || '', is_enabled: r.is_enabled || 0 }
-                    : { url: '', app_token: '', is_enabled: 0 });
+                    ? { url: r.url || '', app_token: r.token || '', user_token: r.user_token || '', is_enabled: r.is_enabled || 0 }
+                    : { url: '', app_token: '', user_token: '', is_enabled: 0 });
             }
             const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
             res.json(settings || { url: '', app_token: '', user_token: '', is_enabled: 0 });
@@ -194,11 +195,11 @@ const glpiController = {
             if (module.exports._isGlpi10(profile)) {
                 const exists = await db.get('SELECT id FROM glpi10_settings WHERE id = 1');
                 if (exists) {
-                    await db.run('UPDATE glpi10_settings SET url = ?, token = ?, is_enabled = ? WHERE id = 1',
-                        [url || '', app_token || '', is_enabled ? 1 : 0]);
+                    await db.run('UPDATE glpi10_settings SET url = ?, token = ?, user_token = ?, is_enabled = ? WHERE id = 1',
+                        [url || '', app_token || '', user_token || '', is_enabled ? 1 : 0]);
                 } else {
-                    await db.run('INSERT INTO glpi10_settings (id, url, token, is_enabled) VALUES (1, ?, ?, ?)',
-                        [url || '', app_token || '', is_enabled ? 1 : 0]);
+                    await db.run('INSERT INTO glpi10_settings (id, url, token, user_token, is_enabled) VALUES (1, ?, ?, ?, ?)',
+                        [url || '', app_token || '', user_token || '', is_enabled ? 1 : 0]);
                 }
                 return res.json({ message: 'Paramètres GLPI 10 enregistrés' });
             }
@@ -263,33 +264,25 @@ const glpiController = {
         }
     },
 
-    // Test best-effort de la nouvelle API GLPI 10 (token unique / Bearer).
-    // Le schéma d'auth exact restant à confirmer, on sonde l'URL avec un Bearer
-    // et on rapporte honnêtement le résultat HTTP (joignabilité + code).
+    // Test de connexion GLPI 10 (apirest.php) : initSession avec App-Token + User-Token.
     testConnectionGlpi10: async (req, res) => {
-        let { url, token } = req.body;
+        let { url, token, user_token } = req.body;
         try {
-            url = (url || '').trim().replace(/\/$/, '');
-            token = (token || '').trim();
+            url = (url || '').trim().replace(/\/+$/, '');
+            token = (token || '').trim();            // App-Token
+            user_token = (user_token || '').trim();  // User-Token (session)
             if (!url) return res.status(400).json({ success: false, message: 'URL requise' });
+            if (!url.includes('apirest.php')) url = url + '/apirest.php';
+            const agent = new https.Agent({ rejectUnauthorized: false });
 
-            const response = await axios.get(url, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'application/json',
-                },
-                timeout: 10000,
-                validateStatus: () => true, // on veut le code, pas une exception
-            });
-
-            const s = response.status;
-            if (s >= 200 && s < 300) {
-                res.json({ success: true, message: `Serveur joignable, réponse ${s} OK.` });
-            } else if (s === 401 || s === 403) {
-                res.json({ success: false, message: `Serveur joignable (HTTP ${s}) mais authentification refusée — vérifiez le token / le schéma d'auth.` });
-            } else {
-                res.json({ success: false, message: `Serveur joignable mais réponse HTTP ${s}. Vérifiez l'URL de l'API (endpoint api.php ?).` });
+            const headers = { 'App-Token': token, 'Authorization': `user_token ${user_token}`, 'Content-Type': 'application/json' };
+            const r = await axios.get(`${url}/initSession`, { headers, httpsAgent: agent, timeout: 10000, validateStatus: () => true });
+            if (r.status === 200 && r.data && r.data.session_token) {
+                await axios.get(`${url}/killSession`, { headers: { 'App-Token': token, 'Session-Token': r.data.session_token }, httpsAgent: agent, timeout: 5000 }).catch(() => {});
+                return res.json({ success: true, message: 'Connexion GLPI 10 réussie !' });
             }
+            const detail = Array.isArray(r.data) ? r.data.join(' — ') : (r.data?.message || JSON.stringify(r.data));
+            return res.status(400).json({ success: false, message: `Échec (HTTP ${r.status}) : ${detail}` });
         } catch (error) {
             const msg = error.code === 'ECONNABORTED' ? 'Délai dépassé (timeout)' : (error.message || 'injoignable');
             res.status(500).json({ success: false, message: `Serveur injoignable : ${msg}` });

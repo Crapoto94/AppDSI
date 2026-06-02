@@ -2933,6 +2933,47 @@ async function setupPgDb() {
     // Create hub_calendrier schema and table
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_calendrier;');
 
+    // ─── hub_parc : inventaire matériel synchronisé depuis GLPI 10 ───────────────
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_parc;');
+    for (const tbl of ['parc_ordinateurs', 'parc_moniteurs', 'parc_peripheriques', 'parc_imprimantes']) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parc.${tbl} (
+          glpi_id INTEGER PRIMARY KEY,
+          name TEXT,
+          serial TEXT,
+          otherserial TEXT,
+          manufacturer TEXT,
+          model TEXT,
+          type TEXT,
+          state TEXT,
+          location TEXT,
+          entity TEXT,
+          user_name TEXT,
+          group_name TEXT,
+          tech_user TEXT,
+          comment TEXT,
+          is_deleted BOOLEAN DEFAULT FALSE,
+          date_creation TEXT,
+          date_mod TEXT,
+          raw JSONB,
+          last_sync TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_${tbl}_serial ON hub_parc.${tbl}(serial)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_${tbl}_name ON hub_parc.${tbl}(name)`);
+    }
+    // Journal des synchros parc
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_parc.sync_logs (
+        id SERIAL PRIMARY KEY,
+        started_at TIMESTAMP DEFAULT NOW(),
+        finished_at TIMESTAMP,
+        status TEXT,
+        details JSONB,
+        triggered_by TEXT
+      )
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_calendrier.evenements (
         id SERIAL PRIMARY KEY,

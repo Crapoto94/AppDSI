@@ -206,11 +206,12 @@ async function setupDb() {
             is_enabled INTEGER DEFAULT 0
         );
 
-        -- GLPI 10 : nouveau serveur, nouvelle API à token unique (inventaire/stock/documents)
+        -- GLPI 10 : apirest.php (App-Token + User-Token), pour la synchro du parc
         CREATE TABLE IF NOT EXISTS glpi10_settings (
             id INTEGER PRIMARY KEY,
             url TEXT,
             token TEXT,
+            user_token TEXT,
             is_enabled INTEGER DEFAULT 0
         );
 
@@ -788,6 +789,8 @@ async function setupDb() {
     // GLPI Settings migrations
         try { await db.exec("ALTER TABLE glpi_settings ADD COLUMN login TEXT"); } catch (e) {}
     try { await db.run("ALTER TABLE glpi_settings ADD COLUMN password TEXT"); } catch (e) {}
+    // GLPI 10 : token de session (user_token) en plus de l'App-Token
+    try { await db.run("ALTER TABLE glpi10_settings ADD COLUMN user_token TEXT"); } catch (e) {}
 
     // PostgreSQL Settings migrations
     try { await db.run("ALTER TABLE postgres_settings ADD COLUMN ssl_mode TEXT DEFAULT 'disable'"); } catch (e) {}

@@ -470,34 +470,39 @@ const PostgreSQLConfig: React.FC = () => {
 const Glpi10Config: React.FC = () => {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
-  const [cfg, setCfg] = useState({ url: '', glpi_token: '', is_enabled: false });
+  const [cfg, setCfg] = useState({ url: '', app_token: '', user_token: '', is_enabled: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [showToken, setShowToken] = useState(false);
+  const [showApp, setShowApp] = useState(false);
+  const [showUser, setShowUser] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Synchro parc
+  const [stats, setStats] = useState<any>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<any>(null);
+
+  const loadStats = () => { axios.get('/api/parc/stats', { headers }).then(r => setStats(r.data)).catch(() => {}); };
 
   useEffect(() => {
     axios.get('/api/glpi/settings?profile=glpi10', { headers })
       .then(res => {
         const d = res.data || {};
-        // Le token unique est stocké dans la colonne app_token (réutilisée)
-        setCfg({ url: d.url || '', glpi_token: d.app_token || '', is_enabled: !!d.is_enabled });
+        setCfg({ url: d.url || '', app_token: d.app_token || '', user_token: d.user_token || '', is_enabled: !!d.is_enabled });
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+    loadStats();
   }, []);
 
   const save = async () => {
     setSaving(true); setStatus('idle');
     try {
       await axios.post('/api/glpi/settings', {
-        profile: 'glpi10',
-        url: cfg.url,
-        app_token: cfg.glpi_token,   // token unique GLPI 10
-        user_token: '', login: '', password: '',
-        is_enabled: cfg.is_enabled,
+        profile: 'glpi10', url: cfg.url, app_token: cfg.app_token, user_token: cfg.user_token,
+        login: '', password: '', is_enabled: cfg.is_enabled,
       }, { headers });
       setStatus('saved');
       setTimeout(() => setStatus('idle'), 3000);
@@ -509,27 +514,52 @@ const Glpi10Config: React.FC = () => {
   const test = async () => {
     setTesting(true); setTestResult(null);
     try {
-      const res = await axios.post('/api/glpi/test-connection-glpi10', { url: cfg.url, token: cfg.glpi_token }, { headers });
+      const res = await axios.post('/api/glpi/test-connection-glpi10', { url: cfg.url, token: cfg.app_token, user_token: cfg.user_token }, { headers });
       setTestResult({ success: res.data.success, message: res.data.message });
     } catch (e: any) {
       setTestResult({ success: false, message: e.response?.data?.message || 'Erreur lors du test' });
     } finally { setTesting(false); }
   };
 
+  const syncParc = async () => {
+    setSyncing(true); setSyncResult(null);
+    try {
+      const res = await axios.post('/api/parc/sync', {}, { headers });
+      setSyncResult({ ok: true, ...res.data });
+      loadStats();
+    } catch (e: any) {
+      setSyncResult({ ok: false, message: e.response?.data?.message || 'Erreur lors de la synchronisation' });
+    } finally { setSyncing(false); }
+  };
+
   if (loading) return <div style={{ padding: 24, color: '#64748b', fontSize: '0.875rem' }}>Chargement...</div>;
 
   const inputStyle: React.CSSProperties = { width: '100%', padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: '0.8125rem', color: '#1e293b', background: 'white', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' };
   const labelStyle: React.CSSProperties = { display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#374151', marginBottom: 5 };
+  const tokenField = (label: string, val: string, set: (v: string) => void, show: boolean, toggle: () => void, ph: string) => (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ position: 'relative' }}>
+        <input style={{ ...inputStyle, paddingRight: 36 }} type={show ? 'text' : 'password'} value={val}
+          onChange={e => set(e.target.value)} placeholder={ph} autoComplete="new-password" />
+        <button type="button" onClick={toggle}
+          style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', padding: 2 }}>
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+      </div>
+    </div>
+  );
 
   return (
-    <div style={{ padding: '4px 0' }}>
+    <div style={{ padding: '4px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Carte configuration */}
       <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Globe size={15} color="#0f766e" />
             <div>
               <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#1e293b' }}>Configuration GLPI 10 (nouveau serveur)</div>
-              <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 1 }}>Nouvelle API à token unique — inventaire, stock, documents (hors tickets)</div>
+              <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 1 }}>API REST (apirest.php) — inventaire du parc (hors tickets)</div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -543,26 +573,15 @@ const Glpi10Config: React.FC = () => {
 
         <div style={{ padding: 20 }}>
           <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>URL / IP de l'API GLPI 10</label>
+            <label style={labelStyle}>URL de l'API GLPI 10</label>
             <input style={inputStyle} value={cfg.url} onChange={e => setCfg(c => ({ ...c, url: e.target.value }))}
-              placeholder="https://glpi10.ivry.local/api.php  (ou http://IP/glpi/api.php)" />
-            <span style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: 4, display: 'block' }}>Nouvelle API « High-Level » de GLPI 10 (endpoint api.php).</span>
+              placeholder="https://glpi-ng.ivry.local/apirest.php" />
           </div>
-          <div>
-            <label style={labelStyle}>Token API</label>
-            <div style={{ position: 'relative' }}>
-              <input style={{ ...inputStyle, paddingRight: 36 }} type={showToken ? 'text' : 'password'}
-                value={cfg.glpi_token} onChange={e => setCfg(c => ({ ...c, glpi_token: e.target.value }))}
-                placeholder="Token unique (Bearer)" autoComplete="new-password" />
-              <button type="button" onClick={() => setShowToken(v => !v)}
-                style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', padding: 2 }}>
-                {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </div>
+          {tokenField("App-Token", cfg.app_token, v => setCfg(c => ({ ...c, app_token: v })), showApp, () => setShowApp(s => !s), "App-Token (Configuration > API)")}
+          {tokenField("User-Token", cfg.user_token, v => setCfg(c => ({ ...c, user_token: v })), showUser, () => setShowUser(s => !s), "Jeton API personnel de l'utilisateur (Préférences > Clés API)")}
 
           {testResult && (
-            <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', color: testResult.success ? '#16a34a' : '#dc2626' }}>
+            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', color: testResult.success ? '#16a34a' : '#dc2626' }}>
               {testResult.success ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
               <span>{testResult.message}</span>
             </div>
@@ -580,6 +599,56 @@ const Glpi10Config: React.FC = () => {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: saving ? '#94a3b8' : '#0f766e', color: 'white', border: 'none', borderRadius: 6, fontSize: '0.8125rem', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer' }}>
             <Save size={13} /> {saving ? 'Enregistrement…' : 'Enregistrer'}
           </button>
+        </div>
+      </div>
+
+      {/* Carte synchronisation du parc */}
+      <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Server size={15} color="#0f766e" />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#1e293b' }}>Synchronisation du parc</div>
+              <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: 1 }}>Ordinateurs, moniteurs, périphériques, imprimantes → schéma hub_parc</div>
+            </div>
+          </div>
+          <button onClick={syncParc} disabled={syncing}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: syncing ? '#94a3b8' : '#0f766e', color: 'white', border: 'none', borderRadius: 6, fontSize: '0.8125rem', fontWeight: 600, cursor: syncing ? 'not-allowed' : 'pointer' }}>
+            <Database size={13} /> {syncing ? 'Synchronisation…' : 'Synchroniser maintenant'}
+          </button>
+        </div>
+        <div style={{ padding: 20 }}>
+          {/* Compteurs */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 }}>
+            {stats?.counts && Object.entries(stats.counts).map(([k, v]: [string, any]) => (
+              <div key={k} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px', background: '#f8fafc' }}>
+                <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#0f766e' }}>{v.count.toLocaleString('fr-FR')}</div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{v.label}</div>
+              </div>
+            ))}
+          </div>
+          {stats?.lastSync && (
+            <div style={{ fontSize: '0.73rem', color: '#94a3b8' }}>
+              Dernière synchro : {stats.lastSync.finished_at ? new Date(stats.lastSync.finished_at).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }) : '—'}
+              {stats.lastSync.status === 'error' && <span style={{ color: '#dc2626' }}> (échec)</span>}
+              {stats.lastSync.triggered_by && ` · par ${stats.lastSync.triggered_by}`}
+            </div>
+          )}
+          {syncing && <div style={{ marginTop: 10, fontSize: '0.8rem', color: '#0f766e' }}>Synchronisation en cours (peut prendre quelques minutes selon le volume)…</div>}
+          {syncResult && (
+            <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: syncResult.ok ? '#f0fdf4' : '#fef2f2', border: `1px solid ${syncResult.ok ? '#86efac' : '#fecaca'}`, color: syncResult.ok ? '#166534' : '#991b1b', fontSize: '0.8rem' }}>
+              {syncResult.ok ? (
+                <>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>✓ {syncResult.message}</div>
+                  {(syncResult.types || []).map((t: any) => (
+                    <div key={t.table}>{t.type} : {t.enregistre} / {t.recupere} récupérés</div>
+                  ))}
+                </>
+              ) : (
+                <div>✕ {syncResult.message}</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
